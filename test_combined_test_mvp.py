@@ -62,6 +62,18 @@ class MainWindowTests(unittest.TestCase):
 
         window.close()
 
+    def test_realtime_curves_have_readable_initial_ranges(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        self.assertEqual(tuple(window.power_curve_axis.get_xlim()), (0.0, 10.0))
+        self.assertEqual(tuple(window.power_curve_axis.get_ylim()), (-0.01, 0.01))
+        self.assertEqual(tuple(window.spectrum_curve_axis.get_xlim()), (0.0, 1.0))
+        self.assertEqual(tuple(window.spectrum_curve_axis.get_ylim()), (0.0, 1.0))
+        self.assertGreaterEqual(window.power_curve_canvas.minimumHeight(), 220)
+        self.assertGreaterEqual(window.spectrum_curve_canvas.minimumHeight(), 220)
+        window.close()
+
     def test_live_reading_and_spectrum_update_curve_data(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()

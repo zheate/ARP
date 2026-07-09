@@ -578,6 +578,7 @@ class MainWindow(QMainWindow):
 
         self.power_curve_figure = Figure(figsize=(5, 2.4), dpi=100)
         self.power_curve_canvas = FigureCanvas(self.power_curve_figure)
+        self.power_curve_canvas.setMinimumHeight(220)
         self.power_curve_axis = self.power_curve_figure.add_subplot(111)
         self.power_curve_line, = self.power_curve_axis.plot([], [], color="#2f9cf4", linewidth=1.6)
         self._style_axis(
@@ -590,6 +591,7 @@ class MainWindow(QMainWindow):
 
         self.spectrum_curve_figure = Figure(figsize=(5, 2.4), dpi=100)
         self.spectrum_curve_canvas = FigureCanvas(self.spectrum_curve_figure)
+        self.spectrum_curve_canvas.setMinimumHeight(220)
         self.spectrum_curve_axis = self.spectrum_curve_figure.add_subplot(111)
         self.spectrum_curve_line, = self.spectrum_curve_axis.plot([], [], color="#f0b429", linewidth=1.2)
         self._style_axis(
@@ -605,6 +607,7 @@ class MainWindow(QMainWindow):
         layout.setColumnStretch(0, 1)
         layout.setColumnStretch(1, 1)
         parent.addWidget(group, stretch=2)
+        self.reset_curves()
 
     @staticmethod
     def _style_axis(figure: Figure, axis: Any, title: str, x_label: str, y_label: str) -> None:
