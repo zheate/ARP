@@ -142,6 +142,44 @@ class MainWindowTests(unittest.TestCase):
 
         window.close()
 
+    def test_main_window_exposes_independent_acquisition_buttons(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        for attribute in (
+            "start_power_meter_button",
+            "stop_power_meter_button",
+            "start_spectrometer_button",
+            "stop_spectrometer_button",
+        ):
+            self.assertTrue(hasattr(window, attribute), attribute)
+
+        self.assertFalse(hasattr(window, "start_button"))
+        self.assertFalse(hasattr(window, "stop_button"))
+        window.close()
+
+    def test_manual_power_supply_controls_stay_enabled_during_acquisition(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        window.set_power_meter_running_state(True)
+        window.set_spectrometer_running_state(True)
+
+        for widget in (
+            window.connect_i2c_button,
+            window.read_input_voltage_button,
+            window.read_output_voltage_button,
+            window.read_output_current_button,
+            window.apply_current_button,
+        ):
+            self.assertTrue(widget.isEnabled())
+
+        self.assertFalse(window.start_power_meter_button.isEnabled())
+        self.assertTrue(window.stop_power_meter_button.isEnabled())
+        self.assertFalse(window.start_spectrometer_button.isEnabled())
+        self.assertTrue(window.stop_spectrometer_button.isEnabled())
+        window.close()
+
 
 class DeviceOptionTests(unittest.TestCase):
     def test_power_meter_option_label_includes_model_resource_and_detail(self) -> None:
@@ -185,7 +223,8 @@ class ScriptsRunnerPathTests(unittest.TestCase):
                 added = add_scripts_runner_root(root)
 
                 self.assertEqual(added, root.resolve())
-                self.assertEqual(Path(sys.path[0]), root.resolve())
+                self.assertEqual(Path(sys.path[0]), Path(__file__).resolve().parent)
+                self.assertIn(str(root.resolve()), sys.path)
                 self.assertEqual(Path.cwd(), Path(__file__).resolve().parent)
                 import application.models.device_models.ocean_direct_control as ocean_module
 
