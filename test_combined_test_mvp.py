@@ -8,6 +8,7 @@ from pathlib import Path
 from PySide6.QtWidgets import QApplication
 
 from combined_test_mvp import (
+    LiveReading,
     MainWindow,
     PowerMeterOption,
     SpectrometerOption,
@@ -45,6 +46,43 @@ class MainWindowTests(unittest.TestCase):
         window = MainWindow()
 
         self.assertIsNotNone(window.log_text)
+        window.close()
+
+    def test_main_window_exposes_realtime_curve_widgets(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        for attribute in (
+            "power_curve_canvas",
+            "spectrum_curve_canvas",
+            "power_curve_line",
+            "spectrum_curve_line",
+        ):
+            self.assertTrue(hasattr(window, attribute), attribute)
+
+        window.close()
+
+    def test_live_reading_and_spectrum_update_curve_data(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        reading = LiveReading(
+            elapsed_s=1.5,
+            power_w=2.25,
+            peak_wavelength_nm=976.1,
+            centroid_nm=976.2,
+            fwhm_nm=1.1,
+            stable=False,
+            stable_span_w=0.02,
+            stable_window_s=1.5,
+        )
+        window.on_live_reading(reading)
+        window.on_spectrum_curve([975.0, 976.0], [10.0, 20.0])
+
+        self.assertEqual(list(window.power_curve_line.get_xdata()), [1.5])
+        self.assertEqual(list(window.power_curve_line.get_ydata()), [2.25])
+        self.assertEqual(list(window.spectrum_curve_line.get_xdata()), [975.0, 976.0])
+        self.assertEqual(list(window.spectrum_curve_line.get_ydata()), [10.0, 20.0])
         window.close()
 
     def test_collect_settings_uses_selected_detected_devices(self) -> None:

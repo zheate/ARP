@@ -6,6 +6,7 @@ import math
 import os
 import sys
 import time
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -35,6 +36,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
+
 from combined_test_core import (
     CSV_HEADER,
     CombinedMeasurement,
@@ -50,6 +54,8 @@ DEFAULT_POWER_RESOURCE = "ASRL3::INSTR"
 DEFAULT_CSV_PATH = "combined_test_records.csv"
 DEFAULT_SCRIPTS_RUNNER_ROOT = os.environ.get("SCRIPTS_RUNNER_ROOT", r"E:\scripts_runner - 副本")
 PROJECT_ROOT = Path(__file__).resolve().parent
+MAX_CURVE_POINTS = 10000
+POWER_PLOT_HISTORY_S = 60.0
 
 
 @dataclass(frozen=True)
@@ -335,11 +341,13 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Combined Power / Power Meter / Wavelength Test")
-        self.resize(1180, 760)
+        self.resize(1450, 980)
         self.worker: CombinedTestThread | None = None
         self.manual_ch341_controller: Any | None = None
         self.latest_spectrum_wavelength: Any | None = None
         self.latest_spectrum_intensity: Any | None = None
+        self.power_curve_times: deque[float] = deque(maxlen=MAX_CURVE_POINTS)
+        self.power_curve_values: deque[float] = deque(maxlen=MAX_CURVE_POINTS)
 
         root = QWidget(self)
         self.setCentralWidget(root)
@@ -359,6 +367,7 @@ class MainWindow(QMainWindow):
 
         self._build_test_options(main)
         self._build_live_panel(main)
+        self._build_curve_panel(main)
 
         self.log_text = QTextEdit(self)
         self.log_text.setReadOnly(True)
@@ -562,6 +571,53 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.record_label, 3, 1)
 
         parent.addWidget(group)
+
+    def _build_curve_panel(self, parent: QVBoxLayout) -> None:
+        group = QGroupBox("Realtime Curves", self)
+        layout = QGridLayout(group)
+
+        self.power_curve_figure = Figure(figsize=(5, 2.4), dpi=100)
+        self.power_curve_canvas = FigureCanvas(self.power_curve_figure)
+        self.power_curve_axis = self.power_curve_figure.add_subplot(111)
+        self.power_curve_line, = self.power_curve_axis.plot([], [], color="#2f9cf4", linewidth=1.6)
+        self._style_axis(
+            self.power_curve_figure,
+            self.power_curve_axis,
+            title="Power",
+            x_label="Elapsed time (s)",
+            y_label="Power (W)",
+        )
+
+        self.spectrum_curve_figure = Figure(figsize=(5, 2.4), dpi=100)
+        self.spectrum_curve_canvas = FigureCanvas(self.spectrum_curve_figure)
+        self.spectrum_curve_axis = self.spectrum_curve_figure.add_subplot(111)
+        self.spectrum_curve_line, = self.spectrum_curve_axis.plot([], [], color="#f0b429", linewidth=1.2)
+        self._style_axis(
+            self.spectrum_curve_figure,
+            self.spectrum_curve_axis,
+            title="Spectrum",
+            x_label="Wavelength (nm)",
+            y_label="Intensity",
+        )
+
+        layout.addWidget(self.power_curve_canvas, 0, 0)
+        layout.addWidget(self.spectrum_curve_canvas, 0, 1)
+        layout.setColumnStretch(0, 1)
+        layout.setColumnStretch(1, 1)
+        parent.addWidget(group, stretch=2)
+
+    @staticmethod
+    def _style_axis(figure: Figure, axis: Any, title: str, x_label: str, y_label: str) -> None:
+        figure.patch.set_facecolor("#1f1f1f")
+        axis.set_facecolor("#242424")
+        axis.set_title(title, color="#f2f2f2")
+        axis.set_xlabel(x_label, color="#f2f2f2")
+        axis.set_ylabel(y_label, color="#f2f2f2")
+        axis.tick_params(colors="#f2f2f2")
+        for spine in axis.spines.values():
+            spine.set_color("#777777")
+        axis.grid(True, alpha=0.25, color="#aaaaaa")
+        figure.tight_layout()
 
     def _build_actions(self, parent: QVBoxLayout) -> None:
         row = QHBoxLayout()
@@ -834,6 +890,7 @@ class MainWindow(QMainWindow):
 
         self.log_text.clear()
         self.record_label.setText("Record: --")
+        self.reset_curves()
         self.add_log("Starting combined test")
         self.worker = CombinedTestThread(settings, self)
         self.worker.live.connect(self.on_live_reading)
@@ -860,6 +917,7 @@ class MainWindow(QMainWindow):
         self.stability_label.setText(
             f"Stability: {state}, span {reading.stable_span_w:.4f} W / {reading.stable_window_s:.2f} s"
         )
+        self.update_power_curve(reading.elapsed_s, reading.power_w)
 
     def on_recorded(self, timestamp: str, measurement: CombinedMeasurement) -> None:
         self.record_label.setText(
@@ -881,6 +939,74 @@ class MainWindow(QMainWindow):
         self.latest_spectrum_intensity = intensity
         self.copy_spectrum_button.setEnabled(True)
         self.save_spectrum_button.setEnabled(True)
+        self.update_spectrum_curve(wavelength, intensity)
+
+    def reset_curves(self) -> None:
+        self.power_curve_times.clear()
+        self.power_curve_values.clear()
+        self.power_curve_line.set_data([], [])
+        self.power_curve_axis.set_xlim(0, 10)
+        self.power_curve_axis.set_ylim(-0.01, 0.01)
+        self.power_curve_canvas.draw_idle()
+
+        self.spectrum_curve_line.set_data([], [])
+        self.spectrum_curve_axis.set_xlim(0, 1)
+        self.spectrum_curve_axis.set_ylim(0, 1)
+        self.spectrum_curve_canvas.draw_idle()
+
+    def update_power_curve(self, elapsed_s: float, power_w: float) -> None:
+        elapsed = float(elapsed_s)
+        power = float(power_w)
+        if not math.isfinite(elapsed) or not math.isfinite(power):
+            return
+
+        self.power_curve_times.append(elapsed)
+        self.power_curve_values.append(power)
+        times = list(self.power_curve_times)
+        powers = list(self.power_curve_values)
+        x_min = max(0.0, times[-1] - POWER_PLOT_HISTORY_S)
+        visible = [(x, y) for x, y in zip(times, powers) if x >= x_min]
+        visible_times = [item[0] for item in visible]
+        visible_powers = [item[1] for item in visible]
+        self.power_curve_line.set_data(visible_times, visible_powers)
+
+        x_max = max(10.0, times[-1])
+        y_min = min(visible_powers)
+        y_max = max(visible_powers)
+        y_pad = self._axis_padding(y_min, y_max, fallback=0.001)
+        self.power_curve_axis.set_xlim(x_min, x_max)
+        self.power_curve_axis.set_ylim(y_min - y_pad, y_max + y_pad)
+        self.power_curve_canvas.draw_idle()
+
+    def update_spectrum_curve(self, wavelength: Any, intensity: Any) -> None:
+        points: list[tuple[float, float]] = []
+        for x_raw, y_raw in zip(wavelength, intensity):
+            x = float(x_raw)
+            y = float(y_raw)
+            if math.isfinite(x) and math.isfinite(y):
+                points.append((x, y))
+        if not points:
+            return
+
+        x_values = [item[0] for item in points]
+        y_values = [item[1] for item in points]
+        self.spectrum_curve_line.set_data(x_values, y_values)
+
+        x_min = min(x_values)
+        x_max = max(x_values)
+        y_min = min(y_values)
+        y_max = max(y_values)
+        x_pad = self._axis_padding(x_min, x_max, fallback=1.0)
+        y_pad = self._axis_padding(y_min, y_max, fallback=1.0)
+        self.spectrum_curve_axis.set_xlim(x_min - x_pad, x_max + x_pad)
+        self.spectrum_curve_axis.set_ylim(y_min - y_pad, y_max + y_pad)
+        self.spectrum_curve_canvas.draw_idle()
+
+    @staticmethod
+    def _axis_padding(min_value: float, max_value: float, fallback: float) -> float:
+        if math.isclose(min_value, max_value):
+            return max(abs(min_value) * 0.1, fallback)
+        return (max_value - min_value) * 0.12
 
     def copy_spectrum_csv(self) -> None:
         if self.latest_spectrum_wavelength is None or self.latest_spectrum_intensity is None:
