@@ -53,8 +53,8 @@ def normalize_resource(name: str) -> str:
     return value
 
 
-def configure_caihuang(inst: pyvisa.resources.Resource) -> None:
-    inst.timeout = 1000
+def configure_caihuang(inst: pyvisa.resources.Resource, timeout_ms: int = 1000) -> None:
+    inst.timeout = int(timeout_ms)
     inst.write_termination = "\r\n"
     inst.read_termination = "\r\n"
     if hasattr(inst, "baud_rate"):
@@ -74,6 +74,13 @@ def parse_power_w(raw: str) -> float:
     return value
 
 
+def format_wavelength_nm(wavelength_nm: float) -> str:
+    value = float(wavelength_nm)
+    if not math.isfinite(value):
+        raise RuntimeError(f"invalid wavelength value: {wavelength_nm}")
+    return f"{value:.6f}".rstrip("0").rstrip(".")
+
+
 class CaihuangPowerMeter:
     device_type = "Caihuang CHLP-P"
 
@@ -84,12 +91,12 @@ class CaihuangPowerMeter:
         configure_caihuang(self.inst)
 
     @staticmethod
-    def probe(resource: str) -> ProbeResult | None:
+    def probe(resource: str, timeout_ms: int = 1000) -> ProbeResult | None:
         rm = pyvisa.ResourceManager()
         inst = None
         try:
             inst = rm.open_resource(normalize_resource(resource))
-            configure_caihuang(inst)
+            configure_caihuang(inst, timeout_ms=timeout_ms)
             reply = inst.query("$TES").strip()
             if reply == "OK":
                 detail = "OK"
@@ -114,8 +121,8 @@ class CaihuangPowerMeter:
     def test(self) -> str:
         return self.inst.query("$TES").strip()
 
-    def set_wavelength(self, wavelength_nm: int) -> None:
-        reply = self.inst.query(f"$WAV={wavelength_nm}").strip()
+    def set_wavelength(self, wavelength_nm: float) -> None:
+        reply = self.inst.query(f"$WAV={format_wavelength_nm(wavelength_nm)}").strip()
         if reply != "SUCCEED":
             raise RuntimeError(f"set wavelength failed: {reply}")
 
@@ -140,7 +147,7 @@ class PowerReaderThread(QThread):
     def __init__(
         self,
         resource: str,
-        wavelength_nm: int,
+        wavelength_nm: float,
         software_gain: float,
         interval_ms: int,
         parent: QWidget | None = None,
@@ -214,9 +221,11 @@ class MainWindow(QMainWindow):
         self.device_field.setReadOnly(True)
         form.addRow("Detected", self.device_field)
 
-        self.wavelength_spin = QSpinBox(self)
-        self.wavelength_spin.setRange(190, 25000)
-        self.wavelength_spin.setValue(976)
+        self.wavelength_spin = QDoubleSpinBox(self)
+        self.wavelength_spin.setRange(190.0, 25000.0)
+        self.wavelength_spin.setDecimals(3)
+        self.wavelength_spin.setSingleStep(0.1)
+        self.wavelength_spin.setValue(976.0)
         self.wavelength_spin.setSuffix(" nm")
         form.addRow("Wavelength", self.wavelength_spin)
 

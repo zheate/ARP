@@ -14,5 +14,13 @@ env/
 *.tmp
 *.bak
 
+# Hardware/vendor drivers kept local only.
+local_drivers/
+CH341DLL.DLL
+CH341DLL.H
+CH341DLLA64.DLL
+CH341DLLA64.LIB
+assets/libs/ocean_direct/OceanDirect.dll
+
 .DS_Store
 Thumbs.db

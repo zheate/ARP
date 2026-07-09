@@ -57,6 +57,10 @@ DEFAULT_SCRIPTS_RUNNER_ROOT = os.environ.get("SCRIPTS_RUNNER_ROOT", r"E:\scripts
 PROJECT_ROOT = Path(__file__).resolve().parent
 MAX_CURVE_POINTS = 10000
 POWER_PLOT_HISTORY_S = 60.0
+POWER_METER_PROBE_TIMEOUT_MS = 250
+SPECTRUM_CENTER_LOCK_REQUIRED_SAMPLES = 5
+SPECTRUM_CENTER_LOCK_TOLERANCE_NM = 1.0
+SPECTRUM_CENTER_LOCK_HALF_RANGE_NM = 30.0
 CONTENT_MIN_WIDTH = 1280
 CONTENT_MIN_HEIGHT = 1120
 
@@ -67,7 +71,7 @@ class CombinedTestSettings:
     i2c_speed: int
     set_current_a: int
     power_resource: str
-    power_meter_wavelength_nm: int
+    power_meter_wavelength_nm: float
     software_gain: float
     integration_time_us: int
     interval_ms: int
@@ -113,7 +117,7 @@ class LiveReading:
 @dataclass(frozen=True)
 class PowerMeterSettings:
     resource: str
-    wavelength_nm: int
+    wavelength_nm: float
     software_gain: float
     interval_ms: int
     stable_window_s: float
@@ -189,10 +193,45 @@ def add_scripts_runner_root(root: Path | str | None) -> Path | None:
     project_text = str(PROJECT_ROOT)
     while project_text in sys.path:
         sys.path.remove(project_text)
-    sys.path.insert(0, project_text)
-    sys.path.insert(1, path_text)
+    sys.path.insert(0, path_text)
+    sys.path.insert(1, project_text)
     os.chdir(PROJECT_ROOT)
     return resolved
+
+
+def _remove_module_tree(prefix: str) -> None:
+    for name in list(sys.modules):
+        if name == prefix or name.startswith(f"{prefix}."):
+            sys.modules.pop(name, None)
+
+
+def load_spectrometer_components(root: Path | str | None) -> tuple[type, Any]:
+    old_path = list(sys.path)
+    module_name = "_combined_local_spectrometer_mvp"
+    try:
+        if root is not None:
+            add_scripts_runner_root(root)
+        _remove_module_tree("application")
+        sys.modules.pop(module_name, None)
+
+        module_path = PROJECT_ROOT / "spectrometer_mvp.py"
+        spec = importlib.util.spec_from_file_location(module_name, module_path)
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Cannot load spectrometer module: {module_path}")
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+        return module.OceanSpectrometer, module.calculate_stats
+    finally:
+        sys.path[:] = old_path
+        os.chdir(PROJECT_ROOT)
+
+
+def normalize_power_resource_name(name: str) -> str:
+    value = name.strip().upper()
+    if value.startswith("COM") and value[3:].isdigit():
+        return f"ASRL{value[3:]}::INSTR"
+    return value
 
 
 def append_csv_record(path: Path, timestamp: str, measurement: CombinedMeasurement) -> None:
@@ -224,6 +263,58 @@ def read_power_status_value(ch341_controller: Any, i2c_address: int, command: li
     if not success:
         raise RuntimeError(f"I2C read failed for command {' '.join(f'{item:02X}' for item in command)}: {result}")
     return decode_i2c_value(result)
+
+
+class PowerMeterDetectThread(QThread):
+    detected = Signal(object)
+    status = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, preferred_resource: str = "", parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.preferred_resource = preferred_resource
+
+    def run(self) -> None:
+        try:
+            try:
+                import pyvisa
+                from power_meter_mvp import CaihuangPowerMeter
+            except ModuleNotFoundError as exc:
+                raise RuntimeError(f"Power meter dependency missing: {exc.name}. Run from sth_eb314.") from exc
+
+            rm = pyvisa.ResourceManager()
+            try:
+                resources = sorted(
+                    normalize_power_resource_name(str(item))
+                    for item in rm.list_resources()
+                    if normalize_power_resource_name(str(item)).startswith("ASRL")
+                )
+            finally:
+                rm.close()
+
+            candidates: list[str] = []
+            preferred = normalize_power_resource_name(self.preferred_resource)
+            if preferred:
+                candidates.append(preferred)
+            for resource in resources:
+                if resource not in candidates:
+                    candidates.append(resource)
+
+            self.status.emit(f"Detecting power meters on {len(candidates)} port(s)...")
+            options: list[PowerMeterOption] = []
+            for resource in candidates:
+                result = CaihuangPowerMeter.probe(resource, timeout_ms=POWER_METER_PROBE_TIMEOUT_MS)
+                if result is not None:
+                    options.append(
+                        PowerMeterOption(
+                            resource=result.resource,
+                            device_type=result.device_type,
+                            detail=result.detail,
+                        )
+                    )
+            self.detected.emit(options)
+        except Exception as exc:
+            self.failed.emit(str(exc))
 
 
 class PowerMeterReaderThread(QThread):
@@ -298,12 +389,10 @@ class SpectrometerReaderThread(QThread):
         spectrometer = None
         try:
             if self.settings.scripts_runner_root is not None:
-                added_root = add_scripts_runner_root(self.settings.scripts_runner_root)
-                if added_root is not None:
-                    self.status.emit(f"Scripts runner root added: {added_root}")
+                self.status.emit(f"Using scripts runner root: {self.settings.scripts_runner_root.expanduser().resolve()}")
 
             try:
-                from spectrometer_mvp import OceanSpectrometer, calculate_stats
+                OceanSpectrometer, calculate_stats = load_spectrometer_components(self.settings.scripts_runner_root)
             except ModuleNotFoundError as exc:
                 raise RuntimeError(
                     f"Spectrometer dependency missing: {exc.name}. Run from the environment that contains the OceanDirect application package."
@@ -359,6 +448,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Combined Power / Power Meter / Wavelength Test")
         self.resize(1450, 980)
+        self.power_meter_detect_thread: PowerMeterDetectThread | None = None
         self.power_meter_reader: PowerMeterReaderThread | None = None
         self.spectrometer_reader: SpectrometerReaderThread | None = None
         self.manual_ch341_controller: Any | None = None
@@ -366,6 +456,9 @@ class MainWindow(QMainWindow):
         self.latest_spectrum_intensity: Any | None = None
         self.power_curve_times: deque[float] = deque(maxlen=MAX_CURVE_POINTS)
         self.power_curve_values: deque[float] = deque(maxlen=MAX_CURVE_POINTS)
+        self.spectrum_center_candidate_nm: float | None = None
+        self.spectrum_center_candidate_count = 0
+        self.spectrum_center_locked_nm: float | None = None
 
         self.scroll_area = QScrollArea(self)
         self.scroll_area.setWidgetResizable(True)
@@ -483,9 +576,11 @@ class MainWindow(QMainWindow):
         power_actions.addWidget(self.rel_zero_off_button)
         form.addRow("", power_actions)
 
-        self.power_wavelength_spin = QSpinBox(self)
-        self.power_wavelength_spin.setRange(190, 25000)
-        self.power_wavelength_spin.setValue(976)
+        self.power_wavelength_spin = QDoubleSpinBox(self)
+        self.power_wavelength_spin.setRange(190.0, 25000.0)
+        self.power_wavelength_spin.setDecimals(3)
+        self.power_wavelength_spin.setSingleStep(0.1)
+        self.power_wavelength_spin.setValue(976.0)
         self.power_wavelength_spin.setSuffix(" nm")
         form.addRow("Wavelength", self.power_wavelength_spin)
 
@@ -527,16 +622,6 @@ class MainWindow(QMainWindow):
         self.detect_spectrometer_button.clicked.connect(self.auto_detect_spectrometers)
         form.addRow("", self.detect_spectrometer_button)
 
-        spectrometer_run_actions = QHBoxLayout()
-        self.start_spectrometer_button = QPushButton("Start Spectrometer", self)
-        self.stop_spectrometer_button = QPushButton("Stop Spectrometer", self)
-        self.stop_spectrometer_button.setEnabled(False)
-        self.start_spectrometer_button.clicked.connect(self.start_spectrometer)
-        self.stop_spectrometer_button.clicked.connect(self.stop_spectrometer)
-        spectrometer_run_actions.addWidget(self.start_spectrometer_button)
-        spectrometer_run_actions.addWidget(self.stop_spectrometer_button)
-        form.addRow("", spectrometer_run_actions)
-
         self.integration_spin = QSpinBox(self)
         self.integration_spin.setRange(1, 10_000_000)
         self.integration_spin.setValue(3800)
@@ -550,6 +635,16 @@ class MainWindow(QMainWindow):
         self.interval_spin.setSingleStep(50)
         self.interval_spin.setSuffix(" ms")
         form.addRow("Interval", self.interval_spin)
+
+        spectrometer_run_actions = QHBoxLayout()
+        self.start_spectrometer_button = QPushButton("Start Spectrometer", self)
+        self.stop_spectrometer_button = QPushButton("Stop Spectrometer", self)
+        self.stop_spectrometer_button.setEnabled(False)
+        self.start_spectrometer_button.clicked.connect(self.start_spectrometer)
+        self.stop_spectrometer_button.clicked.connect(self.stop_spectrometer)
+        spectrometer_run_actions.addWidget(self.start_spectrometer_button)
+        spectrometer_run_actions.addWidget(self.stop_spectrometer_button)
+        form.addRow("", spectrometer_run_actions)
 
         spectrum_actions = QHBoxLayout()
         self.copy_spectrum_button = QPushButton("Copy Spectrum CSV", self)
@@ -820,49 +915,21 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "REL Zero", str(exc))
 
     def auto_detect_power_meters(self) -> None:
-        try:
-            import pyvisa
-            from power_meter_mvp import CaihuangPowerMeter
-
-            rm = pyvisa.ResourceManager()
-            try:
-                resources = sorted(str(item) for item in rm.list_resources() if str(item).startswith("ASRL"))
-            finally:
-                rm.close()
-
-            options: list[PowerMeterOption] = []
-            for resource in resources:
-                result = CaihuangPowerMeter.probe(resource)
-                if result is not None:
-                    options.append(
-                        PowerMeterOption(
-                            resource=result.resource,
-                            device_type=result.device_type,
-                            detail=result.detail,
-                        )
-                    )
-
-            self.power_meter_combo.clear()
-            if not options:
-                self.power_meter_combo.addItem(DEFAULT_POWER_RESOURCE, None)
-                QMessageBox.warning(self, "Power Meter Auto Detect", "No supported power meter was detected.")
-                self.statusBar().showMessage("No supported power meter detected")
-                return
-
-            for option in options:
-                self.power_meter_combo.addItem(option.label(), option)
-            self.power_meter_combo.setCurrentIndex(0)
-            self.statusBar().showMessage(f"Detected {len(options)} power meter(s)")
-            self.add_log(f"Detected {len(options)} power meter(s)")
-        except Exception as exc:
-            QMessageBox.critical(self, "Power Meter Auto Detect", str(exc))
+        if self.power_meter_detect_thread is not None:
+            return
+        self.power_meter_detect_thread = PowerMeterDetectThread(self._selected_power_resource(), self)
+        self.power_meter_detect_thread.detected.connect(self.on_power_meter_detected)
+        self.power_meter_detect_thread.status.connect(self.on_status)
+        self.power_meter_detect_thread.failed.connect(self.on_power_meter_detect_failed)
+        self.power_meter_detect_thread.finished.connect(self.on_power_meter_detect_finished)
+        self.set_power_meter_detecting_state(True)
+        self.statusBar().showMessage("Detecting power meters...")
+        self.power_meter_detect_thread.start()
 
     def auto_detect_spectrometers(self) -> None:
         try:
             root = self._scripts_runner_root_from_field()
-            if root is not None:
-                add_scripts_runner_root(root)
-            from spectrometer_mvp import OceanSpectrometer
+            OceanSpectrometer, _calculate_stats = load_spectrometer_components(root)
 
             device_ids = OceanSpectrometer.detect()
             self.spectrometer_combo.clear()
@@ -1007,12 +1074,20 @@ class MainWindow(QMainWindow):
         self.peak_label.setText(f"{reading.peak_wavelength_nm:.3f} nm")
         self.centroid_label.setText(f"Centroid: {self._format_optional(reading.centroid_nm)} nm")
         self.fwhm_label.setText(f"FWHM: {self._format_optional(reading.fwhm_nm)} nm")
+        self.update_spectrum_center_lock(reading)
 
     def on_live_reading(self, reading: LiveReading) -> None:
         self.power_label.setText(f"{reading.power_w:.3f} W")
         self.peak_label.setText(f"{reading.peak_wavelength_nm:.3f} nm")
         self.centroid_label.setText(f"Centroid: {self._format_optional(reading.centroid_nm)} nm")
         self.fwhm_label.setText(f"FWHM: {self._format_optional(reading.fwhm_nm)} nm")
+        self.update_spectrum_center_lock(
+            SpectrometerReading(
+                peak_wavelength_nm=reading.peak_wavelength_nm,
+                centroid_nm=reading.centroid_nm,
+                fwhm_nm=reading.fwhm_nm,
+            )
+        )
         state = "stable" if reading.stable else "waiting"
         self.stability_label.setText(
             f"Stability: {state}, span {reading.stable_span_w:.4f} W / {reading.stable_window_s:.2f} s"
@@ -1054,6 +1129,9 @@ class MainWindow(QMainWindow):
         self.power_curve_canvas.draw_idle()
 
     def reset_spectrum_curve(self) -> None:
+        self.spectrum_center_candidate_nm = None
+        self.spectrum_center_candidate_count = 0
+        self.spectrum_center_locked_nm = None
         self.spectrum_curve_line.set_data([], [])
         self.spectrum_curve_axis.set_xlim(0, 1)
         self.spectrum_curve_axis.set_ylim(0, 1)
@@ -1097,15 +1175,58 @@ class MainWindow(QMainWindow):
         y_values = [item[1] for item in points]
         self.spectrum_curve_line.set_data(x_values, y_values)
 
-        x_min = min(x_values)
-        x_max = max(x_values)
-        y_min = min(y_values)
-        y_max = max(y_values)
-        x_pad = self._axis_padding(x_min, x_max, fallback=1.0)
+        locked_center = self.spectrum_center_locked_nm
+        if locked_center is not None and math.isfinite(locked_center):
+            x_min = locked_center - SPECTRUM_CENTER_LOCK_HALF_RANGE_NM
+            x_max = locked_center + SPECTRUM_CENTER_LOCK_HALF_RANGE_NM
+            visible_y_values = [y for x, y in points if x_min <= x <= x_max] or y_values
+            y_min = min(visible_y_values)
+            y_max = max(visible_y_values)
+            x_pad = 0.0
+        else:
+            x_min = min(x_values)
+            x_max = max(x_values)
+            y_min = min(y_values)
+            y_max = max(y_values)
+            x_pad = self._axis_padding(x_min, x_max, fallback=1.0)
         y_pad = self._axis_padding(y_min, y_max, fallback=1.0)
         self.spectrum_curve_axis.set_xlim(x_min - x_pad, x_max + x_pad)
         self.spectrum_curve_axis.set_ylim(y_min - y_pad, y_max + y_pad)
         self.spectrum_curve_canvas.draw_idle()
+
+    def update_spectrum_center_lock(self, reading: SpectrometerReading) -> None:
+        if self.spectrum_center_locked_nm is not None:
+            return
+
+        center_nm = reading.centroid_nm
+        if not math.isfinite(float(center_nm)):
+            center_nm = reading.peak_wavelength_nm
+        center = float(center_nm)
+        if not math.isfinite(center):
+            self.spectrum_center_candidate_nm = None
+            self.spectrum_center_candidate_count = 0
+            return
+
+        if (
+            self.spectrum_center_candidate_nm is None
+            or abs(center - self.spectrum_center_candidate_nm) > SPECTRUM_CENTER_LOCK_TOLERANCE_NM
+        ):
+            self.spectrum_center_candidate_nm = center
+            self.spectrum_center_candidate_count = 1
+        else:
+            self.spectrum_center_candidate_count += 1
+            count = self.spectrum_center_candidate_count
+            previous = self.spectrum_center_candidate_nm
+            self.spectrum_center_candidate_nm = previous + (center - previous) / count
+
+        if self.spectrum_center_candidate_count >= SPECTRUM_CENTER_LOCK_REQUIRED_SAMPLES:
+            self.spectrum_center_locked_nm = self.spectrum_center_candidate_nm
+            self.on_status(
+                "Spectrum x-axis locked: "
+                f"{self.spectrum_center_locked_nm:.3f} nm +/- {SPECTRUM_CENTER_LOCK_HALF_RANGE_NM:g} nm"
+            )
+            if self.latest_spectrum_wavelength is not None and self.latest_spectrum_intensity is not None:
+                self.update_spectrum_curve(self.latest_spectrum_wavelength, self.latest_spectrum_intensity)
 
     @staticmethod
     def _axis_padding(min_value: float, max_value: float, fallback: float) -> float:
@@ -1132,6 +1253,28 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Saved {path}")
         self.add_log(f"Saved spectrum CSV: {path}")
 
+    def on_power_meter_detected(self, options: list[PowerMeterOption]) -> None:
+        self.power_meter_combo.clear()
+        if not options:
+            self.power_meter_combo.addItem(DEFAULT_POWER_RESOURCE, None)
+            QMessageBox.warning(self, "Power Meter Auto Detect", "No supported power meter was detected.")
+            self.statusBar().showMessage("No supported power meter detected")
+            return
+
+        for option in options:
+            self.power_meter_combo.addItem(option.label(), option)
+        self.power_meter_combo.setCurrentIndex(0)
+        self.statusBar().showMessage(f"Detected {len(options)} power meter(s)")
+        self.add_log(f"Detected {len(options)} power meter(s)")
+
+    def on_power_meter_detect_failed(self, message: str) -> None:
+        self.add_log(f"Power meter auto detect error: {message}")
+        QMessageBox.critical(self, "Power Meter Auto Detect", message)
+
+    def on_power_meter_detect_finished(self) -> None:
+        self.power_meter_detect_thread = None
+        self.set_power_meter_detecting_state(False)
+
     def on_status(self, message: str) -> None:
         self.statusBar().showMessage(message)
         self.add_log(message)
@@ -1157,16 +1300,30 @@ class MainWindow(QMainWindow):
         self.add_log("Spectrometer stopped")
 
     def set_power_meter_running_state(self, running: bool) -> None:
-        self.start_power_meter_button.setEnabled(not running)
+        detecting = self.power_meter_detect_thread is not None
+        self.start_power_meter_button.setEnabled(not running and not detecting)
         self.stop_power_meter_button.setEnabled(running)
-        self.detect_power_meter_button.setEnabled(not running)
-        self.refresh_power_meter_button.setEnabled(not running)
-        self.rel_zero_on_button.setEnabled(not running)
-        self.rel_zero_off_button.setEnabled(not running)
-        self.power_meter_combo.setEnabled(not running)
-        self.power_wavelength_spin.setEnabled(not running)
-        self.software_gain_spin.setEnabled(not running)
-        self.power_meter_interval_spin.setEnabled(not running)
+        self.detect_power_meter_button.setEnabled(not running and not detecting)
+        self.refresh_power_meter_button.setEnabled(not running and not detecting)
+        self.rel_zero_on_button.setEnabled(not running and not detecting)
+        self.rel_zero_off_button.setEnabled(not running and not detecting)
+        self.power_meter_combo.setEnabled(not running and not detecting)
+        self.power_wavelength_spin.setEnabled(not running and not detecting)
+        self.software_gain_spin.setEnabled(not running and not detecting)
+        self.power_meter_interval_spin.setEnabled(not running and not detecting)
+
+    def set_power_meter_detecting_state(self, detecting: bool) -> None:
+        running = self.power_meter_reader is not None
+        self.start_power_meter_button.setEnabled(not running and not detecting)
+        self.stop_power_meter_button.setEnabled(running)
+        self.detect_power_meter_button.setEnabled(not running and not detecting)
+        self.refresh_power_meter_button.setEnabled(not running and not detecting)
+        self.rel_zero_on_button.setEnabled(not running and not detecting)
+        self.rel_zero_off_button.setEnabled(not running and not detecting)
+        self.power_meter_combo.setEnabled(not running and not detecting)
+        self.power_wavelength_spin.setEnabled(not running and not detecting)
+        self.software_gain_spin.setEnabled(not running and not detecting)
+        self.power_meter_interval_spin.setEnabled(not running and not detecting)
 
     def set_spectrometer_running_state(self, running: bool) -> None:
         self.start_spectrometer_button.setEnabled(not running)
@@ -1188,6 +1345,8 @@ class MainWindow(QMainWindow):
         return f"{value:.3f}"
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        if self.power_meter_detect_thread is not None:
+            self.power_meter_detect_thread.wait(3000)
         self.stop_power_meter()
         self.stop_spectrometer()
         if self.manual_ch341_controller is not None:
