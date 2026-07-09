@@ -97,8 +97,8 @@ class MainWindowTests(unittest.TestCase):
         self.assertFalse(hasattr(window, "scroll_area"))
         self.assertTrue(hasattr(window, "left_control_panel"))
         self.assertTrue(hasattr(window, "monitor_panel"))
-        self.assertGreaterEqual(window.left_control_panel.minimumWidth(), 540)
-        self.assertLessEqual(window.left_control_panel.maximumWidth(), 600)
+        self.assertGreaterEqual(window.left_control_panel.minimumWidth(), 380)
+        self.assertLessEqual(window.left_control_panel.maximumWidth(), 420)
         window.close()
 
     def test_main_window_exposes_status_bar_kpi_cards_and_vertical_curves(self) -> None:
@@ -124,7 +124,7 @@ class MainWindowTests(unittest.TestCase):
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
 
-        for title in ("Power Supply", "Power Meter", "Spectrometer", "Record"):
+        for title in ("Power Supply", "Power Meter", "Spectrometer", "Stability & Record"):
             group = self._group(window, title)
             self.assertGreaterEqual(group.minimumHeight(), group.sizeHint().height(), title)
 
@@ -423,8 +423,7 @@ class MainWindowTests(unittest.TestCase):
             "read_output_current_button",
             "apply_current_button",
             "refresh_power_meter_button",
-            "rel_zero_on_button",
-            "rel_zero_off_button",
+            "rel_zero_check",
             "copy_spectrum_button",
             "save_spectrum_button",
         ):
@@ -440,8 +439,7 @@ class MainWindowTests(unittest.TestCase):
 
         for widget in (
             window.refresh_power_meter_button,
-            window.rel_zero_on_button,
-            window.rel_zero_off_button,
+            window.rel_zero_check,
         ):
             self._form_row_containing_widget(form, widget)
 

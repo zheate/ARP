@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QStatusBar,
     QTextEdit,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -64,8 +65,8 @@ DEFAULT_SPECTROMETER_INTEGRATION_US = 10000
 SPECTRUM_PEAK_ORDINAL_LABELS = ("1st", "2nd", "3rd")
 SPECTRUM_PEAK_MIN_SEPARATION_NM = 0.3
 SPECTRUM_PEAK_MIN_PROMINENCE_FRACTION = 0.01
-LEFT_PANEL_MIN_WIDTH = 540
-LEFT_PANEL_MAX_WIDTH = 600
+LEFT_PANEL_MIN_WIDTH = 380
+LEFT_PANEL_MAX_WIDTH = 420
 
 
 @dataclass(frozen=True)
@@ -585,7 +586,7 @@ class MainWindow(QMainWindow):
             label.setMinimumWidth(130)
             row.addWidget(label)
 
-        self.start_all_button = QPushButton("Start All", self)
+        self.start_all_button = QPushButton("Start Acquisition", self)
         self.stop_all_button = QPushButton("Stop All", self)
         self.start_all_button.clicked.connect(self.start_all)
         self.stop_all_button.clicked.connect(self.stop_all)
@@ -601,8 +602,8 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _configure_left_form(form: QFormLayout) -> None:
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.DontWrapRows)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         form.setContentsMargins(10, 10, 10, 10)
         form.setHorizontalSpacing(8)
@@ -634,7 +635,7 @@ class MainWindow(QMainWindow):
         self.set_current_spin.setSuffix(" A")
         form.addRow("Set current", self.set_current_spin)
 
-        self.connect_i2c_button = QPushButton("Connect CH341", self)
+        self.connect_i2c_button = QPushButton("Connect", self)
         self.connect_i2c_button.clicked.connect(self.connect_i2c_device)
         form.addRow("", self.connect_i2c_button)
 
@@ -642,9 +643,9 @@ class MainWindow(QMainWindow):
         form.addRow("Status", self.i2c_status_label)
 
         read_row = QHBoxLayout()
-        self.read_input_voltage_button = QPushButton("Read Vin", self)
-        self.read_output_voltage_button = QPushButton("Read Vout", self)
-        self.read_output_current_button = QPushButton("Read Iout", self)
+        self.read_input_voltage_button = QPushButton("Vin", self)
+        self.read_output_voltage_button = QPushButton("Vout", self)
+        self.read_output_current_button = QPushButton("Iout", self)
         self.read_input_voltage_button.clicked.connect(self.read_input_voltage)
         self.read_output_voltage_button.clicked.connect(self.read_output_voltage)
         self.read_output_current_button.clicked.connect(self.read_output_current)
@@ -653,7 +654,7 @@ class MainWindow(QMainWindow):
         read_row.addWidget(self.read_output_current_button)
         form.addRow("", read_row)
 
-        self.apply_current_button = QPushButton("Apply Current", self)
+        self.apply_current_button = QPushButton("Apply", self)
         self.apply_current_button.clicked.connect(self.apply_output_current)
         form.addRow("", self.apply_current_button)
 
@@ -671,20 +672,17 @@ class MainWindow(QMainWindow):
         self.power_meter_combo.addItem(DEFAULT_POWER_RESOURCE, None)
         form.addRow("Device", self.power_meter_combo)
 
-        self.detect_power_meter_button = QPushButton("Auto Detect Power Meters", self)
+        self.detect_power_meter_button = QPushButton("Auto Detect", self)
         self.detect_power_meter_button.clicked.connect(self.auto_detect_power_meters)
         form.addRow("", self.detect_power_meter_button)
 
         power_actions = QHBoxLayout()
         self.refresh_power_meter_button = QPushButton("Refresh Ports", self)
-        self.rel_zero_on_button = QPushButton("REL Zero On", self)
-        self.rel_zero_off_button = QPushButton("REL Zero Off", self)
+        self.rel_zero_check = QCheckBox("REL zero", self)
         self.refresh_power_meter_button.clicked.connect(self.refresh_power_meter_resources)
-        self.rel_zero_on_button.clicked.connect(lambda: self.set_power_meter_relative_zero(True))
-        self.rel_zero_off_button.clicked.connect(lambda: self.set_power_meter_relative_zero(False))
+        self.rel_zero_check.toggled.connect(self.set_power_meter_relative_zero)
         power_actions.addWidget(self.refresh_power_meter_button)
-        power_actions.addWidget(self.rel_zero_on_button)
-        power_actions.addWidget(self.rel_zero_off_button)
+        power_actions.addWidget(self.rel_zero_check)
         form.addRow("", power_actions)
 
         self.power_wavelength_spin = QDoubleSpinBox(self)
@@ -712,8 +710,8 @@ class MainWindow(QMainWindow):
         form.addRow("Status", self.power_meter_status_label)
 
         power_run_actions = QHBoxLayout()
-        self.start_power_meter_button = QPushButton("Start Power Meter", self)
-        self.stop_power_meter_button = QPushButton("Stop Power Meter", self)
+        self.start_power_meter_button = QPushButton("Start", self)
+        self.stop_power_meter_button = QPushButton("Stop", self)
         self.stop_power_meter_button.hide()
         self.start_power_meter_button.clicked.connect(self.start_power_meter)
         self.stop_power_meter_button.clicked.connect(self.stop_power_meter)
@@ -733,7 +731,7 @@ class MainWindow(QMainWindow):
         self.spectrometer_combo.addItem("Auto select first Ocean Insight", None)
         form.addRow("Device", self.spectrometer_combo)
 
-        self.detect_spectrometer_button = QPushButton("Auto Detect Spectrometers", self)
+        self.detect_spectrometer_button = QPushButton("Auto Detect", self)
         self.detect_spectrometer_button.clicked.connect(self.auto_detect_spectrometers)
         form.addRow("", self.detect_spectrometer_button)
 
@@ -755,8 +753,8 @@ class MainWindow(QMainWindow):
         form.addRow("Status", self.spectrometer_status_label)
 
         spectrometer_run_actions = QHBoxLayout()
-        self.start_spectrometer_button = QPushButton("Start Spectrometer", self)
-        self.stop_spectrometer_button = QPushButton("Stop Spectrometer", self)
+        self.start_spectrometer_button = QPushButton("Start", self)
+        self.stop_spectrometer_button = QPushButton("Stop", self)
         self.stop_spectrometer_button.hide()
         self.start_spectrometer_button.clicked.connect(self.start_spectrometer)
         self.stop_spectrometer_button.clicked.connect(self.stop_spectrometer)
@@ -765,8 +763,8 @@ class MainWindow(QMainWindow):
         form.addRow("", spectrometer_run_actions)
 
         spectrum_actions = QHBoxLayout()
-        self.copy_spectrum_button = QPushButton("Copy Spectrum CSV", self)
-        self.save_spectrum_button = QPushButton("Save Spectrum CSV", self)
+        self.copy_spectrum_button = QPushButton("Copy CSV", self)
+        self.save_spectrum_button = QPushButton("Save CSV", self)
         self.copy_spectrum_button.setEnabled(False)
         self.save_spectrum_button.setEnabled(False)
         self.copy_spectrum_button.clicked.connect(self.copy_spectrum_csv)
@@ -779,7 +777,7 @@ class MainWindow(QMainWindow):
         self._reserve_group_height(group)
 
     def _build_record_group(self, parent: QVBoxLayout) -> None:
-        group = QGroupBox("Record", self)
+        group = QGroupBox("Stability & Record", self)
         form = QFormLayout(group)
         self._configure_left_form(form)
 
@@ -802,7 +800,7 @@ class MainWindow(QMainWindow):
         csv_row = QHBoxLayout()
         csv_row.addWidget(self.csv_path_field, stretch=1)
 
-        self.browse_button = QPushButton("Browse", self)
+        self.browse_button = QPushButton("Choose...", self)
         self.browse_button.clicked.connect(self.browse_csv)
         csv_row.addWidget(self.browse_button)
         form.addRow("CSV file", csv_row)
@@ -817,7 +815,10 @@ class MainWindow(QMainWindow):
     def _build_kpi_panel(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("Monitor", self)
         layout = QGridLayout(group)
+        self.kpi_layout = layout
+        self.kpi_cards: list[QWidget] = []
         layout.setHorizontalSpacing(8)
+        layout.setVerticalSpacing(8)
 
         self.power_card_value, _power_detail = self._add_kpi_card(layout, 0, "Power", "-- W", "")
         self.peak_card_value, _peak_detail = self._add_kpi_card(layout, 1, "Peak wavelength", "-- nm", "")
@@ -842,10 +843,8 @@ class MainWindow(QMainWindow):
         self.fwhm_label = self.fwhm_card_value
         self.stability_label = self.stability_card_value
         self.record_label = self.record_card_value
-        for column in range(5):
-            layout.setColumnStretch(column, 1)
-
         parent.addWidget(group)
+        self._relayout_kpi_cards()
 
     def _add_kpi_card(self, parent: QGridLayout, column: int, title: str, value: str, detail: str) -> tuple[QLabel, QLabel]:
         card = QWidget(self)
@@ -860,7 +859,7 @@ class MainWindow(QMainWindow):
         title_label = QLabel(title, self)
         title_label.setStyleSheet("color: #bdbdbd; font-size: 13px;")
         value_label = QLabel(value, self)
-        value_label.setStyleSheet("font-size: 26px; font-weight: 700;")
+        value_label.setStyleSheet("color: #f2f2f2; font-size: 26px; font-weight: 700;")
         value_label.setWordWrap(True)
         detail_label = QLabel(detail, self)
         detail_label.setStyleSheet("color: #d0d0d0; font-size: 12px;")
@@ -869,8 +868,24 @@ class MainWindow(QMainWindow):
         box.addWidget(title_label)
         box.addWidget(value_label)
         box.addWidget(detail_label)
-        parent.addWidget(card, 0, column)
+        self.kpi_cards.append(card)
         return value_label, detail_label
+
+    def _relayout_kpi_cards(self) -> None:
+        if not hasattr(self, "kpi_layout"):
+            return
+        layout = self.kpi_layout
+        while layout.count():
+            item = layout.takeAt(0)
+            if item.widget() is not None:
+                item.widget().setParent(None)
+
+        available_width = self.monitor_panel.width() if hasattr(self, "monitor_panel") else 0
+        columns = 3 if available_width and available_width < 900 else 5
+        for index, card in enumerate(self.kpi_cards):
+            layout.addWidget(card, index // columns, index % columns)
+        for column in range(columns):
+            layout.setColumnStretch(column, 1)
 
     def _build_curve_panel(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("Realtime Curves", self)
@@ -933,14 +948,25 @@ class MainWindow(QMainWindow):
         self.log_text.setMinimumHeight(110)
         self.log_text.setMaximumHeight(170)
 
-        self.clear_log_button = QPushButton("Clear Log", self)
+        self.toggle_log_button = QToolButton(self)
+        self.toggle_log_button.setText("Show Log")
+        self.toggle_log_button.setCheckable(True)
+        self.toggle_log_button.toggled.connect(self._toggle_log_visibility)
+        row.addWidget(self.toggle_log_button)
+
+        self.clear_log_button = QPushButton("Clear", self)
         self.clear_log_button.clicked.connect(self.log_text.clear)
         row.addWidget(self.clear_log_button)
         row.addStretch(1)
         layout.addLayout(row)
 
         layout.addWidget(self.log_text)
+        self.log_text.hide()
         parent.addWidget(group)
+
+    def _toggle_log_visibility(self, visible: bool) -> None:
+        self.log_text.setVisible(visible)
+        self.toggle_log_button.setText("Hide Log" if visible else "Show Log")
 
     def browse_csv(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self, "Save Combined Test CSV", self.csv_path_field.text(), "CSV Files (*.csv)")
@@ -971,6 +997,7 @@ class MainWindow(QMainWindow):
         else:
             self.global_power_meter_status_label.setText("PM: Running" if power_running else "PM: Stopped")
         self.global_spectrometer_status_label.setText("SP: Running" if spectrometer_running else "SP: Stopped")
+        self.stop_all_button.setEnabled(power_running or spectrometer_running)
 
         if hasattr(self, "power_meter_status_label"):
             self.power_meter_status_label.setText("Detecting" if power_detecting else ("Running" if power_running else "Stopped"))
@@ -1601,8 +1628,7 @@ class MainWindow(QMainWindow):
         self.stop_power_meter_button.setEnabled(running)
         self.detect_power_meter_button.setEnabled(not running and not detecting)
         self.refresh_power_meter_button.setEnabled(not running and not detecting)
-        self.rel_zero_on_button.setEnabled(not running and not detecting)
-        self.rel_zero_off_button.setEnabled(not running and not detecting)
+        self.rel_zero_check.setEnabled(not running and not detecting)
         self.power_meter_combo.setEnabled(not running and not detecting)
         self.power_wavelength_spin.setEnabled(not running and not detecting)
         self.software_gain_spin.setEnabled(not running and not detecting)
@@ -1617,8 +1643,7 @@ class MainWindow(QMainWindow):
         self.stop_power_meter_button.setEnabled(running)
         self.detect_power_meter_button.setEnabled(not running and not detecting)
         self.refresh_power_meter_button.setEnabled(not running and not detecting)
-        self.rel_zero_on_button.setEnabled(not running and not detecting)
-        self.rel_zero_off_button.setEnabled(not running and not detecting)
+        self.rel_zero_check.setEnabled(not running and not detecting)
         self.power_meter_combo.setEnabled(not running and not detecting)
         self.power_wavelength_spin.setEnabled(not running and not detecting)
         self.software_gain_spin.setEnabled(not running and not detecting)
@@ -1639,6 +1664,10 @@ class MainWindow(QMainWindow):
     def add_log(self, message: str) -> None:
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.log_text.append(f"[{timestamp}] {message}")
+
+    def resizeEvent(self, event: Any) -> None:
+        super().resizeEvent(event)
+        self._relayout_kpi_cards()
 
     @staticmethod
     def _format_optional(value: float) -> str:
