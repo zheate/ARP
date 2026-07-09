@@ -6,7 +6,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication, QDoubleSpinBox, QFormLayout, QGroupBox, QScrollArea
+from PySide6.QtWidgets import QApplication, QDoubleSpinBox, QFormLayout, QGroupBox, QWidget
 
 import combined_test_mvp
 import power_meter_mvp
@@ -15,7 +15,6 @@ from combined_test_mvp import (
     MainWindow,
     PowerMeterOption,
     SpectrometerOption,
-    add_scripts_runner_root,
     build_spectrum_csv_path,
     save_spectrum_curve,
 )
@@ -44,6 +43,12 @@ class SpectrumCurveFileTests(unittest.TestCase):
 
 
 class MainWindowTests(unittest.TestCase):
+    def _group(self, window: MainWindow, title: str) -> QGroupBox:
+        for group in window.findChildren(QGroupBox):
+            if group.title() == title:
+                return group
+        raise AssertionError(f"{title} group not found")
+
     def _spectrometer_form(self, window: MainWindow) -> QFormLayout:
         for group in window.findChildren(QGroupBox):
             if group.title() == "Spectrometer":
@@ -84,13 +89,76 @@ class MainWindowTests(unittest.TestCase):
         self.assertIsNotNone(window.log_text)
         window.close()
 
-    def test_main_window_uses_scroll_area_for_tall_layout(self) -> None:
+    def test_main_window_uses_workflow_layout_without_scroll_area(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
 
-        self.assertIsInstance(window.centralWidget(), QScrollArea)
-        self.assertGreaterEqual(window.content_widget.minimumHeight(), 1120)
-        self.assertGreaterEqual(window.content_widget.minimumWidth(), 1280)
+        self.assertIsInstance(window.centralWidget(), QWidget)
+        self.assertFalse(hasattr(window, "scroll_area"))
+        self.assertTrue(hasattr(window, "left_control_panel"))
+        self.assertTrue(hasattr(window, "monitor_panel"))
+        self.assertGreaterEqual(window.left_control_panel.minimumWidth(), 540)
+        self.assertLessEqual(window.left_control_panel.maximumWidth(), 600)
+        window.close()
+
+    def test_main_window_exposes_status_bar_kpi_cards_and_vertical_curves(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        for attribute in (
+            "global_status_label",
+            "power_card_value",
+            "peak_card_value",
+            "fwhm_card_value",
+            "stability_card_value",
+            "record_card_value",
+            "curves_layout",
+        ):
+            self.assertTrue(hasattr(window, attribute), attribute)
+
+        self.assertEqual(window.curves_layout.getItemPosition(window.curves_layout.indexOf(window.power_curve_canvas))[:2], (0, 0))
+        self.assertEqual(window.curves_layout.getItemPosition(window.curves_layout.indexOf(window.spectrum_curve_canvas))[:2], (1, 0))
+        window.close()
+
+    def test_left_control_groups_reserve_enough_height_for_their_contents(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        for title in ("Power Supply", "Power Meter", "Spectrometer", "Record"):
+            group = self._group(window, title)
+            self.assertGreaterEqual(group.minimumHeight(), group.sizeHint().height(), title)
+
+        window.close()
+
+    def test_no_advanced_group_and_device_settings_stay_with_their_device(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        self.assertNotIn("Advanced", [group.title() for group in window.findChildren(QGroupBox)])
+
+        power_supply_form = self._group(window, "Power Supply").layout()
+        self.assertIsInstance(power_supply_form, QFormLayout)
+        self._form_row_containing_widget(power_supply_form, window.i2c_addr_field)
+        self._form_row_containing_widget(power_supply_form, window.i2c_speed_combo)
+
+        power_meter_form = self._group(window, "Power Meter").layout()
+        self.assertIsInstance(power_meter_form, QFormLayout)
+        self._form_row_containing_widget(power_meter_form, window.software_gain_spin)
+        self._form_row_containing_widget(power_meter_form, window.power_meter_interval_spin)
+
+        spectrometer_form = self._group(window, "Spectrometer").layout()
+        self.assertIsInstance(spectrometer_form, QFormLayout)
+        self._form_row_containing_widget(spectrometer_form, window.interval_spin)
+        window.close()
+
+    def test_left_control_panel_does_not_need_horizontal_scrolling(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.resize(2048, 1152)
+        window.show()
+        app.processEvents()
+
+        self.assertLessEqual(window.left_control_content.width(), window.left_control_panel.viewport().width())
         window.close()
 
     def test_main_window_exposes_realtime_curve_widgets(self) -> None:
@@ -161,6 +229,149 @@ class MainWindowTests(unittest.TestCase):
         self.assertAlmostEqual(x_max, 1006.2)
         window.close()
 
+    def test_spectrum_curve_marks_top_three_peak_centroids(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        wavelength = [850.0, 851.0, 852.0, 853.0, 854.0, 855.0, 856.0, 857.0, 858.0, 859.0, 860.0, 861.0, 862.0]
+        intensity = [0.0, 5.0, 80.0, 5.0, 0.0, 10.0, 300.0, 10.0, 0.0, 20.0, 200.0, 20.0, 0.0]
+
+        window.update_spectrum_curve(wavelength, intensity)
+
+        self.assertEqual(
+            [(item.label, round(item.centroid_nm, 3)) for item in window.spectrum_peak_annotations],
+            [("1st", 856.0), ("2nd", 860.0), ("3rd", 852.0)],
+        )
+        annotation_text = "\n".join(
+            artist.get_text() for artist in window.spectrum_peak_annotation_artists if hasattr(artist, "get_text")
+        )
+        self.assertIn("1st 856.000 nm", annotation_text)
+        self.assertIn("2nd 860.000 nm", annotation_text)
+        self.assertIn("3rd 852.000 nm", annotation_text)
+        window.close()
+
+    def test_spectrum_peak_labels_stay_inside_plot_area_for_tall_peaks(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        wavelength = [877.0, 878.0, 879.0, 880.0, 881.0]
+        intensity = [0.0, 15000.0, 50.0, 1000.0, 0.0]
+
+        window.update_spectrum_curve(wavelength, intensity)
+
+        _, y_max = window.spectrum_curve_axis.get_ylim()
+        label_artists = [artist for artist in window.spectrum_peak_annotation_artists if hasattr(artist, "get_text")]
+        self.assertTrue(label_artists)
+        for artist in label_artists:
+            _x, y = artist.get_position()
+            self.assertLessEqual(y, y_max * 0.92)
+            self.assertEqual(artist.get_bbox_patch(), None)
+        window.close()
+
+    def test_spectrum_y_axis_does_not_shrink_when_peak_intensity_drops(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        wavelength = [850.0, 878.5, 906.0]
+
+        window.update_spectrum_curve(wavelength, [0.0, 15000.0, 0.0])
+        first_limits = tuple(window.spectrum_curve_axis.get_ylim())
+        window.update_spectrum_curve(wavelength, [0.0, 12000.0, 0.0])
+
+        self.assertEqual(tuple(window.spectrum_curve_axis.get_ylim()), first_limits)
+        window.close()
+
+    def test_spectrum_y_axis_expands_when_peak_exceeds_current_range(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        wavelength = [850.0, 878.5, 906.0]
+
+        window.update_spectrum_curve(wavelength, [0.0, 10000.0, 0.0])
+        _first_min, first_max = window.spectrum_curve_axis.get_ylim()
+        window.update_spectrum_curve(wavelength, [0.0, 16000.0, 0.0])
+        _second_min, second_max = window.spectrum_curve_axis.get_ylim()
+
+        self.assertGreater(second_max, first_max)
+        window.close()
+
+    def test_spectrum_y_axis_stability_resets_with_spectrum_curve(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        wavelength = [850.0, 878.5, 906.0]
+
+        window.update_spectrum_curve(wavelength, [0.0, 15000.0, 0.0])
+        high_limits = tuple(window.spectrum_curve_axis.get_ylim())
+        window.reset_spectrum_curve()
+        window.update_spectrum_curve(wavelength, [0.0, 2000.0, 0.0])
+        reset_limits = tuple(window.spectrum_curve_axis.get_ylim())
+
+        self.assertLess(reset_limits[1], high_limits[1])
+        window.close()
+
+    def test_spectrum_peak_labels_are_staggered_when_wavelengths_are_close(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        wavelength = [868.0, 869.0, 870.0, 871.0, 871.7, 872.4, 877.5, 878.5, 879.5]
+        intensity = [0.0, 0.0, 1200.0, 0.0, 900.0, 0.0, 0.0, 15000.0, 0.0]
+
+        window.update_spectrum_curve(wavelength, intensity)
+
+        y_min, y_max = window.spectrum_curve_axis.get_ylim()
+        y_span = y_max - y_min
+        text_positions = {
+            artist.get_text().split()[0]: artist.get_position()
+            for artist in window.spectrum_peak_annotation_artists
+            if hasattr(artist, "get_text")
+        }
+        self.assertIn("2nd", text_positions)
+        self.assertIn("3rd", text_positions)
+        self.assertGreaterEqual(abs(text_positions["2nd"][1] - text_positions["3rd"][1]), y_span * 0.07)
+        window.close()
+
+    def test_spectrum_peak_labels_spread_horizontally_when_low_peaks_are_close(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        wavelength = [848.0, 868.8, 869.272, 869.8, 869.9, 870.247, 870.8, 877.5, 878.518, 879.5, 908.0]
+        intensity = [0.0, 0.0, 300.0, 0.0, 0.0, 400.0, 0.0, 0.0, 7800.0, 0.0, 0.0]
+
+        window.update_spectrum_curve(wavelength, intensity)
+
+        x_min, x_max = window.spectrum_curve_axis.get_xlim()
+        x_span = x_max - x_min
+        text_positions = {
+            artist.get_text().split()[0]: artist.get_position()
+            for artist in window.spectrum_peak_annotation_artists
+            if hasattr(artist, "get_text")
+        }
+        self.assertIn("2nd", text_positions)
+        self.assertIn("3rd", text_positions)
+        self.assertGreaterEqual(abs(text_positions["2nd"][0] - text_positions["3rd"][0]), x_span * 0.035)
+        window.close()
+
+    def test_spectrum_peak_labels_split_left_and_right_for_adjacent_peaks(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        wavelength = [848.0, 868.8, 869.272, 869.8, 869.9, 870.247, 870.8, 877.5, 878.518, 879.5, 908.0]
+        intensity = [0.0, 0.0, 300.0, 0.0, 0.0, 400.0, 0.0, 0.0, 7800.0, 0.0, 0.0]
+
+        window.update_spectrum_curve(wavelength, intensity)
+
+        centroids = {item.label: item.centroid_nm for item in window.spectrum_peak_annotations}
+        text_positions = {
+            artist.get_text().split()[0]: artist.get_position()
+            for artist in window.spectrum_peak_annotation_artists
+            if hasattr(artist, "get_text")
+        }
+        text_alignments = {
+            artist.get_text().split()[0]: artist.get_ha()
+            for artist in window.spectrum_peak_annotation_artists
+            if hasattr(artist, "get_text")
+        }
+        self.assertLess(centroids["3rd"], centroids["2nd"])
+        self.assertLess(text_positions["3rd"][0], centroids["3rd"])
+        self.assertGreater(text_positions["2nd"][0], centroids["2nd"])
+        self.assertEqual(text_alignments["3rd"], "right")
+        self.assertEqual(text_alignments["2nd"], "left")
+        window.close()
+
+
     def test_collect_settings_uses_selected_detected_devices(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
@@ -176,6 +387,30 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(settings.power_resource, "ASRL9::INSTR")
         self.assertEqual(settings.spectrometer_device_id, 321)
         window.close()
+
+    def test_auto_detect_spectrometers_keeps_auto_select_as_current_choice(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FakeOceanSpectrometer:
+            @staticmethod
+            def detect() -> list[int]:
+                return [41]
+
+        old_loader = combined_test_mvp.load_spectrometer_components
+        try:
+            combined_test_mvp.load_spectrometer_components = lambda root: (FakeOceanSpectrometer, None)
+            window = MainWindow()
+
+            window.auto_detect_spectrometers()
+
+            self.assertIsNone(window.spectrometer_combo.itemData(0))
+            self.assertEqual(window.spectrometer_combo.itemText(0), "Auto select first Ocean Insight")
+            self.assertIsInstance(window.spectrometer_combo.itemData(1), SpectrometerOption)
+            self.assertIsNone(window.spectrometer_combo.currentData())
+            self.assertIsNone(window.collect_spectrometer_settings().device_id)
+            window.close()
+        finally:
+            combined_test_mvp.load_spectrometer_components = old_loader
 
     def test_main_window_exposes_manual_device_action_buttons(self) -> None:
         app = QApplication.instance() or QApplication([])
@@ -194,6 +429,21 @@ class MainWindowTests(unittest.TestCase):
             "save_spectrum_button",
         ):
             self.assertTrue(hasattr(window, attribute), attribute)
+
+        window.close()
+
+    def test_power_meter_common_action_buttons_stay_in_power_meter_group(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        form = self._group(window, "Power Meter").layout()
+        self.assertIsInstance(form, QFormLayout)
+
+        for widget in (
+            window.refresh_power_meter_button,
+            window.rel_zero_on_button,
+            window.rel_zero_off_button,
+        ):
+            self._form_row_containing_widget(form, widget)
 
         window.close()
 
@@ -229,10 +479,28 @@ class MainWindowTests(unittest.TestCase):
         ):
             self.assertTrue(widget.isEnabled())
 
-        self.assertFalse(window.start_power_meter_button.isEnabled())
-        self.assertTrue(window.stop_power_meter_button.isEnabled())
-        self.assertFalse(window.start_spectrometer_button.isEnabled())
-        self.assertTrue(window.stop_spectrometer_button.isEnabled())
+        self.assertTrue(window.start_power_meter_button.isHidden())
+        self.assertFalse(window.stop_power_meter_button.isHidden())
+        self.assertTrue(window.start_spectrometer_button.isHidden())
+        self.assertFalse(window.stop_spectrometer_button.isHidden())
+        window.close()
+
+    def test_start_stop_buttons_show_only_current_action(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        self.assertFalse(window.start_power_meter_button.isHidden())
+        self.assertTrue(window.stop_power_meter_button.isHidden())
+        self.assertFalse(window.start_spectrometer_button.isHidden())
+        self.assertTrue(window.stop_spectrometer_button.isHidden())
+
+        window.set_power_meter_running_state(True)
+        window.set_spectrometer_running_state(True)
+
+        self.assertTrue(window.start_power_meter_button.isHidden())
+        self.assertFalse(window.stop_power_meter_button.isHidden())
+        self.assertTrue(window.start_spectrometer_button.isHidden())
+        self.assertFalse(window.stop_spectrometer_button.isHidden())
         window.close()
 
     def test_power_meter_wavelength_accepts_decimal_values(self) -> None:
@@ -248,17 +516,25 @@ class MainWindowTests(unittest.TestCase):
         self.assertAlmostEqual(window.collect_power_meter_settings().wavelength_nm, 976.5)
         window.close()
 
-    def test_spectrometer_start_stop_buttons_are_below_interval(self) -> None:
+    def test_spectrometer_start_stop_buttons_are_below_integration(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
         form = self._spectrometer_form(window)
 
-        interval_row = self._form_row_containing_widget(form, window.interval_spin)
+        integration_row = self._form_row_containing_widget(form, window.integration_spin)
         start_row = self._form_row_containing_widget(form, window.start_spectrometer_button)
         stop_row = self._form_row_containing_widget(form, window.stop_spectrometer_button)
 
-        self.assertGreater(start_row, interval_row)
+        self.assertGreater(start_row, integration_row)
         self.assertEqual(start_row, stop_row)
+        window.close()
+
+    def test_spectrometer_default_integration_time_is_10000_us(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        self.assertEqual(window.integration_spin.value(), 10000)
+        self.assertEqual(window.collect_spectrometer_settings().integration_time_us, 10000)
         window.close()
 
     def test_power_meter_detecting_state_does_not_block_manual_power_supply_controls(self) -> None:
@@ -284,6 +560,19 @@ class MainWindowTests(unittest.TestCase):
         self.assertTrue(window.refresh_power_meter_button.isEnabled())
         self.assertTrue(window.start_power_meter_button.isEnabled())
         window.close()
+
+
+class SpectrumPeakAnnotationTests(unittest.TestCase):
+    def test_find_spectrum_peak_annotations_returns_top_three_centroids_by_peak_height(self) -> None:
+        wavelength = [850.0, 851.0, 852.0, 853.0, 854.0, 855.0, 856.0, 857.0, 858.0, 859.0, 860.0, 861.0, 862.0]
+        intensity = [0.0, 5.0, 80.0, 5.0, 0.0, 10.0, 300.0, 10.0, 0.0, 20.0, 200.0, 20.0, 0.0]
+
+        annotations = combined_test_mvp.find_spectrum_peak_annotations(list(zip(wavelength, intensity)))
+
+        self.assertEqual(
+            [(item.label, round(item.centroid_nm, 3), round(item.peak_intensity, 1)) for item in annotations],
+            [("1st", 856.0, 300.0), ("2nd", 860.0, 200.0), ("3rd", 852.0, 80.0)],
+        )
 
 
 class PowerMeterDetectThreadTests(unittest.TestCase):
@@ -330,6 +619,31 @@ class PowerMeterDetectThreadTests(unittest.TestCase):
             sys.modules.update(old_modules)
 
 
+class SpectrometerDeviceOpeningTests(unittest.TestCase):
+    def test_open_spectrometer_device_falls_back_when_selected_runtime_id_changed(self) -> None:
+        class FakeControl:
+            def __init__(self) -> None:
+                self.opened_device_id: int | None = None
+
+            def find_usb_devices(self) -> int:
+                return 0
+
+            def get_device_ids(self) -> list[int]:
+                return [8]
+
+            def open_device(self, device_id: int) -> int:
+                self.opened_device_id = device_id
+                return 0
+
+        spectrometer = types.SimpleNamespace(control=FakeControl(), device_id=None)
+
+        device_id = combined_test_mvp.open_spectrometer_device(spectrometer, selected_device_id=7)
+
+        self.assertEqual(device_id, 8)
+        self.assertEqual(spectrometer.device_id, 8)
+        self.assertEqual(spectrometer.control.opened_device_id, 8)
+
+
 class PowerMeterCommandFormattingTests(unittest.TestCase):
     def test_format_wavelength_keeps_decimal_only_when_needed(self) -> None:
         self.assertEqual(power_meter_mvp.format_wavelength_nm(976.0), "976")
@@ -353,7 +667,7 @@ class DeviceOptionTests(unittest.TestCase):
         self.assertEqual(option.label(), "Ocean Insight | device id 123")
 
 
-class ScriptsRunnerPathTests(unittest.TestCase):
+class LocalSpectrometerLoadingTests(unittest.TestCase):
     def test_sth_eb314_launcher_uses_named_conda_environment(self) -> None:
         launcher = Path(__file__).resolve().parent / "run_combined_test_sth_eb314.bat"
 
@@ -362,70 +676,14 @@ class ScriptsRunnerPathTests(unittest.TestCase):
         self.assertIn("sth_eb314", content)
         self.assertIn("combined_test_mvp.py", content)
 
-    def test_add_scripts_runner_root_makes_application_importable(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            package_dir = root / "application" / "models" / "device_models"
-            package_dir.mkdir(parents=True)
-            (root / "application" / "__init__.py").write_text("", encoding="utf-8")
-            (root / "application" / "models" / "__init__.py").write_text("", encoding="utf-8")
-            (package_dir / "__init__.py").write_text("", encoding="utf-8")
-            (package_dir / "ocean_direct_control.py").write_text("class OceanDirectControl: pass\n", encoding="utf-8")
-
-            old_path = list(sys.path)
-            old_modules = dict(sys.modules)
-            old_cwd = Path.cwd()
-            try:
-                added = add_scripts_runner_root(root)
-
-                self.assertEqual(added, root.resolve())
-                self.assertEqual(Path(sys.path[0]), root.resolve())
-                self.assertIn(str(root.resolve()), sys.path)
-                self.assertEqual(Path.cwd(), Path(__file__).resolve().parent)
-                import application.models.device_models.ocean_direct_control as ocean_module
-
-                self.assertTrue(hasattr(ocean_module, "OceanDirectControl"))
-            finally:
-                os.chdir(old_cwd)
-                sys.path[:] = old_path
-                for name in list(sys.modules):
-                    if name.startswith("application"):
-                        sys.modules.pop(name, None)
-                sys.modules.update({key: value for key, value in old_modules.items() if key.startswith("application")})
-
-    def test_load_spectrometer_components_uses_scripts_root_for_application_but_local_spectrometer_module(
+    def test_load_spectrometer_components_ignores_legacy_root_and_does_not_import_application(
         self,
     ) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            package_dir = root / "application" / "models" / "device_models"
-            package_dir.mkdir(parents=True)
-            (root / "spectrometer_mvp.py").write_text("class OceanSpectrometer: pass\n", encoding="utf-8")
-            (root / "application" / "__init__.py").write_text(
-                "from pathlib import Path\n"
-                "import sys\n"
-                "expected = Path(__file__).resolve().parents[1]\n"
-                "if Path(sys.path[0]).resolve() != expected:\n"
-                "    raise KeyError('application')\n",
-                encoding="utf-8",
-            )
-            (root / "application" / "models" / "__init__.py").write_text("", encoding="utf-8")
-            (package_dir / "__init__.py").write_text("", encoding="utf-8")
-            (package_dir / "ocean_direct_control.py").write_text(
-                "class OceanDirectControl:\n"
-                "    def close_device(self):\n"
-                "        pass\n",
-                encoding="utf-8",
-            )
-            (package_dir / "spectrum_process.py").write_text(
-                "def calculate_central(wavelength, intensity):\n"
-                "    return wavelength[0]\n"
-                "def calculate_centroid(wavelength, intensity):\n"
-                "    return wavelength[0]\n"
-                "def calculate_fwhm(wavelength, intensity):\n"
-                "    return 0.0\n",
-                encoding="utf-8",
-            )
+            application_dir = root / "application"
+            application_dir.mkdir()
+            (application_dir / "__init__.py").write_text("raise AssertionError('application imported')\n", encoding="utf-8")
 
             old_path = list(sys.path)
             old_modules = dict(sys.modules)
@@ -434,9 +692,11 @@ class ScriptsRunnerPathTests(unittest.TestCase):
                 ocean_spectrometer, calculate_stats = combined_test_mvp.load_spectrometer_components(root)
 
                 self.assertIn("combined_local_spectrometer_mvp", ocean_spectrometer.__module__)
-                self.assertIn("combined_local_spectrometer_mvp", calculate_stats.__module__)
+                self.assertEqual(calculate_stats.__module__, "spectrum_math")
                 self.assertEqual(sys.path, old_path)
                 self.assertEqual(Path.cwd(), Path(__file__).resolve().parent)
+                self.assertNotIn(str(root.resolve()), sys.path)
+                self.assertNotIn("application", sys.modules)
             finally:
                 os.chdir(old_cwd)
                 sys.path[:] = old_path

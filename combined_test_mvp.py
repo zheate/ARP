@@ -53,7 +53,6 @@ from combined_test_core import (
 
 DEFAULT_POWER_RESOURCE = "ASRL3::INSTR"
 DEFAULT_CSV_PATH = "combined_test_records.csv"
-DEFAULT_SCRIPTS_RUNNER_ROOT = os.environ.get("SCRIPTS_RUNNER_ROOT", r"E:\scripts_runner - 副本")
 PROJECT_ROOT = Path(__file__).resolve().parent
 MAX_CURVE_POINTS = 10000
 POWER_PLOT_HISTORY_S = 60.0
@@ -61,8 +60,12 @@ POWER_METER_PROBE_TIMEOUT_MS = 250
 SPECTRUM_CENTER_LOCK_REQUIRED_SAMPLES = 5
 SPECTRUM_CENTER_LOCK_TOLERANCE_NM = 1.0
 SPECTRUM_CENTER_LOCK_HALF_RANGE_NM = 30.0
-CONTENT_MIN_WIDTH = 1280
-CONTENT_MIN_HEIGHT = 1120
+DEFAULT_SPECTROMETER_INTEGRATION_US = 10000
+SPECTRUM_PEAK_ORDINAL_LABELS = ("1st", "2nd", "3rd")
+SPECTRUM_PEAK_MIN_SEPARATION_NM = 0.3
+SPECTRUM_PEAK_MIN_PROMINENCE_FRACTION = 0.01
+LEFT_PANEL_MIN_WIDTH = 540
+LEFT_PANEL_MAX_WIDTH = 600
 
 
 @dataclass(frozen=True)
@@ -79,7 +82,6 @@ class CombinedTestSettings:
     stable_tolerance_w: float
     csv_path: Path
     stop_after_record: bool
-    scripts_runner_root: Path | None = None
     spectrometer_device_id: int | None = None
 
 
@@ -128,7 +130,6 @@ class PowerMeterSettings:
 class SpectrometerSettings:
     integration_time_us: int
     interval_ms: int
-    scripts_runner_root: Path | None = None
     device_id: int | None = None
 
 
@@ -146,6 +147,14 @@ class SpectrometerReading:
     peak_wavelength_nm: float
     centroid_nm: float
     fwhm_nm: float
+
+
+@dataclass(frozen=True)
+class SpectrumPeakAnnotation:
+    label: str
+    centroid_nm: float
+    peak_wavelength_nm: float
+    peak_intensity: float
 
 
 def load_legacy_ch341_controller_class() -> type:
@@ -175,30 +184,6 @@ def parse_i2c_address(text: str) -> int:
     return address
 
 
-def add_scripts_runner_root(root: Path | str | None) -> Path | None:
-    if root is None:
-        return None
-    value = Path(root).expanduser()
-    if str(value).strip() == "." and not Path(str(root)).is_absolute():
-        value = Path.cwd()
-    resolved = value.resolve()
-    if not resolved.exists():
-        raise RuntimeError(f"Scripts runner root does not exist: {resolved}")
-    if not (resolved / "application").exists():
-        raise RuntimeError(f"Scripts runner root must contain an application folder: {resolved}")
-
-    path_text = str(resolved)
-    while path_text in sys.path:
-        sys.path.remove(path_text)
-    project_text = str(PROJECT_ROOT)
-    while project_text in sys.path:
-        sys.path.remove(project_text)
-    sys.path.insert(0, path_text)
-    sys.path.insert(1, project_text)
-    os.chdir(PROJECT_ROOT)
-    return resolved
-
-
 def _remove_module_tree(prefix: str) -> None:
     for name in list(sys.modules):
         if name == prefix or name.startswith(f"{prefix}."):
@@ -206,11 +191,8 @@ def _remove_module_tree(prefix: str) -> None:
 
 
 def load_spectrometer_components(root: Path | str | None) -> tuple[type, Any]:
-    old_path = list(sys.path)
     module_name = "_combined_local_spectrometer_mvp"
     try:
-        if root is not None:
-            add_scripts_runner_root(root)
         _remove_module_tree("application")
         sys.modules.pop(module_name, None)
 
@@ -223,7 +205,6 @@ def load_spectrometer_components(root: Path | str | None) -> tuple[type, Any]:
         spec.loader.exec_module(module)
         return module.OceanSpectrometer, module.calculate_stats
     finally:
-        sys.path[:] = old_path
         os.chdir(PROJECT_ROOT)
 
 
@@ -232,6 +213,95 @@ def normalize_power_resource_name(name: str) -> str:
     if value.startswith("COM") and value[3:].isdigit():
         return f"ASRL{value[3:]}::INSTR"
     return value
+
+
+def open_spectrometer_device(spectrometer: Any, selected_device_id: int | None) -> int:
+    if selected_device_id is None:
+        return int(spectrometer.open_first())
+
+    state = spectrometer.control.find_usb_devices()
+    if state == -1:
+        raise RuntimeError("OceanDirect failed to search USB spectrometers")
+    device_ids = [int(item) for item in spectrometer.control.get_device_ids()]
+    if not device_ids:
+        raise RuntimeError("OceanDirect found 0 spectrometers. Check the Ocean Insight driver.")
+
+    device_id = selected_device_id if selected_device_id in device_ids else device_ids[0]
+    state = spectrometer.control.open_device(device_id)
+    if state == -1:
+        raise RuntimeError(f"Failed to open spectrometer device id {device_id}")
+    spectrometer.device_id = device_id
+    return int(device_id)
+
+
+def find_spectrum_peak_annotations(points: list[tuple[float, float]], limit: int = 3) -> list[SpectrumPeakAnnotation]:
+    clean_points = [(float(x), float(y)) for x, y in points if math.isfinite(float(x)) and math.isfinite(float(y))]
+    clean_points.sort(key=lambda item: item[0])
+    if len(clean_points) < 3:
+        return []
+
+    y_values = [item[1] for item in clean_points]
+    y_range = max(y_values) - min(y_values)
+    if y_range <= 0:
+        return []
+
+    neighborhood = max(2, len(clean_points) // 200)
+    min_prominence = y_range * SPECTRUM_PEAK_MIN_PROMINENCE_FRACTION
+    candidates: list[tuple[int, float, float]] = []
+    for index in range(1, len(clean_points) - 1):
+        y = clean_points[index][1]
+        if y <= clean_points[index - 1][1] or y < clean_points[index + 1][1]:
+            continue
+        start = max(0, index - neighborhood)
+        end = min(len(clean_points), index + neighborhood + 1)
+        local_floor = min(item[1] for item in clean_points[start:end])
+        prominence = y - local_floor
+        if prominence >= min_prominence:
+            candidates.append((index, clean_points[index][0], y))
+
+    selected: list[tuple[int, float, float]] = []
+    for candidate in sorted(candidates, key=lambda item: item[2], reverse=True):
+        if all(abs(candidate[1] - item[1]) >= SPECTRUM_PEAK_MIN_SEPARATION_NM for item in selected):
+            selected.append(candidate)
+        if len(selected) >= limit:
+            break
+
+    annotations: list[SpectrumPeakAnnotation] = []
+    for rank, (index, peak_wavelength_nm, peak_intensity) in enumerate(selected):
+        annotations.append(
+            SpectrumPeakAnnotation(
+                label=SPECTRUM_PEAK_ORDINAL_LABELS[rank],
+                centroid_nm=_calculate_local_peak_centroid(clean_points, index),
+                peak_wavelength_nm=peak_wavelength_nm,
+                peak_intensity=peak_intensity,
+            )
+        )
+    return annotations
+
+
+def _calculate_local_peak_centroid(points: list[tuple[float, float]], peak_index: int) -> float:
+    peak_intensity = points[peak_index][1]
+    baseline = min(item[1] for item in points)
+    threshold = baseline + (peak_intensity - baseline) * 0.5
+
+    left = peak_index
+    while left > 0 and points[left - 1][1] >= threshold:
+        left -= 1
+    right = peak_index
+    while right < len(points) - 1 and points[right + 1][1] >= threshold:
+        right += 1
+
+    peak_points = points[left : right + 1]
+    local_baseline = min(item[1] for item in peak_points)
+    weighted_sum = 0.0
+    weight_total = 0.0
+    for wavelength_nm, intensity in peak_points:
+        weight = max(0.0, intensity - local_baseline)
+        weighted_sum += wavelength_nm * weight
+        weight_total += weight
+    if weight_total <= 0:
+        return points[peak_index][0]
+    return weighted_sum / weight_total
 
 
 def append_csv_record(path: Path, timestamp: str, measurement: CombinedMeasurement) -> None:
@@ -388,34 +458,15 @@ class SpectrometerReaderThread(QThread):
     def run(self) -> None:
         spectrometer = None
         try:
-            if self.settings.scripts_runner_root is not None:
-                self.status.emit(f"Using scripts runner root: {self.settings.scripts_runner_root.expanduser().resolve()}")
-
             try:
-                OceanSpectrometer, calculate_stats = load_spectrometer_components(self.settings.scripts_runner_root)
+                OceanSpectrometer, calculate_stats = load_spectrometer_components(None)
             except ModuleNotFoundError as exc:
                 raise RuntimeError(
-                    f"Spectrometer dependency missing: {exc.name}. Run from the environment that contains the OceanDirect application package."
+                    f"Spectrometer dependency missing: {exc.name}. Check this project environment and local OceanDirect files."
                 ) from exc
 
             spectrometer = OceanSpectrometer()
-            if self.settings.device_id is None:
-                device_id = spectrometer.open_first()
-            else:
-                state = spectrometer.control.find_usb_devices()
-                if state == -1:
-                    raise RuntimeError("OceanDirect failed to search USB spectrometers")
-                device_ids = [int(item) for item in spectrometer.control.get_device_ids()]
-                if self.settings.device_id not in device_ids:
-                    raise RuntimeError(
-                        f"Selected spectrometer device id {self.settings.device_id} was not found. "
-                        f"Detected ids: {device_ids}"
-                    )
-                state = spectrometer.control.open_device(self.settings.device_id)
-                if state == -1:
-                    raise RuntimeError(f"Failed to open spectrometer device id {self.settings.device_id}")
-                spectrometer.device_id = self.settings.device_id
-                device_id = self.settings.device_id
+            device_id = open_spectrometer_device(spectrometer, self.settings.device_id)
             spectrometer.set_integration_time(self.settings.integration_time_us)
             self.status.emit(f"Spectrometer connected, device id {device_id}")
 
@@ -459,49 +510,108 @@ class MainWindow(QMainWindow):
         self.spectrum_center_candidate_nm: float | None = None
         self.spectrum_center_candidate_count = 0
         self.spectrum_center_locked_nm: float | None = None
+        self.spectrum_y_axis_limits: tuple[float, float] | None = None
+        self.spectrum_peak_annotations: list[SpectrumPeakAnnotation] = []
+        self.spectrum_peak_annotation_artists: list[Any] = []
 
-        self.scroll_area = QScrollArea(self)
-        self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        self.setCentralWidget(self.scroll_area)
-
-        self.content_widget = QWidget(self.scroll_area)
-        self.content_widget.setMinimumSize(CONTENT_MIN_WIDTH, CONTENT_MIN_HEIGHT)
-        self.scroll_area.setWidget(self.content_widget)
+        self.content_widget = QWidget(self)
+        self.setCentralWidget(self.content_widget)
 
         root = self.content_widget
         main = QVBoxLayout(root)
         main.setContentsMargins(12, 12, 12, 12)
-        main.setSpacing(10)
+        main.setSpacing(8)
 
-        settings_grid = QGridLayout()
-        settings_grid.setColumnStretch(0, 1)
-        settings_grid.setColumnStretch(1, 1)
-        settings_grid.setColumnStretch(2, 1)
-        main.addLayout(settings_grid)
+        self._build_global_status_bar(main)
 
-        self._build_power_supply_group(settings_grid, 0)
-        self._build_power_meter_group(settings_grid, 1)
-        self._build_spectrometer_group(settings_grid, 2)
+        body = QHBoxLayout()
+        body.setSpacing(10)
+        main.addLayout(body, stretch=1)
 
-        self._build_test_options(main)
-        self._build_live_panel(main)
-        self._build_curve_panel(main)
+        self.left_control_panel = QScrollArea(self)
+        self.left_control_panel.setMinimumWidth(LEFT_PANEL_MIN_WIDTH)
+        self.left_control_panel.setMaximumWidth(LEFT_PANEL_MAX_WIDTH)
+        self.left_control_panel.setWidgetResizable(True)
+        self.left_control_panel.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.left_control_panel.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.left_control_panel.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.left_control_panel.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
-        self.log_text = QTextEdit(self)
-        self.log_text.setReadOnly(True)
+        self.left_control_content = QWidget(self.left_control_panel)
+        self.left_control_panel.setWidget(self.left_control_content)
+        left = QVBoxLayout(self.left_control_content)
+        left.setContentsMargins(4, 0, 4, 0)
+        left.setSpacing(8)
+        body.addWidget(self.left_control_panel)
 
-        self._build_actions(main)
-        main.addWidget(self.log_text, stretch=1)
+        self._build_power_supply_group(left)
+        self._build_power_meter_group(left)
+        self._build_spectrometer_group(left)
+        self._build_record_group(left)
+        left.addStretch(1)
+
+        self.monitor_panel = QWidget(self)
+        monitor = QVBoxLayout(self.monitor_panel)
+        monitor.setContentsMargins(0, 0, 0, 0)
+        monitor.setSpacing(8)
+        body.addWidget(self.monitor_panel, stretch=1)
+
+        self._build_kpi_panel(monitor)
+        self._build_curve_panel(monitor)
+
+        self._build_log_panel(main)
 
         self.setStatusBar(QStatusBar(self))
         self.statusBar().showMessage("Ready")
+        self.update_global_status()
 
-    def _build_power_supply_group(self, parent: QGridLayout, column: int) -> None:
+    def _build_global_status_bar(self, parent: QVBoxLayout) -> None:
+        row = QHBoxLayout()
+        row.setSpacing(8)
+
+        self.global_status_label = QLabel("Test Idle", self)
+        self.global_status_label.setStyleSheet("font-size: 18px; font-weight: 700;")
+        row.addWidget(self.global_status_label)
+        row.addStretch(1)
+
+        self.global_psu_status_label = QLabel("PSU: Disconnected", self)
+        self.global_power_meter_status_label = QLabel("PM: Stopped", self)
+        self.global_spectrometer_status_label = QLabel("SP: Stopped", self)
+        for label in (
+            self.global_psu_status_label,
+            self.global_power_meter_status_label,
+            self.global_spectrometer_status_label,
+        ):
+            label.setMinimumWidth(130)
+            row.addWidget(label)
+
+        self.start_all_button = QPushButton("Start All", self)
+        self.stop_all_button = QPushButton("Stop All", self)
+        self.start_all_button.clicked.connect(self.start_all)
+        self.stop_all_button.clicked.connect(self.stop_all)
+        row.addWidget(self.start_all_button)
+        row.addWidget(self.stop_all_button)
+
+        parent.addLayout(row)
+
+    def _reserve_group_height(self, group: QGroupBox) -> None:
+        group.setMinimumHeight(0)
+        group.updateGeometry()
+        group.setMinimumHeight(group.sizeHint().height())
+
+    @staticmethod
+    def _configure_left_form(form: QFormLayout) -> None:
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        form.setContentsMargins(10, 10, 10, 10)
+        form.setHorizontalSpacing(8)
+        form.setVerticalSpacing(6)
+
+    def _build_power_supply_group(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("Power Supply", self)
         form = QFormLayout(group)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        self._configure_left_form(form)
 
         self.i2c_addr_field = QLineEdit("0x41", self)
         self.i2c_addr_field.textChanged.connect(self.update_i2c_address_info)
@@ -547,13 +657,14 @@ class MainWindow(QMainWindow):
         self.apply_current_button.clicked.connect(self.apply_output_current)
         form.addRow("", self.apply_current_button)
 
-        parent.addWidget(group, 0, column)
+        parent.addWidget(group)
+        self._reserve_group_height(group)
         self.update_i2c_address_info()
 
-    def _build_power_meter_group(self, parent: QGridLayout, column: int) -> None:
+    def _build_power_meter_group(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("Power Meter", self)
         form = QFormLayout(group)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        self._configure_left_form(form)
 
         self.power_meter_combo = QComboBox(self)
         self.power_meter_combo.setEditable(True)
@@ -597,22 +708,26 @@ class MainWindow(QMainWindow):
         self.power_meter_interval_spin.setSuffix(" ms")
         form.addRow("Interval", self.power_meter_interval_spin)
 
+        self.power_meter_status_label = QLabel("Stopped", self)
+        form.addRow("Status", self.power_meter_status_label)
+
         power_run_actions = QHBoxLayout()
         self.start_power_meter_button = QPushButton("Start Power Meter", self)
         self.stop_power_meter_button = QPushButton("Stop Power Meter", self)
-        self.stop_power_meter_button.setEnabled(False)
+        self.stop_power_meter_button.hide()
         self.start_power_meter_button.clicked.connect(self.start_power_meter)
         self.stop_power_meter_button.clicked.connect(self.stop_power_meter)
         power_run_actions.addWidget(self.start_power_meter_button)
         power_run_actions.addWidget(self.stop_power_meter_button)
         form.addRow("", power_run_actions)
 
-        parent.addWidget(group, 0, column)
+        parent.addWidget(group)
+        self._reserve_group_height(group)
 
-    def _build_spectrometer_group(self, parent: QGridLayout, column: int) -> None:
+    def _build_spectrometer_group(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("Spectrometer", self)
         form = QFormLayout(group)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        self._configure_left_form(form)
 
         self.spectrometer_combo = QComboBox(self)
         self.spectrometer_combo.addItem("Auto select first Ocean Insight", None)
@@ -624,7 +739,7 @@ class MainWindow(QMainWindow):
 
         self.integration_spin = QSpinBox(self)
         self.integration_spin.setRange(1, 10_000_000)
-        self.integration_spin.setValue(3800)
+        self.integration_spin.setValue(DEFAULT_SPECTROMETER_INTEGRATION_US)
         self.integration_spin.setSingleStep(100)
         self.integration_spin.setSuffix(" us")
         form.addRow("Integration", self.integration_spin)
@@ -636,10 +751,13 @@ class MainWindow(QMainWindow):
         self.interval_spin.setSuffix(" ms")
         form.addRow("Interval", self.interval_spin)
 
+        self.spectrometer_status_label = QLabel("Stopped", self)
+        form.addRow("Status", self.spectrometer_status_label)
+
         spectrometer_run_actions = QHBoxLayout()
         self.start_spectrometer_button = QPushButton("Start Spectrometer", self)
         self.stop_spectrometer_button = QPushButton("Stop Spectrometer", self)
-        self.stop_spectrometer_button.setEnabled(False)
+        self.stop_spectrometer_button.hide()
         self.start_spectrometer_button.clicked.connect(self.start_spectrometer)
         self.stop_spectrometer_button.clicked.connect(self.stop_spectrometer)
         spectrometer_run_actions.addWidget(self.start_spectrometer_button)
@@ -657,73 +775,107 @@ class MainWindow(QMainWindow):
         spectrum_actions.addWidget(self.save_spectrum_button)
         form.addRow("", spectrum_actions)
 
-        parent.addWidget(group, 0, column)
+        parent.addWidget(group)
+        self._reserve_group_height(group)
 
-    def _build_test_options(self, parent: QVBoxLayout) -> None:
-        group = QGroupBox("Stability And Record", self)
-        layout = QHBoxLayout(group)
+    def _build_record_group(self, parent: QVBoxLayout) -> None:
+        group = QGroupBox("Record", self)
+        form = QFormLayout(group)
+        self._configure_left_form(form)
 
-        layout.addWidget(QLabel("Stable window", self))
         self.stable_window_spin = QDoubleSpinBox(self)
         self.stable_window_spin.setRange(0.5, 300.0)
         self.stable_window_spin.setDecimals(1)
         self.stable_window_spin.setValue(3.0)
         self.stable_window_spin.setSuffix(" s")
-        layout.addWidget(self.stable_window_spin)
+        form.addRow("Stable window", self.stable_window_spin)
 
-        layout.addWidget(QLabel("Power tolerance", self))
         self.stable_tolerance_spin = QDoubleSpinBox(self)
         self.stable_tolerance_spin.setRange(0.0, 100000.0)
         self.stable_tolerance_spin.setDecimals(4)
         self.stable_tolerance_spin.setValue(0.05)
         self.stable_tolerance_spin.setSuffix(" W")
-        layout.addWidget(self.stable_tolerance_spin)
+        form.addRow("Allowed span", self.stable_tolerance_spin)
 
-        layout.addWidget(QLabel("CSV", self))
         self.csv_path_field = QLineEdit(str(Path(DEFAULT_CSV_PATH).resolve()), self)
-        layout.addWidget(self.csv_path_field, stretch=1)
+        self.csv_path_field.setToolTip(self.csv_path_field.text())
+        csv_row = QHBoxLayout()
+        csv_row.addWidget(self.csv_path_field, stretch=1)
 
         self.browse_button = QPushButton("Browse", self)
         self.browse_button.clicked.connect(self.browse_csv)
-        layout.addWidget(self.browse_button)
-
-        layout.addWidget(QLabel("Scripts runner", self))
-        self.scripts_runner_root_field = QLineEdit(DEFAULT_SCRIPTS_RUNNER_ROOT, self)
-        layout.addWidget(self.scripts_runner_root_field, stretch=1)
+        csv_row.addWidget(self.browse_button)
+        form.addRow("CSV file", csv_row)
 
         self.stop_after_record_check = QCheckBox("Stop after record", self)
         self.stop_after_record_check.setChecked(True)
-        layout.addWidget(self.stop_after_record_check)
+        form.addRow("", self.stop_after_record_check)
 
         parent.addWidget(group)
+        self._reserve_group_height(group)
 
-    def _build_live_panel(self, parent: QVBoxLayout) -> None:
-        group = QGroupBox("Live Reading", self)
+    def _build_kpi_panel(self, parent: QVBoxLayout) -> None:
+        group = QGroupBox("Monitor", self)
         layout = QGridLayout(group)
+        layout.setHorizontalSpacing(8)
 
-        self.power_label = QLabel("-- W", self)
-        self.power_label.setStyleSheet("font-size: 32px; font-weight: 700;")
-        self.peak_label = QLabel("-- nm", self)
-        self.peak_label.setStyleSheet("font-size: 32px; font-weight: 700;")
-        self.centroid_label = QLabel("Centroid: -- nm", self)
-        self.fwhm_label = QLabel("FWHM: -- nm", self)
-        self.stability_label = QLabel("Stability: waiting", self)
-        self.record_label = QLabel("Record: --", self)
+        self.power_card_value, _power_detail = self._add_kpi_card(layout, 0, "Power", "-- W", "")
+        self.peak_card_value, _peak_detail = self._add_kpi_card(layout, 1, "Peak wavelength", "-- nm", "")
+        self.fwhm_card_value, self.centroid_label = self._add_kpi_card(
+            layout,
+            2,
+            "FWHM / Centroid",
+            "-- nm",
+            "Centroid: -- nm",
+        )
+        self.stability_card_value, self.stability_detail_label = self._add_kpi_card(
+            layout,
+            3,
+            "Stability",
+            "Waiting",
+            "span -- W / -- s",
+        )
+        self.record_card_value, self.record_detail_label = self._add_kpi_card(layout, 4, "Record", "--", "")
 
-        layout.addWidget(QLabel("Power", self), 0, 0)
-        layout.addWidget(self.power_label, 1, 0)
-        layout.addWidget(QLabel("Peak wavelength", self), 0, 1)
-        layout.addWidget(self.peak_label, 1, 1)
-        layout.addWidget(self.centroid_label, 2, 0)
-        layout.addWidget(self.fwhm_label, 2, 1)
-        layout.addWidget(self.stability_label, 3, 0)
-        layout.addWidget(self.record_label, 3, 1)
+        self.power_label = self.power_card_value
+        self.peak_label = self.peak_card_value
+        self.fwhm_label = self.fwhm_card_value
+        self.stability_label = self.stability_card_value
+        self.record_label = self.record_card_value
+        for column in range(5):
+            layout.setColumnStretch(column, 1)
 
         parent.addWidget(group)
+
+    def _add_kpi_card(self, parent: QGridLayout, column: int, title: str, value: str, detail: str) -> tuple[QLabel, QLabel]:
+        card = QWidget(self)
+        card.setStyleSheet(
+            "QWidget { background-color: #242424; border: 1px solid #555555; border-radius: 4px; }"
+            "QLabel { border: 0; background: transparent; }"
+        )
+        box = QVBoxLayout(card)
+        box.setContentsMargins(10, 8, 10, 8)
+        box.setSpacing(3)
+
+        title_label = QLabel(title, self)
+        title_label.setStyleSheet("color: #bdbdbd; font-size: 13px;")
+        value_label = QLabel(value, self)
+        value_label.setStyleSheet("font-size: 26px; font-weight: 700;")
+        value_label.setWordWrap(True)
+        detail_label = QLabel(detail, self)
+        detail_label.setStyleSheet("color: #d0d0d0; font-size: 12px;")
+        detail_label.setWordWrap(True)
+
+        box.addWidget(title_label)
+        box.addWidget(value_label)
+        box.addWidget(detail_label)
+        parent.addWidget(card, 0, column)
+        return value_label, detail_label
 
     def _build_curve_panel(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("Realtime Curves", self)
         layout = QGridLayout(group)
+        self.curves_layout = layout
 
         self.power_curve_figure = Figure(figsize=(5, 2.4), dpi=100)
         self.power_curve_canvas = FigureCanvas(self.power_curve_figure)
@@ -752,9 +904,10 @@ class MainWindow(QMainWindow):
         )
 
         layout.addWidget(self.power_curve_canvas, 0, 0)
-        layout.addWidget(self.spectrum_curve_canvas, 0, 1)
+        layout.addWidget(self.spectrum_curve_canvas, 1, 0)
+        layout.setRowStretch(0, 1)
+        layout.setRowStretch(1, 1)
         layout.setColumnStretch(0, 1)
-        layout.setColumnStretch(1, 1)
         parent.addWidget(group, stretch=2)
         self.reset_curves()
 
@@ -771,18 +924,58 @@ class MainWindow(QMainWindow):
         axis.grid(True, alpha=0.25, color="#aaaaaa")
         figure.tight_layout()
 
-    def _build_actions(self, parent: QVBoxLayout) -> None:
+    def _build_log_panel(self, parent: QVBoxLayout) -> None:
+        group = QGroupBox("Log", self)
+        layout = QVBoxLayout(group)
         row = QHBoxLayout()
+        self.log_text = QTextEdit(self)
+        self.log_text.setReadOnly(True)
+        self.log_text.setMinimumHeight(110)
+        self.log_text.setMaximumHeight(170)
+
         self.clear_log_button = QPushButton("Clear Log", self)
         self.clear_log_button.clicked.connect(self.log_text.clear)
         row.addWidget(self.clear_log_button)
         row.addStretch(1)
-        parent.addLayout(row)
+        layout.addLayout(row)
+
+        layout.addWidget(self.log_text)
+        parent.addWidget(group)
 
     def browse_csv(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self, "Save Combined Test CSV", self.csv_path_field.text(), "CSV Files (*.csv)")
         if path:
             self.csv_path_field.setText(path)
+            self.csv_path_field.setToolTip(path)
+
+    def start_all(self) -> None:
+        self.start_power_meter()
+        self.start_spectrometer()
+
+    def stop_all(self) -> None:
+        self.stop_power_meter()
+        self.stop_spectrometer()
+
+    def update_global_status(self) -> None:
+        if not hasattr(self, "global_status_label"):
+            return
+        psu_connected = self._manual_i2c_connected()
+        power_running = self.power_meter_reader is not None
+        spectrometer_running = self.spectrometer_reader is not None
+        power_detecting = self.power_meter_detect_thread is not None
+
+        self.global_status_label.setText("Test Running" if power_running or spectrometer_running else "Test Idle")
+        self.global_psu_status_label.setText("PSU: Connected" if psu_connected else "PSU: Disconnected")
+        if power_detecting:
+            self.global_power_meter_status_label.setText("PM: Detecting")
+        else:
+            self.global_power_meter_status_label.setText("PM: Running" if power_running else "PM: Stopped")
+        self.global_spectrometer_status_label.setText("SP: Running" if spectrometer_running else "SP: Stopped")
+
+        if hasattr(self, "power_meter_status_label"):
+            self.power_meter_status_label.setText("Detecting" if power_detecting else ("Running" if power_running else "Stopped"))
+        if hasattr(self, "spectrometer_status_label"):
+            self.spectrometer_status_label.setText("Running" if spectrometer_running else "Stopped")
 
     def update_i2c_address_info(self) -> None:
         try:
@@ -815,6 +1008,7 @@ class MainWindow(QMainWindow):
             self.connect_i2c_button.setText("Connect CH341")
             self.i2c_status_label.setText("Disconnected")
             self.add_log("CH341 disconnected")
+            self.update_global_status()
             return
 
         try:
@@ -825,6 +1019,7 @@ class MainWindow(QMainWindow):
             self.connect_i2c_button.setText("Disconnect CH341")
             self.i2c_status_label.setText("Connected")
             self.add_log(f"CH341 connected: {detail}")
+            self.update_global_status()
         except Exception as exc:
             QMessageBox.critical(self, "CH341", str(exc))
 
@@ -928,13 +1123,12 @@ class MainWindow(QMainWindow):
 
     def auto_detect_spectrometers(self) -> None:
         try:
-            root = self._scripts_runner_root_from_field()
-            OceanSpectrometer, _calculate_stats = load_spectrometer_components(root)
+            OceanSpectrometer, _calculate_stats = load_spectrometer_components(None)
 
             device_ids = OceanSpectrometer.detect()
             self.spectrometer_combo.clear()
+            self.spectrometer_combo.addItem("Auto select first Ocean Insight", None)
             if not device_ids:
-                self.spectrometer_combo.addItem("Auto select first Ocean Insight", None)
                 QMessageBox.warning(
                     self,
                     "Spectrometer Auto Detect",
@@ -966,7 +1160,6 @@ class MainWindow(QMainWindow):
             stable_tolerance_w=self.stable_tolerance_spin.value(),
             csv_path=Path(self.csv_path_field.text()).expanduser(),
             stop_after_record=self.stop_after_record_check.isChecked(),
-            scripts_runner_root=self._scripts_runner_root_from_field(),
             spectrometer_device_id=self._selected_spectrometer_device_id(),
         )
 
@@ -982,12 +1175,6 @@ class MainWindow(QMainWindow):
             return option.device_id
         return None
 
-    def _scripts_runner_root_from_field(self) -> Path | None:
-        text = self.scripts_runner_root_field.text().strip()
-        if not text:
-            return None
-        return Path(text).expanduser()
-
     def collect_power_meter_settings(self) -> PowerMeterSettings:
         return PowerMeterSettings(
             resource=self._selected_power_resource(),
@@ -1002,7 +1189,6 @@ class MainWindow(QMainWindow):
         return SpectrometerSettings(
             integration_time_us=self.integration_spin.value(),
             interval_ms=self.interval_spin.value(),
-            scripts_runner_root=self._scripts_runner_root_from_field(),
             device_id=self._selected_spectrometer_device_id(),
         )
 
@@ -1062,25 +1248,31 @@ class MainWindow(QMainWindow):
             self.spectrometer_reader.stop()
             self.spectrometer_reader.wait(3000)
 
+    def update_stability_card(self, stable: bool, span_w: float, covered_window_s: float) -> None:
+        target_window_s = self.stable_window_spin.value() if hasattr(self, "stable_window_spin") else 0.0
+        tolerance_w = self.stable_tolerance_spin.value() if hasattr(self, "stable_tolerance_spin") else 0.0
+        self.stability_label.setText("Stable" if stable else "Waiting")
+        self.stability_detail_label.setText(
+            f"{covered_window_s:.2f} / {target_window_s:.2f} s\n"
+            f"span {span_w:.4f} W <= {tolerance_w:.4f} W"
+        )
+
     def on_power_meter_reading(self, reading: PowerMeterReading) -> None:
         self.power_label.setText(f"{reading.power_w:.3f} W")
-        state = "stable" if reading.stable else "waiting"
-        self.stability_label.setText(
-            f"Stability: {state}, span {reading.stable_span_w:.4f} W / {reading.stable_window_s:.2f} s"
-        )
+        self.update_stability_card(reading.stable, reading.stable_span_w, reading.stable_window_s)
         self.update_power_curve(reading.elapsed_s, reading.power_w)
 
     def on_spectrometer_reading(self, reading: SpectrometerReading) -> None:
         self.peak_label.setText(f"{reading.peak_wavelength_nm:.3f} nm")
         self.centroid_label.setText(f"Centroid: {self._format_optional(reading.centroid_nm)} nm")
-        self.fwhm_label.setText(f"FWHM: {self._format_optional(reading.fwhm_nm)} nm")
+        self.fwhm_label.setText(f"{self._format_optional(reading.fwhm_nm)} nm")
         self.update_spectrum_center_lock(reading)
 
     def on_live_reading(self, reading: LiveReading) -> None:
         self.power_label.setText(f"{reading.power_w:.3f} W")
         self.peak_label.setText(f"{reading.peak_wavelength_nm:.3f} nm")
         self.centroid_label.setText(f"Centroid: {self._format_optional(reading.centroid_nm)} nm")
-        self.fwhm_label.setText(f"FWHM: {self._format_optional(reading.fwhm_nm)} nm")
+        self.fwhm_label.setText(f"{self._format_optional(reading.fwhm_nm)} nm")
         self.update_spectrum_center_lock(
             SpectrometerReading(
                 peak_wavelength_nm=reading.peak_wavelength_nm,
@@ -1088,17 +1280,12 @@ class MainWindow(QMainWindow):
                 fwhm_nm=reading.fwhm_nm,
             )
         )
-        state = "stable" if reading.stable else "waiting"
-        self.stability_label.setText(
-            f"Stability: {state}, span {reading.stable_span_w:.4f} W / {reading.stable_window_s:.2f} s"
-        )
+        self.update_stability_card(reading.stable, reading.stable_span_w, reading.stable_window_s)
         self.update_power_curve(reading.elapsed_s, reading.power_w)
 
     def on_recorded(self, timestamp: str, measurement: CombinedMeasurement) -> None:
-        self.record_label.setText(
-            f"Record: {timestamp}, Iout {measurement.output_current_a:.3f} A, "
-            f"Vout {measurement.output_voltage_v:.3f} V"
-        )
+        self.record_label.setText(timestamp)
+        self.record_detail_label.setText(f"Iout {measurement.output_current_a:.3f} A, Vout {measurement.output_voltage_v:.3f} V")
         self.add_log(
             "Recorded stable point: "
             f"set {measurement.set_current_a} A, "
@@ -1132,6 +1319,9 @@ class MainWindow(QMainWindow):
         self.spectrum_center_candidate_nm = None
         self.spectrum_center_candidate_count = 0
         self.spectrum_center_locked_nm = None
+        self.spectrum_y_axis_limits = None
+        self.clear_spectrum_peak_annotation_artists()
+        self.spectrum_peak_annotations = []
         self.spectrum_curve_line.set_data([], [])
         self.spectrum_curve_axis.set_xlim(0, 1)
         self.spectrum_curve_axis.set_ylim(0, 1)
@@ -1169,6 +1359,8 @@ class MainWindow(QMainWindow):
             if math.isfinite(x) and math.isfinite(y):
                 points.append((x, y))
         if not points:
+            self.clear_spectrum_peak_annotation_artists()
+            self.spectrum_peak_annotations = []
             return
 
         x_values = [item[0] for item in points]
@@ -1183,16 +1375,118 @@ class MainWindow(QMainWindow):
             y_min = min(visible_y_values)
             y_max = max(visible_y_values)
             x_pad = 0.0
+            visible_points = [(x, y) for x, y in points if x_min <= x <= x_max] or points
         else:
             x_min = min(x_values)
             x_max = max(x_values)
             y_min = min(y_values)
             y_max = max(y_values)
             x_pad = self._axis_padding(x_min, x_max, fallback=1.0)
-        y_pad = self._axis_padding(y_min, y_max, fallback=1.0)
+            visible_points = points
+        stable_y_min, stable_y_max = self._stable_spectrum_y_limits(y_min, y_max)
         self.spectrum_curve_axis.set_xlim(x_min - x_pad, x_max + x_pad)
-        self.spectrum_curve_axis.set_ylim(y_min - y_pad, y_max + y_pad)
+        self.spectrum_curve_axis.set_ylim(stable_y_min, stable_y_max)
+        self.spectrum_peak_annotations = find_spectrum_peak_annotations(visible_points)
+        self.draw_spectrum_peak_annotations(self.spectrum_peak_annotations)
         self.spectrum_curve_canvas.draw_idle()
+
+    def _stable_spectrum_y_limits(self, y_min: float, y_max: float) -> tuple[float, float]:
+        y_pad = self._axis_padding(y_min, y_max, fallback=1.0)
+        desired_min = float(y_min) - y_pad
+        desired_max = float(y_max) + y_pad
+        if self.spectrum_y_axis_limits is None:
+            self.spectrum_y_axis_limits = (desired_min, desired_max)
+            return self.spectrum_y_axis_limits
+
+        current_min, current_max = self.spectrum_y_axis_limits
+        stable_min = min(current_min, desired_min)
+        stable_max = max(current_max, desired_max)
+        self.spectrum_y_axis_limits = (stable_min, stable_max)
+        return self.spectrum_y_axis_limits
+
+    def clear_spectrum_peak_annotation_artists(self) -> None:
+        for artist in self.spectrum_peak_annotation_artists:
+            try:
+                artist.remove()
+            except Exception:
+                pass
+        self.spectrum_peak_annotation_artists.clear()
+
+    def draw_spectrum_peak_annotations(self, annotations: list[SpectrumPeakAnnotation]) -> None:
+        self.clear_spectrum_peak_annotation_artists()
+        x_min, x_max = self.spectrum_curve_axis.get_xlim()
+        y_min, y_max = self.spectrum_curve_axis.get_ylim()
+        x_span = max(x_max - x_min, 1.0)
+        y_span = max(y_max - y_min, 1.0)
+        label_y_limit = y_min + y_span * 0.92
+        label_y_offset = y_span * 0.05
+        label_y_min = y_min + y_span * 0.08
+        min_label_gap = y_span * 0.08
+        min_label_x_gap = x_span * 0.04
+        split_side_threshold = x_span * 0.05
+        occupied_labels: list[tuple[float, float, float]] = []
+        for index, annotation in enumerate(annotations):
+            line = self.spectrum_curve_axis.axvline(
+                annotation.centroid_nm,
+                color="#7dd3fc",
+                linestyle=":",
+                linewidth=0.7,
+                alpha=0.45,
+            )
+            marker = self.spectrum_curve_axis.plot(
+                [annotation.centroid_nm],
+                [annotation.peak_intensity],
+                marker="o",
+                color="#7dd3fc",
+                markersize=3,
+                linewidth=0,
+                alpha=0.85,
+            )[0]
+            nearby_centroids = [
+                item.centroid_nm
+                for item in annotations
+                if item is not annotation and abs(item.centroid_nm - annotation.centroid_nm) <= split_side_threshold
+            ]
+            if nearby_centroids:
+                nearest_centroid = min(nearby_centroids, key=lambda centroid: abs(centroid - annotation.centroid_nm))
+                right_side = annotation.centroid_nm > nearest_centroid
+            else:
+                right_side = annotation.centroid_nm <= x_min + x_span * 0.72
+            x_offset = x_span * (0.012 + index * 0.004)
+            label_x = annotation.centroid_nm + x_offset if right_side else annotation.centroid_nm - x_offset
+            label_x = min(max(label_x, x_min + x_span * 0.02), x_max - x_span * 0.02)
+            label_y = min(max(annotation.peak_intensity + label_y_offset, label_y_min), label_y_limit)
+            close_x_threshold = x_span * 0.15
+            for occupied_centroid_nm, occupied_x, occupied_y in occupied_labels:
+                if (
+                    abs(annotation.centroid_nm - occupied_centroid_nm) <= close_x_threshold
+                    and abs(label_y - occupied_y) < min_label_gap
+                ):
+                    if occupied_y + min_label_gap <= label_y_limit:
+                        label_y = occupied_y + min_label_gap
+                    else:
+                        label_y = max(label_y_min, occupied_y - min_label_gap)
+                if (
+                    abs(annotation.centroid_nm - occupied_centroid_nm) <= close_x_threshold
+                    and abs(label_x - occupied_x) < min_label_x_gap
+                ):
+                    if right_side:
+                        label_x = occupied_x + min_label_x_gap
+                    else:
+                        label_x = occupied_x - min_label_x_gap
+                    label_x = min(max(label_x, x_min + x_span * 0.02), x_max - x_span * 0.02)
+            occupied_labels.append((annotation.centroid_nm, label_x, label_y))
+            text = self.spectrum_curve_axis.text(
+                label_x,
+                label_y,
+                f"{annotation.label} {annotation.centroid_nm:.3f} nm",
+                ha="left" if right_side else "right",
+                va="bottom",
+                fontsize=7,
+                color="#f7f7f7",
+                alpha=0.9,
+            )
+            self.spectrum_peak_annotation_artists.extend([line, marker, text])
 
     def update_spectrum_center_lock(self, reading: SpectrometerReading) -> None:
         if self.spectrum_center_locked_nm is not None:
@@ -1301,6 +1595,8 @@ class MainWindow(QMainWindow):
 
     def set_power_meter_running_state(self, running: bool) -> None:
         detecting = self.power_meter_detect_thread is not None
+        self.start_power_meter_button.setHidden(running)
+        self.stop_power_meter_button.setHidden(not running)
         self.start_power_meter_button.setEnabled(not running and not detecting)
         self.stop_power_meter_button.setEnabled(running)
         self.detect_power_meter_button.setEnabled(not running and not detecting)
@@ -1311,9 +1607,12 @@ class MainWindow(QMainWindow):
         self.power_wavelength_spin.setEnabled(not running and not detecting)
         self.software_gain_spin.setEnabled(not running and not detecting)
         self.power_meter_interval_spin.setEnabled(not running and not detecting)
+        self.update_global_status()
 
     def set_power_meter_detecting_state(self, detecting: bool) -> None:
         running = self.power_meter_reader is not None
+        self.start_power_meter_button.setHidden(running)
+        self.stop_power_meter_button.setHidden(not running)
         self.start_power_meter_button.setEnabled(not running and not detecting)
         self.stop_power_meter_button.setEnabled(running)
         self.detect_power_meter_button.setEnabled(not running and not detecting)
@@ -1324,15 +1623,18 @@ class MainWindow(QMainWindow):
         self.power_wavelength_spin.setEnabled(not running and not detecting)
         self.software_gain_spin.setEnabled(not running and not detecting)
         self.power_meter_interval_spin.setEnabled(not running and not detecting)
+        self.update_global_status()
 
     def set_spectrometer_running_state(self, running: bool) -> None:
+        self.start_spectrometer_button.setHidden(running)
+        self.stop_spectrometer_button.setHidden(not running)
         self.start_spectrometer_button.setEnabled(not running)
         self.stop_spectrometer_button.setEnabled(running)
         self.detect_spectrometer_button.setEnabled(not running)
         self.spectrometer_combo.setEnabled(not running)
         self.integration_spin.setEnabled(not running)
         self.interval_spin.setEnabled(not running)
-        self.scripts_runner_root_field.setEnabled(not running)
+        self.update_global_status()
 
     def add_log(self, message: str) -> None:
         timestamp = datetime.now().strftime("%H:%M:%S")

@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
-import math
 import sys
-from dataclasses import dataclass
 
 import numpy as np
 from numpy.typing import NDArray
@@ -31,38 +29,12 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
-from application.models.device_models.ocean_direct_control import OceanDirectControl
-from application.models.device_models.spectrum_process import (
-    calculate_central,
-    calculate_centroid,
-    calculate_fwhm,
-)
+from ocean_direct_adapter import OceanDirectControl
+from spectrum_math import SpectrumStats, calculate_stats
 
 
-DEFAULT_INTEGRATION_TIME_US = 3800
+DEFAULT_INTEGRATION_TIME_US = 10000
 DEFAULT_INTERVAL_MS = 100
-
-
-@dataclass(frozen=True)
-class SpectrumStats:
-    peak_wavelength_nm: float
-    peak_intensity: float
-    centroid_nm: float
-    fwhm_nm: float
-
-
-def calculate_stats(wavelength: NDArray[np.float64], intensity: NDArray[np.float64]) -> SpectrumStats:
-    if wavelength.size == 0 or intensity.size == 0 or wavelength.size != intensity.size:
-        return SpectrumStats(math.nan, math.nan, math.nan, math.nan)
-
-    peak_index = int(np.argmax(intensity))
-    peak_wavelength = float(wavelength[peak_index])
-    peak_intensity = float(intensity[peak_index])
-    central = float(calculate_central(wavelength, intensity))
-    centroid = float(calculate_centroid(wavelength, intensity))
-    fwhm = float(calculate_fwhm(wavelength, intensity))
-
-    return SpectrumStats(peak_wavelength, peak_intensity, centroid, fwhm)
 
 
 def spectrum_to_csv(wavelength: NDArray[np.float64], intensity: NDArray[np.float64]) -> str:
