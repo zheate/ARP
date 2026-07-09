@@ -63,6 +63,26 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(settings.spectrometer_device_id, 321)
         window.close()
 
+    def test_main_window_exposes_manual_device_action_buttons(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        for attribute in (
+            "connect_i2c_button",
+            "read_input_voltage_button",
+            "read_output_voltage_button",
+            "read_output_current_button",
+            "apply_current_button",
+            "refresh_power_meter_button",
+            "rel_zero_on_button",
+            "rel_zero_off_button",
+            "copy_spectrum_button",
+            "save_spectrum_button",
+        ):
+            self.assertTrue(hasattr(window, attribute), attribute)
+
+        window.close()
+
 
 class DeviceOptionTests(unittest.TestCase):
     def test_power_meter_option_label_includes_model_resource_and_detail(self) -> None:

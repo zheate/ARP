@@ -182,6 +182,7 @@ def read_power_status_value(ch341_controller: Any, i2c_address: int, command: li
 class CombinedTestThread(QThread):
     live = Signal(object)
     recorded = Signal(str, object)
+    spectrum = Signal(object, object)
     status = Signal(str)
     failed = Signal(str)
 
@@ -266,6 +267,7 @@ class CombinedTestThread(QThread):
                 elapsed = time.monotonic() - start
                 power_w = meter.read_power_w() * self.settings.software_gain
                 wavelength, intensity = spectrometer.read_spectrum()
+                self.spectrum.emit(wavelength, intensity)
                 stats = calculate_stats(wavelength, intensity)
                 stability = detector.add_sample(elapsed, power_w)
 
@@ -335,6 +337,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Combined Power / Power Meter / Wavelength Test")
         self.resize(1180, 760)
         self.worker: CombinedTestThread | None = None
+        self.manual_ch341_controller: Any | None = None
+        self.latest_spectrum_wavelength: Any | None = None
+        self.latest_spectrum_intensity: Any | None = None
 
         root = QWidget(self)
         self.setCentralWidget(root)
@@ -370,13 +375,18 @@ class MainWindow(QMainWindow):
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
         self.i2c_addr_field = QLineEdit("0x41", self)
+        self.i2c_addr_field.textChanged.connect(self.update_i2c_address_info)
         form.addRow("I2C address", self.i2c_addr_field)
+
+        self.i2c_address_info_label = QLabel("", self)
+        form.addRow("", self.i2c_address_info_label)
 
         self.i2c_speed_combo = QComboBox(self)
         self.i2c_speed_combo.addItem("20 KHz", 0)
         self.i2c_speed_combo.addItem("100 KHz", 1)
         self.i2c_speed_combo.addItem("400 KHz", 2)
         self.i2c_speed_combo.addItem("750 KHz", 3)
+        self.i2c_speed_combo.currentIndexChanged.connect(self.on_i2c_speed_changed)
         form.addRow("I2C speed", self.i2c_speed_combo)
 
         self.set_current_spin = QSpinBox(self)
@@ -385,7 +395,31 @@ class MainWindow(QMainWindow):
         self.set_current_spin.setSuffix(" A")
         form.addRow("Set current", self.set_current_spin)
 
+        self.connect_i2c_button = QPushButton("Connect CH341", self)
+        self.connect_i2c_button.clicked.connect(self.connect_i2c_device)
+        form.addRow("", self.connect_i2c_button)
+
+        self.i2c_status_label = QLabel("Disconnected", self)
+        form.addRow("Status", self.i2c_status_label)
+
+        read_row = QHBoxLayout()
+        self.read_input_voltage_button = QPushButton("Read Vin", self)
+        self.read_output_voltage_button = QPushButton("Read Vout", self)
+        self.read_output_current_button = QPushButton("Read Iout", self)
+        self.read_input_voltage_button.clicked.connect(self.read_input_voltage)
+        self.read_output_voltage_button.clicked.connect(self.read_output_voltage)
+        self.read_output_current_button.clicked.connect(self.read_output_current)
+        read_row.addWidget(self.read_input_voltage_button)
+        read_row.addWidget(self.read_output_voltage_button)
+        read_row.addWidget(self.read_output_current_button)
+        form.addRow("", read_row)
+
+        self.apply_current_button = QPushButton("Apply Current", self)
+        self.apply_current_button.clicked.connect(self.apply_output_current)
+        form.addRow("", self.apply_current_button)
+
         parent.addWidget(group, 0, column)
+        self.update_i2c_address_info()
 
     def _build_power_meter_group(self, parent: QGridLayout, column: int) -> None:
         group = QGroupBox("Power Meter", self)
@@ -400,6 +434,18 @@ class MainWindow(QMainWindow):
         self.detect_power_meter_button = QPushButton("Auto Detect Power Meters", self)
         self.detect_power_meter_button.clicked.connect(self.auto_detect_power_meters)
         form.addRow("", self.detect_power_meter_button)
+
+        power_actions = QHBoxLayout()
+        self.refresh_power_meter_button = QPushButton("Refresh Ports", self)
+        self.rel_zero_on_button = QPushButton("REL Zero On", self)
+        self.rel_zero_off_button = QPushButton("REL Zero Off", self)
+        self.refresh_power_meter_button.clicked.connect(self.refresh_power_meter_resources)
+        self.rel_zero_on_button.clicked.connect(lambda: self.set_power_meter_relative_zero(True))
+        self.rel_zero_off_button.clicked.connect(lambda: self.set_power_meter_relative_zero(False))
+        power_actions.addWidget(self.refresh_power_meter_button)
+        power_actions.addWidget(self.rel_zero_on_button)
+        power_actions.addWidget(self.rel_zero_off_button)
+        form.addRow("", power_actions)
 
         self.power_wavelength_spin = QSpinBox(self)
         self.power_wavelength_spin.setRange(190, 25000)
@@ -441,6 +487,17 @@ class MainWindow(QMainWindow):
         self.interval_spin.setSingleStep(50)
         self.interval_spin.setSuffix(" ms")
         form.addRow("Interval", self.interval_spin)
+
+        spectrum_actions = QHBoxLayout()
+        self.copy_spectrum_button = QPushButton("Copy Spectrum CSV", self)
+        self.save_spectrum_button = QPushButton("Save Spectrum CSV", self)
+        self.copy_spectrum_button.setEnabled(False)
+        self.save_spectrum_button.setEnabled(False)
+        self.copy_spectrum_button.clicked.connect(self.copy_spectrum_csv)
+        self.save_spectrum_button.clicked.connect(self.save_spectrum_csv)
+        spectrum_actions.addWidget(self.copy_spectrum_button)
+        spectrum_actions.addWidget(self.save_spectrum_button)
+        form.addRow("", spectrum_actions)
 
         parent.addWidget(group, 0, column)
 
@@ -525,6 +582,136 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(self, "Save Combined Test CSV", self.csv_path_field.text(), "CSV Files (*.csv)")
         if path:
             self.csv_path_field.setText(path)
+
+    def update_i2c_address_info(self) -> None:
+        try:
+            address = parse_i2c_address(self.i2c_addr_field.text())
+        except Exception as exc:
+            self.i2c_address_info_label.setText(str(exc))
+            return
+        write_address = (address << 1) & 0xFE
+        read_address = (address << 1) | 0x01
+        self.i2c_address_info_label.setText(f"Write 0x{write_address:02X}, read 0x{read_address:02X}")
+
+    def on_i2c_speed_changed(self) -> None:
+        if self.manual_ch341_controller is not None and getattr(self.manual_ch341_controller, "is_connected", False):
+            if not self.manual_ch341_controller.set_i2c_speed(int(self.i2c_speed_combo.currentData())):
+                self.add_log("Failed to update CH341 I2C speed")
+
+    def _manual_i2c_connected(self) -> bool:
+        return self.manual_ch341_controller is not None and bool(getattr(self.manual_ch341_controller, "is_connected", False))
+
+    def _get_manual_ch341_controller(self) -> Any:
+        if self.manual_ch341_controller is None:
+            controller_class = load_legacy_ch341_controller_class()
+            self.manual_ch341_controller = controller_class()
+        return self.manual_ch341_controller
+
+    def connect_i2c_device(self) -> None:
+        controller = self._get_manual_ch341_controller()
+        if self._manual_i2c_connected():
+            controller.disconnect_device()
+            self.connect_i2c_button.setText("Connect CH341")
+            self.i2c_status_label.setText("Disconnected")
+            self.add_log("CH341 disconnected")
+            return
+
+        try:
+            controller.set_i2c_speed(int(self.i2c_speed_combo.currentData()))
+            connected, detail = controller.connect_device(0)
+            if not connected:
+                raise RuntimeError(str(detail))
+            self.connect_i2c_button.setText("Disconnect CH341")
+            self.i2c_status_label.setText("Connected")
+            self.add_log(f"CH341 connected: {detail}")
+        except Exception as exc:
+            QMessageBox.critical(self, "CH341", str(exc))
+
+    def _require_manual_i2c_controller(self) -> Any | None:
+        if not self._manual_i2c_connected():
+            QMessageBox.warning(self, "CH341", "Connect CH341 first.")
+            return None
+        return self.manual_ch341_controller
+
+    def read_input_voltage(self) -> None:
+        self.execute_i2c_read([0xB4, 0x88, 0x00, 0x00], "Input voltage", "V")
+
+    def read_output_voltage(self) -> None:
+        self.execute_i2c_read([0xB4, 0x8B, 0x00, 0x00], "Output voltage", "V")
+
+    def read_output_current(self) -> None:
+        self.execute_i2c_read([0xB4, 0x8C, 0x00, 0x00], "Output current", "A")
+
+    def execute_i2c_read(self, command: list[int], name: str, unit: str) -> None:
+        controller = self._require_manual_i2c_controller()
+        if controller is None:
+            return
+        try:
+            value = read_power_status_value(controller, parse_i2c_address(self.i2c_addr_field.text()), command)
+            raw_command = " ".join(f"{item:02X}" for item in command)
+            self.add_log(f"{name}: {value:.2f} {unit} ({raw_command})")
+            self.statusBar().showMessage(f"{name}: {value:.2f} {unit}")
+        except Exception as exc:
+            QMessageBox.critical(self, name, str(exc))
+
+    def apply_output_current(self) -> None:
+        controller = self._require_manual_i2c_controller()
+        if controller is None:
+            return
+        try:
+            command = build_set_current_command(self.set_current_spin.value())
+            success, result = controller.i2c_write(parse_i2c_address(self.i2c_addr_field.text()), command)
+            if not success:
+                raise RuntimeError(str(result))
+            raw_command = " ".join(f"{item:02X}" for item in command)
+            self.add_log(f"Output current set to {self.set_current_spin.value()} A ({raw_command})")
+            self.statusBar().showMessage(f"Output current set to {self.set_current_spin.value()} A")
+        except Exception as exc:
+            QMessageBox.critical(self, "Apply Current", str(exc))
+
+    def refresh_power_meter_resources(self) -> None:
+        current = self.power_meter_combo.currentText().strip()
+        try:
+            import pyvisa
+
+            rm = pyvisa.ResourceManager()
+            try:
+                resources = sorted(str(item) for item in rm.list_resources() if str(item).startswith("ASRL"))
+            finally:
+                rm.close()
+            self.power_meter_combo.clear()
+            self.power_meter_combo.addItems(resources)
+            if current:
+                index = self.power_meter_combo.findText(current)
+                if index >= 0:
+                    self.power_meter_combo.setCurrentIndex(index)
+                else:
+                    self.power_meter_combo.setEditText(current)
+            elif resources:
+                self.power_meter_combo.setCurrentIndex(0)
+            self.statusBar().showMessage(f"Found {len(resources)} serial resource(s)")
+            self.add_log(f"Found {len(resources)} serial resource(s)")
+        except Exception as exc:
+            QMessageBox.critical(self, "Refresh Ports", str(exc))
+
+    def set_power_meter_relative_zero(self, enabled: bool) -> None:
+        resource = self._selected_power_resource()
+        if not resource:
+            QMessageBox.warning(self, "REL Zero", "Select a power meter first.")
+            return
+        try:
+            from power_meter_mvp import CaihuangPowerMeter
+
+            meter = CaihuangPowerMeter(resource)
+            try:
+                meter.set_relative_zero(enabled)
+            finally:
+                meter.close()
+            state = "enabled" if enabled else "disabled"
+            self.statusBar().showMessage(f"REL zero {state}")
+            self.add_log(f"Power meter REL zero {state}")
+        except Exception as exc:
+            QMessageBox.critical(self, "REL Zero", str(exc))
 
     def auto_detect_power_meters(self) -> None:
         try:
@@ -640,12 +827,18 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Settings", "Power meter resource is empty.")
             return
 
+        if self._manual_i2c_connected():
+            self.manual_ch341_controller.disconnect_device()
+            self.connect_i2c_button.setText("Connect CH341")
+            self.i2c_status_label.setText("Disconnected")
+
         self.log_text.clear()
         self.record_label.setText("Record: --")
         self.add_log("Starting combined test")
         self.worker = CombinedTestThread(settings, self)
         self.worker.live.connect(self.on_live_reading)
         self.worker.recorded.connect(self.on_recorded)
+        self.worker.spectrum.connect(self.on_spectrum_curve)
         self.worker.status.connect(self.on_status)
         self.worker.failed.connect(self.on_failed)
         self.worker.finished.connect(self.on_finished)
@@ -683,6 +876,31 @@ class MainWindow(QMainWindow):
             f"spectrum {measurement.spectrum_csv_path}"
         )
 
+    def on_spectrum_curve(self, wavelength: Any, intensity: Any) -> None:
+        self.latest_spectrum_wavelength = wavelength
+        self.latest_spectrum_intensity = intensity
+        self.copy_spectrum_button.setEnabled(True)
+        self.save_spectrum_button.setEnabled(True)
+
+    def copy_spectrum_csv(self) -> None:
+        if self.latest_spectrum_wavelength is None or self.latest_spectrum_intensity is None:
+            return
+        output = spectrum_curve_to_rows(self.latest_spectrum_wavelength, self.latest_spectrum_intensity)
+        text = "\n".join(",".join(row) for row in output) + "\n"
+        QApplication.clipboard().setText(text)
+        self.statusBar().showMessage("Spectrum copied as CSV")
+        self.add_log("Spectrum copied as CSV")
+
+    def save_spectrum_csv(self) -> None:
+        if self.latest_spectrum_wavelength is None or self.latest_spectrum_intensity is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Save Spectrum CSV", "spectrum.csv", "CSV Files (*.csv)")
+        if not path:
+            return
+        save_spectrum_curve(Path(path), self.latest_spectrum_wavelength, self.latest_spectrum_intensity)
+        self.statusBar().showMessage(f"Saved {path}")
+        self.add_log(f"Saved spectrum CSV: {path}")
+
     def on_status(self, message: str) -> None:
         self.statusBar().showMessage(message)
         self.add_log(message)
@@ -703,6 +921,14 @@ class MainWindow(QMainWindow):
         self.browse_button.setEnabled(not running)
         self.detect_power_meter_button.setEnabled(not running)
         self.detect_spectrometer_button.setEnabled(not running)
+        self.connect_i2c_button.setEnabled(not running)
+        self.read_input_voltage_button.setEnabled(not running)
+        self.read_output_voltage_button.setEnabled(not running)
+        self.read_output_current_button.setEnabled(not running)
+        self.apply_current_button.setEnabled(not running)
+        self.refresh_power_meter_button.setEnabled(not running)
+        self.rel_zero_on_button.setEnabled(not running)
+        self.rel_zero_off_button.setEnabled(not running)
         self.power_meter_combo.setEnabled(not running)
         self.spectrometer_combo.setEnabled(not running)
 
@@ -718,6 +944,11 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self.stop_test()
+        if self.manual_ch341_controller is not None:
+            try:
+                self.manual_ch341_controller.disconnect_device()
+            except Exception:
+                pass
         super().closeEvent(event)
 
 
