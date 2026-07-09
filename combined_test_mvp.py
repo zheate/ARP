@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QStatusBar,
     QTextEdit,
@@ -56,6 +57,8 @@ DEFAULT_SCRIPTS_RUNNER_ROOT = os.environ.get("SCRIPTS_RUNNER_ROOT", r"E:\scripts
 PROJECT_ROOT = Path(__file__).resolve().parent
 MAX_CURVE_POINTS = 10000
 POWER_PLOT_HISTORY_S = 60.0
+CONTENT_MIN_WIDTH = 1280
+CONTENT_MIN_HEIGHT = 1120
 
 
 @dataclass(frozen=True)
@@ -349,8 +352,17 @@ class MainWindow(QMainWindow):
         self.power_curve_times: deque[float] = deque(maxlen=MAX_CURVE_POINTS)
         self.power_curve_values: deque[float] = deque(maxlen=MAX_CURVE_POINTS)
 
-        root = QWidget(self)
-        self.setCentralWidget(root)
+        self.scroll_area = QScrollArea(self)
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.setCentralWidget(self.scroll_area)
+
+        self.content_widget = QWidget(self.scroll_area)
+        self.content_widget.setMinimumSize(CONTENT_MIN_WIDTH, CONTENT_MIN_HEIGHT)
+        self.scroll_area.setWidget(self.content_widget)
+
+        root = self.content_widget
         main = QVBoxLayout(root)
         main.setContentsMargins(12, 12, 12, 12)
         main.setSpacing(10)

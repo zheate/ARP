@@ -5,7 +5,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QScrollArea
 
 from combined_test_mvp import (
     LiveReading,
@@ -46,6 +46,15 @@ class MainWindowTests(unittest.TestCase):
         window = MainWindow()
 
         self.assertIsNotNone(window.log_text)
+        window.close()
+
+    def test_main_window_uses_scroll_area_for_tall_layout(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        self.assertIsInstance(window.centralWidget(), QScrollArea)
+        self.assertGreaterEqual(window.content_widget.minimumHeight(), 1120)
+        self.assertGreaterEqual(window.content_widget.minimumWidth(), 1280)
         window.close()
 
     def test_main_window_exposes_realtime_curve_widgets(self) -> None:
