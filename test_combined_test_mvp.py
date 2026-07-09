@@ -101,6 +101,14 @@ class DeviceOptionTests(unittest.TestCase):
 
 
 class ScriptsRunnerPathTests(unittest.TestCase):
+    def test_sth_eb314_launcher_uses_named_conda_environment(self) -> None:
+        launcher = Path(__file__).resolve().parent / "run_combined_test_sth_eb314.bat"
+
+        self.assertTrue(launcher.exists())
+        content = launcher.read_text(encoding="utf-8")
+        self.assertIn("sth_eb314", content)
+        self.assertIn("combined_test_mvp.py", content)
+
     def test_add_scripts_runner_root_makes_application_importable(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
