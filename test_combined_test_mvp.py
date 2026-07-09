@@ -1,0 +1,116 @@
+import tempfile
+import sys
+import os
+import unittest
+from datetime import datetime
+from pathlib import Path
+
+from PySide6.QtWidgets import QApplication
+
+from combined_test_mvp import (
+    MainWindow,
+    PowerMeterOption,
+    SpectrometerOption,
+    add_scripts_runner_root,
+    build_spectrum_csv_path,
+    save_spectrum_curve,
+)
+
+
+class SpectrumCurveFileTests(unittest.TestCase):
+    def test_build_spectrum_csv_path_uses_main_csv_sibling_directory(self) -> None:
+        path = build_spectrum_csv_path(Path("records/main.csv"), datetime(2026, 7, 8, 12, 1, 2, 3456))
+
+        self.assertEqual(path, Path("records/main_spectra/spectrum_20260708_120102_003456.csv"))
+
+    def test_save_spectrum_curve_writes_full_wavelength_curve(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "curve.csv"
+
+            save_spectrum_curve(path, [975.1, 975.2], [100, 200.5])
+
+            self.assertEqual(
+                path.read_text(encoding="utf-8").splitlines(),
+                [
+                    "wavelength_nm,intensity",
+                    "975.100000,100.000000",
+                    "975.200000,200.500000",
+                ],
+            )
+
+
+class MainWindowTests(unittest.TestCase):
+    def test_main_window_can_be_constructed(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        self.assertIsNotNone(window.log_text)
+        window.close()
+
+    def test_collect_settings_uses_selected_detected_devices(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        power_option = PowerMeterOption("ASRL9::INSTR", "Caihuang CHLP-P", "OK")
+        spectrometer_option = SpectrometerOption(321)
+        window.power_meter_combo.clear()
+        window.power_meter_combo.addItem(power_option.label(), power_option)
+        window.spectrometer_combo.clear()
+        window.spectrometer_combo.addItem(spectrometer_option.label(), spectrometer_option)
+
+        settings = window.collect_settings()
+
+        self.assertEqual(settings.power_resource, "ASRL9::INSTR")
+        self.assertEqual(settings.spectrometer_device_id, 321)
+        window.close()
+
+
+class DeviceOptionTests(unittest.TestCase):
+    def test_power_meter_option_label_includes_model_resource_and_detail(self) -> None:
+        option = PowerMeterOption(
+            resource="ASRL4::INSTR",
+            device_type="Caihuang CHLP-P",
+            detail="OK, version 1.2",
+        )
+
+        self.assertEqual(option.label(), "Caihuang CHLP-P | ASRL4::INSTR | OK, version 1.2")
+
+    def test_spectrometer_option_label_includes_ocean_model_and_device_id(self) -> None:
+        option = SpectrometerOption(device_id=123)
+
+        self.assertEqual(option.label(), "Ocean Insight | device id 123")
+
+
+class ScriptsRunnerPathTests(unittest.TestCase):
+    def test_add_scripts_runner_root_makes_application_importable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            package_dir = root / "application" / "models" / "device_models"
+            package_dir.mkdir(parents=True)
+            (root / "application" / "__init__.py").write_text("", encoding="utf-8")
+            (root / "application" / "models" / "__init__.py").write_text("", encoding="utf-8")
+            (package_dir / "__init__.py").write_text("", encoding="utf-8")
+            (package_dir / "ocean_direct_control.py").write_text("class OceanDirectControl: pass\n", encoding="utf-8")
+
+            old_path = list(sys.path)
+            old_modules = dict(sys.modules)
+            old_cwd = Path.cwd()
+            try:
+                added = add_scripts_runner_root(root)
+
+                self.assertEqual(added, root.resolve())
+                self.assertEqual(Path(sys.path[0]), root.resolve())
+                self.assertEqual(Path.cwd(), Path(__file__).resolve().parent)
+                import application.models.device_models.ocean_direct_control as ocean_module
+
+                self.assertTrue(hasattr(ocean_module, "OceanDirectControl"))
+            finally:
+                os.chdir(old_cwd)
+                sys.path[:] = old_path
+                for name in list(sys.modules):
+                    if name.startswith("application"):
+                        sys.modules.pop(name, None)
+                sys.modules.update({key: value for key, value in old_modules.items() if key.startswith("application")})
+
+
+if __name__ == "__main__":
+    unittest.main()

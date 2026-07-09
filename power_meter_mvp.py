@@ -1,0 +1,438 @@
+from __future__ import annotations
+
+import math
+import sys
+import time
+from collections import deque
+from dataclasses import dataclass
+from typing import Deque
+
+import pyvisa
+from pyvisa import constants
+from PySide6.QtCore import QThread, Qt, Signal
+from PySide6.QtGui import QCloseEvent
+from PySide6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QDoubleSpinBox,
+    QFormLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QSpinBox,
+    QStatusBar,
+    QVBoxLayout,
+    QWidget,
+)
+
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
+from matplotlib.figure import Figure
+
+
+MAX_SAMPLES = 10000
+PLOT_HISTORY_S = 30.0
+PLOT_REFRESH_S = 0.2
+DEFAULT_RESOURCE = "ASRL3::INSTR"
+
+
+@dataclass(frozen=True)
+class ProbeResult:
+    resource: str
+    device_type: str
+    detail: str
+
+
+def normalize_resource(name: str) -> str:
+    value = name.strip().upper()
+    if value.startswith("COM") and value[3:].isdigit():
+        return f"ASRL{value[3:]}::INSTR"
+    return value
+
+
+def configure_caihuang(inst: pyvisa.resources.Resource) -> None:
+    inst.timeout = 1000
+    inst.write_termination = "\r\n"
+    inst.read_termination = "\r\n"
+    if hasattr(inst, "baud_rate"):
+        inst.baud_rate = 9600
+        inst.data_bits = 8
+        inst.parity = constants.Parity.none
+        inst.stop_bits = constants.StopBits.one
+
+
+def parse_power_w(raw: str) -> float:
+    text = raw.strip()
+    if text.upper() == "OVERFLOW":
+        raise RuntimeError("power meter overflow")
+    value = float(text)
+    if not math.isfinite(value):
+        raise RuntimeError(f"invalid power value: {text}")
+    return value
+
+
+class CaihuangPowerMeter:
+    device_type = "Caihuang CHLP-P"
+
+    def __init__(self, resource: str) -> None:
+        self.resource = normalize_resource(resource)
+        self.rm = pyvisa.ResourceManager()
+        self.inst = self.rm.open_resource(self.resource)
+        configure_caihuang(self.inst)
+
+    @staticmethod
+    def probe(resource: str) -> ProbeResult | None:
+        rm = pyvisa.ResourceManager()
+        inst = None
+        try:
+            inst = rm.open_resource(normalize_resource(resource))
+            configure_caihuang(inst)
+            reply = inst.query("$TES").strip()
+            if reply == "OK":
+                detail = "OK"
+                try:
+                    version = inst.query("$VER").strip()
+                    if version:
+                        detail = f"OK, version {version}"
+                except Exception:
+                    pass
+                return ProbeResult(normalize_resource(resource), CaihuangPowerMeter.device_type, detail)
+        except Exception:
+            return None
+        finally:
+            if inst is not None:
+                try:
+                    inst.close()
+                except Exception:
+                    pass
+            rm.close()
+        return None
+
+    def test(self) -> str:
+        return self.inst.query("$TES").strip()
+
+    def set_wavelength(self, wavelength_nm: int) -> None:
+        reply = self.inst.query(f"$WAV={wavelength_nm}").strip()
+        if reply != "SUCCEED":
+            raise RuntimeError(f"set wavelength failed: {reply}")
+
+    def read_power_w(self) -> float:
+        return parse_power_w(self.inst.query("$POW"))
+
+    def set_relative_zero(self, enabled: bool) -> None:
+        reply = self.inst.query(f"$REL={1 if enabled else 0}").strip()
+        if reply != "SUCCEED":
+            raise RuntimeError(f"set relative zero failed: {reply}")
+
+    def close(self) -> None:
+        self.inst.close()
+        self.rm.close()
+
+
+class PowerReaderThread(QThread):
+    sample = Signal(float, float)
+    status = Signal(str)
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        resource: str,
+        wavelength_nm: int,
+        software_gain: float,
+        interval_ms: int,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.resource = resource
+        self.wavelength_nm = wavelength_nm
+        self.software_gain = software_gain
+        self.interval_ms = interval_ms
+        self._running = False
+
+    def stop(self) -> None:
+        self._running = False
+
+    def run(self) -> None:
+        meter: CaihuangPowerMeter | None = None
+        try:
+            meter = CaihuangPowerMeter(self.resource)
+            if meter.test() != "OK":
+                raise RuntimeError("device test did not return OK")
+            meter.set_wavelength(self.wavelength_nm)
+            self.status.emit(f"Connected: {meter.device_type} on {normalize_resource(self.resource)}")
+            start = time.monotonic()
+            self._running = True
+            while self._running:
+                power = round(meter.read_power_w() * self.software_gain, 2)
+                self.sample.emit(time.monotonic() - start, power)
+                self.msleep(self.interval_ms)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+        finally:
+            if meter is not None:
+                try:
+                    meter.close()
+                except Exception:
+                    pass
+
+
+class MainWindow(QMainWindow):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWindowTitle("Power Meter MVP")
+        self.resize(1100, 720)
+
+        self.rm = pyvisa.ResourceManager()
+        self.reader: PowerReaderThread | None = None
+        self.times: Deque[float] = deque(maxlen=MAX_SAMPLES)
+        self.powers: Deque[float] = deque(maxlen=MAX_SAMPLES)
+        self.sample_count = 0
+        self.last_plot_update = 0.0
+
+        root = QWidget(self)
+        self.setCentralWidget(root)
+        layout = QVBoxLayout(root)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+
+        top = QHBoxLayout()
+        top.setSpacing(8)
+        layout.addLayout(top)
+
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        top.addLayout(form, stretch=1)
+
+        self.resource_combo = QComboBox(self)
+        self.resource_combo.setEditable(True)
+        form.addRow("Resource", self.resource_combo)
+
+        self.device_field = QLineEdit(self)
+        self.device_field.setReadOnly(True)
+        form.addRow("Detected", self.device_field)
+
+        self.wavelength_spin = QSpinBox(self)
+        self.wavelength_spin.setRange(190, 25000)
+        self.wavelength_spin.setValue(976)
+        self.wavelength_spin.setSuffix(" nm")
+        form.addRow("Wavelength", self.wavelength_spin)
+
+        self.gain_spin = QDoubleSpinBox(self)
+        self.gain_spin.setRange(0.000001, 1000000.0)
+        self.gain_spin.setDecimals(6)
+        self.gain_spin.setValue(1.0)
+        form.addRow("Software gain", self.gain_spin)
+
+        self.interval_spin = QSpinBox(self)
+        self.interval_spin.setRange(20, 5000)
+        self.interval_spin.setValue(300)
+        self.interval_spin.setSingleStep(50)
+        self.interval_spin.setSuffix(" ms")
+        form.addRow("Interval", self.interval_spin)
+
+        actions = QVBoxLayout()
+        actions.setSpacing(8)
+        top.addLayout(actions)
+
+        self.refresh_button = QPushButton("Refresh Ports", self)
+        self.detect_button = QPushButton("Auto Detect", self)
+        self.start_button = QPushButton("Start", self)
+        self.stop_button = QPushButton("Stop", self)
+        self.zero_on_button = QPushButton("REL Zero On", self)
+        self.zero_off_button = QPushButton("REL Zero Off", self)
+        self.stop_button.setEnabled(False)
+        actions.addWidget(self.refresh_button)
+        actions.addWidget(self.detect_button)
+        actions.addWidget(self.start_button)
+        actions.addWidget(self.stop_button)
+        actions.addWidget(self.zero_on_button)
+        actions.addWidget(self.zero_off_button)
+        actions.addStretch(1)
+
+        power_row = QHBoxLayout()
+        layout.addLayout(power_row)
+
+        self.power_label = QLabel("-- W", self)
+        self.power_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.power_label.setStyleSheet("font-size: 42px; font-weight: 700;")
+        power_row.addWidget(self.power_label, stretch=1)
+
+        self.stats_label = QLabel("Samples: 0", self)
+        self.stats_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        power_row.addWidget(self.stats_label)
+
+        self.figure = Figure(figsize=(8, 4), dpi=100)
+        self.canvas = FigureCanvas(self.figure)
+        self.ax = self.figure.add_subplot(111)
+        self.line, = self.ax.plot([], [], color="#1476d4", linewidth=1.8)
+        self.ax.set_xlabel("Elapsed time (s), showing last 30 s")
+        self.ax.set_ylabel("Power (W)")
+        self.ax.grid(True, alpha=0.25)
+        layout.addWidget(NavigationToolbar(self.canvas, self))
+        layout.addWidget(self.canvas, stretch=1)
+
+        self.setStatusBar(QStatusBar(self))
+
+        self.refresh_button.clicked.connect(self.refresh_resources)
+        self.detect_button.clicked.connect(self.auto_detect)
+        self.start_button.clicked.connect(self.start_reading)
+        self.stop_button.clicked.connect(self.stop_reading)
+        self.zero_on_button.clicked.connect(lambda: self.set_relative_zero(True))
+        self.zero_off_button.clicked.connect(lambda: self.set_relative_zero(False))
+
+        self.resource_combo.addItem(DEFAULT_RESOURCE)
+        self.resource_combo.setCurrentText(DEFAULT_RESOURCE)
+        self.statusBar().showMessage("Ready. Use Auto Detect or Refresh Ports if the port changed.")
+
+    def refresh_resources(self) -> None:
+        current = self.resource_combo.currentText().strip()
+        self.resource_combo.clear()
+        try:
+            resources = sorted(str(item) for item in self.rm.list_resources() if str(item).startswith("ASRL"))
+        except Exception as exc:
+            self.statusBar().showMessage(f"List resources failed: {exc}")
+            resources = []
+        self.resource_combo.addItems(resources)
+        if current:
+            index = self.resource_combo.findText(current)
+            if index >= 0:
+                self.resource_combo.setCurrentIndex(index)
+            else:
+                self.resource_combo.setEditText(current)
+        elif resources:
+            self.resource_combo.setCurrentIndex(0)
+        self.statusBar().showMessage(f"Found {len(resources)} serial resource(s)")
+
+    def auto_detect(self) -> None:
+        typed = self.resource_combo.currentText().strip()
+        candidates = []
+        if typed and typed not in candidates:
+            candidates.insert(0, typed)
+        candidates.extend(
+            self.resource_combo.itemText(i)
+            for i in range(self.resource_combo.count())
+            if self.resource_combo.itemText(i) not in candidates
+        )
+        if not candidates:
+            self.refresh_resources()
+            candidates = [self.resource_combo.itemText(i) for i in range(self.resource_combo.count())]
+        for resource in candidates:
+            result = CaihuangPowerMeter.probe(resource)
+            if result:
+                self.resource_combo.setEditText(result.resource)
+                self.device_field.setText(f"{result.device_type} ({result.detail})")
+                self.statusBar().showMessage(f"Detected {result.device_type} on {result.resource}")
+                return
+        self.device_field.clear()
+        QMessageBox.warning(self, "Auto Detect", "No supported power meter was detected.")
+
+    def start_reading(self) -> None:
+        if self.reader is not None:
+            return
+        resource = self.resource_combo.currentText().strip()
+        if not resource:
+            QMessageBox.warning(self, "Start", "Select a serial resource first.")
+            return
+        self.times.clear()
+        self.powers.clear()
+        self.sample_count = 0
+        self.last_plot_update = 0.0
+        self.update_plot()
+        self.reader = PowerReaderThread(
+            resource=resource,
+            wavelength_nm=self.wavelength_spin.value(),
+            software_gain=self.gain_spin.value(),
+            interval_ms=self.interval_spin.value(),
+            parent=self,
+        )
+        self.reader.sample.connect(self.on_sample)
+        self.reader.status.connect(self.statusBar().showMessage)
+        self.reader.failed.connect(self.on_reader_failed)
+        self.reader.finished.connect(self.on_reader_finished)
+        self.reader.start()
+        self.set_running_state(True)
+
+    def stop_reading(self) -> None:
+        if self.reader is not None:
+            self.reader.stop()
+            self.reader.wait(2000)
+
+    def on_sample(self, elapsed_s: float, power_w: float) -> None:
+        self.times.append(elapsed_s)
+        self.powers.append(power_w)
+        self.sample_count += 1
+        self.power_label.setText(f"{power_w:.2f} W")
+        self.stats_label.setText(f"Samples: {self.sample_count}")
+        now = time.monotonic()
+        if now - self.last_plot_update >= PLOT_REFRESH_S:
+            self.last_plot_update = now
+            self.update_plot()
+
+    def on_reader_failed(self, message: str) -> None:
+        QMessageBox.critical(self, "Power Meter Error", message)
+
+    def on_reader_finished(self) -> None:
+        self.reader = None
+        self.set_running_state(False)
+        self.statusBar().showMessage("Stopped")
+
+    def update_plot(self) -> None:
+        if self.times and self.powers:
+            x_min = max(0.0, self.times[-1] - PLOT_HISTORY_S)
+            x_max = max(10.0, self.times[-1])
+            visible = [(t, p) for t, p in zip(self.times, self.powers) if t >= x_min]
+            visible_times = [item[0] for item in visible]
+            visible_powers = [item[1] for item in visible]
+            self.line.set_data(visible_times, visible_powers)
+            y_min = min(visible_powers)
+            y_max = max(visible_powers)
+            if math.isclose(y_min, y_max):
+                pad = max(abs(y_min) * 0.1, 0.001)
+            else:
+                pad = (y_max - y_min) * 0.12
+            self.ax.set_xlim(x_min, x_max)
+            self.ax.set_ylim(y_min - pad, y_max + pad)
+        else:
+            self.line.set_data([], [])
+            self.ax.set_xlim(0, 10)
+            self.ax.set_ylim(-0.01, 0.01)
+        self.canvas.draw_idle()
+
+    def set_relative_zero(self, enabled: bool) -> None:
+        resource = self.resource_combo.currentText().strip()
+        if not resource:
+            QMessageBox.warning(self, "REL Zero", "Select a serial resource first.")
+            return
+        try:
+            meter = CaihuangPowerMeter(resource)
+            meter.set_relative_zero(enabled)
+            meter.close()
+            self.statusBar().showMessage(f"REL zero {'enabled' if enabled else 'disabled'}")
+        except Exception as exc:
+            QMessageBox.critical(self, "REL Zero", str(exc))
+
+    def set_running_state(self, running: bool) -> None:
+        self.start_button.setEnabled(not running)
+        self.stop_button.setEnabled(running)
+        self.refresh_button.setEnabled(not running)
+        self.detect_button.setEnabled(not running)
+        self.resource_combo.setEnabled(not running)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        self.stop_reading()
+        self.rm.close()
+        super().closeEvent(event)
+
+
+def main() -> int:
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    return app.exec()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
