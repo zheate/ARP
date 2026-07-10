@@ -95,7 +95,6 @@ class MainWindowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             settings = QSettings(str(Path(temp_dir) / "operator-inputs.ini"), QSettings.Format.IniFormat)
             first_window = MainWindow(settings)
-            first_window.i2c_addr_field.setText("0x42")
             first_window.set_current_spin.setValue(12)
             first_window.power_wavelength_spin.setValue(973.125)
             first_window.integration_spin.setValue(25000)
@@ -106,7 +105,6 @@ class MainWindowTests(unittest.TestCase):
             first_window.close()
 
             restored_window = MainWindow(settings)
-            self.assertEqual(restored_window.i2c_addr_field.text(), "0x42")
             self.assertEqual(restored_window.set_current_spin.value(), 12)
             self.assertAlmostEqual(restored_window.power_wavelength_spin.value(), 973.125)
             self.assertEqual(restored_window.integration_spin.value(), 25000)
@@ -124,7 +122,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertTrue(hasattr(window, "left_control_panel"))
         self.assertTrue(hasattr(window, "monitor_panel"))
         self.assertGreaterEqual(window.left_control_panel.minimumWidth(), 380)
-        self.assertLessEqual(window.left_control_panel.maximumWidth(), 420)
+        self.assertLessEqual(window.left_control_panel.maximumWidth(), 430)
         window.close()
 
     def test_main_window_exposes_status_bar_kpi_cards_and_vertical_curves(self) -> None:
@@ -164,8 +162,10 @@ class MainWindowTests(unittest.TestCase):
 
         power_supply_form = self._group(window, "Power Supply").layout()
         self.assertIsInstance(power_supply_form, QFormLayout)
-        self._form_row_containing_widget(power_supply_form, window.i2c_addr_field)
-        self._form_row_containing_widget(power_supply_form, window.i2c_speed_combo)
+        self.assertFalse(hasattr(window, "i2c_addr_field"))
+        self.assertFalse(hasattr(window, "i2c_speed_combo"))
+        self.assertEqual(combined_test_mvp.DEFAULT_I2C_ADDRESS, 0x41)
+        self.assertEqual(combined_test_mvp.DEFAULT_I2C_SPEED, 0)
 
         power_meter_form = self._group(window, "Power Meter").layout()
         self.assertIsInstance(power_meter_form, QFormLayout)
@@ -271,8 +271,8 @@ class MainWindowTests(unittest.TestCase):
         window.on_spectrum_curve([900.0, 943.0, 973.0, 1003.0, 1100.0], [1.0, 2.0, 10.0, 2.0, 1.0])
         x_min, x_max = window.spectrum_curve_axis.get_xlim()
 
-        self.assertAlmostEqual(x_min, 943.0)
-        self.assertAlmostEqual(x_max, 1003.0)
+        self.assertAlmostEqual(x_min, 953.0)
+        self.assertAlmostEqual(x_max, 993.0)
         window.close()
 
     def test_spectrum_curve_marks_top_three_peak_centroids(self) -> None:

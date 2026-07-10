@@ -56,6 +56,8 @@ from combined_test_core import (
 
 DEFAULT_POWER_RESOURCE = "ASRL3::INSTR"
 DEFAULT_CSV_PATH = "combined_test_records.csv"
+DEFAULT_I2C_ADDRESS = 0x41
+DEFAULT_I2C_SPEED = 0  # 20 KHz
 PROJECT_ROOT = Path(__file__).resolve().parent
 MAX_CURVE_POINTS = 10000
 POWER_PLOT_HISTORY_S = 60.0
@@ -619,11 +621,6 @@ class MainWindow(QMainWindow):
         """Restore only operator-entered configuration, never live acquisition state."""
         settings = self.input_settings
         prefix = "input/"
-        self.i2c_addr_field.setText(str(settings.value(prefix + "i2c_address", self.i2c_addr_field.text())))
-        speed = settings.value(prefix + "i2c_speed", self.i2c_speed_combo.currentData(), type=int)
-        speed_index = self.i2c_speed_combo.findData(speed)
-        if speed_index >= 0:
-            self.i2c_speed_combo.setCurrentIndex(speed_index)
         self.set_current_spin.setValue(settings.value(prefix + "set_current_a", self.set_current_spin.value(), type=float))
 
         saved_resource = extract_power_resource_name(
@@ -653,13 +650,9 @@ class MainWindow(QMainWindow):
         self.stop_after_record_check.setChecked(
             settings.value(prefix + "stop_after_record", self.stop_after_record_check.isChecked(), type=bool)
         )
-        self.update_i2c_address_info()
-
     def save_input_settings(self) -> None:
         settings = self.input_settings
         prefix = "input/"
-        settings.setValue(prefix + "i2c_address", self.i2c_addr_field.text().strip())
-        settings.setValue(prefix + "i2c_speed", self.i2c_speed_combo.currentData())
         settings.setValue(prefix + "set_current_a", self.set_current_spin.value())
         settings.setValue(prefix + "power_resource", self._selected_power_resource())
         settings.setValue(prefix + "power_wavelength_nm", self.power_wavelength_spin.value())
@@ -721,21 +714,6 @@ class MainWindow(QMainWindow):
         form = QFormLayout(group)
         self._configure_left_form(form)
 
-        self.i2c_addr_field = QLineEdit("0x41", self)
-        self.i2c_addr_field.textChanged.connect(self.update_i2c_address_info)
-        form.addRow("I2C address", self.i2c_addr_field)
-
-        self.i2c_address_info_label = QLabel("", self)
-        form.addRow("", self.i2c_address_info_label)
-
-        self.i2c_speed_combo = QComboBox(self)
-        self.i2c_speed_combo.addItem("20 KHz", 0)
-        self.i2c_speed_combo.addItem("100 KHz", 1)
-        self.i2c_speed_combo.addItem("400 KHz", 2)
-        self.i2c_speed_combo.addItem("750 KHz", 3)
-        self.i2c_speed_combo.currentIndexChanged.connect(self.on_i2c_speed_changed)
-        form.addRow("I2C speed", self.i2c_speed_combo)
-
         self.set_current_spin = QDoubleSpinBox(self)
         self.set_current_spin.setRange(0.0, 20.0)
         self.set_current_spin.setDecimals(1)
@@ -769,7 +747,6 @@ class MainWindow(QMainWindow):
 
         parent.addWidget(group)
         self._reserve_group_height(group)
-        self.update_i2c_address_info()
 
     def _build_power_meter_group(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("Power Meter", self)
@@ -1143,21 +1120,6 @@ class MainWindow(QMainWindow):
         if hasattr(self, "spectrometer_status_label"):
             self.spectrometer_status_label.setText("Running" if spectrometer_running else "Stopped")
 
-    def update_i2c_address_info(self) -> None:
-        try:
-            address = parse_i2c_address(self.i2c_addr_field.text())
-        except Exception as exc:
-            self.i2c_address_info_label.setText(str(exc))
-            return
-        write_address = (address << 1) & 0xFE
-        read_address = (address << 1) | 0x01
-        self.i2c_address_info_label.setText(f"Write 0x{write_address:02X}, read 0x{read_address:02X}")
-
-    def on_i2c_speed_changed(self) -> None:
-        if self.manual_ch341_controller is not None and getattr(self.manual_ch341_controller, "is_connected", False):
-            if not self.manual_ch341_controller.set_i2c_speed(int(self.i2c_speed_combo.currentData())):
-                self.add_log("Failed to update CH341 I2C speed")
-
     def _manual_i2c_connected(self) -> bool:
         return self.manual_ch341_controller is not None and bool(getattr(self.manual_ch341_controller, "is_connected", False))
 
@@ -1178,7 +1140,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            controller.set_i2c_speed(int(self.i2c_speed_combo.currentData()))
+            controller.set_i2c_speed(DEFAULT_I2C_SPEED)
             connected, detail = controller.connect_device(0)
             if not connected:
                 raise RuntimeError(str(detail))
@@ -1211,7 +1173,7 @@ class MainWindow(QMainWindow):
         if controller is None:
             return None
         try:
-            value = read_power_status_value(controller, parse_i2c_address(self.i2c_addr_field.text()), command)
+            value = read_power_status_value(controller, DEFAULT_I2C_ADDRESS, command)
             raw_command = " ".join(f"{item:02X}" for item in command)
             self.add_log(f"{name}: {value:.2f} {unit} ({raw_command})")
             self.statusBar().showMessage(f"{name}: {value:.2f} {unit}")
@@ -1255,7 +1217,7 @@ class MainWindow(QMainWindow):
             return
         try:
             command = build_set_current_command(self.set_current_spin.value())
-            success, result = controller.i2c_write(parse_i2c_address(self.i2c_addr_field.text()), command)
+            success, result = controller.i2c_write(DEFAULT_I2C_ADDRESS, command)
             if not success:
                 raise RuntimeError(str(result))
             self.active_output_current_a = float(self.set_current_spin.value())
@@ -1356,8 +1318,8 @@ class MainWindow(QMainWindow):
 
     def collect_settings(self) -> CombinedTestSettings:
         return CombinedTestSettings(
-            i2c_address=parse_i2c_address(self.i2c_addr_field.text()),
-            i2c_speed=int(self.i2c_speed_combo.currentData()),
+            i2c_address=DEFAULT_I2C_ADDRESS,
+            i2c_speed=DEFAULT_I2C_SPEED,
             set_current_a=self.set_current_spin.value(),
             power_resource=self._selected_power_resource(),
             power_meter_wavelength_nm=self.power_wavelength_spin.value(),
