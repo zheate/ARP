@@ -15,7 +15,7 @@ from matplotlib import rcParams
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.font_manager import FontProperties
 from matplotlib.figure import Figure
-from matplotlib.ticker import MaxNLocator, MultipleLocator
+from matplotlib.ticker import MaxNLocator, MultipleLocator, ScalarFormatter
 
 from .models import SpectrumPeakAnnotation
 from .spectrum import SPECTRUM_CENTER_LOCK_HALF_RANGE_NM, find_spectrum_peak_annotations
@@ -57,6 +57,15 @@ POWER_LINE_COLOR = "#2f79bd"
 STABLE_LINE_COLOR = "#2f8f46"
 EFFICIENCY_LINE_COLOR = "#d58a00"
 SPECTRUM_LINE_COLOR = "#6b8e23"
+
+
+class OneDecimalScalarFormatter(ScalarFormatter):
+    """Scientific formatter whose mantissa never exceeds one decimal place."""
+
+    def _set_format(self) -> None:
+        self._format = "%1.1f"
+        if self._usetex or self._useMathText:
+            self._format = rf"$\mathdefault{{{self._format}}}$"
 
 
 class LivePlots:
@@ -129,7 +138,7 @@ class LivePlots:
         self._style_axis(
             self.power_curve_figure,
             self.power_curve_axis,
-            title="实时功率",
+            title="",
             x_label="Time (s)",
             y_label="Power (W)",
         )
@@ -165,8 +174,8 @@ class LivePlots:
             fontsize=8,
             color=self._text_color,
         )
-        self.power_curve_figure.subplots_adjust(left=0.13, right=0.90, top=0.86, bottom=0.20)
-        self.power_curve_axis.ticklabel_format(axis="y", style="plain", useOffset=False)
+        self.power_curve_figure.subplots_adjust(left=0.13, right=0.90, top=0.95, bottom=0.14)
+        self._format_power_axis(self.power_curve_axis)
 
         self.stable_power_figure = Figure(figsize=CHART_FIGURE_SIZE, dpi=100)
         self.stable_power_canvas = FigureCanvas(self.stable_power_figure)
@@ -182,7 +191,7 @@ class LivePlots:
         self._style_axis(
             self.stable_power_figure,
             self.stable_power_axis,
-            title="LIV",
+            title="",
             x_label="Current (A)",
             y_label="Stable Power (W)",
         )
@@ -199,7 +208,8 @@ class LivePlots:
             width=0.9,
         )
         self.efficiency_axis.spines["right"].set_color(EFFICIENCY_LINE_COLOR)
-        self.stable_power_figure.subplots_adjust(left=0.13, right=0.90, top=0.86, bottom=0.20)
+        self.stable_power_figure.subplots_adjust(left=0.13, right=0.90, top=0.95, bottom=0.14)
+        self._format_power_axis(self.stable_power_axis)
 
         self.spectrum_curve_figure = Figure(figsize=CHART_FIGURE_SIZE, dpi=100)
         self.spectrum_curve_canvas = FigureCanvas(self.spectrum_curve_figure)
@@ -211,8 +221,8 @@ class LivePlots:
         self._style_axis(
             self.spectrum_curve_figure,
             self.spectrum_curve_axis,
-            title="光谱",
-            x_label="Wavelength (nm)",
+            title="",
+            x_label="",
             y_label="Intensity (counts)",
         )
         self.spectrum_centroid_text = self.spectrum_curve_figure.text(
@@ -253,12 +263,20 @@ class LivePlots:
             color=self._danger_color,
             visible=False,
         )
-        self.spectrum_curve_figure.subplots_adjust(left=0.08, right=0.98, top=0.84, bottom=0.24)
+        self.spectrum_curve_figure.subplots_adjust(left=0.08, right=0.98, top=0.95, bottom=0.19)
 
     @staticmethod
     def _configure_canvas(canvas: FigureCanvas) -> None:
         canvas.setMinimumHeight(CHART_MINIMUM_HEIGHT)
         canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+    @staticmethod
+    def _format_power_axis(axis: Any) -> None:
+        formatter = OneDecimalScalarFormatter(useMathText=True)
+        formatter.set_scientific(True)
+        formatter.set_powerlimits((-2, 2))
+        formatter.set_useOffset(False)
+        axis.yaxis.set_major_formatter(formatter)
 
     def relayout(self, available_width: int) -> None:
         mode = "dashboard" if available_width >= DASHBOARD_LAYOUT_MIN_WIDTH else "stacked"

@@ -1,6 +1,7 @@
 import tempfile
 import sys
 import os
+import re
 import types
 import unittest
 from datetime import datetime
@@ -402,10 +403,13 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(tuple(window.power_curve_axis.get_ylim()), (-0.01, 0.01))
         self.assertEqual(tuple(window.spectrum_curve_axis.get_xlim()), (0.0, 1.0))
         self.assertEqual(tuple(window.spectrum_curve_axis.get_ylim()), (0.0, 1.0))
-        self.assertEqual(window.power_curve_axis.get_title(), "实时功率")
-        self.assertEqual(window.stable_power_axis.get_title(), "LIV")
-        self.assertEqual(window.spectrum_curve_axis.get_title(), "光谱")
-        self.assertEqual(window.power_curve_axis.title.get_fontsize(), 11.0)
+        self.assertEqual(window.power_curve_axis.get_title(), "")
+        self.assertEqual(window.stable_power_axis.get_title(), "")
+        self.assertEqual(window.spectrum_curve_axis.get_title(), "")
+        self.assertEqual(window.spectrum_curve_axis.get_xlabel(), "")
+        self.assertAlmostEqual(window.power_curve_axis.get_position().height, 0.81)
+        self.assertAlmostEqual(window.stable_power_axis.get_position().height, 0.81)
+        self.assertAlmostEqual(window.spectrum_curve_axis.get_position().height, 0.76)
         self.assertLessEqual(
             len([tick for tick in window.power_curve_axis.get_yticks() if -0.01 <= tick <= 0.01]),
             5,
@@ -416,6 +420,12 @@ class MainWindowTests(unittest.TestCase):
         )
         self.assertEqual(len(window.power_curve_axis.xaxis.get_minorticklocs()), 0)
         self.assertEqual(window.power_curve_axis.get_xticklabels()[0].get_fontsize(), 11.0)
+        for axis in (window.power_curve_axis, window.stable_power_axis):
+            axis.figure.canvas.draw()
+            for label in (tick.get_text() for tick in axis.get_yticklabels()):
+                number = re.search(r"-?\d+(?:\.(\d+))?", label)
+                self.assertIsNotNone(number)
+                self.assertLessEqual(len(number.group(1) or ""), 1)
         self.assertGreaterEqual(window.power_curve_canvas.minimumHeight(), 180)
         self.assertGreaterEqual(window.spectrum_curve_canvas.minimumHeight(), 180)
         window.close()
