@@ -40,7 +40,7 @@ class SpectrometerOption:
     device_type: str = "Ocean Insight"
 
     def label(self) -> str:
-        return f"{self.device_type} | device id {self.device_id}"
+        return f"{self.device_type} | 设备 ID {self.device_id}"
 
 
 @dataclass(frozen=True)

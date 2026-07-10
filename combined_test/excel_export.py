@@ -44,7 +44,7 @@ class ExcelTestRecord:
 def sanitize_sn(sn: str) -> str:
     cleaned = INVALID_FILENAME_CHARS.sub("_", sn.strip()).rstrip(". ")
     if not cleaned:
-        raise ValueError("SN cannot be empty")
+        raise ValueError("SN 不能为空")
     return cleaned
 
 
@@ -63,7 +63,7 @@ def _create_workbook(path: Path) -> Workbook:
     sheet = workbook.active
     sheet.title = "测试数据"
     sheet["A1"] = "LIV"
-    sheet["J1"] = "Spectra"
+    sheet["J1"] = "光谱"
     for column, header in enumerate(RESULT_HEADERS, start=1):
         sheet.cell(row=2, column=column, value=header)
 
@@ -92,10 +92,10 @@ def save_test_records(path: Path, records: Iterable[ExcelTestRecord]) -> None:
         wavelength_values = [float(value) for value in record.wavelength]
         intensity_values = [float(value) for value in record.intensity]
         if not wavelength_values or len(wavelength_values) != len(intensity_values):
-            raise ValueError("wavelength and intensity must be non-empty and have the same length")
+            raise ValueError("波长和强度数据不能为空且长度必须一致")
         records_by_current[float(record.current_a)] = (record, wavelength_values, intensity_values)
     if not records_by_current:
-        raise ValueError("at least one test record is required")
+        raise ValueError("至少需要一个测试记录")
 
     target = Path(path).expanduser()
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -149,7 +149,7 @@ def append_test_record(path: Path, record: ExcelTestRecord) -> None:
     wavelength_values = [float(value) for value in record.wavelength]
     intensity_values = [float(value) for value in record.intensity]
     if not wavelength_values or len(wavelength_values) != len(intensity_values):
-        raise ValueError("wavelength and intensity must be non-empty and have the same length")
+        raise ValueError("波长和强度数据不能为空且长度必须一致")
 
     target = Path(path).expanduser()
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -209,7 +209,7 @@ def append_test_record(path: Path, record: ExcelTestRecord) -> None:
     for clear_row in range(2, previous_max_row + 1):
         for column in range(10, previous_max_column + 1):
             sheet.cell(row=clear_row, column=column).value = None
-    sheet["J1"] = "Spectra"
+    sheet["J1"] = "光谱"
     for spectrum_index, current in enumerate(sorted(spectra_by_current)):
         spectrum_column = 10 + spectrum_index * 2
         sheet.cell(row=2, column=spectrum_column, value=f"{current:.1f}A")

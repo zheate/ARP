@@ -35,12 +35,12 @@ def load_legacy_ch341_controller_class() -> type:
     path = TOOLS_ROOT / "legacy_ch341_control.py"
     spec = importlib.util.spec_from_file_location("legacy_ch341_control", path)
     if spec is None or spec.loader is None:
-        raise RuntimeError(f"Cannot load legacy CH341 controller: {path}")
+        raise RuntimeError(f"无法加载旧版 CH341 控制器：{path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     controller_class = getattr(module, "CH341I2CController", None)
     if controller_class is None:
-        raise RuntimeError(f"CH341I2CController not found in {path}")
+        raise RuntimeError(f"在 {path} 中未找到 CH341I2CController")
     return controller_class
 
 
@@ -49,10 +49,10 @@ def parse_i2c_address(text: str) -> int:
     if value.lower().startswith("0x"):
         value = value[2:]
     if not value:
-        raise ValueError("I2C address is empty")
+        raise ValueError("I2C 地址不能为空")
     address = int(value, 16)
     if address < 0 or address > 0x7F:
-        raise ValueError("I2C address must be in range 0x00..0x7F")
+        raise ValueError("I2C 地址必须在 0x00 至 0x7F 范围内")
     return address
 
 
@@ -72,7 +72,7 @@ def _load_spectrometer_components_once() -> tuple[type, Any]:
     module_path = TOOLS_ROOT / "spectrometer_mvp.py"
     spec = importlib.util.spec_from_file_location(module_name, module_path)
     if spec is None or spec.loader is None:
-        raise RuntimeError(f"Cannot load spectrometer module: {module_path}")
+        raise RuntimeError(f"无法加载光谱仪模块：{module_path}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
@@ -107,15 +107,15 @@ def open_spectrometer_device(spectrometer: Any, selected_device_id: int | None) 
 
     state = spectrometer.control.find_usb_devices()
     if state == -1:
-        raise RuntimeError("OceanDirect failed to search USB spectrometers")
+        raise RuntimeError("OceanDirect 搜索 USB 光谱仪失败")
     device_ids = [int(item) for item in spectrometer.control.get_device_ids()]
     if not device_ids:
-        raise RuntimeError("OceanDirect found 0 spectrometers. Check the Ocean Insight driver.")
+        raise RuntimeError("OceanDirect 未找到光谱仪，请检查 Ocean Insight 驱动。")
 
     device_id = selected_device_id if selected_device_id in device_ids else device_ids[0]
     state = spectrometer.control.open_device(device_id)
     if state == -1:
-        raise RuntimeError(f"Failed to open spectrometer device id {device_id}")
+        raise RuntimeError(f"无法打开设备 ID 为 {device_id} 的光谱仪")
     spectrometer.device_id = device_id
     return int(device_id)
 
@@ -124,7 +124,7 @@ def read_power_status_value(ch341_controller: Any, i2c_address: int, command: li
     success, result = ch341_controller.i2c_write_read(i2c_address, command, 4)
     if not success:
         raw_command = " ".join(f"{item:02X}" for item in command)
-        raise RuntimeError(f"I2C read failed for command {raw_command}: {result}")
+        raise RuntimeError(f"I2C 命令 {raw_command} 读取失败：{result}")
     return decode_i2c_value(result)
 
 
@@ -143,7 +143,7 @@ class PowerMeterDetectThread(QThread):
                 import pyvisa
                 from tools.power_meter_mvp import CaihuangPowerMeter
             except ModuleNotFoundError as exc:
-                raise RuntimeError(f"Power meter dependency missing: {exc.name}. Run from sth_eb314.") from exc
+                raise RuntimeError(f"缺少功率计依赖：{exc.name}。请在 sth_eb314 环境中运行。") from exc
 
             rm = pyvisa.ResourceManager()
             try:
@@ -164,7 +164,7 @@ class PowerMeterDetectThread(QThread):
                 if resource not in candidates:
                     candidates.append(resource)
 
-            self.status.emit(f"Detecting power meters on {len(candidates)} port(s)...")
+            self.status.emit(f"正在 {len(candidates)} 个端口上检测功率计…")
             options: list[PowerMeterOption] = []
             for resource in candidates:
                 result = CaihuangPowerMeter.probe(resource, timeout_ms=POWER_METER_PROBE_TIMEOUT_MS)
@@ -210,9 +210,9 @@ class PowerMeterReaderThread(QThread):
     def update_stability_settings(self, window_s: float, tolerance_w: float) -> None:
         """Apply stability settings to the active acquisition loop."""
         if window_s <= 0:
-            raise ValueError("window_s must be greater than 0")
+            raise ValueError("稳定窗口必须大于 0 秒")
         if tolerance_w < 0:
-            raise ValueError("tolerance_w must be greater than or equal to 0")
+            raise ValueError("允许波动必须大于或等于 0 W")
         with self._stability_state_lock:
             self._stable_window_s = float(window_s)
             self._stable_tolerance_w = float(tolerance_w)
@@ -223,13 +223,13 @@ class PowerMeterReaderThread(QThread):
             try:
                 from tools.power_meter_mvp import CaihuangPowerMeter, normalize_resource
             except ModuleNotFoundError as exc:
-                raise RuntimeError(f"Power meter dependency missing: {exc.name}. Run from sth_eb314.") from exc
+                raise RuntimeError(f"缺少功率计依赖：{exc.name}。请在 sth_eb314 环境中运行。") from exc
 
             meter = CaihuangPowerMeter(self.settings.resource)
             if meter.test() != "OK":
-                raise RuntimeError("Power meter test did not return OK")
+                raise RuntimeError("功率计自检未返回 OK")
             meter.set_wavelength(self.settings.wavelength_nm)
-            self.status.emit(f"Power meter connected: {normalize_resource(self.settings.resource)}")
+            self.status.emit(f"功率计已连接：{normalize_resource(self.settings.resource)}")
 
             with self._stability_state_lock:
                 stable_window_s = self._stable_window_s
@@ -305,13 +305,13 @@ class SpectrometerReaderThread(QThread):
                 OceanSpectrometer, calculate_stats = load_spectrometer_components(None)
             except ModuleNotFoundError as exc:
                 raise RuntimeError(
-                    f"Spectrometer dependency missing: {exc.name}. Check this project environment and local OceanDirect files."
+                    f"缺少光谱仪依赖：{exc.name}。请检查项目环境和本地 OceanDirect 文件。"
                 ) from exc
 
             spectrometer = OceanSpectrometer()
             device_id = open_spectrometer_device(spectrometer, self.settings.device_id)
             spectrometer.set_integration_time(self.settings.integration_time_us)
-            self.status.emit(f"Spectrometer connected, device id {device_id}")
+            self.status.emit(f"光谱仪已连接，设备 ID：{device_id}")
 
             self._running = True
             while self._running:

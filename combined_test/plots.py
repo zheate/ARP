@@ -10,6 +10,7 @@ from typing import Any
 
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QGridLayout, QGroupBox, QWidget
+from matplotlib import rcParams
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
@@ -20,6 +21,19 @@ from .spectrum import SPECTRUM_CENTER_LOCK_HALF_RANGE_NM, find_spectrum_peak_ann
 MAX_CURVE_POINTS = 10000
 POWER_PLOT_HISTORY_S = 60.0
 PLOT_REFRESH_INTERVAL_S = 0.2
+
+# Prefer fonts available on the target Windows test stations, with macOS/Linux
+# fallbacks for development. This keeps Chinese chart labels from rendering as
+# empty boxes while preserving Matplotlib's final DejaVu fallback.
+rcParams["font.sans-serif"] = [
+    "Microsoft YaHei",
+    "SimHei",
+    "PingFang SC",
+    "Noto Sans CJK SC",
+    "Arial Unicode MS",
+    "DejaVu Sans",
+]
+rcParams["axes.unicode_minus"] = False
 
 
 class LivePlots:
@@ -50,7 +64,7 @@ class LivePlots:
     def __init__(self, parent: QWidget) -> None:
         self.palette = parent.palette()
         self._text_color = self.palette.color(QPalette.ColorRole.Text).name()
-        self.group = QGroupBox("Realtime Curves", parent)
+        self.group = QGroupBox("实时曲线", parent)
         self.curves_layout = QGridLayout(self.group)
         self.power_curve_times: deque[float] = deque(maxlen=MAX_CURVE_POINTS)
         self.power_curve_values: deque[float] = deque(maxlen=MAX_CURVE_POINTS)
@@ -75,9 +89,9 @@ class LivePlots:
         self._style_axis(
             self.power_curve_figure,
             self.power_curve_axis,
-            title="Power",
-            x_label="Elapsed time (s)",
-            y_label="Power (W)",
+            title="功率",
+            x_label="已用时间（s）",
+            y_label="功率（W）",
         )
 
         self.stable_power_figure = Figure(figsize=(5.2, 2.4), dpi=100)
@@ -94,11 +108,11 @@ class LivePlots:
         self._style_axis(
             self.stable_power_figure,
             self.stable_power_axis,
-            title="Stable Power & Efficiency",
-            x_label="Current (A)",
-            y_label="Stable Power (W)",
+            title="稳定功率与效率",
+            x_label="电流（A）",
+            y_label="稳定功率（W）",
         )
-        self.efficiency_axis.set_ylabel("Efficiency (%)", color="#f0b429")
+        self.efficiency_axis.set_ylabel("效率（%）", color="#f0b429")
         self.efficiency_axis.tick_params(axis="y", colors="#f0b429")
         self.efficiency_axis.spines["right"].set_color("#f0b429")
         self.stable_power_figure.subplots_adjust(left=0.12, right=0.86, top=0.88, bottom=0.20)
@@ -111,9 +125,9 @@ class LivePlots:
         self._style_axis(
             self.spectrum_curve_figure,
             self.spectrum_curve_axis,
-            title="Spectrum",
-            x_label="Wavelength (nm)",
-            y_label="Intensity",
+            title="光谱",
+            x_label="波长（nm）",
+            y_label="强度",
         )
 
         self.curves_layout.addWidget(self.power_curve_canvas, 0, 0)

@@ -37,7 +37,7 @@ class ExcelExportTests(unittest.TestCase):
             workbook = load_workbook(path, data_only=False)
             sheet = workbook[workbook.sheetnames[0]]
             self.assertEqual(sheet["A1"].value, "LIV")
-            self.assertEqual(sheet["J1"].value, "Spectra")
+            self.assertEqual(sheet["J1"].value, "光谱")
             self.assertEqual([sheet.cell(2, column).value for column in range(1, 9)], [
                 "电流(A)", "电压(V)", "功率(W)", "电光效率",
                 "中心波长(nm)", "质心波长(nm)", "FWHM(nm)", "PIB",

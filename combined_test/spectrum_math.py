@@ -141,7 +141,7 @@ def calculate_pib(
     if not wavelength_values:
         return math.nan
     if not math.isfinite(center_nm) or not math.isfinite(half_range_nm) or half_range_nm < 0:
-        raise ValueError("PIB center and half range must be finite; half range cannot be negative")
+        raise ValueError("PIB 中心和半范围必须为有限数值，半范围不能为负数")
 
     filtered_intensity = [float(value) for value in medfilt(intensity_values)]
     total_intensity = sum(filtered_intensity)

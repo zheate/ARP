@@ -27,7 +27,7 @@ class OceanDirectControl:
     def _load_api(self, dll_path: str | Path | None) -> CDLL:
         path = Path(dll_path) if dll_path is not None else DEFAULT_OCEAN_DIRECT_DLL
         if not path.exists():
-            raise FileNotFoundError(f"OceanDirect.dll not found: {path}")
+            raise FileNotFoundError(f"未找到 OceanDirect.dll：{path}")
         return cdll.LoadLibrary(str(path))
 
     def _configure_return_types(self) -> None:
@@ -129,7 +129,7 @@ class OceanDirectControl:
 
     def _require_device_id(self) -> int:
         if self._device_id is None:
-            raise OceanDirectError("OceanDirect device is not open")
+            raise OceanDirectError("OceanDirect 设备未打开")
         return self._device_id
 
     def _raise_if_error(self, errno: int, caller: str) -> None:
@@ -144,5 +144,5 @@ class OceanDirectControl:
             self._api.odapi_get_error_string(errno, buffer, length)
             message = buffer.value.decode(errors="replace")
         except Exception:
-            message = "unknown error"
+            message = "未知错误"
         return f"{caller} errcode({errno}): {message}"

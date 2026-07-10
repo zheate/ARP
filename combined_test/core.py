@@ -50,9 +50,9 @@ class CombinedMeasurement:
 class PowerStabilityDetector:
     def __init__(self, window_s: float, tolerance_w: float) -> None:
         if window_s <= 0:
-            raise ValueError("window_s must be greater than 0")
+            raise ValueError("稳定窗口必须大于 0 秒")
         if tolerance_w < 0:
-            raise ValueError("tolerance_w must be greater than or equal to 0")
+            raise ValueError("允许波动必须大于或等于 0 W")
         self.window_s = float(window_s)
         self.tolerance_w = float(tolerance_w)
         self._samples: Deque[tuple[float, float]] = deque()
@@ -92,10 +92,10 @@ def stability_tolerance_for_power(power_w: float) -> float:
 def build_set_current_command(current_a: float) -> list[int]:
     value = float(current_a)
     if not math.isfinite(value) or value < 0.0 or value > 20.0:
-        raise ValueError("current_a must be in range 0..20")
+        raise ValueError("电流必须在 0 至 20 A 范围内")
     centiampere = round(value * 100)
     if centiampere > 2000:
-        raise ValueError("current_a must be in range 0..20")
+        raise ValueError("电流必须在 0 至 20 A 范围内")
     integer_part, decimal_part = divmod(centiampere, 100)
     return [0xB4, 0xFF, integer_part, decimal_part]
 
@@ -103,7 +103,7 @@ def build_set_current_command(current_a: float) -> list[int]:
 def decode_i2c_value(data: Iterable[int]) -> float:
     values = list(data)
     if len(values) < 4:
-        raise ValueError("I2C response must contain at least 4 bytes")
+        raise ValueError("I2C 响应至少需要包含 4 个字节")
     return float(values[2]) + float(values[3]) / 100.0
 
 
@@ -142,7 +142,7 @@ def spectrum_curve_to_rows(wavelength: Iterable[float], intensity: Iterable[floa
     wavelength_values = list(wavelength)
     intensity_values = list(intensity)
     if len(wavelength_values) != len(intensity_values):
-        raise ValueError("wavelength and intensity must have the same length")
+        raise ValueError("波长和强度数据的长度必须一致")
 
     rows = [["wavelength_nm", "intensity"]]
     for x, y in zip(wavelength_values, intensity_values):

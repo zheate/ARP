@@ -58,11 +58,11 @@ class MainWindowTests(unittest.TestCase):
 
     def _spectrometer_form(self, window: MainWindow) -> QFormLayout:
         for group in window.findChildren(QGroupBox):
-            if group.title() == "Spectrometer":
+            if group.title() == "光谱仪":
                 form = group.layout()
                 self.assertIsInstance(form, QFormLayout)
                 return form
-        raise AssertionError("Spectrometer group not found")
+        raise AssertionError("光谱仪分组未找到")
 
     def _form_row_containing_widget(self, form: QFormLayout, widget: object) -> int:
         for row in range(form.rowCount()):
@@ -173,7 +173,7 @@ class MainWindowTests(unittest.TestCase):
             self.assertTrue(window.excel_workbook_path.exists())
             self.assertEqual(window.excel_recorded_currents, {3.0})
             self.assertFalse(window.save_excel_button.isEnabled())
-            self.assertEqual(window.save_excel_button.text(), "Save Excel")
+            self.assertEqual(window.save_excel_button.text(), "保存 Excel")
             window.close()
 
     def test_main_window_uses_workflow_layout_without_scroll_area(self) -> None:
@@ -209,7 +209,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window.curves_layout.getItemPosition(window.curves_layout.indexOf(window.spectrum_curve_canvas))[:2], (0, 1))
         self.assertEqual(window.curves_layout.getItemPosition(window.curves_layout.indexOf(window.stable_power_canvas))[:2], (1, 0))
         card_titles = [card.title() for card in window.kpi_cards]
-        self.assertEqual(card_titles, ["Power", "Centroid Wavelength", "FWHM", "Stability"])
+        self.assertEqual(card_titles, ["功率", "质心波长", "半高全宽（FWHM）", "稳定性"])
         self.assertFalse(window.log_text.isHidden())
         self.assertIsInstance(window.log_text, QLabel)
         self.assertFalse(hasattr(window, "toggle_log_button"))
@@ -269,7 +269,7 @@ class MainWindowTests(unittest.TestCase):
     def test_record_controls_are_grouped_before_device_controls(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
-        record_form = self._group(window, "Test Record").layout()
+        record_form = self._group(window, "测试记录").layout()
         self.assertIsInstance(record_form, QFormLayout)
 
         for widget in (
@@ -281,8 +281,8 @@ class MainWindowTests(unittest.TestCase):
             self._form_row_containing_widget(record_form, widget)
 
         self.assertLess(
-            window.left_control_content.layout().indexOf(self._group(window, "Test Record")),
-            window.left_control_content.layout().indexOf(self._group(window, "Power Supply")),
+            window.left_control_content.layout().indexOf(self._group(window, "测试记录")),
+            window.left_control_content.layout().indexOf(self._group(window, "电源")),
         )
         window.close()
 
@@ -329,7 +329,7 @@ class MainWindowTests(unittest.TestCase):
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
 
-        for title in ("Test Record", "Power Supply", "Power Meter", "Spectrometer", "Stability"):
+        for title in ("测试记录", "电源", "功率计", "光谱仪", "稳定性"):
             group = self._group(window, title)
             self.assertGreaterEqual(group.minimumHeight(), group.sizeHint().height(), title)
 
@@ -341,19 +341,19 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertNotIn("Advanced", [group.title() for group in window.findChildren(QGroupBox)])
 
-        power_supply_form = self._group(window, "Power Supply").layout()
+        power_supply_form = self._group(window, "电源").layout()
         self.assertIsInstance(power_supply_form, QFormLayout)
         self.assertFalse(hasattr(window, "i2c_addr_field"))
         self.assertFalse(hasattr(window, "i2c_speed_combo"))
         self.assertEqual(combined_test_window.DEFAULT_I2C_ADDRESS, 0x41)
         self.assertEqual(combined_test_window.DEFAULT_I2C_SPEED, 0)
 
-        power_meter_form = self._group(window, "Power Meter").layout()
+        power_meter_form = self._group(window, "功率计").layout()
         self.assertIsInstance(power_meter_form, QFormLayout)
         self._form_row_containing_widget(power_meter_form, window.software_gain_spin)
         self._form_row_containing_widget(power_meter_form, window.power_meter_interval_spin)
 
-        spectrometer_form = self._group(window, "Spectrometer").layout()
+        spectrometer_form = self._group(window, "光谱仪").layout()
         self.assertIsInstance(spectrometer_form, QFormLayout)
         self._form_row_containing_widget(spectrometer_form, window.interval_spin)
         window.close()
@@ -440,9 +440,9 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertTrue(window.latest_spectrum_saturated)
         self.assertFalse(window.spectrum_saturation_label.isHidden())
-        self.assertEqual(window.centroid_wavelength_label.text(), "SATURATED")
+        self.assertEqual(window.centroid_wavelength_label.text(), "光谱饱和")
         self.assertNotIn(10.0, window.pending_excel_records)
-        self.assertIn("not queued", window.save_status_label.text())
+        self.assertIn("未加入保存队列", window.save_status_label.text())
 
         window.on_spectrum_curve(wavelength, [0.0, 100.0, 200.0, 100.0, 0.0])
         self.assertFalse(window.latest_spectrum_saturated)
@@ -498,14 +498,14 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertEqual(
             [(item.label, round(item.centroid_nm, 3)) for item in window.spectrum_peak_annotations],
-            [("1st", 856.0), ("2nd", 860.0), ("3rd", 852.0)],
+            [("第1峰", 856.0), ("第2峰", 860.0), ("第3峰", 852.0)],
         )
         annotation_text = "\n".join(
             artist.get_text() for artist in window.spectrum_peak_annotation_artists if hasattr(artist, "get_text")
         )
-        self.assertIn("1st 856.000 nm", annotation_text)
-        self.assertIn("2nd 860.000 nm", annotation_text)
-        self.assertIn("3rd 852.000 nm", annotation_text)
+        self.assertIn("第1峰 856.000 nm", annotation_text)
+        self.assertIn("第2峰 860.000 nm", annotation_text)
+        self.assertIn("第3峰 852.000 nm", annotation_text)
         window.close()
 
     def test_spectrum_peak_labels_stay_inside_plot_area_for_tall_peaks(self) -> None:
@@ -579,9 +579,9 @@ class MainWindowTests(unittest.TestCase):
             for artist in window.spectrum_peak_annotation_artists
             if hasattr(artist, "get_text")
         }
-        self.assertIn("2nd", text_positions)
-        self.assertIn("3rd", text_positions)
-        self.assertGreaterEqual(abs(text_positions["2nd"][1] - text_positions["3rd"][1]), y_span * 0.07)
+        self.assertIn("第2峰", text_positions)
+        self.assertIn("第3峰", text_positions)
+        self.assertGreaterEqual(abs(text_positions["第2峰"][1] - text_positions["第3峰"][1]), y_span * 0.07)
         window.close()
 
     def test_spectrum_peak_labels_spread_horizontally_when_low_peaks_are_close(self) -> None:
@@ -599,9 +599,9 @@ class MainWindowTests(unittest.TestCase):
             for artist in window.spectrum_peak_annotation_artists
             if hasattr(artist, "get_text")
         }
-        self.assertIn("2nd", text_positions)
-        self.assertIn("3rd", text_positions)
-        self.assertGreaterEqual(abs(text_positions["2nd"][0] - text_positions["3rd"][0]), x_span * 0.035)
+        self.assertIn("第2峰", text_positions)
+        self.assertIn("第3峰", text_positions)
+        self.assertGreaterEqual(abs(text_positions["第2峰"][0] - text_positions["第3峰"][0]), x_span * 0.035)
         window.close()
 
     def test_spectrum_peak_labels_split_left_and_right_for_adjacent_peaks(self) -> None:
@@ -623,11 +623,11 @@ class MainWindowTests(unittest.TestCase):
             for artist in window.spectrum_peak_annotation_artists
             if hasattr(artist, "get_text")
         }
-        self.assertLess(centroids["3rd"], centroids["2nd"])
-        self.assertLess(text_positions["3rd"][0], centroids["3rd"])
-        self.assertGreater(text_positions["2nd"][0], centroids["2nd"])
-        self.assertEqual(text_alignments["3rd"], "right")
-        self.assertEqual(text_alignments["2nd"], "left")
+        self.assertLess(centroids["第3峰"], centroids["第2峰"])
+        self.assertLess(text_positions["第3峰"][0], centroids["第3峰"])
+        self.assertGreater(text_positions["第2峰"][0], centroids["第2峰"])
+        self.assertEqual(text_alignments["第3峰"], "right")
+        self.assertEqual(text_alignments["第2峰"], "left")
         window.close()
 
 
@@ -757,7 +757,7 @@ class MainWindowTests(unittest.TestCase):
 
         window.read_temperature()
 
-        self.assertEqual(calls, [([0xB4, 0x8D, 0x00, 0x00], "Module temperature", "°C")])
+        self.assertEqual(calls, [([0xB4, 0x8D, 0x00, 0x00], "模块温度", "°C")])
         window.close()
 
     def test_auto_detect_spectrometers_keeps_auto_select_as_current_choice(self) -> None:
@@ -776,7 +776,7 @@ class MainWindowTests(unittest.TestCase):
             window.auto_detect_spectrometers()
 
             self.assertIsNone(window.spectrometer_combo.itemData(0))
-            self.assertEqual(window.spectrometer_combo.itemText(0), "Auto select first Ocean Insight")
+            self.assertEqual(window.spectrometer_combo.itemText(0), "自动选择第一台 Ocean Insight")
             self.assertIsInstance(window.spectrometer_combo.itemData(1), SpectrometerOption)
             self.assertIsNone(window.spectrometer_combo.currentData())
             self.assertIsNone(window.collect_spectrometer_settings().device_id)
@@ -807,7 +807,7 @@ class MainWindowTests(unittest.TestCase):
     def test_power_meter_common_action_buttons_stay_in_power_meter_group(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
-        form = self._group(window, "Power Meter").layout()
+        form = self._group(window, "功率计").layout()
         self.assertIsInstance(form, QFormLayout)
 
         for widget in (
@@ -944,7 +944,7 @@ class SpectrumPeakAnnotationTests(unittest.TestCase):
 
         self.assertEqual(
             [(item.label, round(item.centroid_nm, 3), round(item.peak_intensity, 1)) for item in annotations],
-            [("1st", 856.0, 300.0), ("2nd", 860.0, 200.0), ("3rd", 852.0, 80.0)],
+            [("第1峰", 856.0, 300.0), ("第2峰", 860.0, 200.0), ("第3峰", 852.0, 80.0)],
         )
 
     def test_saturation_detector_requires_a_consecutive_near_full_scale_plateau(self) -> None:
@@ -994,7 +994,7 @@ class PowerMeterDetectThreadTests(unittest.TestCase):
             self.assertEqual(calls[0], ("ASRL2::INSTR", combined_test_devices.POWER_METER_PROBE_TIMEOUT_MS))
             self.assertEqual(calls[1], ("ASRL1::INSTR", combined_test_devices.POWER_METER_PROBE_TIMEOUT_MS))
             self.assertEqual([option.resource for option in detected], ["ASRL2::INSTR"])
-            self.assertIn("Detecting power meters", statuses[0])
+            self.assertIn("检测功率计", statuses[0])
         finally:
             sys.modules.clear()
             sys.modules.update(old_modules)
@@ -1045,7 +1045,7 @@ class DeviceOptionTests(unittest.TestCase):
     def test_spectrometer_option_label_includes_ocean_model_and_device_id(self) -> None:
         option = SpectrometerOption(device_id=123)
 
-        self.assertEqual(option.label(), "Ocean Insight | device id 123")
+        self.assertEqual(option.label(), "Ocean Insight | 设备 ID 123")
 
 
 class LocalSpectrometerLoadingTests(unittest.TestCase):
