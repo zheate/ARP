@@ -33,7 +33,7 @@ class StabilityResult:
 @dataclass(frozen=True)
 class CombinedMeasurement:
     elapsed_s: float
-    set_current_a: int
+    set_current_a: float
     output_current_a: float
     output_voltage_v: float
     power_w: float
@@ -61,7 +61,13 @@ class PowerStabilityDetector:
     def add_sample(self, elapsed_s: float, power_w: float) -> StabilityResult:
         self._samples.append((float(elapsed_s), float(power_w)))
         cutoff = float(elapsed_s) - self.window_s
-        while self._samples and self._samples[0][0] < cutoff:
+        # Keep the sample immediately before the window cutoff.  A fixed polling
+        # interval rarely lands exactly on the cutoff (for example, 2.99 s for a
+        # 3.00 s window).  Removing that boundary sample first can make the
+        # apparent coverage remain just below the requested window forever.
+        # Retaining it makes the span check slightly more conservative while
+        # allowing a fully stable window to be recognised despite poll jitter.
+        while len(self._samples) > 1 and self._samples[1][0] <= cutoff:
             self._samples.popleft()
 
         powers = [sample[1] for sample in self._samples]
@@ -71,11 +77,15 @@ class PowerStabilityDetector:
         return StabilityResult(stable, span, covered_s, len(self._samples))
 
 
-def build_set_current_command(current_a: int) -> list[int]:
-    value = int(current_a)
-    if value < 0 or value > 20:
+def build_set_current_command(current_a: float) -> list[int]:
+    value = float(current_a)
+    if not math.isfinite(value) or value < 0.0 or value > 20.0:
         raise ValueError("current_a must be in range 0..20")
-    return [0xB4, 0xFF, value, 0x00]
+    centiampere = round(value * 100)
+    if centiampere > 2000:
+        raise ValueError("current_a must be in range 0..20")
+    integer_part, decimal_part = divmod(centiampere, 100)
+    return [0xB4, 0xFF, integer_part, decimal_part]
 
 
 def decode_i2c_value(data: Iterable[int]) -> float:
@@ -92,11 +102,18 @@ def format_float(value: float, decimals: int = 3) -> str:
     return f"{number:.{decimals}f}"
 
 
+def format_current(value: float) -> str:
+    number = float(value)
+    if not math.isfinite(number):
+        return ""
+    return f"{number:.1f}".rstrip("0").rstrip(".")
+
+
 def record_to_row(timestamp: str, measurement: CombinedMeasurement) -> list[str]:
     return [
         timestamp,
         format_float(measurement.elapsed_s),
-        str(int(measurement.set_current_a)),
+        format_current(measurement.set_current_a),
         format_float(measurement.output_current_a),
         format_float(measurement.output_voltage_v),
         format_float(measurement.power_w),

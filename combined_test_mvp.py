@@ -4,7 +4,9 @@ import csv
 import importlib.util
 import math
 import os
+import re
 import sys
+import threading
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -12,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QThread, Qt, Signal
+from PySide6.QtCore import QSettings, QThread, Qt, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -60,20 +62,20 @@ POWER_PLOT_HISTORY_S = 60.0
 POWER_METER_PROBE_TIMEOUT_MS = 250
 SPECTRUM_CENTER_LOCK_REQUIRED_SAMPLES = 5
 SPECTRUM_CENTER_LOCK_TOLERANCE_NM = 1.0
-SPECTRUM_CENTER_LOCK_HALF_RANGE_NM = 30.0
+SPECTRUM_CENTER_LOCK_HALF_RANGE_NM = 20.0
 DEFAULT_SPECTROMETER_INTEGRATION_US = 10000
 SPECTRUM_PEAK_ORDINAL_LABELS = ("1st", "2nd", "3rd")
 SPECTRUM_PEAK_MIN_SEPARATION_NM = 0.3
 SPECTRUM_PEAK_MIN_PROMINENCE_FRACTION = 0.01
 LEFT_PANEL_MIN_WIDTH = 380
-LEFT_PANEL_MAX_WIDTH = 420
+LEFT_PANEL_MAX_WIDTH = 430
 
 
 @dataclass(frozen=True)
 class CombinedTestSettings:
     i2c_address: int
     i2c_speed: int
-    set_current_a: int
+    set_current_a: float
     power_resource: str
     power_meter_wavelength_nm: float
     software_gain: float
@@ -141,6 +143,7 @@ class PowerMeterReading:
     stable: bool
     stable_span_w: float
     stable_window_s: float
+    stability_generation: int = 0
 
 
 @dataclass(frozen=True)
@@ -214,6 +217,13 @@ def normalize_power_resource_name(name: str) -> str:
     if value.startswith("COM") and value[3:].isdigit():
         return f"ASRL{value[3:]}::INSTR"
     return value
+
+
+def extract_power_resource_name(value: str) -> str:
+    """Return the VISA resource from either a raw resource or a UI display label."""
+    normalized = normalize_power_resource_name(value)
+    match = re.search(r"\bASRL\d+::INSTR\b", normalized)
+    return match.group(0) if match is not None else normalized
 
 
 def open_spectrometer_device(spectrometer: Any, selected_device_id: int | None) -> int:
@@ -397,9 +407,20 @@ class PowerMeterReaderThread(QThread):
         super().__init__(parent)
         self.settings = settings
         self._running = False
+        self._stability_reset_requested = threading.Event()
+        self._stability_state_lock = threading.Lock()
+        self._stability_generation = 0
 
     def stop(self) -> None:
         self._running = False
+
+    def reset_stability_window(self) -> int:
+        """Start a fresh stability window and return its generation number."""
+        with self._stability_state_lock:
+            self._stability_generation += 1
+            generation = self._stability_generation
+            self._stability_reset_requested.set()
+        return generation
 
     def run(self) -> None:
         meter = None
@@ -417,8 +438,17 @@ class PowerMeterReaderThread(QThread):
 
             detector = PowerStabilityDetector(self.settings.stable_window_s, self.settings.stable_tolerance_w)
             start = time.monotonic()
+            poll_interval_s = self.settings.interval_ms / 1000.0
+            next_poll_at = start
             self._running = True
             while self._running:
+                with self._stability_state_lock:
+                    reset_requested = self._stability_reset_requested.is_set()
+                    if reset_requested:
+                        self._stability_reset_requested.clear()
+                    generation = self._stability_generation
+                if reset_requested:
+                    detector = PowerStabilityDetector(self.settings.stable_window_s, self.settings.stable_tolerance_w)
                 elapsed = time.monotonic() - start
                 power_w = meter.read_power_w() * self.settings.software_gain
                 stability = detector.add_sample(elapsed, power_w)
@@ -429,9 +459,19 @@ class PowerMeterReaderThread(QThread):
                         stable=stability.stable,
                         stable_span_w=stability.span_w,
                         stable_window_s=stability.window_s,
+                        stability_generation=generation,
                     )
                 )
-                self.msleep(self.settings.interval_ms)
+                # Keep the readings aligned to the configured interval.  Sleeping a
+                # full interval after every device read accumulates read-time drift,
+                # so a 3 s stability window can otherwise wait until the next 300 ms
+                # poll after its deadline.
+                next_poll_at += poll_interval_s
+                delay_s = next_poll_at - time.monotonic()
+                if delay_s > 0.0:
+                    self.msleep(max(1, round(delay_s * 1000)))
+                else:
+                    next_poll_at = time.monotonic()
         except Exception as exc:
             self.failed.emit(str(exc))
         finally:
@@ -496,8 +536,9 @@ class SpectrometerReaderThread(QThread):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, input_settings: QSettings | None = None) -> None:
         super().__init__()
+        self.input_settings = input_settings or QSettings("Changguang Huaxin", "Pump Driver Integrated Test")
         self.setWindowTitle("Combined Power / Power Meter / Wavelength Test")
         self.resize(1450, 980)
         self.power_meter_detect_thread: PowerMeterDetectThread | None = None
@@ -508,10 +549,17 @@ class MainWindow(QMainWindow):
         self.latest_spectrum_intensity: Any | None = None
         self.power_curve_times: deque[float] = deque(maxlen=MAX_CURVE_POINTS)
         self.power_curve_values: deque[float] = deque(maxlen=MAX_CURVE_POINTS)
+        self.stable_power_points: dict[float, float] = {}
+        self.efficiency_points: dict[float, float] = {}
+        self.efficiency_voltage_points: dict[float, float] = {}
+        self.active_output_current_a: float | None = None
+        self.pending_stable_point_current_a: float | None = None
+        self.pending_stable_point_generation: int | None = None
+        self.recorded_stable_point_current_a: float | None = None
+        self.recorded_stable_point_generation: int | None = None
         self.spectrum_center_candidate_nm: float | None = None
         self.spectrum_center_candidate_count = 0
         self.spectrum_center_locked_nm: float | None = None
-        self.spectrum_y_axis_limits: tuple[float, float] | None = None
         self.spectrum_peak_annotations: list[SpectrumPeakAnnotation] = []
         self.spectrum_peak_annotation_artists: list[Any] = []
 
@@ -520,8 +568,8 @@ class MainWindow(QMainWindow):
 
         root = self.content_widget
         main = QVBoxLayout(root)
-        main.setContentsMargins(12, 12, 12, 12)
-        main.setSpacing(8)
+        main.setContentsMargins(16, 14, 16, 12)
+        main.setSpacing(10)
 
         self._build_global_status_bar(main)
 
@@ -541,7 +589,7 @@ class MainWindow(QMainWindow):
         self.left_control_content = QWidget(self.left_control_panel)
         self.left_control_panel.setWidget(self.left_control_content)
         left = QVBoxLayout(self.left_control_content)
-        left.setContentsMargins(4, 0, 4, 0)
+        left.setContentsMargins(0, 0, 0, 0)
         left.setSpacing(8)
         body.addWidget(self.left_control_panel)
 
@@ -554,21 +602,80 @@ class MainWindow(QMainWindow):
         self.monitor_panel = QWidget(self)
         monitor = QVBoxLayout(self.monitor_panel)
         monitor.setContentsMargins(0, 0, 0, 0)
-        monitor.setSpacing(8)
+        monitor.setSpacing(10)
         body.addWidget(self.monitor_panel, stretch=1)
 
         self._build_kpi_panel(monitor)
         self._build_curve_panel(monitor)
 
         self._build_log_panel(main)
+        self._restore_input_settings()
 
         self.setStatusBar(QStatusBar(self))
         self.statusBar().showMessage("Ready")
         self.update_global_status()
 
+    def _restore_input_settings(self) -> None:
+        """Restore only operator-entered configuration, never live acquisition state."""
+        settings = self.input_settings
+        prefix = "input/"
+        self.i2c_addr_field.setText(str(settings.value(prefix + "i2c_address", self.i2c_addr_field.text())))
+        speed = settings.value(prefix + "i2c_speed", self.i2c_speed_combo.currentData(), type=int)
+        speed_index = self.i2c_speed_combo.findData(speed)
+        if speed_index >= 0:
+            self.i2c_speed_combo.setCurrentIndex(speed_index)
+        self.set_current_spin.setValue(settings.value(prefix + "set_current_a", self.set_current_spin.value(), type=float))
+
+        saved_resource = extract_power_resource_name(
+            str(settings.value(prefix + "power_resource", self.power_meter_combo.currentText()))
+        )
+        resource_index = self.power_meter_combo.findText(saved_resource)
+        if resource_index < 0 and saved_resource:
+            self.power_meter_combo.addItem(saved_resource, None)
+            resource_index = self.power_meter_combo.count() - 1
+        if resource_index >= 0:
+            self.power_meter_combo.setCurrentIndex(resource_index)
+        self.power_wavelength_spin.setValue(
+            settings.value(prefix + "power_wavelength_nm", self.power_wavelength_spin.value(), type=float)
+        )
+        self.software_gain_spin.setValue(settings.value(prefix + "software_gain", self.software_gain_spin.value(), type=float))
+        self.power_meter_interval_spin.setValue(
+            settings.value(prefix + "power_meter_interval_ms", self.power_meter_interval_spin.value(), type=int)
+        )
+
+        self.integration_spin.setValue(settings.value(prefix + "integration_time_us", self.integration_spin.value(), type=int))
+        self.interval_spin.setValue(settings.value(prefix + "spectrometer_interval_ms", self.interval_spin.value(), type=int))
+        self.stable_window_spin.setValue(settings.value(prefix + "stable_window_s", self.stable_window_spin.value(), type=float))
+        self.stable_tolerance_spin.setValue(
+            settings.value(prefix + "stable_tolerance_w", self.stable_tolerance_spin.value(), type=float)
+        )
+        self.csv_path_field.setText(str(settings.value(prefix + "csv_path", self.csv_path_field.text())))
+        self.stop_after_record_check.setChecked(
+            settings.value(prefix + "stop_after_record", self.stop_after_record_check.isChecked(), type=bool)
+        )
+        self.update_i2c_address_info()
+
+    def save_input_settings(self) -> None:
+        settings = self.input_settings
+        prefix = "input/"
+        settings.setValue(prefix + "i2c_address", self.i2c_addr_field.text().strip())
+        settings.setValue(prefix + "i2c_speed", self.i2c_speed_combo.currentData())
+        settings.setValue(prefix + "set_current_a", self.set_current_spin.value())
+        settings.setValue(prefix + "power_resource", self._selected_power_resource())
+        settings.setValue(prefix + "power_wavelength_nm", self.power_wavelength_spin.value())
+        settings.setValue(prefix + "software_gain", self.software_gain_spin.value())
+        settings.setValue(prefix + "power_meter_interval_ms", self.power_meter_interval_spin.value())
+        settings.setValue(prefix + "integration_time_us", self.integration_spin.value())
+        settings.setValue(prefix + "spectrometer_interval_ms", self.interval_spin.value())
+        settings.setValue(prefix + "stable_window_s", self.stable_window_spin.value())
+        settings.setValue(prefix + "stable_tolerance_w", self.stable_tolerance_spin.value())
+        settings.setValue(prefix + "csv_path", self.csv_path_field.text().strip())
+        settings.setValue(prefix + "stop_after_record", self.stop_after_record_check.isChecked())
+        settings.sync()
+
     def _build_global_status_bar(self, parent: QVBoxLayout) -> None:
         row = QHBoxLayout()
-        row.setSpacing(8)
+        row.setSpacing(10)
 
         self.global_status_label = QLabel("Test Idle", self)
         self.global_status_label.setStyleSheet("font-size: 18px; font-weight: 700;")
@@ -583,7 +690,7 @@ class MainWindow(QMainWindow):
             self.global_power_meter_status_label,
             self.global_spectrometer_status_label,
         ):
-            label.setMinimumWidth(130)
+            label.setMinimumWidth(118)
             row.addWidget(label)
 
         self.start_all_button = QPushButton("Start Acquisition", self)
@@ -605,7 +712,7 @@ class MainWindow(QMainWindow):
         form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.DontWrapRows)
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        form.setContentsMargins(10, 10, 10, 10)
+        form.setContentsMargins(8, 10, 8, 10)
         form.setHorizontalSpacing(8)
         form.setVerticalSpacing(6)
 
@@ -629,9 +736,11 @@ class MainWindow(QMainWindow):
         self.i2c_speed_combo.currentIndexChanged.connect(self.on_i2c_speed_changed)
         form.addRow("I2C speed", self.i2c_speed_combo)
 
-        self.set_current_spin = QSpinBox(self)
-        self.set_current_spin.setRange(0, 20)
-        self.set_current_spin.setValue(1)
+        self.set_current_spin = QDoubleSpinBox(self)
+        self.set_current_spin.setRange(0.0, 20.0)
+        self.set_current_spin.setDecimals(1)
+        self.set_current_spin.setSingleStep(1.0)
+        self.set_current_spin.setValue(1.0)
         self.set_current_spin.setSuffix(" A")
         form.addRow("Set current", self.set_current_spin)
 
@@ -669,6 +778,8 @@ class MainWindow(QMainWindow):
 
         self.power_meter_combo = QComboBox(self)
         self.power_meter_combo.setEditable(True)
+        self.power_meter_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.power_meter_combo.setMinimumContentsLength(14)
         self.power_meter_combo.addItem(DEFAULT_POWER_RESOURCE, None)
         form.addRow("Device", self.power_meter_combo)
 
@@ -683,7 +794,7 @@ class MainWindow(QMainWindow):
         self.rel_zero_check.toggled.connect(self.set_power_meter_relative_zero)
         power_actions.addWidget(self.refresh_power_meter_button)
         power_actions.addWidget(self.rel_zero_check)
-        form.addRow("", power_actions)
+        form.addRow(power_actions)
 
         self.power_wavelength_spin = QDoubleSpinBox(self)
         self.power_wavelength_spin.setRange(190.0, 25000.0)
@@ -728,6 +839,8 @@ class MainWindow(QMainWindow):
         self._configure_left_form(form)
 
         self.spectrometer_combo = QComboBox(self)
+        self.spectrometer_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.spectrometer_combo.setMinimumContentsLength(14)
         self.spectrometer_combo.addItem("Auto select first Ocean Insight", None)
         form.addRow("Device", self.spectrometer_combo)
 
@@ -817,8 +930,9 @@ class MainWindow(QMainWindow):
         layout = QGridLayout(group)
         self.kpi_layout = layout
         self.kpi_cards: list[QWidget] = []
-        layout.setHorizontalSpacing(8)
-        layout.setVerticalSpacing(8)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setHorizontalSpacing(10)
+        layout.setVerticalSpacing(10)
 
         self.power_card_value, _power_detail = self._add_kpi_card(layout, 0, "Power", "-- W", "")
         self.peak_card_value, _peak_detail = self._add_kpi_card(layout, 1, "Peak wavelength", "-- nm", "")
@@ -853,7 +967,7 @@ class MainWindow(QMainWindow):
             "QLabel { border: 0; background: transparent; }"
         )
         box = QVBoxLayout(card)
-        box.setContentsMargins(10, 8, 10, 8)
+        box.setContentsMargins(12, 10, 12, 10)
         box.setSpacing(3)
 
         title_label = QLabel(title, self)
@@ -892,9 +1006,9 @@ class MainWindow(QMainWindow):
         layout = QGridLayout(group)
         self.curves_layout = layout
 
-        self.power_curve_figure = Figure(figsize=(5, 2.4), dpi=100)
+        self.power_curve_figure = Figure(figsize=(3.8, 2.4), dpi=100)
         self.power_curve_canvas = FigureCanvas(self.power_curve_figure)
-        self.power_curve_canvas.setMinimumHeight(220)
+        self.power_curve_canvas.setMinimumHeight(230)
         self.power_curve_axis = self.power_curve_figure.add_subplot(111)
         self.power_curve_line, = self.power_curve_axis.plot([], [], color="#2f9cf4", linewidth=1.6)
         self._style_axis(
@@ -905,9 +1019,32 @@ class MainWindow(QMainWindow):
             y_label="Power (W)",
         )
 
+        self.stable_power_figure = Figure(figsize=(5.2, 2.4), dpi=100)
+        self.stable_power_canvas = FigureCanvas(self.stable_power_figure)
+        self.stable_power_canvas.setMinimumHeight(230)
+        self.stable_power_axis = self.stable_power_figure.add_subplot(111)
+        self.efficiency_axis = self.stable_power_axis.twinx()
+        self.stable_power_line, = self.stable_power_axis.plot(
+            [], [], color="#2f9cf4", marker="o", markersize=5, linewidth=1.6
+        )
+        self.efficiency_line, = self.efficiency_axis.plot(
+            [], [], color="#f0b429", marker="s", markersize=5, linewidth=1.6
+        )
+        self._style_axis(
+            self.stable_power_figure,
+            self.stable_power_axis,
+            title="Stable Power & Efficiency",
+            x_label="Current (A)",
+            y_label="Stable Power (W)",
+        )
+        self.efficiency_axis.set_ylabel("Efficiency (%)", color="#f0b429")
+        self.efficiency_axis.tick_params(axis="y", colors="#f0b429")
+        self.efficiency_axis.spines["right"].set_color("#f0b429")
+        self.stable_power_figure.subplots_adjust(left=0.12, right=0.86, top=0.88, bottom=0.20)
+
         self.spectrum_curve_figure = Figure(figsize=(5, 2.4), dpi=100)
         self.spectrum_curve_canvas = FigureCanvas(self.spectrum_curve_figure)
-        self.spectrum_curve_canvas.setMinimumHeight(220)
+        self.spectrum_curve_canvas.setMinimumHeight(240)
         self.spectrum_curve_axis = self.spectrum_curve_figure.add_subplot(111)
         self.spectrum_curve_line, = self.spectrum_curve_axis.plot([], [], color="#f0b429", linewidth=1.2)
         self._style_axis(
@@ -919,10 +1056,12 @@ class MainWindow(QMainWindow):
         )
 
         layout.addWidget(self.power_curve_canvas, 0, 0)
-        layout.addWidget(self.spectrum_curve_canvas, 1, 0)
+        layout.addWidget(self.stable_power_canvas, 0, 1)
+        layout.addWidget(self.spectrum_curve_canvas, 1, 0, 1, 2)
         layout.setRowStretch(0, 1)
         layout.setRowStretch(1, 1)
-        layout.setColumnStretch(0, 1)
+        layout.setColumnStretch(0, 4)
+        layout.setColumnStretch(1, 6)
         parent.addWidget(group, stretch=2)
         self.reset_curves()
 
@@ -1060,22 +1199,55 @@ class MainWindow(QMainWindow):
         self.execute_i2c_read([0xB4, 0x88, 0x00, 0x00], "Input voltage", "V")
 
     def read_output_voltage(self) -> None:
-        self.execute_i2c_read([0xB4, 0x8B, 0x00, 0x00], "Output voltage", "V")
+        voltage_v = self.execute_i2c_read([0xB4, 0x8B, 0x00, 0x00], "Output voltage", "V")
+        if voltage_v is not None:
+            self.record_efficiency_from_vout(voltage_v)
 
     def read_output_current(self) -> None:
         self.execute_i2c_read([0xB4, 0x8C, 0x00, 0x00], "Output current", "A")
 
-    def execute_i2c_read(self, command: list[int], name: str, unit: str) -> None:
+    def execute_i2c_read(self, command: list[int], name: str, unit: str) -> float | None:
         controller = self._require_manual_i2c_controller()
         if controller is None:
-            return
+            return None
         try:
             value = read_power_status_value(controller, parse_i2c_address(self.i2c_addr_field.text()), command)
             raw_command = " ".join(f"{item:02X}" for item in command)
             self.add_log(f"{name}: {value:.2f} {unit} ({raw_command})")
             self.statusBar().showMessage(f"{name}: {value:.2f} {unit}")
+            return value
         except Exception as exc:
             QMessageBox.critical(self, name, str(exc))
+            return None
+
+    def record_efficiency_from_vout(self, voltage_v: float) -> None:
+        current_a = self.active_output_current_a
+        if current_a is None or current_a <= 0.0:
+            self.statusBar().showMessage("Efficiency is recorded only for current points greater than zero")
+            self.add_log("Vout read; efficiency not plotted for 0 A")
+            return
+        if self.pending_stable_point_current_a == current_a:
+            self.statusBar().showMessage("Wait for the newly applied current point to become stable before reading Vout")
+            self.add_log("Vout read; efficiency not updated while the new current point is settling")
+            return
+        if current_a not in self.stable_power_points:
+            self.statusBar().showMessage("Wait for the current point to become stable before reading Vout")
+            self.add_log("Vout read; efficiency not plotted because no stable power point is available")
+            return
+        if voltage_v <= 0.0:
+            self.statusBar().showMessage("Efficiency requires Vout greater than zero")
+            self.add_log("Vout read; efficiency not plotted because Vout is zero")
+            return
+
+        power_w = self.stable_power_points[current_a]
+        self.efficiency_voltage_points[current_a] = voltage_v
+        efficiency_percent = self.update_efficiency_point(current_a)
+        self.update_stable_power_curve()
+        self.statusBar().showMessage(f"Efficiency at {current_a:.3f} A: {efficiency_percent:.2f}%")
+        self.add_log(
+            f"Efficiency point: {current_a:.3f} A, {power_w:.3f} W / "
+            f"({current_a:.3f} A × {voltage_v:.3f} V) = {efficiency_percent:.2f}%"
+        )
 
     def apply_output_current(self) -> None:
         controller = self._require_manual_i2c_controller()
@@ -1086,14 +1258,23 @@ class MainWindow(QMainWindow):
             success, result = controller.i2c_write(parse_i2c_address(self.i2c_addr_field.text()), command)
             if not success:
                 raise RuntimeError(str(result))
+            self.active_output_current_a = float(self.set_current_spin.value())
+            self.pending_stable_point_current_a = self.active_output_current_a
+            self.recorded_stable_point_current_a = None
+            self.recorded_stable_point_generation = None
+            if self.power_meter_reader is not None:
+                self.pending_stable_point_generation = self.power_meter_reader.reset_stability_window()
+            else:
+                self.pending_stable_point_generation = None
+            self.update_stable_power_curve()
             raw_command = " ".join(f"{item:02X}" for item in command)
-            self.add_log(f"Output current set to {self.set_current_spin.value()} A ({raw_command})")
-            self.statusBar().showMessage(f"Output current set to {self.set_current_spin.value()} A")
+            self.add_log(f"Output current set to {self.set_current_spin.value():.1f} A ({raw_command})")
+            self.statusBar().showMessage(f"Output current set to {self.set_current_spin.value():.1f} A")
         except Exception as exc:
             QMessageBox.critical(self, "Apply Current", str(exc))
 
     def refresh_power_meter_resources(self) -> None:
-        current = self.power_meter_combo.currentText().strip()
+        current = self._selected_power_resource()
         try:
             import pyvisa
 
@@ -1194,7 +1375,7 @@ class MainWindow(QMainWindow):
         option = self.power_meter_combo.currentData()
         if isinstance(option, PowerMeterOption):
             return option.resource
-        return self.power_meter_combo.currentText().strip()
+        return extract_power_resource_name(self.power_meter_combo.currentText())
 
     def _selected_spectrometer_device_id(self) -> int | None:
         option = self.spectrometer_combo.currentData()
@@ -1232,6 +1413,12 @@ class MainWindow(QMainWindow):
             return
 
         self.reset_power_curve()
+        self.reset_stable_power_curve()
+        self.active_output_current_a = float(self.set_current_spin.value())
+        self.pending_stable_point_current_a = self.active_output_current_a
+        self.pending_stable_point_generation = 0
+        self.recorded_stable_point_current_a = None
+        self.recorded_stable_point_generation = None
         self.add_log("Starting power meter acquisition")
         self.power_meter_reader = PowerMeterReaderThread(settings, self)
         self.power_meter_reader.reading.connect(self.on_power_meter_reading)
@@ -1278,9 +1465,15 @@ class MainWindow(QMainWindow):
     def update_stability_card(self, stable: bool, span_w: float, covered_window_s: float) -> None:
         target_window_s = self.stable_window_spin.value() if hasattr(self, "stable_window_spin") else 0.0
         tolerance_w = self.stable_tolerance_spin.value() if hasattr(self, "stable_tolerance_spin") else 0.0
+        displayed_window_s = min(max(covered_window_s, 0.0), target_window_s)
         self.stability_label.setText("Stable" if stable else "Waiting")
+        self.stability_label.setStyleSheet(
+            "color: #4ade80; font-size: 26px; font-weight: 700;"
+            if stable
+            else "color: #f2f2f2; font-size: 26px; font-weight: 700;"
+        )
         self.stability_detail_label.setText(
-            f"{covered_window_s:.2f} / {target_window_s:.2f} s\n"
+            f"{displayed_window_s:.2f} / {target_window_s:.2f} s\n"
             f"span {span_w:.4f} W <= {tolerance_w:.4f} W"
         )
 
@@ -1288,6 +1481,7 @@ class MainWindow(QMainWindow):
         self.power_label.setText(f"{reading.power_w:.3f} W")
         self.update_stability_card(reading.stable, reading.stable_span_w, reading.stable_window_s)
         self.update_power_curve(reading.elapsed_s, reading.power_w)
+        self.capture_stable_power_point(reading)
 
     def on_spectrometer_reading(self, reading: SpectrometerReading) -> None:
         self.peak_label.setText(f"{reading.peak_wavelength_nm:.3f} nm")
@@ -1332,6 +1526,7 @@ class MainWindow(QMainWindow):
 
     def reset_curves(self) -> None:
         self.reset_power_curve()
+        self.reset_stable_power_curve()
         self.reset_spectrum_curve()
 
     def reset_power_curve(self) -> None:
@@ -1342,11 +1537,110 @@ class MainWindow(QMainWindow):
         self.power_curve_axis.set_ylim(-0.01, 0.01)
         self.power_curve_canvas.draw_idle()
 
+    def reset_stable_power_curve(self) -> None:
+        self.stable_power_points.clear()
+        self.efficiency_points.clear()
+        self.efficiency_voltage_points.clear()
+        self.recorded_stable_point_current_a = None
+        self.recorded_stable_point_generation = None
+        self.update_stable_power_curve()
+
+    def capture_stable_power_point(self, reading: PowerMeterReading) -> None:
+        current_a = self.pending_stable_point_current_a
+        if current_a is None:
+            self.update_latest_stable_power_point(reading)
+            return
+        if not reading.stable:
+            return
+        if (
+            self.pending_stable_point_generation is not None
+            and reading.stability_generation != self.pending_stable_point_generation
+        ):
+            return
+
+        if current_a <= 0.0:
+            self.pending_stable_point_current_a = None
+            self.pending_stable_point_generation = None
+            self.statusBar().showMessage("0 A is stable; no power or efficiency point recorded")
+            self.add_log("0 A stable; skipped power and efficiency point")
+            return
+
+        self.stable_power_points[current_a] = float(reading.power_w)
+        self.efficiency_points.pop(current_a, None)
+        self.efficiency_voltage_points.pop(current_a, None)
+        self.pending_stable_point_current_a = None
+        self.pending_stable_point_generation = None
+        self.recorded_stable_point_current_a = current_a
+        self.recorded_stable_point_generation = reading.stability_generation
+        self.update_stable_power_curve()
+        self.statusBar().showMessage(f"Stable power recorded at {current_a:.3f} A: {reading.power_w:.3f} W")
+        self.add_log(f"Stable power point: {current_a:.3f} A, {reading.power_w:.3f} W")
+
+    def update_latest_stable_power_point(self, reading: PowerMeterReading) -> None:
+        current_a = self.recorded_stable_point_current_a
+        if (
+            current_a is None
+            or current_a != self.active_output_current_a
+            or self.recorded_stable_point_generation != reading.stability_generation
+            or not reading.stable
+        ):
+            return
+
+        self.stable_power_points[current_a] = float(reading.power_w)
+        self.update_efficiency_point(current_a)
+        self.update_stable_power_curve()
+
+    def update_efficiency_point(self, current_a: float) -> float:
+        power_w = self.stable_power_points[current_a]
+        voltage_v = self.efficiency_voltage_points.get(current_a)
+        if voltage_v is None or voltage_v <= 0.0:
+            return math.nan
+        efficiency_percent = power_w / current_a / voltage_v * 100.0
+        self.efficiency_points[current_a] = efficiency_percent
+        return efficiency_percent
+
+    def update_stable_power_curve(self) -> None:
+        power_points = sorted(self.stable_power_points.items())
+        efficiency_points = sorted(self.efficiency_points.items())
+
+        self.stable_power_line.set_data(
+            [current_a for current_a, _power_w in power_points],
+            [power_w for _current_a, power_w in power_points],
+        )
+        self.efficiency_line.set_data(
+            [current_a for current_a, _efficiency_percent in efficiency_points],
+            [efficiency_percent for _current_a, efficiency_percent in efficiency_points],
+        )
+
+        all_currents = [current_a for current_a, _value in power_points]
+        if all_currents:
+            x_min = min(all_currents)
+            x_max = max(all_currents)
+            x_pad = self._axis_padding(x_min, x_max, fallback=1.0)
+            self.stable_power_axis.set_xlim(x_min - x_pad, x_max + x_pad)
+        else:
+            self.stable_power_axis.set_xlim(0.0, 1.0)
+
+        if power_points:
+            powers = [power_w for _current_a, power_w in power_points]
+            y_min = min(powers)
+            y_max = max(powers)
+            y_pad = self._axis_padding(y_min, y_max, fallback=0.001)
+            self.stable_power_axis.set_ylim(y_min - y_pad, y_max + y_pad)
+        else:
+            self.stable_power_axis.set_ylim(-0.01, 0.01)
+
+        if efficiency_points:
+            self.efficiency_axis.set_ylim(20.0, 60.0)
+        else:
+            self.efficiency_axis.set_ylim(20.0, 60.0)
+
+        self.stable_power_canvas.draw_idle()
+
     def reset_spectrum_curve(self) -> None:
         self.spectrum_center_candidate_nm = None
         self.spectrum_center_candidate_count = 0
         self.spectrum_center_locked_nm = None
-        self.spectrum_y_axis_limits = None
         self.clear_spectrum_peak_annotation_artists()
         self.spectrum_peak_annotations = []
         self.spectrum_curve_line.set_data([], [])
@@ -1410,26 +1704,19 @@ class MainWindow(QMainWindow):
             y_max = max(y_values)
             x_pad = self._axis_padding(x_min, x_max, fallback=1.0)
             visible_points = points
-        stable_y_min, stable_y_max = self._stable_spectrum_y_limits(y_min, y_max)
+        spectrum_y_min, spectrum_y_max = self._spectrum_y_limits(y_min, y_max)
         self.spectrum_curve_axis.set_xlim(x_min - x_pad, x_max + x_pad)
-        self.spectrum_curve_axis.set_ylim(stable_y_min, stable_y_max)
+        self.spectrum_curve_axis.set_ylim(spectrum_y_min, spectrum_y_max)
         self.spectrum_peak_annotations = find_spectrum_peak_annotations(visible_points)
         self.draw_spectrum_peak_annotations(self.spectrum_peak_annotations)
         self.spectrum_curve_canvas.draw_idle()
 
-    def _stable_spectrum_y_limits(self, y_min: float, y_max: float) -> tuple[float, float]:
+    def _spectrum_y_limits(self, y_min: float, y_max: float) -> tuple[float, float]:
+        """Return an immediately responsive, zero-based scale for spectrum intensity."""
         y_pad = self._axis_padding(y_min, y_max, fallback=1.0)
-        desired_min = float(y_min) - y_pad
-        desired_max = float(y_max) + y_pad
-        if self.spectrum_y_axis_limits is None:
-            self.spectrum_y_axis_limits = (desired_min, desired_max)
-            return self.spectrum_y_axis_limits
-
-        current_min, current_max = self.spectrum_y_axis_limits
-        stable_min = min(current_min, desired_min)
-        stable_max = max(current_max, desired_max)
-        self.spectrum_y_axis_limits = (stable_min, stable_max)
-        return self.spectrum_y_axis_limits
+        lower_limit = 0.0 if y_min >= 0.0 else float(y_min) - y_pad
+        upper_limit = max(float(y_max) + y_pad, 1.0)
+        return lower_limit, upper_limit
 
     def clear_spectrum_peak_annotation_artists(self) -> None:
         for artist in self.spectrum_peak_annotation_artists:
@@ -1519,9 +1806,12 @@ class MainWindow(QMainWindow):
         if self.spectrum_center_locked_nm is not None:
             return
 
-        center_nm = reading.centroid_nm
+        # The whole-spectrum centroid moves with baseline and broadband noise.
+        # The highest peak is the stable reference that users expect the ±20 nm
+        # view to follow; centroid remains a fallback for incomplete readings.
+        center_nm = reading.peak_wavelength_nm
         if not math.isfinite(float(center_nm)):
-            center_nm = reading.peak_wavelength_nm
+            center_nm = reading.centroid_nm
         center = float(center_nm)
         if not math.isfinite(center):
             self.spectrum_center_candidate_nm = None
@@ -1676,6 +1966,7 @@ class MainWindow(QMainWindow):
         return f"{value:.3f}"
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        self.save_input_settings()
         if self.power_meter_detect_thread is not None:
             self.power_meter_detect_thread.wait(3000)
         self.stop_power_meter()

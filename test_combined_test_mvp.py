@@ -6,6 +6,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 
+from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QApplication, QDoubleSpinBox, QFormLayout, QGroupBox, QWidget
 
 import combined_test_mvp
@@ -88,6 +89,31 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertIsNotNone(window.log_text)
         window.close()
+
+    def test_input_parameters_are_restored_in_next_window(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings = QSettings(str(Path(temp_dir) / "operator-inputs.ini"), QSettings.Format.IniFormat)
+            first_window = MainWindow(settings)
+            first_window.i2c_addr_field.setText("0x42")
+            first_window.set_current_spin.setValue(12)
+            first_window.power_wavelength_spin.setValue(973.125)
+            first_window.integration_spin.setValue(25000)
+            first_window.stable_window_spin.setValue(5.0)
+            first_window.stable_tolerance_spin.setValue(0.0123)
+            first_window.stop_after_record_check.setChecked(True)
+            first_window.save_input_settings()
+            first_window.close()
+
+            restored_window = MainWindow(settings)
+            self.assertEqual(restored_window.i2c_addr_field.text(), "0x42")
+            self.assertEqual(restored_window.set_current_spin.value(), 12)
+            self.assertAlmostEqual(restored_window.power_wavelength_spin.value(), 973.125)
+            self.assertEqual(restored_window.integration_spin.value(), 25000)
+            self.assertAlmostEqual(restored_window.stable_window_spin.value(), 5.0)
+            self.assertAlmostEqual(restored_window.stable_tolerance_spin.value(), 0.0123)
+            self.assertTrue(restored_window.stop_after_record_check.isChecked())
+            restored_window.close()
 
     def test_main_window_uses_workflow_layout_without_scroll_area(self) -> None:
         app = QApplication.instance() or QApplication([])
@@ -210,7 +236,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(list(window.spectrum_curve_line.get_ydata()), [10.0, 20.0])
         window.close()
 
-    def test_spectrum_x_axis_locks_to_centroid_plus_minus_30_after_stable_readings(self) -> None:
+    def test_spectrum_x_axis_locks_to_dominant_peak_plus_minus_20_after_stable_readings(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
 
@@ -225,8 +251,28 @@ class MainWindowTests(unittest.TestCase):
         window.on_spectrum_curve([900.0, 946.2, 976.2, 1006.2, 1100.0], [1.0, 2.0, 10.0, 2.0, 1.0])
 
         x_min, x_max = window.spectrum_curve_axis.get_xlim()
-        self.assertAlmostEqual(x_min, 946.2)
-        self.assertAlmostEqual(x_max, 1006.2)
+        self.assertAlmostEqual(x_min, 955.8)
+        self.assertAlmostEqual(x_max, 995.8)
+        window.close()
+
+    def test_spectrum_x_axis_ignores_unstable_whole_spectrum_centroid(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        for centroid_nm in (940.0, 1000.0, 930.0, 1010.0, 950.0):
+            window.on_spectrometer_reading(
+                combined_test_mvp.SpectrometerReading(
+                    peak_wavelength_nm=973.0,
+                    centroid_nm=centroid_nm,
+                    fwhm_nm=1.1,
+                )
+            )
+
+        window.on_spectrum_curve([900.0, 943.0, 973.0, 1003.0, 1100.0], [1.0, 2.0, 10.0, 2.0, 1.0])
+        x_min, x_max = window.spectrum_curve_axis.get_xlim()
+
+        self.assertAlmostEqual(x_min, 943.0)
+        self.assertAlmostEqual(x_max, 1003.0)
         window.close()
 
     def test_spectrum_curve_marks_top_three_peak_centroids(self) -> None:
@@ -266,7 +312,7 @@ class MainWindowTests(unittest.TestCase):
             self.assertEqual(artist.get_bbox_patch(), None)
         window.close()
 
-    def test_spectrum_y_axis_does_not_shrink_when_peak_intensity_drops(self) -> None:
+    def test_spectrum_y_axis_rescales_when_peak_intensity_drops(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
         wavelength = [850.0, 878.5, 906.0]
@@ -274,11 +320,13 @@ class MainWindowTests(unittest.TestCase):
         window.update_spectrum_curve(wavelength, [0.0, 15000.0, 0.0])
         first_limits = tuple(window.spectrum_curve_axis.get_ylim())
         window.update_spectrum_curve(wavelength, [0.0, 12000.0, 0.0])
+        second_limits = tuple(window.spectrum_curve_axis.get_ylim())
 
-        self.assertEqual(tuple(window.spectrum_curve_axis.get_ylim()), first_limits)
+        self.assertEqual(second_limits[0], 0.0)
+        self.assertLess(second_limits[1], first_limits[1])
         window.close()
 
-    def test_spectrum_y_axis_expands_when_peak_exceeds_current_range(self) -> None:
+    def test_spectrum_y_axis_expands_when_peak_increases(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
         wavelength = [850.0, 878.5, 906.0]
@@ -291,18 +339,16 @@ class MainWindowTests(unittest.TestCase):
         self.assertGreater(second_max, first_max)
         window.close()
 
-    def test_spectrum_y_axis_stability_resets_with_spectrum_curve(self) -> None:
+    def test_spectrum_y_axis_starts_at_zero_for_nonnegative_intensities(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
         wavelength = [850.0, 878.5, 906.0]
 
         window.update_spectrum_curve(wavelength, [0.0, 15000.0, 0.0])
-        high_limits = tuple(window.spectrum_curve_axis.get_ylim())
-        window.reset_spectrum_curve()
-        window.update_spectrum_curve(wavelength, [0.0, 2000.0, 0.0])
-        reset_limits = tuple(window.spectrum_curve_axis.get_ylim())
+        y_min, y_max = window.spectrum_curve_axis.get_ylim()
 
-        self.assertLess(reset_limits[1], high_limits[1])
+        self.assertEqual(y_min, 0.0)
+        self.assertGreater(y_max, 15000.0)
         window.close()
 
     def test_spectrum_peak_labels_are_staggered_when_wavelengths_are_close(self) -> None:
