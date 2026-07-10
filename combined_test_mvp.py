@@ -12,12 +12,14 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from statistics import median
 from typing import Any
 
-from PySide6.QtCore import QSettings, QThread, QTimer, Qt, Signal
+from PySide6.QtCore import QEvent, QSettings, QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
+    QAbstractSpinBox,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -34,8 +36,6 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSpinBox,
     QStatusBar,
-    QTextEdit,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -51,11 +51,14 @@ from combined_test_core import (
     decode_i2c_value,
     record_to_row,
     spectrum_curve_to_rows,
+    stability_tolerance_for_power,
 )
+from excel_export import ExcelTestRecord, build_test_workbook_path, sanitize_sn, save_test_records
+from spectrum_math import calculate_pib, calculate_stats
 
 
 DEFAULT_POWER_RESOURCE = "ASRL3::INSTR"
-DEFAULT_CSV_PATH = "combined_test_records.csv"
+DEFAULT_OUTPUT_DIR = "test_records"
 DEFAULT_I2C_ADDRESS = 0x41
 DEFAULT_I2C_SPEED = 0  # 20 KHz
 AUTO_VOUT_AFTER_STABLE_S = 5.0
@@ -72,7 +75,10 @@ DEFAULT_SPECTROMETER_INTEGRATION_US = 10000
 SPECTRUM_PEAK_ORDINAL_LABELS = ("1st", "2nd", "3rd")
 SPECTRUM_PEAK_MIN_SEPARATION_NM = 0.3
 SPECTRUM_PEAK_MIN_PROMINENCE_FRACTION = 0.01
-LEFT_PANEL_MIN_WIDTH = 380
+SPECTRUM_SATURATION_MIN_INTENSITY = 16000.0
+SPECTRUM_SATURATION_PLATEAU_FRACTION = 0.995
+SPECTRUM_SATURATION_MIN_CONSECUTIVE_PIXELS = 3
+LEFT_PANEL_MIN_WIDTH = 400
 LEFT_PANEL_MAX_WIDTH = 430
 
 
@@ -88,7 +94,7 @@ class CombinedTestSettings:
     interval_ms: int
     stable_window_s: float
     stable_tolerance_w: float
-    csv_path: Path
+    output_dir: Path
     stop_after_record: bool
     spectrometer_device_id: int | None = None
 
@@ -149,6 +155,7 @@ class PowerMeterReading:
     stable_span_w: float
     stable_window_s: float
     stability_generation: int = 0
+    stable_tolerance_w: float = math.nan
 
 
 @dataclass(frozen=True)
@@ -164,6 +171,59 @@ class SpectrumPeakAnnotation:
     centroid_nm: float
     peak_wavelength_nm: float
     peak_intensity: float
+
+
+@dataclass(frozen=True)
+class SpectrumSaturationResult:
+    saturated: bool
+    peak_intensity: float
+    consecutive_pixels: int
+
+
+def detect_spectrum_saturation(intensity: Any) -> SpectrumSaturationResult:
+    values = [float(value) for value in intensity if math.isfinite(float(value))]
+    if not values:
+        return SpectrumSaturationResult(False, math.nan, 0)
+    peak_intensity = max(values)
+    if peak_intensity < SPECTRUM_SATURATION_MIN_INTENSITY:
+        return SpectrumSaturationResult(False, peak_intensity, 0)
+
+    plateau_floor = max(
+        SPECTRUM_SATURATION_MIN_INTENSITY,
+        peak_intensity * SPECTRUM_SATURATION_PLATEAU_FRACTION,
+    )
+    longest_run = 0
+    current_run = 0
+    for value in values:
+        if value >= plateau_floor:
+            current_run += 1
+            longest_run = max(longest_run, current_run)
+        else:
+            current_run = 0
+    return SpectrumSaturationResult(
+        saturated=longest_run >= SPECTRUM_SATURATION_MIN_CONSECUTIVE_PIXELS,
+        peak_intensity=peak_intensity,
+        consecutive_pixels=longest_run,
+    )
+
+
+class ExcelSaveThread(QThread):
+    saved = Signal(float)
+    failed = Signal(str)
+
+    def __init__(self, path: Path, records: list[ExcelTestRecord], parent: Any | None = None) -> None:
+        super().__init__(parent)
+        self.path = Path(path)
+        self.records = list(records)
+
+    def run(self) -> None:
+        started = time.monotonic()
+        try:
+            save_test_records(self.path, self.records)
+        except Exception as exc:
+            self.failed.emit(str(exc))
+            return
+        self.saved.emit(time.monotonic() - started)
 
 
 def load_legacy_ch341_controller_class() -> type:
@@ -415,6 +475,8 @@ class PowerMeterReaderThread(QThread):
         self._stability_reset_requested = threading.Event()
         self._stability_state_lock = threading.Lock()
         self._stability_generation = 0
+        self._stable_window_s = float(settings.stable_window_s)
+        self._stable_tolerance_w = float(settings.stable_tolerance_w)
 
     def stop(self) -> None:
         self._running = False
@@ -426,6 +488,16 @@ class PowerMeterReaderThread(QThread):
             generation = self._stability_generation
             self._stability_reset_requested.set()
         return generation
+
+    def update_stability_settings(self, window_s: float, tolerance_w: float) -> None:
+        """Apply stability settings to the active acquisition loop."""
+        if window_s <= 0:
+            raise ValueError("window_s must be greater than 0")
+        if tolerance_w < 0:
+            raise ValueError("tolerance_w must be greater than or equal to 0")
+        with self._stability_state_lock:
+            self._stable_window_s = float(window_s)
+            self._stable_tolerance_w = float(tolerance_w)
 
     def run(self) -> None:
         meter = None
@@ -441,7 +513,10 @@ class PowerMeterReaderThread(QThread):
             meter.set_wavelength(self.settings.wavelength_nm)
             self.status.emit(f"Power meter connected: {normalize_resource(self.settings.resource)}")
 
-            detector = PowerStabilityDetector(self.settings.stable_window_s, self.settings.stable_tolerance_w)
+            with self._stability_state_lock:
+                stable_window_s = self._stable_window_s
+                stable_tolerance_w = self._stable_tolerance_w
+            detector = PowerStabilityDetector(stable_window_s, stable_tolerance_w)
             start = time.monotonic()
             poll_interval_s = self.settings.interval_ms / 1000.0
             next_poll_at = start
@@ -452,10 +527,20 @@ class PowerMeterReaderThread(QThread):
                     if reset_requested:
                         self._stability_reset_requested.clear()
                     generation = self._stability_generation
+                    stable_window_s = self._stable_window_s
+                    stable_tolerance_w = self._stable_tolerance_w
                 if reset_requested:
-                    detector = PowerStabilityDetector(self.settings.stable_window_s, self.settings.stable_tolerance_w)
+                    detector = PowerStabilityDetector(stable_window_s, stable_tolerance_w)
+                else:
+                    # The operator may tune these values while acquisition is
+                    # running. Keep the collected samples and apply the new
+                    # criteria to the very next reading.
+                    detector.window_s = stable_window_s
+                    detector.tolerance_w = stable_tolerance_w
                 elapsed = time.monotonic() - start
                 power_w = meter.read_power_w() * self.settings.software_gain
+                stable_tolerance_w = stability_tolerance_for_power(power_w)
+                detector.tolerance_w = stable_tolerance_w
                 stability = detector.add_sample(elapsed, power_w)
                 self.reading.emit(
                     PowerMeterReading(
@@ -465,6 +550,7 @@ class PowerMeterReaderThread(QThread):
                         stable_span_w=stability.span_w,
                         stable_window_s=stability.window_s,
                         stability_generation=generation,
+                        stable_tolerance_w=stable_tolerance_w,
                     )
                 )
                 # Keep the readings aligned to the configured interval.  Sleeping a
@@ -575,6 +661,13 @@ class MainWindow(QMainWindow):
         self.spectrum_center_locked_nm: float | None = None
         self.spectrum_peak_annotations: list[SpectrumPeakAnnotation] = []
         self.spectrum_peak_annotation_artists: list[Any] = []
+        self.centroid_display_samples: deque[float] = deque(maxlen=5)
+        self.latest_spectrum_saturated = False
+        self.test_session_started_at: datetime | None = None
+        self.excel_workbook_path: Path | None = None
+        self.excel_recorded_currents: set[float] = set()
+        self.pending_excel_records: dict[float, ExcelTestRecord] = {}
+        self.excel_save_thread: ExcelSaveThread | None = None
 
         self.content_widget = QWidget(self)
         self.setCentralWidget(self.content_widget)
@@ -622,6 +715,7 @@ class MainWindow(QMainWindow):
         self._build_curve_panel(monitor)
 
         self._build_log_panel(main)
+        self._disable_wheel_input_changes()
         self._restore_input_settings()
 
         self.setStatusBar(QStatusBar(self))
@@ -654,10 +748,16 @@ class MainWindow(QMainWindow):
         self.integration_spin.setValue(settings.value(prefix + "integration_time_us", self.integration_spin.value(), type=int))
         self.interval_spin.setValue(settings.value(prefix + "spectrometer_interval_ms", self.interval_spin.value(), type=int))
         self.stable_window_spin.setValue(settings.value(prefix + "stable_window_s", self.stable_window_spin.value(), type=float))
-        self.stable_tolerance_spin.setValue(
-            settings.value(prefix + "stable_tolerance_w", self.stable_tolerance_spin.value(), type=float)
+        self.stable_tolerance_spin.setValue(0.15)
+        self.sn_field.setText(str(settings.value(prefix + "sn", self.sn_field.text())))
+        saved_output_dir = settings.value(
+            prefix + "output_dir",
+            settings.value(prefix + "csv_path", self.output_dir_field.text()),
         )
-        self.csv_path_field.setText(str(settings.value(prefix + "csv_path", self.csv_path_field.text())))
+        saved_output_path = Path(str(saved_output_dir)).expanduser()
+        if saved_output_path.suffix.lower() == ".csv":
+            saved_output_path = saved_output_path.parent
+        self.output_dir_field.setText(str(saved_output_path))
         self.stop_after_record_check.setChecked(
             settings.value(prefix + "stop_after_record", self.stop_after_record_check.isChecked(), type=bool)
         )
@@ -672,8 +772,8 @@ class MainWindow(QMainWindow):
         settings.setValue(prefix + "integration_time_us", self.integration_spin.value())
         settings.setValue(prefix + "spectrometer_interval_ms", self.interval_spin.value())
         settings.setValue(prefix + "stable_window_s", self.stable_window_spin.value())
-        settings.setValue(prefix + "stable_tolerance_w", self.stable_tolerance_spin.value())
-        settings.setValue(prefix + "csv_path", self.csv_path_field.text().strip())
+        settings.setValue(prefix + "sn", self.sn_field.text().strip())
+        settings.setValue(prefix + "output_dir", self.output_dir_field.text().strip())
         settings.setValue(prefix + "stop_after_record", self.stop_after_record_check.isChecked())
         settings.sync()
 
@@ -740,17 +840,20 @@ class MainWindow(QMainWindow):
         self.i2c_status_label = QLabel("Disconnected", self)
         form.addRow("Status", self.i2c_status_label)
 
-        read_row = QHBoxLayout()
+        read_grid = QGridLayout()
         self.read_input_voltage_button = QPushButton("Vin", self)
         self.read_output_voltage_button = QPushButton("Vout", self)
         self.read_output_current_button = QPushButton("Iout", self)
+        self.read_temperature_button = QPushButton("Temp", self)
         self.read_input_voltage_button.clicked.connect(self.read_input_voltage)
         self.read_output_voltage_button.clicked.connect(self.read_output_voltage)
         self.read_output_current_button.clicked.connect(self.read_output_current)
-        read_row.addWidget(self.read_input_voltage_button)
-        read_row.addWidget(self.read_output_voltage_button)
-        read_row.addWidget(self.read_output_current_button)
-        form.addRow("", read_row)
+        self.read_temperature_button.clicked.connect(self.read_temperature)
+        read_grid.addWidget(self.read_input_voltage_button, 0, 0)
+        read_grid.addWidget(self.read_output_voltage_button, 0, 1)
+        read_grid.addWidget(self.read_output_current_button, 1, 0)
+        read_grid.addWidget(self.read_temperature_button, 1, 1)
+        form.addRow("", read_grid)
 
         self.apply_current_button = QPushButton("Apply", self)
         self.apply_current_button.clicked.connect(self.apply_output_current)
@@ -887,24 +990,19 @@ class MainWindow(QMainWindow):
         self.stable_window_spin.setDecimals(1)
         self.stable_window_spin.setValue(3.0)
         self.stable_window_spin.setSuffix(" s")
+        self.stable_window_spin.valueChanged.connect(self.on_stability_settings_changed)
         form.addRow("Stable window", self.stable_window_spin)
 
         self.stable_tolerance_spin = QDoubleSpinBox(self)
         self.stable_tolerance_spin.setRange(0.0, 100000.0)
         self.stable_tolerance_spin.setDecimals(4)
-        self.stable_tolerance_spin.setValue(0.05)
+        self.stable_tolerance_spin.setValue(0.15)
         self.stable_tolerance_spin.setSuffix(" W")
+        self.stable_tolerance_spin.setReadOnly(True)
+        self.stable_tolerance_spin.setToolTip(
+            "Automatic: <100 W = 0.15 W; 100-<200 W = 0.25 W; >=200 W = 0.35 W"
+        )
         form.addRow("Allowed span", self.stable_tolerance_spin)
-
-        self.csv_path_field = QLineEdit(str(Path(DEFAULT_CSV_PATH).resolve()), self)
-        self.csv_path_field.setToolTip(self.csv_path_field.text())
-        csv_row = QHBoxLayout()
-        csv_row.addWidget(self.csv_path_field, stretch=1)
-
-        self.browse_button = QPushButton("Choose...", self)
-        self.browse_button.clicked.connect(self.browse_csv)
-        csv_row.addWidget(self.browse_button)
-        form.addRow("CSV file", csv_row)
 
         self.stop_after_record_check = QCheckBox("Stop after record", self)
         self.stop_after_record_check.setChecked(True)
@@ -923,30 +1021,71 @@ class MainWindow(QMainWindow):
         layout.setVerticalSpacing(10)
 
         self.power_card_value, _power_detail = self._add_kpi_card(layout, 0, "Power", "-- W", "")
-        self.peak_card_value, _peak_detail = self._add_kpi_card(layout, 1, "Peak wavelength", "-- nm", "")
-        self.fwhm_card_value, self.centroid_label = self._add_kpi_card(
+        self.centroid_card_value, _centroid_detail = self._add_kpi_card(
             layout,
-            2,
-            "FWHM / Centroid",
+            1,
+            "Centroid wavelength / FWHM",
             "-- nm",
-            "Centroid: -- nm",
+            "FWHM: -- nm",
         )
+        self.fwhm_card_value = _centroid_detail
+        self.fwhm_card_value.setStyleSheet("color: #d0d0d0; font-size: 15px; font-weight: 600;")
+        self.spectrum_saturation_label = QLabel("SATURATED - reduce integration", self)
+        self.spectrum_saturation_label.setStyleSheet("color: #ff5d5d; font-size: 13px; font-weight: 700;")
+        self.spectrum_saturation_label.hide()
+        self.fwhm_card_value.parentWidget().layout().addWidget(self.spectrum_saturation_label)
         self.stability_card_value, self.stability_detail_label = self._add_kpi_card(
             layout,
-            3,
+            2,
             "Stability",
             "Waiting",
             "span -- W / -- s",
         )
-        self.record_card_value, self.record_detail_label = self._add_kpi_card(layout, 4, "Record", "--", "")
+        self._add_excel_save_card()
 
         self.power_label = self.power_card_value
-        self.peak_label = self.peak_card_value
+        self.centroid_wavelength_label = self.centroid_card_value
         self.fwhm_label = self.fwhm_card_value
         self.stability_label = self.stability_card_value
-        self.record_label = self.record_card_value
         parent.addWidget(group)
         self._relayout_kpi_cards()
+
+    def _add_excel_save_card(self) -> None:
+        card = QWidget(self)
+        card.setStyleSheet(
+            "QWidget { background-color: #242424; border: 1px solid #555555; border-radius: 4px; }"
+            "QLabel, QLineEdit, QPushButton { border: 0; }"
+            "QLineEdit { background-color: #1b1b1b; border: 1px solid #555555; border-radius: 3px; padding: 5px; }"
+            "QPushButton { background-color: #2f7fc1; border-radius: 3px; padding: 6px 10px; }"
+            "QPushButton:hover { background-color: #3994dc; }"
+        )
+        box = QVBoxLayout(card)
+        box.setContentsMargins(12, 10, 12, 10)
+        box.setSpacing(5)
+
+        self.sn_field = QLineEdit(self)
+        self.sn_field.setPlaceholderText("SN")
+        self.output_dir_field = QLineEdit(str(Path(DEFAULT_OUTPUT_DIR).resolve()), self)
+        self.output_dir_field.setPlaceholderText("Excel save folder")
+        self.output_dir_field.setToolTip(self.output_dir_field.text())
+        self.browse_button = QPushButton("...", self)
+        self.browse_button.setFixedWidth(30)
+        self.browse_button.clicked.connect(self.browse_output_dir)
+        path_row = QHBoxLayout()
+        path_row.setSpacing(4)
+        path_row.addWidget(self.output_dir_field, stretch=1)
+        path_row.addWidget(self.browse_button)
+
+        self.save_excel_button = QPushButton("Save Excel", self)
+        self.save_excel_button.clicked.connect(self.save_pending_excel_records)
+        self.save_status_label = QLabel("No test point ready", self)
+        self.save_status_label.setStyleSheet("color: #bdbdbd; font-size: 11px;")
+
+        box.addWidget(self.sn_field)
+        box.addLayout(path_row)
+        box.addWidget(self.save_excel_button)
+        box.addWidget(self.save_status_label)
+        self.kpi_cards.append(card)
 
     def _add_kpi_card(self, parent: QGridLayout, column: int, title: str, value: str, detail: str) -> tuple[QLabel, QLabel]:
         card = QWidget(self)
@@ -983,9 +1122,20 @@ class MainWindow(QMainWindow):
                 item.widget().setParent(None)
 
         available_width = self.monitor_panel.width() if hasattr(self, "monitor_panel") else 0
-        columns = 3 if available_width and available_width < 900 else 5
-        for index, card in enumerate(self.kpi_cards):
-            layout.addWidget(card, index // columns, index % columns)
+        if hasattr(self, "left_control_panel"):
+            available_width = max(available_width, self.width() - self.left_control_panel.width() - 64)
+        if available_width and available_width < 900:
+            for index, card in enumerate(self.kpi_cards[:-1]):
+                layout.addWidget(card, index // 2, index % 2)
+            if self.kpi_cards:
+                layout.addWidget(self.kpi_cards[-1], 2, 0, 1, 2)
+            columns = 2
+        else:
+            for index, card in enumerate(self.kpi_cards[:-1]):
+                layout.addWidget(card, 0, index)
+            if self.kpi_cards:
+                layout.addWidget(self.kpi_cards[-1], 0, 3, 1, 2)
+            columns = 5
         for column in range(columns):
             layout.setColumnStretch(column, 1)
 
@@ -1068,42 +1218,59 @@ class MainWindow(QMainWindow):
 
     def _build_log_panel(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("Log", self)
-        layout = QVBoxLayout(group)
-        row = QHBoxLayout()
-        self.log_text = QTextEdit(self)
-        self.log_text.setReadOnly(True)
-        self.log_text.setMinimumHeight(110)
-        self.log_text.setMaximumHeight(170)
-
-        self.toggle_log_button = QToolButton(self)
-        self.toggle_log_button.setText("Show Log")
-        self.toggle_log_button.setCheckable(True)
-        self.toggle_log_button.toggled.connect(self._toggle_log_visibility)
-        row.addWidget(self.toggle_log_button)
-
-        self.clear_log_button = QPushButton("Clear", self)
-        self.clear_log_button.clicked.connect(self.log_text.clear)
-        row.addWidget(self.clear_log_button)
-        row.addStretch(1)
-        layout.addLayout(row)
-
-        layout.addWidget(self.log_text)
-        self.log_text.hide()
+        group.setMaximumHeight(66)
+        layout = QHBoxLayout(group)
+        layout.setContentsMargins(10, 6, 10, 8)
+        self.log_text = QLabel("Ready", self)
+        self.log_text.setMinimumWidth(0)
+        self.log_text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.log_text.setStyleSheet("color: #d7d7d7; font-size: 12px;")
+        layout.addWidget(self.log_text, stretch=1)
         parent.addWidget(group)
 
-    def _toggle_log_visibility(self, visible: bool) -> None:
-        self.log_text.setVisible(visible)
-        self.toggle_log_button.setText("Hide Log" if visible else "Show Log")
+    def _disable_wheel_input_changes(self) -> None:
+        for widget in self.findChildren(QAbstractSpinBox):
+            widget.installEventFilter(self)
+        for widget in self.findChildren(QComboBox):
+            widget.installEventFilter(self)
 
-    def browse_csv(self) -> None:
-        path, _ = QFileDialog.getSaveFileName(self, "Save Combined Test CSV", self.csv_path_field.text(), "CSV Files (*.csv)")
+    def eventFilter(self, watched: Any, event: Any) -> bool:
+        if event.type() == QEvent.Type.Wheel and isinstance(watched, (QAbstractSpinBox, QComboBox)):
+            return True
+        return super().eventFilter(watched, event)
+
+    def browse_output_dir(self) -> None:
+        path = QFileDialog.getExistingDirectory(self, "Choose Excel Output Folder", self.output_dir_field.text())
         if path:
-            self.csv_path_field.setText(path)
-            self.csv_path_field.setToolTip(path)
+            self.output_dir_field.setText(path)
+            self.output_dir_field.setToolTip(path)
 
     def start_all(self) -> None:
+        if self.excel_save_thread is not None:
+            self.statusBar().showMessage("Wait for the current Excel save to finish")
+            return
+        if self.power_meter_reader is None and self.spectrometer_reader is None:
+            try:
+                self.begin_test_session()
+            except ValueError as exc:
+                QMessageBox.warning(self, "Test Record", str(exc))
+                return
         self.start_power_meter()
         self.start_spectrometer()
+
+    def begin_test_session(self, reset_records: bool = True) -> Path:
+        sn = sanitize_sn(self.sn_field.text())
+        output_dir_text = self.output_dir_field.text().strip()
+        if not output_dir_text:
+            raise ValueError("Excel output folder cannot be empty")
+        self.test_session_started_at = datetime.now()
+        self.excel_workbook_path = build_test_workbook_path(Path(output_dir_text), sn, self.test_session_started_at)
+        if reset_records:
+            self.excel_recorded_currents.clear()
+            self.pending_excel_records.clear()
+            self.save_status_label.setText("No test point ready")
+        self.add_log(f"Test record: {self.excel_workbook_path}")
+        return self.excel_workbook_path
 
     def stop_all(self) -> None:
         self.stop_power_meter()
@@ -1252,6 +1419,9 @@ class MainWindow(QMainWindow):
     def read_output_current(self) -> None:
         self.execute_i2c_read([0xB4, 0x8C, 0x00, 0x00], "Output current", "A")
 
+    def read_temperature(self) -> None:
+        self.execute_i2c_read([0xB4, 0x8D, 0x00, 0x00], "Module temperature", "°C")
+
     def execute_i2c_read(self, command: list[int], name: str, unit: str) -> float | None:
         controller = self._require_manual_i2c_controller()
         if controller is None:
@@ -1298,6 +1468,114 @@ class MainWindow(QMainWindow):
             f"Efficiency point: {current_a:.3f} A, {power_w:.3f} W / "
             f"({current_a:.3f} A × {voltage_v:.3f} V) = {efficiency_percent:.2f}%"
         )
+
+        self.queue_excel_test_point(current_a, voltage_v, power_w, efficiency_percent / 100.0)
+
+    def queue_excel_test_point(
+        self,
+        current_a: float,
+        voltage_v: float,
+        power_w: float,
+        efficiency: float,
+    ) -> None:
+        if self.latest_spectrum_wavelength is None or self.latest_spectrum_intensity is None:
+            self.add_log("Excel record skipped: no spectrum is available")
+            self.statusBar().showMessage("Cannot prepare test point until spectrum data is available")
+            return
+        saturation = detect_spectrum_saturation(self.latest_spectrum_intensity)
+        if saturation.saturated:
+            if current_a not in self.excel_recorded_currents:
+                self.pending_excel_records.pop(current_a, None)
+            self.save_status_label.setText(f"{current_a:.1f} A saturated - not queued")
+            message = (
+                f"Spectrum saturated at {current_a:.1f} A "
+                f"({saturation.peak_intensity:.0f} counts, {saturation.consecutive_pixels} pixels); "
+                "reduce integration time"
+            )
+            self.statusBar().showMessage(message)
+            self.add_log(message)
+            return
+        stats = calculate_stats(self.latest_spectrum_wavelength, self.latest_spectrum_intensity)
+        self.pending_excel_records[current_a] = ExcelTestRecord(
+            current_a=current_a,
+            voltage_v=voltage_v,
+            power_w=power_w,
+            efficiency=efficiency,
+            peak_wavelength_nm=stats.peak_wavelength_nm,
+            centroid_nm=stats.centroid_nm,
+            fwhm_nm=stats.fwhm_nm,
+            pib=calculate_pib(self.latest_spectrum_wavelength, self.latest_spectrum_intensity),
+            wavelength=list(self.latest_spectrum_wavelength),
+            intensity=list(self.latest_spectrum_intensity),
+        )
+        pending_count = len([current for current in self.pending_excel_records if current not in self.excel_recorded_currents])
+        self.save_status_label.setText(f"{pending_count} test point(s) ready")
+        self.statusBar().showMessage(f"Test point {current_a:.1f} A is ready; click Save Excel")
+
+    def save_pending_excel_records(self) -> None:
+        if self.excel_save_thread is not None:
+            return
+        unsaved_records = sorted(
+            (
+                record
+                for current, record in self.pending_excel_records.items()
+                if current not in self.excel_recorded_currents
+            ),
+            key=lambda record: record.current_a,
+        )
+        if not unsaved_records:
+            QMessageBox.information(self, "Excel Save", "No unsaved test point is available.")
+            return
+        if self.excel_workbook_path is None:
+            try:
+                self.begin_test_session(reset_records=False)
+            except ValueError as exc:
+                QMessageBox.warning(self, "Excel Save", str(exc))
+                return
+
+        records_snapshot = sorted(self.pending_excel_records.values(), key=lambda record: record.current_a)
+        self.excel_save_thread = ExcelSaveThread(self.excel_workbook_path, records_snapshot, self)
+        self.excel_save_thread.saved.connect(self.on_excel_save_succeeded)
+        self.excel_save_thread.failed.connect(self.on_excel_save_failed)
+        self.excel_save_thread.finished.connect(self.on_excel_save_finished)
+        self.save_excel_button.setEnabled(False)
+        self.save_excel_button.setText("Saving...")
+        self.start_all_button.setEnabled(False)
+        self.save_status_label.setText(f"Saving {len(records_snapshot)} point(s)...")
+        self.add_log(f"Saving {len(records_snapshot)} test point(s) in background")
+        self.excel_save_thread.start()
+
+    def on_excel_save_succeeded(self, elapsed_s: float) -> None:
+        thread = self.excel_save_thread
+        if thread is None:
+            return
+        for saved_record in thread.records:
+            current_record = self.pending_excel_records.get(saved_record.current_a)
+            if current_record == saved_record:
+                self.excel_recorded_currents.add(saved_record.current_a)
+        remaining_count = len(
+            [current for current in self.pending_excel_records if current not in self.excel_recorded_currents]
+        )
+        if remaining_count:
+            self.save_status_label.setText(f"Saved in {elapsed_s:.2f}s; {remaining_count} new point(s) ready")
+        else:
+            self.save_status_label.setText(f"Saved in {elapsed_s:.2f}s: {thread.path.name}")
+        self.statusBar().showMessage(f"Excel saved in {elapsed_s:.2f} s: {thread.path.name}")
+        self.add_log(f"Excel saved in {elapsed_s:.2f} s: {thread.path}")
+
+    def on_excel_save_failed(self, message: str) -> None:
+        self.save_status_label.setText("Save failed")
+        self.add_log(f"Excel save failed: {message}")
+        QMessageBox.critical(self, "Excel Save", message)
+
+    def on_excel_save_finished(self) -> None:
+        thread = self.excel_save_thread
+        self.excel_save_thread = None
+        self.save_excel_button.setEnabled(True)
+        self.save_excel_button.setText("Save Excel")
+        self.start_all_button.setEnabled(True)
+        if thread is not None:
+            thread.deleteLater()
 
     def apply_output_current(self) -> None:
         controller = self._require_manual_i2c_controller()
@@ -1419,7 +1697,7 @@ class MainWindow(QMainWindow):
             interval_ms=self.interval_spin.value(),
             stable_window_s=self.stable_window_spin.value(),
             stable_tolerance_w=self.stable_tolerance_spin.value(),
-            csv_path=Path(self.csv_path_field.text()).expanduser(),
+            output_dir=Path(self.output_dir_field.text()).expanduser(),
             stop_after_record=self.stop_after_record_check.isChecked(),
             spectrometer_device_id=self._selected_spectrometer_device_id(),
         )
@@ -1444,6 +1722,15 @@ class MainWindow(QMainWindow):
             interval_ms=self.power_meter_interval_spin.value(),
             stable_window_s=self.stable_window_spin.value(),
             stable_tolerance_w=self.stable_tolerance_spin.value(),
+        )
+
+    def on_stability_settings_changed(self, _value: float) -> None:
+        """Synchronize live stability criteria with the acquisition thread."""
+        if self.power_meter_reader is None:
+            return
+        self.power_meter_reader.update_stability_settings(
+            self.stable_window_spin.value(),
+            self.stable_tolerance_spin.value(),
         )
 
     def collect_spectrometer_settings(self) -> SpectrometerSettings:
@@ -1517,9 +1804,16 @@ class MainWindow(QMainWindow):
             self.spectrometer_reader.stop()
             self.spectrometer_reader.wait(3000)
 
-    def update_stability_card(self, stable: bool, span_w: float, covered_window_s: float) -> None:
+    def update_stability_card(
+        self,
+        stable: bool,
+        span_w: float,
+        covered_window_s: float,
+        tolerance_w: float | None = None,
+    ) -> None:
         target_window_s = self.stable_window_spin.value() if hasattr(self, "stable_window_spin") else 0.0
-        tolerance_w = self.stable_tolerance_spin.value() if hasattr(self, "stable_tolerance_spin") else 0.0
+        if tolerance_w is None:
+            tolerance_w = self.stable_tolerance_spin.value() if hasattr(self, "stable_tolerance_spin") else 0.0
         displayed_window_s = min(max(covered_window_s, 0.0), target_window_s)
         self.stability_label.setText("Stable" if stable else "Waiting")
         self.stability_label.setStyleSheet(
@@ -1535,21 +1829,37 @@ class MainWindow(QMainWindow):
     def on_power_meter_reading(self, reading: PowerMeterReading) -> None:
         self.latest_power_meter_reading = reading
         self.power_label.setText(f"{reading.power_w:.3f} W")
-        self.update_stability_card(reading.stable, reading.stable_span_w, reading.stable_window_s)
+        tolerance_w = (
+            reading.stable_tolerance_w
+            if math.isfinite(reading.stable_tolerance_w)
+            else stability_tolerance_for_power(reading.power_w)
+        )
+        signals_were_blocked = self.stable_tolerance_spin.blockSignals(True)
+        try:
+            self.stable_tolerance_spin.setValue(tolerance_w)
+        finally:
+            self.stable_tolerance_spin.blockSignals(signals_were_blocked)
+        self.update_stability_card(reading.stable, reading.stable_span_w, reading.stable_window_s, tolerance_w)
         self.update_power_curve(reading.elapsed_s, reading.power_w)
         self.capture_stable_power_point(reading)
 
     def on_spectrometer_reading(self, reading: SpectrometerReading) -> None:
-        self.peak_label.setText(f"{reading.peak_wavelength_nm:.3f} nm")
-        self.centroid_label.setText(f"Centroid: {self._format_optional(reading.centroid_nm)} nm")
-        self.fwhm_label.setText(f"{self._format_optional(reading.fwhm_nm)} nm")
+        self.update_centroid_display(reading.centroid_nm)
+        self.fwhm_label.setText(
+            "FWHM: -- nm"
+            if self.latest_spectrum_saturated
+            else f"FWHM: {self._format_optional(reading.fwhm_nm)} nm"
+        )
         self.update_spectrum_center_lock(reading)
 
     def on_live_reading(self, reading: LiveReading) -> None:
         self.power_label.setText(f"{reading.power_w:.3f} W")
-        self.peak_label.setText(f"{reading.peak_wavelength_nm:.3f} nm")
-        self.centroid_label.setText(f"Centroid: {self._format_optional(reading.centroid_nm)} nm")
-        self.fwhm_label.setText(f"{self._format_optional(reading.fwhm_nm)} nm")
+        self.update_centroid_display(reading.centroid_nm)
+        self.fwhm_label.setText(
+            "FWHM: -- nm"
+            if self.latest_spectrum_saturated
+            else f"FWHM: {self._format_optional(reading.fwhm_nm)} nm"
+        )
         self.update_spectrum_center_lock(
             SpectrometerReading(
                 peak_wavelength_nm=reading.peak_wavelength_nm,
@@ -1557,12 +1867,16 @@ class MainWindow(QMainWindow):
                 fwhm_nm=reading.fwhm_nm,
             )
         )
-        self.update_stability_card(reading.stable, reading.stable_span_w, reading.stable_window_s)
+        self.update_stability_card(
+            reading.stable,
+            reading.stable_span_w,
+            reading.stable_window_s,
+            stability_tolerance_for_power(reading.power_w),
+        )
         self.update_power_curve(reading.elapsed_s, reading.power_w)
 
     def on_recorded(self, timestamp: str, measurement: CombinedMeasurement) -> None:
-        self.record_label.setText(timestamp)
-        self.record_detail_label.setText(f"Iout {measurement.output_current_a:.3f} A, Vout {measurement.output_voltage_v:.3f} V")
+        self.save_status_label.setText(f"Saved {measurement.set_current_a:.1f} A at {timestamp[11:]}")
         self.add_log(
             "Recorded stable point: "
             f"set {measurement.set_current_a} A, "
@@ -1576,6 +1890,25 @@ class MainWindow(QMainWindow):
     def on_spectrum_curve(self, wavelength: Any, intensity: Any) -> None:
         self.latest_spectrum_wavelength = wavelength
         self.latest_spectrum_intensity = intensity
+        saturation = detect_spectrum_saturation(intensity)
+        was_saturated = self.latest_spectrum_saturated
+        self.latest_spectrum_saturated = saturation.saturated
+        self.spectrum_saturation_label.setVisible(saturation.saturated)
+        self.centroid_card_value.setStyleSheet(
+            "color: #ff5d5d; font-size: 26px; font-weight: 700;"
+            if saturation.saturated
+            else "color: #f2f2f2; font-size: 26px; font-weight: 700;"
+        )
+        if saturation.saturated and not was_saturated:
+            message = (
+                f"Spectrum saturated: {saturation.peak_intensity:.0f} counts across "
+                f"{saturation.consecutive_pixels} pixels; reduce integration time"
+            )
+            self.statusBar().showMessage(message)
+            self.add_log(message)
+        elif was_saturated and not saturation.saturated:
+            self.statusBar().showMessage("Spectrum saturation cleared")
+            self.add_log("Spectrum saturation cleared")
         self.copy_spectrum_button.setEnabled(True)
         self.save_spectrum_button.setEnabled(True)
         self.update_spectrum_curve(wavelength, intensity)
@@ -1613,6 +1946,14 @@ class MainWindow(QMainWindow):
                 self.cancel_auto_vout_read()
                 self.add_log("Automatic Vout read cancelled because power is no longer stable")
             self.update_latest_stable_power_point(reading)
+            if (
+                reading.stable
+                and self.recorded_stable_point_current_a == self.active_output_current_a
+                and self.recorded_stable_point_generation == reading.stability_generation
+                and self.active_output_current_a not in self.efficiency_voltage_points
+                and self.pending_auto_vout_current_a is None
+            ):
+                self.schedule_auto_vout_read()
             return
         if not reading.stable:
             return
@@ -1703,6 +2044,13 @@ class MainWindow(QMainWindow):
         self.stable_power_canvas.draw_idle()
 
     def reset_spectrum_curve(self) -> None:
+        self.centroid_display_samples.clear()
+        self.latest_spectrum_saturated = False
+        if hasattr(self, "centroid_wavelength_label"):
+            self.centroid_wavelength_label.setText("-- nm")
+            self.centroid_card_value.setStyleSheet("color: #f2f2f2; font-size: 26px; font-weight: 700;")
+        if hasattr(self, "spectrum_saturation_label"):
+            self.spectrum_saturation_label.hide()
         self.spectrum_center_candidate_nm = None
         self.spectrum_center_candidate_count = 0
         self.spectrum_center_locked_nm = None
@@ -1712,6 +2060,17 @@ class MainWindow(QMainWindow):
         self.spectrum_curve_axis.set_xlim(0, 1)
         self.spectrum_curve_axis.set_ylim(0, 1)
         self.spectrum_curve_canvas.draw_idle()
+
+    def update_centroid_display(self, centroid_nm: float) -> None:
+        if self.latest_spectrum_saturated:
+            self.centroid_wavelength_label.setText("SATURATED")
+            return
+        value = float(centroid_nm)
+        if not math.isfinite(value):
+            self.centroid_wavelength_label.setText("-- nm")
+            return
+        self.centroid_display_samples.append(value)
+        self.centroid_wavelength_label.setText(f"{median(self.centroid_display_samples):.3f} nm")
 
     def update_power_curve(self, elapsed_s: float, power_w: float) -> None:
         elapsed = float(elapsed_s)
@@ -2018,7 +2377,7 @@ class MainWindow(QMainWindow):
 
     def add_log(self, message: str) -> None:
         timestamp = datetime.now().strftime("%H:%M:%S")
-        self.log_text.append(f"[{timestamp}] {message}")
+        self.log_text.setText(f"[{timestamp}] {message}")
 
     def resizeEvent(self, event: Any) -> None:
         super().resizeEvent(event)
@@ -2032,6 +2391,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self.save_input_settings()
+        if self.excel_save_thread is not None:
+            self.excel_save_thread.wait()
         if self.power_meter_detect_thread is not None:
             self.power_meter_detect_thread.wait(3000)
         self.stop_power_meter()

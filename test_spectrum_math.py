@@ -1,7 +1,7 @@
 import math
 import unittest
 
-from spectrum_math import calculate_centroid, calculate_fwhm, calculate_stats
+from spectrum_math import calculate_centroid, calculate_fwhm, calculate_pib, calculate_stats
 
 
 class SpectrumMathTests(unittest.TestCase):
@@ -19,6 +19,14 @@ class SpectrumMathTests(unittest.TestCase):
     def test_centroid_weights_by_intensity(self) -> None:
         self.assertAlmostEqual(calculate_centroid([1.0, 2.0, 3.0], [0.0, 1.0, 3.0]), 2.75)
 
+    def test_centroid_ignores_disconnected_background_and_secondary_noise(self) -> None:
+        centroid = calculate_centroid(
+            [900.0, 975.0, 976.0, 977.0, 1050.0],
+            [-10.0, 0.0, 100.0, 0.0, 20.0],
+        )
+
+        self.assertAlmostEqual(centroid, 976.0)
+
     def test_fwhm_interpolates_half_max_crossings(self) -> None:
         self.assertAlmostEqual(calculate_fwhm([0.0, 1.0, 2.0], [0.0, 10.0, 0.0]), 1.0)
 
@@ -32,6 +40,17 @@ class SpectrumMathTests(unittest.TestCase):
 
         bad = calculate_stats([1.0], [1.0, 2.0])
         self.assertTrue(math.isnan(bad.peak_wavelength_nm))
+
+    def test_pib_uses_median_filtered_intensity_in_default_974_5_to_977_5_band(self) -> None:
+        pib = calculate_pib(
+            [973.0, 974.0, 975.0, 976.0, 977.0, 978.0, 979.0],
+            [1.0, 1.0, 2.0, 2.0, 2.0, 1.0, 1.0],
+        )
+
+        self.assertAlmostEqual(pib, 0.6)
+
+    def test_pib_returns_nan_when_total_intensity_is_zero(self) -> None:
+        self.assertTrue(math.isnan(calculate_pib([975.0, 976.0, 977.0], [0.0, 0.0, 0.0])))
 
 
 if __name__ == "__main__":

@@ -27,5 +27,11 @@
 ## Recording
 
 - After setting output current, the app samples power and spectrum data.
-- Once the power is stable for the configured window and tolerance, the app records output current, output voltage, power, wavelength statistics, and a path to the full spectrum CSV.
-- Full spectrum curves are saved as `wavelength_nm,intensity` CSV files in a sibling `<main_csv_name>_spectra` directory.
+- `Start Acquisition` requires an SN and starts a new recording session.
+- The session workbook is named `<SN>_YYYY_MM_DD_HH_MM_SS.xlsx` in the selected Excel output folder.
+- Once power is stable and Vout is read, the point is queued with its current spectrum. `Save Excel` writes all queued points to the workbook's left-side `LIV` area.
+- Full spectrum curves are stored in the same worksheet's right-side `Spectra` area, with one wavelength/intensity column pair per current point.
+- Both LIV rows and Spectra column pairs are rewritten in ascending-current order on every save.
+- `Save Excel` snapshots all queued points, rebuilds the workbook once on an `ExcelSaveThread`, and atomically replaces the target file so the GUI remains responsive during large saves.
+- PIB uses `scipy.signal.medfilt(intensity)` and the default 974.5-977.5 nm band (976.0 +/- 1.5 nm).
+- Spectrum saturation is flagged when at least 3 consecutive pixels are at or above 16000 counts and within 99.5% of the frame maximum; saturated points show a red warning and are not queued for Excel.
