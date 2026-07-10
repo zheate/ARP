@@ -177,7 +177,6 @@ class MainWindow(QMainWindow):
         monitor.setSpacing(10)
         body.addWidget(self.monitor_panel, stretch=1)
 
-        self._build_kpi_panel(monitor)
         self._build_curve_panel(monitor)
 
         self._build_log_panel(main)
@@ -571,87 +570,6 @@ class MainWindow(QMainWindow):
 
         parent.addWidget(group)
         self._reserve_group_height(group)
-
-    def _build_kpi_panel(self, parent: QVBoxLayout) -> None:
-        self.kpi_panel = QWidget(self)
-        layout = QGridLayout(self.kpi_panel)
-        self.kpi_layout = layout
-        self.kpi_cards: list[QWidget] = []
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setHorizontalSpacing(10)
-        layout.setVerticalSpacing(10)
-
-        self.power_card_value, _power_detail = self._add_kpi_card(layout, 0, "功率", "-- W", "")
-        self.centroid_card_value, _centroid_detail = self._add_kpi_card(
-            layout, 1, "质心波长", "-- nm", ""
-        )
-        self.fwhm_card_value, _fwhm_detail = self._add_kpi_card(layout, 2, "半高全宽（FWHM）", "-- nm", "")
-        self.spectrum_saturation_label = QLabel(
-            "光谱饱和，请缩短积分时间",
-            self.centroid_card_value.parentWidget(),
-        )
-        window_is_light = self.palette().color(QPalette.ColorRole.Window).lightness() >= 128
-        danger_color = "#b42318" if window_is_light else "#ff7b72"
-        self.spectrum_saturation_label.setStyleSheet(f"color: {danger_color}; font-weight: 600;")
-        self.spectrum_saturation_label.hide()
-        self.centroid_card_value.parentWidget().layout().addWidget(self.spectrum_saturation_label)
-        self.stability_card_value, self.stability_detail_label = self._add_kpi_card(
-            layout,
-            3,
-            "稳定性",
-            "等待稳定",
-            "波动 -- W / -- s",
-        )
-
-        self.power_label = self.power_card_value
-        self.centroid_wavelength_label = self.centroid_card_value
-        self.fwhm_label = self.fwhm_card_value
-        self.stability_label = self.stability_card_value
-        parent.addWidget(self.kpi_panel)
-        self._relayout_kpi_cards()
-
-    def _add_kpi_card(self, parent: QGridLayout, column: int, title: str, value: str, detail: str) -> tuple[QLabel, QLabel]:
-        card = QGroupBox(title, self)
-        box = QVBoxLayout(card)
-        box.setContentsMargins(10, 10, 10, 8)
-        box.setSpacing(2)
-
-        value_label = QLabel(value, card)
-        value_font = value_label.font()
-        value_font.setPointSize(20)
-        value_font.setBold(True)
-        value_label.setFont(value_font)
-        value_label.setWordWrap(True)
-        detail_label = QLabel(detail, card)
-        detail_label.setWordWrap(True)
-
-        box.addWidget(value_label)
-        box.addWidget(detail_label)
-        self.kpi_cards.append(card)
-        return value_label, detail_label
-
-    def _relayout_kpi_cards(self) -> None:
-        if not hasattr(self, "kpi_layout"):
-            return
-        layout = self.kpi_layout
-        while layout.count():
-            item = layout.takeAt(0)
-            if item.widget() is not None:
-                item.widget().setParent(None)
-
-        available_width = self.monitor_panel.width() if hasattr(self, "monitor_panel") else 0
-        if hasattr(self, "left_control_panel"):
-            available_width = max(available_width, self.width() - self.left_control_panel.width() - 64)
-        if available_width and available_width < 720:
-            for index, card in enumerate(self.kpi_cards):
-                layout.addWidget(card, index // 2, index % 2)
-            columns = 2
-        else:
-            for index, card in enumerate(self.kpi_cards):
-                layout.addWidget(card, 0, index)
-            columns = 4
-        for column in range(columns):
-            layout.setColumnStretch(column, 1)
 
     def _build_curve_panel(self, parent: QVBoxLayout) -> None:
         self.live_plots = LivePlots(self)
@@ -1263,19 +1181,17 @@ class MainWindow(QMainWindow):
         target_window_s = self.stable_window_spin.value() if hasattr(self, "stable_window_spin") else 0.0
         if tolerance_w is None:
             tolerance_w = self.stable_tolerance_spin.value() if hasattr(self, "stable_tolerance_spin") else 0.0
-        displayed_window_s = min(max(covered_window_s, 0.0), target_window_s)
-        self.stability_label.setText("稳定" if stable else "等待稳定")
-        window_is_light = self.palette().color(QPalette.ColorRole.Window).lightness() >= 128
-        stable_color = "#18794e" if window_is_light else "#57d69a"
-        self.stability_label.setStyleSheet(f"color: {stable_color};" if stable else "")
-        self.stability_detail_label.setText(
-            f"{displayed_window_s:.2f} / {target_window_s:.2f} s\n"
-            f"波动 {span_w:.4f} W <= {tolerance_w:.4f} W"
+        self.live_plots.set_power_stability(
+            stable,
+            covered_window_s,
+            target_window_s,
+            span_w,
+            tolerance_w,
         )
 
     def on_power_meter_reading(self, reading: PowerMeterReading) -> None:
         self.latest_power_meter_reading = reading
-        self.power_label.setText(f"{reading.power_w:.3f} W")
+        self.live_plots.set_power_value(reading.power_w)
         tolerance_w = (
             reading.stable_tolerance_w
             if math.isfinite(reading.stable_tolerance_w)
@@ -1292,20 +1208,16 @@ class MainWindow(QMainWindow):
 
     def on_spectrometer_reading(self, reading: SpectrometerReading) -> None:
         self.update_centroid_display(reading.centroid_nm)
-        self.fwhm_label.setText(
-            "-- nm"
-            if self.latest_spectrum_saturated
-            else f"{self._format_optional(reading.fwhm_nm)} nm"
+        self.live_plots.set_spectrum_metrics(
+            fwhm_nm=math.nan if self.latest_spectrum_saturated else reading.fwhm_nm,
         )
         self.update_spectrum_center_lock(reading)
 
     def on_live_reading(self, reading: LiveReading) -> None:
-        self.power_label.setText(f"{reading.power_w:.3f} W")
+        self.live_plots.set_power_value(reading.power_w)
         self.update_centroid_display(reading.centroid_nm)
-        self.fwhm_label.setText(
-            "-- nm"
-            if self.latest_spectrum_saturated
-            else f"{self._format_optional(reading.fwhm_nm)} nm"
+        self.live_plots.set_spectrum_metrics(
+            fwhm_nm=math.nan if self.latest_spectrum_saturated else reading.fwhm_nm,
         )
         self.update_spectrum_center_lock(
             SpectrometerReading(
@@ -1340,10 +1252,16 @@ class MainWindow(QMainWindow):
         saturation = detect_spectrum_saturation(intensity)
         was_saturated = self.latest_spectrum_saturated
         self.latest_spectrum_saturated = saturation.saturated
-        self.spectrum_saturation_label.setVisible(saturation.saturated)
-        window_is_light = self.palette().color(QPalette.ColorRole.Window).lightness() >= 128
-        danger_color = "#b42318" if window_is_light else "#ff7b72"
-        self.centroid_card_value.setStyleSheet(f"color: {danger_color};" if saturation.saturated else "")
+        try:
+            has_enough_pib_samples = len(intensity) >= 3
+        except TypeError:
+            has_enough_pib_samples = True
+        pib = (
+            calculate_pib(wavelength, intensity)
+            if not saturation.saturated and has_enough_pib_samples
+            else math.nan
+        )
+        self.live_plots.set_spectrum_metrics(pib=pib, saturated=saturation.saturated)
         if saturation.saturated and not was_saturated:
             message = (
                 f"光谱饱和：峰值 {saturation.peak_intensity:.0f} 计数，连续 "
@@ -1359,6 +1277,7 @@ class MainWindow(QMainWindow):
         self.update_spectrum_curve(wavelength, intensity)
 
     def reset_curves(self) -> None:
+        self.live_plots.reset_integrated_metrics()
         self.reset_power_curve()
         self.reset_stable_power_curve()
         self.reset_spectrum_curve()
@@ -1451,13 +1370,6 @@ class MainWindow(QMainWindow):
     def reset_spectrum_curve(self) -> None:
         self.centroid_display_samples.clear()
         self.latest_spectrum_saturated = False
-        if hasattr(self, "centroid_wavelength_label"):
-            self.centroid_wavelength_label.setText("-- nm")
-            self.centroid_card_value.setStyleSheet("")
-        if hasattr(self, "fwhm_label"):
-            self.fwhm_label.setText("-- nm")
-        if hasattr(self, "spectrum_saturation_label"):
-            self.spectrum_saturation_label.hide()
         self.spectrum_center_candidate_nm = None
         self.spectrum_center_candidate_count = 0
         self.spectrum_center_locked_nm = None
@@ -1465,14 +1377,14 @@ class MainWindow(QMainWindow):
 
     def update_centroid_display(self, centroid_nm: float) -> None:
         if self.latest_spectrum_saturated:
-            self.centroid_wavelength_label.setText("光谱饱和")
+            self.live_plots.set_spectrum_metrics(centroid_nm=math.nan, saturated=True)
             return
         value = float(centroid_nm)
         if not math.isfinite(value):
-            self.centroid_wavelength_label.setText("-- nm")
+            self.live_plots.set_spectrum_metrics(centroid_nm=math.nan)
             return
         self.centroid_display_samples.append(value)
-        self.centroid_wavelength_label.setText(f"{median(self.centroid_display_samples):.3f} nm")
+        self.live_plots.set_spectrum_metrics(centroid_nm=median(self.centroid_display_samples))
 
     def update_power_curve(self, elapsed_s: float, power_w: float) -> None:
         self.live_plots.update_power(elapsed_s, power_w)
@@ -1629,7 +1541,12 @@ class MainWindow(QMainWindow):
 
     def resizeEvent(self, event: Any) -> None:
         super().resizeEvent(event)
-        self._relayout_kpi_cards()
+        if hasattr(self, "live_plots") and hasattr(self, "monitor_panel"):
+            available_width = max(
+                self.monitor_panel.width(),
+                self.width() - self.left_control_panel.width() - 64,
+            )
+            self.live_plots.relayout(available_width)
 
     @staticmethod
     def _format_optional(value: float) -> str:

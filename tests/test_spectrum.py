@@ -32,7 +32,7 @@ class SpectrumAnalysisTests(unittest.TestCase):
 
         self.assertEqual(
             [(item.label, round(item.centroid_nm, 3)) for item in annotations],
-            [("第1峰", 856.0), ("第2峰", 860.0), ("第3峰", 852.0)],
+            [("P1", 856.0), ("P2", 860.0), ("P3", 852.0)],
         )
 
     def test_saturation_requires_consecutive_near_peak_pixels(self) -> None:

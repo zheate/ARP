@@ -124,7 +124,13 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertTrue(window.stable_tolerance_spin.isReadOnly())
         self.assertEqual(window.stable_tolerance_spin.value(), 0.25)
-        self.assertIn("<= 0.2500 W", window.stability_detail_label.text())
+        self.assertIn("≤ 0.2500 W", window.live_plots.stability_detail_text.get_text())
+
+        window.on_power_meter_reading(PowerMeterReading(4.0, 150.1, True, 0.1, 3.0))
+
+        self.assertEqual(window.live_plots.stability_status_text.get_text(), "STABLE")
+        self.assertIsNotNone(window.live_plots._stable_region_artist)
+        self.assertEqual(window.live_plots.power_curve_line.get_color(), "#2f8f46")
         window.close()
 
     def test_input_parameters_are_restored_in_next_window(self) -> None:
@@ -188,16 +194,12 @@ class MainWindowTests(unittest.TestCase):
         self.assertLessEqual(window.left_control_panel.maximumWidth(), 360)
         window.close()
 
-    def test_main_window_exposes_status_bar_kpi_cards_and_vertical_curves(self) -> None:
+    def test_main_window_integrates_metrics_into_their_related_plots(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
 
         for attribute in (
             "global_status_label",
-            "power_card_value",
-            "centroid_card_value",
-            "fwhm_card_value",
-            "stability_card_value",
             "sn_field",
             "output_dir_field",
             "save_excel_button",
@@ -205,11 +207,26 @@ class MainWindowTests(unittest.TestCase):
         ):
             self.assertTrue(hasattr(window, attribute), attribute)
 
+        window.live_plots.relayout(1000)
         self.assertEqual(window.curves_layout.getItemPosition(window.curves_layout.indexOf(window.power_curve_canvas))[:2], (0, 0))
-        self.assertEqual(window.curves_layout.getItemPosition(window.curves_layout.indexOf(window.spectrum_curve_canvas))[:2], (0, 1))
-        self.assertEqual(window.curves_layout.getItemPosition(window.curves_layout.indexOf(window.stable_power_canvas))[:2], (1, 0))
-        card_titles = [card.title() for card in window.kpi_cards]
-        self.assertEqual(card_titles, ["功率", "质心波长", "半高全宽（FWHM）", "稳定性"])
+        self.assertEqual(window.curves_layout.getItemPosition(window.curves_layout.indexOf(window.stable_power_canvas))[:2], (0, 1))
+        self.assertEqual(
+            window.curves_layout.getItemPosition(window.curves_layout.indexOf(window.spectrum_curve_canvas)),
+            (1, 0, 1, 2),
+        )
+        self.assertEqual([window.curves_layout.columnStretch(column) for column in range(2)], [1, 1])
+        self.assertEqual([window.curves_layout.rowStretch(row) for row in range(2)], [3, 2])
+        self.assertAlmostEqual(window.power_curve_axis.get_position().width, 0.77)
+        self.assertAlmostEqual(window.stable_power_axis.get_position().width, 0.77)
+        self.assertFalse(hasattr(window, "kpi_panel"))
+        self.assertEqual(window.live_plots.power_value_text.get_text(), "-- W")
+        self.assertEqual(window.live_plots.power_value_text.get_position(), (0.975, 0.95))
+        self.assertEqual(window.live_plots.power_value_text.get_ha(), "right")
+        self.assertEqual(window.live_plots.stability_status_text.get_position(), (0.025, 0.95))
+        self.assertEqual(window.live_plots.stability_status_text.get_ha(), "left")
+        self.assertIn("Center wavelength", window.live_plots.spectrum_centroid_text.get_text())
+        self.assertIn("FWHM", window.live_plots.spectrum_fwhm_text.get_text())
+        self.assertIn("PIB", window.live_plots.spectrum_pib_text.get_text())
         self.assertFalse(window.log_text.isHidden())
         self.assertIsInstance(window.log_text, QLabel)
         self.assertFalse(hasattr(window, "toggle_log_button"))
@@ -228,28 +245,26 @@ class MainWindowTests(unittest.TestCase):
         self.assertFalse(window.log_text.wordWrap())
         window.close()
 
-    def test_monitor_kpis_stay_in_one_row_at_common_desktop_width(self) -> None:
+    def test_plot_layout_stacks_only_below_the_dashboard_width(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
-        window.resize(1600, 1000)
-        window.show()
-        app.processEvents()
-        window._relayout_kpi_cards()
+        window.live_plots.relayout(1000)
+        self.assertEqual(
+            [
+                window.curves_layout.getItemPosition(window.curves_layout.indexOf(canvas))[:2]
+                for canvas in (window.power_curve_canvas, window.stable_power_canvas, window.spectrum_curve_canvas)
+            ],
+            [(0, 0), (0, 1), (1, 0)],
+        )
 
-        wide_positions = [
-            window.kpi_layout.getItemPosition(window.kpi_layout.indexOf(card))
-            for card in window.kpi_cards
-        ]
-        self.assertEqual(wide_positions, [(0, 0, 1, 1), (0, 1, 1, 1), (0, 2, 1, 1), (0, 3, 1, 1)])
-
-        window.resize(900, 800)
-        app.processEvents()
-        window._relayout_kpi_cards()
-        narrow_positions = [
-            window.kpi_layout.getItemPosition(window.kpi_layout.indexOf(card))
-            for card in window.kpi_cards
-        ]
-        self.assertEqual(narrow_positions, [(0, 0, 1, 1), (0, 1, 1, 1), (1, 0, 1, 1), (1, 1, 1, 1)])
+        window.live_plots.relayout(700)
+        self.assertEqual(
+            [
+                window.curves_layout.getItemPosition(window.curves_layout.indexOf(canvas))[:2]
+                for canvas in (window.power_curve_canvas, window.stable_power_canvas, window.spectrum_curve_canvas)
+            ],
+            [(0, 0), (1, 0), (2, 0)],
+        )
         window.close()
 
     def test_common_1280_by_800_window_does_not_expand_vertically(self) -> None:
@@ -260,10 +275,7 @@ class MainWindowTests(unittest.TestCase):
         app.processEvents()
 
         self.assertLessEqual(window.height(), 800)
-        self.assertEqual(
-            [window.kpi_layout.getItemPosition(window.kpi_layout.indexOf(card))[:2] for card in window.kpi_cards],
-            [(0, 0), (0, 1), (0, 2), (0, 3)],
-        )
+        self.assertFalse(hasattr(window, "kpi_layout"))
         window.close()
 
     def test_record_controls_are_grouped_before_device_controls(self) -> None:
@@ -313,7 +325,7 @@ class MainWindowTests(unittest.TestCase):
         for value in (976.000, 976.002, 980.000, 976.001, 976.003):
             window.update_centroid_display(value)
 
-        self.assertEqual(window.centroid_wavelength_label.text(), "976.002 nm")
+        self.assertEqual(window.live_plots.spectrum_centroid_text.get_text(), "Center wavelength   976.002 nm")
         window.close()
 
     def test_spin_boxes_and_combos_ignore_mouse_wheel_events(self) -> None:
@@ -390,6 +402,20 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(tuple(window.power_curve_axis.get_ylim()), (-0.01, 0.01))
         self.assertEqual(tuple(window.spectrum_curve_axis.get_xlim()), (0.0, 1.0))
         self.assertEqual(tuple(window.spectrum_curve_axis.get_ylim()), (0.0, 1.0))
+        self.assertEqual(window.power_curve_axis.get_title(), "实时功率")
+        self.assertEqual(window.stable_power_axis.get_title(), "LIV")
+        self.assertEqual(window.spectrum_curve_axis.get_title(), "光谱")
+        self.assertEqual(window.power_curve_axis.title.get_fontsize(), 11.0)
+        self.assertLessEqual(
+            len([tick for tick in window.power_curve_axis.get_yticks() if -0.01 <= tick <= 0.01]),
+            5,
+        )
+        self.assertEqual(
+            [tick for tick in window.efficiency_axis.get_yticks() if 20.0 <= tick <= 60.0],
+            [20.0, 30.0, 40.0, 50.0, 60.0],
+        )
+        self.assertEqual(len(window.power_curve_axis.xaxis.get_minorticklocs()), 0)
+        self.assertEqual(window.power_curve_axis.get_xticklabels()[0].get_fontsize(), 11.0)
         self.assertGreaterEqual(window.power_curve_canvas.minimumHeight(), 180)
         self.assertGreaterEqual(window.spectrum_curve_canvas.minimumHeight(), 180)
         window.close()
@@ -439,14 +465,15 @@ class MainWindowTests(unittest.TestCase):
         window.queue_excel_test_point(10.0, 50.0, 200.0, 0.4)
 
         self.assertTrue(window.latest_spectrum_saturated)
-        self.assertFalse(window.spectrum_saturation_label.isHidden())
-        self.assertEqual(window.centroid_wavelength_label.text(), "光谱饱和")
+        self.assertTrue(window.live_plots.spectrum_saturation_text.get_visible())
+        self.assertEqual(window.live_plots.spectrum_centroid_text.get_text(), "Center wavelength   -- nm")
         self.assertNotIn(10.0, window.pending_excel_records)
         self.assertIn("未加入保存队列", window.save_status_label.text())
 
         window.on_spectrum_curve(wavelength, [0.0, 100.0, 200.0, 100.0, 0.0])
         self.assertFalse(window.latest_spectrum_saturated)
-        self.assertTrue(window.spectrum_saturation_label.isHidden())
+        self.assertFalse(window.live_plots.spectrum_saturation_text.get_visible())
+        self.assertNotEqual(window.live_plots.spectrum_pib_text.get_text(), "PIB   -- %")
         window.close()
 
     def test_spectrum_x_axis_locks_to_dominant_peak_plus_minus_20_after_stable_readings(self) -> None:
@@ -498,14 +525,14 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertEqual(
             [(item.label, round(item.centroid_nm, 3)) for item in window.spectrum_peak_annotations],
-            [("第1峰", 856.0), ("第2峰", 860.0), ("第3峰", 852.0)],
+            [("P1", 856.0), ("P2", 860.0), ("P3", 852.0)],
         )
         annotation_text = "\n".join(
             artist.get_text() for artist in window.spectrum_peak_annotation_artists if hasattr(artist, "get_text")
         )
-        self.assertIn("第1峰 856.000 nm", annotation_text)
-        self.assertIn("第2峰 860.000 nm", annotation_text)
-        self.assertIn("第3峰 852.000 nm", annotation_text)
+        self.assertIn("P1 856.000 nm", annotation_text)
+        self.assertIn("P2 860.000 nm", annotation_text)
+        self.assertIn("P3 852.000 nm", annotation_text)
         window.close()
 
     def test_spectrum_peak_labels_stay_inside_plot_area_for_tall_peaks(self) -> None:
@@ -579,9 +606,9 @@ class MainWindowTests(unittest.TestCase):
             for artist in window.spectrum_peak_annotation_artists
             if hasattr(artist, "get_text")
         }
-        self.assertIn("第2峰", text_positions)
-        self.assertIn("第3峰", text_positions)
-        self.assertGreaterEqual(abs(text_positions["第2峰"][1] - text_positions["第3峰"][1]), y_span * 0.07)
+        self.assertIn("P2", text_positions)
+        self.assertIn("P3", text_positions)
+        self.assertGreaterEqual(abs(text_positions["P2"][1] - text_positions["P3"][1]), y_span * 0.07)
         window.close()
 
     def test_spectrum_peak_labels_spread_horizontally_when_low_peaks_are_close(self) -> None:
@@ -599,9 +626,9 @@ class MainWindowTests(unittest.TestCase):
             for artist in window.spectrum_peak_annotation_artists
             if hasattr(artist, "get_text")
         }
-        self.assertIn("第2峰", text_positions)
-        self.assertIn("第3峰", text_positions)
-        self.assertGreaterEqual(abs(text_positions["第2峰"][0] - text_positions["第3峰"][0]), x_span * 0.035)
+        self.assertIn("P2", text_positions)
+        self.assertIn("P3", text_positions)
+        self.assertGreaterEqual(abs(text_positions["P2"][0] - text_positions["P3"][0]), x_span * 0.035)
         window.close()
 
     def test_spectrum_peak_labels_split_left_and_right_for_adjacent_peaks(self) -> None:
@@ -623,11 +650,11 @@ class MainWindowTests(unittest.TestCase):
             for artist in window.spectrum_peak_annotation_artists
             if hasattr(artist, "get_text")
         }
-        self.assertLess(centroids["第3峰"], centroids["第2峰"])
-        self.assertLess(text_positions["第3峰"][0], centroids["第3峰"])
-        self.assertGreater(text_positions["第2峰"][0], centroids["第2峰"])
-        self.assertEqual(text_alignments["第3峰"], "right")
-        self.assertEqual(text_alignments["第2峰"], "left")
+        self.assertLess(centroids["P3"], centroids["P2"])
+        self.assertLess(text_positions["P3"][0], centroids["P3"])
+        self.assertGreater(text_positions["P2"][0], centroids["P2"])
+        self.assertEqual(text_alignments["P3"], "right")
+        self.assertEqual(text_alignments["P2"], "left")
         window.close()
 
 
@@ -944,7 +971,7 @@ class SpectrumPeakAnnotationTests(unittest.TestCase):
 
         self.assertEqual(
             [(item.label, round(item.centroid_nm, 3), round(item.peak_intensity, 1)) for item in annotations],
-            [("第1峰", 856.0, 300.0), ("第2峰", 860.0, 200.0), ("第3峰", 852.0, 80.0)],
+            [("P1", 856.0, 300.0), ("P2", 860.0, 200.0), ("P3", 852.0, 80.0)],
         )
 
     def test_saturation_detector_requires_a_consecutive_near_full_scale_plateau(self) -> None:
