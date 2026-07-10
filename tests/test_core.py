@@ -1,7 +1,7 @@
 import math
 import unittest
 
-from combined_test_core import (
+from combined_test.core import (
     CombinedMeasurement,
     PowerStabilityDetector,
     build_set_current_command,

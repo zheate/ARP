@@ -29,8 +29,8 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
-from ocean_direct_adapter import OceanDirectControl
-from spectrum_math import SpectrumStats, calculate_stats
+from combined_test.ocean_direct_adapter import OceanDirectControl
+from combined_test.spectrum_math import SpectrumStats, calculate_stats
 
 
 DEFAULT_INTEGRATION_TIME_US = 10000

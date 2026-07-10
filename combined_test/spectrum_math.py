@@ -1,3 +1,5 @@
+"""Spectrum statistics and power-in-band calculations."""
+
 from __future__ import annotations
 
 import math
@@ -38,6 +40,10 @@ def calculate_centroid(x: Iterable[float], y: Iterable[float]) -> float:
     x_values, y_values = _as_float_lists(x, y)
     if not x_values:
         return math.nan
+    return _calculate_centroid_values(x_values, y_values)
+
+
+def _calculate_centroid_values(x_values: list[float], y_values: list[float]) -> float:
     peak_index = max(range(len(y_values)), key=y_values.__getitem__)
     baseline = min(y_values)
     peak = y_values[peak_index]
@@ -69,6 +75,12 @@ def calculate_centroid(x: Iterable[float], y: Iterable[float]) -> float:
 
 def calculate_fwhm(x: Iterable[float], y: Iterable[float]) -> float:
     x_values, y_values = _as_float_lists(x, y)
+    if len(x_values) < 3:
+        return math.nan
+    return _calculate_fwhm_values(x_values, y_values)
+
+
+def _calculate_fwhm_values(x_values: list[float], y_values: list[float]) -> float:
     if len(x_values) < 3:
         return math.nan
 
@@ -113,8 +125,8 @@ def calculate_stats(wavelength: Iterable[float], intensity: Iterable[float]) -> 
     return SpectrumStats(
         peak_wavelength_nm=wavelength_values[peak_index],
         peak_intensity=intensity_values[peak_index],
-        centroid_nm=calculate_centroid(wavelength_values, intensity_values),
-        fwhm_nm=calculate_fwhm(wavelength_values, intensity_values),
+        centroid_nm=_calculate_centroid_values(wavelength_values, intensity_values),
+        fwhm_nm=_calculate_fwhm_values(wavelength_values, intensity_values),
     )
 
 

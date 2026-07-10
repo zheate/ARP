@@ -1,3 +1,5 @@
+"""Excel workbook export for combined test sessions."""
+
 from __future__ import annotations
 
 import math

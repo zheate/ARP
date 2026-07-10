@@ -9,18 +9,22 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, QSettings
 from PySide6.QtWidgets import QApplication, QDoubleSpinBox, QFormLayout, QGroupBox, QLabel, QWidget
 
-import combined_test_mvp
-import power_meter_mvp
-from combined_test_mvp import (
+from combined_test import devices as combined_test_devices
+from combined_test import spectrum as combined_test_spectrum
+from combined_test import window as combined_test_window
+from combined_test.models import (
     LiveReading,
-    MainWindow,
     PowerMeterOption,
     PowerMeterReading,
-    POWER_SUPPLY_COMMAND_MIN_INTERVAL_S,
     SpectrometerOption,
+    SpectrometerReading,
+)
+from combined_test.persistence import (
     build_spectrum_csv_path,
     save_spectrum_curve,
 )
+from combined_test.window import MainWindow, POWER_SUPPLY_COMMAND_MIN_INTERVAL_S
+from tools import power_meter_mvp
 
 
 class SpectrumCurveFileTests(unittest.TestCase):
@@ -168,7 +172,7 @@ class MainWindowTests(unittest.TestCase):
 
             self.assertTrue(window.excel_workbook_path.exists())
             self.assertEqual(window.excel_recorded_currents, {3.0})
-            self.assertTrue(window.save_excel_button.isEnabled())
+            self.assertFalse(window.save_excel_button.isEnabled())
             self.assertEqual(window.save_excel_button.text(), "Save Excel")
             window.close()
 
@@ -180,8 +184,8 @@ class MainWindowTests(unittest.TestCase):
         self.assertFalse(hasattr(window, "scroll_area"))
         self.assertTrue(hasattr(window, "left_control_panel"))
         self.assertTrue(hasattr(window, "monitor_panel"))
-        self.assertGreaterEqual(window.left_control_panel.minimumWidth(), 380)
-        self.assertLessEqual(window.left_control_panel.maximumWidth(), 430)
+        self.assertGreaterEqual(window.left_control_panel.minimumWidth(), 320)
+        self.assertLessEqual(window.left_control_panel.maximumWidth(), 360)
         window.close()
 
     def test_main_window_exposes_status_bar_kpi_cards_and_vertical_curves(self) -> None:
@@ -202,11 +206,10 @@ class MainWindowTests(unittest.TestCase):
             self.assertTrue(hasattr(window, attribute), attribute)
 
         self.assertEqual(window.curves_layout.getItemPosition(window.curves_layout.indexOf(window.power_curve_canvas))[:2], (0, 0))
-        self.assertEqual(window.curves_layout.getItemPosition(window.curves_layout.indexOf(window.spectrum_curve_canvas))[:2], (1, 0))
-        card_texts = [label.text() for label in window.findChildren(QLabel)]
-        self.assertIn("Centroid wavelength / FWHM", card_texts)
-        self.assertNotIn("Peak wavelength", card_texts)
-        self.assertNotIn("Record", card_texts)
+        self.assertEqual(window.curves_layout.getItemPosition(window.curves_layout.indexOf(window.spectrum_curve_canvas))[:2], (0, 1))
+        self.assertEqual(window.curves_layout.getItemPosition(window.curves_layout.indexOf(window.stable_power_canvas))[:2], (1, 0))
+        card_titles = [card.title() for card in window.kpi_cards]
+        self.assertEqual(card_titles, ["Power", "Centroid Wavelength", "FWHM", "Stability"])
         self.assertFalse(window.log_text.isHidden())
         self.assertIsInstance(window.log_text, QLabel)
         self.assertFalse(hasattr(window, "toggle_log_button"))
@@ -225,7 +228,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertFalse(window.log_text.wordWrap())
         window.close()
 
-    def test_monitor_save_card_spans_columns_four_and_five_on_wide_windows(self) -> None:
+    def test_monitor_kpis_stay_in_one_row_at_common_desktop_width(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
         window.resize(1600, 1000)
@@ -237,16 +240,70 @@ class MainWindowTests(unittest.TestCase):
             window.kpi_layout.getItemPosition(window.kpi_layout.indexOf(card))
             for card in window.kpi_cards
         ]
-        self.assertEqual(wide_positions, [(0, 0, 1, 1), (0, 1, 1, 1), (0, 2, 1, 1), (0, 3, 1, 2)])
+        self.assertEqual(wide_positions, [(0, 0, 1, 1), (0, 1, 1, 1), (0, 2, 1, 1), (0, 3, 1, 1)])
 
-        window.resize(1000, 900)
+        window.resize(900, 800)
         app.processEvents()
         window._relayout_kpi_cards()
         narrow_positions = [
             window.kpi_layout.getItemPosition(window.kpi_layout.indexOf(card))
             for card in window.kpi_cards
         ]
-        self.assertEqual(narrow_positions, [(0, 0, 1, 1), (0, 1, 1, 1), (1, 0, 1, 1), (2, 0, 1, 2)])
+        self.assertEqual(narrow_positions, [(0, 0, 1, 1), (0, 1, 1, 1), (1, 0, 1, 1), (1, 1, 1, 1)])
+        window.close()
+
+    def test_common_1280_by_800_window_does_not_expand_vertically(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.resize(1280, 800)
+        window.show()
+        app.processEvents()
+
+        self.assertLessEqual(window.height(), 800)
+        self.assertEqual(
+            [window.kpi_layout.getItemPosition(window.kpi_layout.indexOf(card))[:2] for card in window.kpi_cards],
+            [(0, 0), (0, 1), (0, 2), (0, 3)],
+        )
+        window.close()
+
+    def test_record_controls_are_grouped_before_device_controls(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        record_form = self._group(window, "Test Record").layout()
+        self.assertIsInstance(record_form, QFormLayout)
+
+        for widget in (
+            window.sn_field,
+            window.output_dir_field,
+            window.stop_after_record_check,
+            window.save_excel_button,
+        ):
+            self._form_row_containing_widget(record_form, widget)
+
+        self.assertLess(
+            window.left_control_content.layout().indexOf(self._group(window, "Test Record")),
+            window.left_control_content.layout().indexOf(self._group(window, "Power Supply")),
+        )
+        window.close()
+
+    def test_button_roles_use_native_default_and_one_destructive_color(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        self.assertTrue(window.start_all_button.isDefault())
+        self.assertEqual(window.stop_all_button.styleSheet(), window.stop_power_meter_button.styleSheet())
+        self.assertEqual(window.stop_all_button.styleSheet(), window.stop_spectrometer_button.styleSheet())
+        self.assertIn("color:", window.stop_all_button.styleSheet())
+        for button in (
+            window.apply_current_button,
+            window.connect_i2c_button,
+            window.detect_power_meter_button,
+            window.start_power_meter_button,
+            window.detect_spectrometer_button,
+            window.start_spectrometer_button,
+            window.save_excel_button,
+        ):
+            self.assertGreaterEqual(button.minimumHeight(), 28)
         window.close()
 
     def test_centroid_display_uses_short_median_window(self) -> None:
@@ -272,7 +329,7 @@ class MainWindowTests(unittest.TestCase):
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
 
-        for title in ("Power Supply", "Power Meter", "Spectrometer", "Stability & Record"):
+        for title in ("Test Record", "Power Supply", "Power Meter", "Spectrometer", "Stability"):
             group = self._group(window, title)
             self.assertGreaterEqual(group.minimumHeight(), group.sizeHint().height(), title)
 
@@ -288,8 +345,8 @@ class MainWindowTests(unittest.TestCase):
         self.assertIsInstance(power_supply_form, QFormLayout)
         self.assertFalse(hasattr(window, "i2c_addr_field"))
         self.assertFalse(hasattr(window, "i2c_speed_combo"))
-        self.assertEqual(combined_test_mvp.DEFAULT_I2C_ADDRESS, 0x41)
-        self.assertEqual(combined_test_mvp.DEFAULT_I2C_SPEED, 0)
+        self.assertEqual(combined_test_window.DEFAULT_I2C_ADDRESS, 0x41)
+        self.assertEqual(combined_test_window.DEFAULT_I2C_SPEED, 0)
 
         power_meter_form = self._group(window, "Power Meter").layout()
         self.assertIsInstance(power_meter_form, QFormLayout)
@@ -333,8 +390,8 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(tuple(window.power_curve_axis.get_ylim()), (-0.01, 0.01))
         self.assertEqual(tuple(window.spectrum_curve_axis.get_xlim()), (0.0, 1.0))
         self.assertEqual(tuple(window.spectrum_curve_axis.get_ylim()), (0.0, 1.0))
-        self.assertGreaterEqual(window.power_curve_canvas.minimumHeight(), 220)
-        self.assertGreaterEqual(window.spectrum_curve_canvas.minimumHeight(), 220)
+        self.assertGreaterEqual(window.power_curve_canvas.minimumHeight(), 180)
+        self.assertGreaterEqual(window.spectrum_curve_canvas.minimumHeight(), 180)
         window.close()
 
     def test_live_reading_and_spectrum_update_curve_data(self) -> None:
@@ -360,6 +417,17 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(list(window.spectrum_curve_line.get_ydata()), [10.0, 20.0])
         window.close()
 
+    def test_power_curve_discards_samples_outside_the_visible_history(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        window.update_power_curve(0.0, 1.0)
+        window.update_power_curve(61.0, 2.0)
+
+        self.assertEqual(list(window.power_curve_times), [61.0])
+        self.assertEqual(list(window.power_curve_line.get_xdata()), [61.0])
+        window.close()
+
     def test_saturated_spectrum_warns_and_is_not_queued_for_excel(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
@@ -367,7 +435,7 @@ class MainWindowTests(unittest.TestCase):
         saturated_intensity = [0.0, 16000.0, 16020.0, 16010.0, 0.0]
 
         window.on_spectrum_curve(wavelength, saturated_intensity)
-        window.on_spectrometer_reading(combined_test_mvp.SpectrometerReading(974.0, 974.0, 1.0))
+        window.on_spectrometer_reading(SpectrometerReading(974.0, 974.0, 1.0))
         window.queue_excel_test_point(10.0, 50.0, 200.0, 0.4)
 
         self.assertTrue(window.latest_spectrum_saturated)
@@ -385,9 +453,9 @@ class MainWindowTests(unittest.TestCase):
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
 
-        for _ in range(combined_test_mvp.SPECTRUM_CENTER_LOCK_REQUIRED_SAMPLES):
+        for _ in range(combined_test_spectrum.SPECTRUM_CENTER_LOCK_REQUIRED_SAMPLES):
             window.on_spectrometer_reading(
-                combined_test_mvp.SpectrometerReading(
+                SpectrometerReading(
                     peak_wavelength_nm=975.8,
                     centroid_nm=976.2,
                     fwhm_nm=1.1,
@@ -406,7 +474,7 @@ class MainWindowTests(unittest.TestCase):
 
         for centroid_nm in (940.0, 1000.0, 930.0, 1010.0, 950.0):
             window.on_spectrometer_reading(
-                combined_test_mvp.SpectrometerReading(
+                SpectrometerReading(
                     peak_wavelength_nm=973.0,
                     centroid_nm=centroid_nm,
                     fwhm_nm=1.1,
@@ -669,13 +737,13 @@ class MainWindowTests(unittest.TestCase):
         window = MainWindow()
         controller = FakeController()
         window.manual_ch341_controller = controller
-        window.last_power_supply_command_monotonic_s = combined_test_mvp.time.monotonic()
+        window.last_power_supply_command_monotonic_s = combined_test_window.time.monotonic()
 
         self.assertIsNone(window.execute_i2c_read([0xB4, 0x88, 0x00, 0x00], "Input voltage", "V"))
         self.assertEqual(controller.read_count, 0)
 
         window.last_power_supply_command_monotonic_s = (
-            combined_test_mvp.time.monotonic() - POWER_SUPPLY_COMMAND_MIN_INTERVAL_S - 0.1
+            combined_test_window.time.monotonic() - POWER_SUPPLY_COMMAND_MIN_INTERVAL_S - 0.1
         )
         self.assertEqual(window.execute_i2c_read([0xB4, 0x88, 0x00, 0x00], "Input voltage", "V"), 0.0)
         self.assertEqual(controller.read_count, 1)
@@ -700,9 +768,9 @@ class MainWindowTests(unittest.TestCase):
             def detect() -> list[int]:
                 return [41]
 
-        old_loader = combined_test_mvp.load_spectrometer_components
+        old_loader = combined_test_window.load_spectrometer_components
         try:
-            combined_test_mvp.load_spectrometer_components = lambda root: (FakeOceanSpectrometer, None)
+            combined_test_window.load_spectrometer_components = lambda root: (FakeOceanSpectrometer, None)
             window = MainWindow()
 
             window.auto_detect_spectrometers()
@@ -714,7 +782,7 @@ class MainWindowTests(unittest.TestCase):
             self.assertIsNone(window.collect_spectrometer_settings().device_id)
             window.close()
         finally:
-            combined_test_mvp.load_spectrometer_components = old_loader
+            combined_test_window.load_spectrometer_components = old_loader
 
     def test_main_window_exposes_manual_device_action_buttons(self) -> None:
         app = QApplication.instance() or QApplication([])
@@ -872,7 +940,7 @@ class SpectrumPeakAnnotationTests(unittest.TestCase):
         wavelength = [850.0, 851.0, 852.0, 853.0, 854.0, 855.0, 856.0, 857.0, 858.0, 859.0, 860.0, 861.0, 862.0]
         intensity = [0.0, 5.0, 80.0, 5.0, 0.0, 10.0, 300.0, 10.0, 0.0, 20.0, 200.0, 20.0, 0.0]
 
-        annotations = combined_test_mvp.find_spectrum_peak_annotations(list(zip(wavelength, intensity)))
+        annotations = combined_test_spectrum.find_spectrum_peak_annotations(list(zip(wavelength, intensity)))
 
         self.assertEqual(
             [(item.label, round(item.centroid_nm, 3), round(item.peak_intensity, 1)) for item in annotations],
@@ -880,8 +948,8 @@ class SpectrumPeakAnnotationTests(unittest.TestCase):
         )
 
     def test_saturation_detector_requires_a_consecutive_near_full_scale_plateau(self) -> None:
-        saturated = combined_test_mvp.detect_spectrum_saturation([0.0, 16000.0, 16020.0, 16010.0, 0.0])
-        spike = combined_test_mvp.detect_spectrum_saturation([0.0, 17000.0, 0.0])
+        saturated = combined_test_spectrum.detect_spectrum_saturation([0.0, 16000.0, 16020.0, 16010.0, 0.0])
+        spike = combined_test_spectrum.detect_spectrum_saturation([0.0, 17000.0, 0.0])
 
         self.assertTrue(saturated.saturated)
         self.assertEqual(saturated.consecutive_pixels, 3)
@@ -914,8 +982,8 @@ class PowerMeterDetectThreadTests(unittest.TestCase):
         old_modules = dict(sys.modules)
         try:
             sys.modules["pyvisa"] = types.SimpleNamespace(ResourceManager=lambda: FakeResourceManager())
-            sys.modules["power_meter_mvp"] = types.SimpleNamespace(CaihuangPowerMeter=FakeCaihuangPowerMeter)
-            thread = combined_test_mvp.PowerMeterDetectThread("ASRL2::INSTR")
+            sys.modules["tools.power_meter_mvp"] = types.SimpleNamespace(CaihuangPowerMeter=FakeCaihuangPowerMeter)
+            thread = combined_test_devices.PowerMeterDetectThread("ASRL2::INSTR")
             detected: list[PowerMeterOption] = []
             statuses: list[str] = []
             thread.detected.connect(lambda options: detected.extend(options))
@@ -923,8 +991,8 @@ class PowerMeterDetectThreadTests(unittest.TestCase):
 
             thread.run()
 
-            self.assertEqual(calls[0], ("ASRL2::INSTR", combined_test_mvp.POWER_METER_PROBE_TIMEOUT_MS))
-            self.assertEqual(calls[1], ("ASRL1::INSTR", combined_test_mvp.POWER_METER_PROBE_TIMEOUT_MS))
+            self.assertEqual(calls[0], ("ASRL2::INSTR", combined_test_devices.POWER_METER_PROBE_TIMEOUT_MS))
+            self.assertEqual(calls[1], ("ASRL1::INSTR", combined_test_devices.POWER_METER_PROBE_TIMEOUT_MS))
             self.assertEqual([option.resource for option in detected], ["ASRL2::INSTR"])
             self.assertIn("Detecting power meters", statuses[0])
         finally:
@@ -950,7 +1018,7 @@ class SpectrometerDeviceOpeningTests(unittest.TestCase):
 
         spectrometer = types.SimpleNamespace(control=FakeControl(), device_id=None)
 
-        device_id = combined_test_mvp.open_spectrometer_device(spectrometer, selected_device_id=7)
+        device_id = combined_test_devices.open_spectrometer_device(spectrometer, selected_device_id=7)
 
         self.assertEqual(device_id, 8)
         self.assertEqual(spectrometer.device_id, 8)
@@ -982,12 +1050,12 @@ class DeviceOptionTests(unittest.TestCase):
 
 class LocalSpectrometerLoadingTests(unittest.TestCase):
     def test_sth_eb314_launcher_uses_named_conda_environment(self) -> None:
-        launcher = Path(__file__).resolve().parent / "run_combined_test_sth_eb314.bat"
+        launcher = Path(__file__).resolve().parents[1] / "run_combined_test_sth_eb314.bat"
 
         self.assertTrue(launcher.exists())
         content = launcher.read_text(encoding="utf-8")
         self.assertIn("sth_eb314", content)
-        self.assertIn("combined_test_mvp.py", content)
+        self.assertIn("main.py", content)
 
     def test_load_spectrometer_components_ignores_legacy_root_and_does_not_import_application(
         self,
@@ -1002,12 +1070,15 @@ class LocalSpectrometerLoadingTests(unittest.TestCase):
             old_modules = dict(sys.modules)
             old_cwd = Path.cwd()
             try:
-                ocean_spectrometer, calculate_stats = combined_test_mvp.load_spectrometer_components(root)
+                ocean_spectrometer, calculate_stats = combined_test_devices.load_spectrometer_components(root)
+                cached_spectrometer, cached_calculate_stats = combined_test_devices.load_spectrometer_components(root)
 
                 self.assertIn("combined_local_spectrometer_mvp", ocean_spectrometer.__module__)
-                self.assertEqual(calculate_stats.__module__, "spectrum_math")
+                self.assertEqual(calculate_stats.__module__, "combined_test.spectrum_math")
+                self.assertIs(cached_spectrometer, ocean_spectrometer)
+                self.assertIs(cached_calculate_stats, calculate_stats)
                 self.assertEqual(sys.path, old_path)
-                self.assertEqual(Path.cwd(), Path(__file__).resolve().parent)
+                self.assertEqual(Path.cwd(), Path(__file__).resolve().parents[1])
                 self.assertNotIn(str(root.resolve()), sys.path)
                 self.assertNotIn("application", sys.modules)
             finally:

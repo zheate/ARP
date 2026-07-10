@@ -1,3 +1,5 @@
+"""Legacy Tkinter CH341 power-supply controller."""
+
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 import time

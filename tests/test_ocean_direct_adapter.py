@@ -1,7 +1,7 @@
 import unittest
 from ctypes import c_double, c_long
 
-from ocean_direct_adapter import OceanDirectControl
+from combined_test.ocean_direct_adapter import OceanDirectControl
 
 
 class FakeOceanDirectApi:

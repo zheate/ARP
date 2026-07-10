@@ -1,3 +1,5 @@
+"""Legacy low-level CH341 library."""
+
 from ctypes import *
 import platform
 import warnings

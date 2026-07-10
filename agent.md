@@ -5,12 +5,25 @@
 - Run from this workspace with the Python environment that can load the scripts runner compiled modules:
   `conda activate sth_eb314`
 - Start the combined tester with:
-  `python combined_test_mvp.py`
-- The scripts runner root is expected at:
-  `E:\scripts_runner - 副本`
-- The combined tester adds the scripts runner root to `sys.path[0]` before loading OceanDirect modules because `application/__init__.py` depends on that layout.
+  `python main.py`
 - `OceanDirect.dll` is copied into this project at `assets\libs\ocean_direct\OceanDirect.dll`.
 - Keep the current working directory at this project root when loading OceanDirect. The compiled OceanDirect wrapper resolves `assets\libs\ocean_direct\OceanDirect.dll` from `os.getcwd()`.
+
+### Code Layout
+
+- `main.py` is the stable operator entry point.
+- `combined_test/window.py` owns Qt layout, signal wiring, and operator interactions.
+- `combined_test/devices.py` owns hardware loading, device selection helpers, and acquisition threads.
+- `combined_test/spectrum.py` owns saturation detection and peak annotation analysis.
+- `combined_test/plots.py` owns realtime chart history, scaling, annotations, and render throttling.
+- `combined_test/persistence.py` owns background Excel and CSV writes.
+- `combined_test/models.py` contains the immutable data passed between those modules.
+- `tools/` contains standalone device diagnostics and the legacy CH341 controller.
+- `tests/` contains the full test suite.
+
+The local spectrometer wrapper is loaded lazily and cached after its first successful import. Device detection and acquisition therefore share one loaded wrapper instead of re-executing the GUI-heavy `spectrometer_mvp.py` module.
+
+Run standalone diagnostics from the repository root with `python -m tools.power_meter_mvp` or `python -m tools.spectrometer_mvp`.
 
 ## Device Detection
 

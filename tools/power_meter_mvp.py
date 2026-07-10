@@ -1,3 +1,5 @@
+"""Standalone power-meter diagnostic UI and Caihuang adapter."""
+
 from __future__ import annotations
 
 import math

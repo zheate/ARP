@@ -5,7 +5,7 @@ from pathlib import Path
 
 from openpyxl import load_workbook
 
-from excel_export import ExcelTestRecord, append_test_record, build_test_workbook_path, save_test_records
+from combined_test.excel_export import ExcelTestRecord, append_test_record, build_test_workbook_path, save_test_records
 
 
 class ExcelExportTests(unittest.TestCase):

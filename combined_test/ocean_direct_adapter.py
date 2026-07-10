@@ -8,7 +8,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OCEAN_DIRECT_DLL = PROJECT_ROOT / "assets" / "libs" / "ocean_direct" / "OceanDirect.dll"
 
 

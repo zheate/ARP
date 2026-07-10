@@ -1,7 +1,9 @@
 import math
 import unittest
+from unittest.mock import patch
 
-from spectrum_math import calculate_centroid, calculate_fwhm, calculate_pib, calculate_stats
+from combined_test import spectrum_math
+from combined_test.spectrum_math import calculate_centroid, calculate_fwhm, calculate_pib, calculate_stats
 
 
 class SpectrumMathTests(unittest.TestCase):
@@ -15,6 +17,12 @@ class SpectrumMathTests(unittest.TestCase):
         self.assertEqual(stats.peak_intensity, 10.0)
         self.assertAlmostEqual(stats.centroid_nm, 976.0)
         self.assertAlmostEqual(stats.fwhm_nm, 2.0)
+
+    def test_calculate_stats_normalizes_the_spectrum_once(self) -> None:
+        with patch.object(spectrum_math, "_as_float_lists", wraps=spectrum_math._as_float_lists) as normalize:
+            calculate_stats([975.0, 976.0, 977.0], [0.0, 10.0, 0.0])
+
+        self.assertEqual(normalize.call_count, 1)
 
     def test_centroid_weights_by_intensity(self) -> None:
         self.assertAlmostEqual(calculate_centroid([1.0, 2.0, 3.0], [0.0, 1.0, 3.0]), 2.75)
