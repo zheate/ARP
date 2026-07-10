@@ -15,6 +15,7 @@ from combined_test_mvp import (
     LiveReading,
     MainWindow,
     PowerMeterOption,
+    PowerMeterReading,
     SpectrometerOption,
     build_spectrum_csv_path,
     save_spectrum_curve,
@@ -432,6 +433,58 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertEqual(settings.power_resource, "ASRL9::INSTR")
         self.assertEqual(settings.spectrometer_device_id, 321)
+        window.close()
+
+    def test_stable_power_schedules_one_automatic_vout_read_after_five_seconds(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.active_output_current_a = 3.0
+        window.pending_stable_point_current_a = 3.0
+        window.pending_stable_point_generation = 7
+
+        window.on_power_meter_reading(
+            PowerMeterReading(1.0, 10.0, True, 0.01, 3.0, stability_generation=7)
+        )
+
+        self.assertEqual(window.pending_auto_vout_current_a, 3.0)
+        self.assertEqual(window.pending_auto_vout_generation, 7)
+        self.assertTrue(window.auto_vout_timer.isActive())
+        self.assertGreaterEqual(window.auto_vout_timer.remainingTime(), 4900)
+        window.close()
+
+    def test_automatic_vout_read_is_cancelled_when_power_becomes_unstable(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.active_output_current_a = 3.0
+        window.pending_stable_point_current_a = 3.0
+        window.pending_stable_point_generation = 7
+        window.on_power_meter_reading(
+            PowerMeterReading(1.0, 10.0, True, 0.01, 3.0, stability_generation=7)
+        )
+
+        window.on_power_meter_reading(
+            PowerMeterReading(1.2, 10.5, False, 0.20, 3.0, stability_generation=7)
+        )
+
+        self.assertIsNone(window.pending_auto_vout_current_a)
+        self.assertFalse(window.auto_vout_timer.isActive())
+        window.close()
+
+    def test_automatic_vout_read_runs_only_for_the_active_stable_point(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.active_output_current_a = 3.0
+        window.recorded_stable_point_current_a = 3.0
+        window.recorded_stable_point_generation = 7
+        window.pending_auto_vout_current_a = 3.0
+        window.pending_auto_vout_generation = 7
+        window.latest_power_meter_reading = PowerMeterReading(1.0, 10.0, True, 0.01, 3.0, stability_generation=7)
+        automatic_calls: list[bool] = []
+        window.read_output_voltage = lambda automatic=False: automatic_calls.append(automatic)
+
+        window.on_auto_vout_timer_timeout()
+
+        self.assertEqual(automatic_calls, [True])
         window.close()
 
     def test_auto_detect_spectrometers_keeps_auto_select_as_current_choice(self) -> None:

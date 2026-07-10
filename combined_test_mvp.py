@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QSettings, QThread, Qt, Signal
+from PySide6.QtCore import QSettings, QThread, QTimer, Qt, Signal
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -58,6 +58,8 @@ DEFAULT_POWER_RESOURCE = "ASRL3::INSTR"
 DEFAULT_CSV_PATH = "combined_test_records.csv"
 DEFAULT_I2C_ADDRESS = 0x41
 DEFAULT_I2C_SPEED = 0  # 20 KHz
+AUTO_VOUT_AFTER_STABLE_S = 5.0
+MIN_VOUT_READ_INTERVAL_S = 5.0
 PROJECT_ROOT = Path(__file__).resolve().parent
 MAX_CURVE_POINTS = 10000
 POWER_PLOT_HISTORY_S = 60.0
@@ -559,6 +561,13 @@ class MainWindow(QMainWindow):
         self.pending_stable_point_generation: int | None = None
         self.recorded_stable_point_current_a: float | None = None
         self.recorded_stable_point_generation: int | None = None
+        self.latest_power_meter_reading: PowerMeterReading | None = None
+        self.pending_auto_vout_current_a: float | None = None
+        self.pending_auto_vout_generation: int | None = None
+        self.last_vout_read_monotonic_s: float | None = None
+        self.auto_vout_timer = QTimer(self)
+        self.auto_vout_timer.setSingleShot(True)
+        self.auto_vout_timer.timeout.connect(self.on_auto_vout_timer_timeout)
         self.spectrum_center_candidate_nm: float | None = None
         self.spectrum_center_candidate_count = 0
         self.spectrum_center_locked_nm: float | None = None
@@ -1160,10 +1169,69 @@ class MainWindow(QMainWindow):
     def read_input_voltage(self) -> None:
         self.execute_i2c_read([0xB4, 0x88, 0x00, 0x00], "Input voltage", "V")
 
-    def read_output_voltage(self) -> None:
+    def read_output_voltage(self, automatic: bool = False) -> None:
+        remaining_s = self.vout_read_interval_remaining_s()
+        if remaining_s > 0.0:
+            message = f"Vout read is rate-limited; wait {remaining_s:.1f} s"
+            self.statusBar().showMessage(message)
+            self.add_log(message)
+            if automatic:
+                self.schedule_auto_vout_read(delay_s=remaining_s)
+            return
+
         voltage_v = self.execute_i2c_read([0xB4, 0x8B, 0x00, 0x00], "Output voltage", "V")
         if voltage_v is not None:
+            self.last_vout_read_monotonic_s = time.monotonic()
             self.record_efficiency_from_vout(voltage_v)
+
+    def vout_read_interval_remaining_s(self) -> float:
+        if self.last_vout_read_monotonic_s is None:
+            return 0.0
+        elapsed_s = time.monotonic() - self.last_vout_read_monotonic_s
+        return max(0.0, MIN_VOUT_READ_INTERVAL_S - elapsed_s)
+
+    def cancel_auto_vout_read(self) -> None:
+        self.auto_vout_timer.stop()
+        self.pending_auto_vout_current_a = None
+        self.pending_auto_vout_generation = None
+
+    def schedule_auto_vout_read(self, delay_s: float = AUTO_VOUT_AFTER_STABLE_S) -> None:
+        current_a = self.recorded_stable_point_current_a
+        generation = self.recorded_stable_point_generation
+        if (
+            current_a is None
+            or current_a <= 0.0
+            or generation is None
+            or current_a in self.efficiency_voltage_points
+        ):
+            return
+
+        delay_s = max(float(delay_s), self.vout_read_interval_remaining_s())
+        self.pending_auto_vout_current_a = current_a
+        self.pending_auto_vout_generation = generation
+        self.auto_vout_timer.start(max(1, math.ceil(delay_s * 1000.0)))
+        self.statusBar().showMessage(f"Power is stable; Vout will be read automatically in {delay_s:.1f} s")
+        self.add_log(f"Stable power at {current_a:.3f} A; scheduling automatic Vout read in {delay_s:.1f} s")
+
+    def on_auto_vout_timer_timeout(self) -> None:
+        current_a = self.pending_auto_vout_current_a
+        generation = self.pending_auto_vout_generation
+        self.pending_auto_vout_current_a = None
+        self.pending_auto_vout_generation = None
+        reading = self.latest_power_meter_reading
+        if (
+            current_a is None
+            or generation is None
+            or current_a != self.active_output_current_a
+            or current_a != self.recorded_stable_point_current_a
+            or generation != self.recorded_stable_point_generation
+            or reading is None
+            or not reading.stable
+            or reading.stability_generation != generation
+        ):
+            self.add_log("Automatic Vout read cancelled because the current point is no longer stable")
+            return
+        self.read_output_voltage(automatic=True)
 
     def read_output_current(self) -> None:
         self.execute_i2c_read([0xB4, 0x8C, 0x00, 0x00], "Output current", "A")
@@ -1204,6 +1272,8 @@ class MainWindow(QMainWindow):
         power_w = self.stable_power_points[current_a]
         self.efficiency_voltage_points[current_a] = voltage_v
         efficiency_percent = self.update_efficiency_point(current_a)
+        if current_a == self.pending_auto_vout_current_a:
+            self.cancel_auto_vout_read()
         self.update_stable_power_curve()
         self.statusBar().showMessage(f"Efficiency at {current_a:.3f} A: {efficiency_percent:.2f}%")
         self.add_log(
@@ -1220,6 +1290,7 @@ class MainWindow(QMainWindow):
             success, result = controller.i2c_write(DEFAULT_I2C_ADDRESS, command)
             if not success:
                 raise RuntimeError(str(result))
+            self.cancel_auto_vout_read()
             self.active_output_current_a = float(self.set_current_spin.value())
             self.pending_stable_point_current_a = self.active_output_current_a
             self.recorded_stable_point_current_a = None
@@ -1374,6 +1445,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Power Meter", "Power meter resource is empty.")
             return
 
+        self.cancel_auto_vout_read()
         self.reset_power_curve()
         self.reset_stable_power_curve()
         self.active_output_current_a = float(self.set_current_spin.value())
@@ -1391,6 +1463,7 @@ class MainWindow(QMainWindow):
         self.set_power_meter_running_state(True)
 
     def stop_power_meter(self) -> None:
+        self.cancel_auto_vout_read()
         if self.power_meter_reader is not None:
             self.add_log("Stopping power meter acquisition")
             self.power_meter_reader.stop()
@@ -1440,6 +1513,7 @@ class MainWindow(QMainWindow):
         )
 
     def on_power_meter_reading(self, reading: PowerMeterReading) -> None:
+        self.latest_power_meter_reading = reading
         self.power_label.setText(f"{reading.power_w:.3f} W")
         self.update_stability_card(reading.stable, reading.stable_span_w, reading.stable_window_s)
         self.update_power_curve(reading.elapsed_s, reading.power_w)
@@ -1500,6 +1574,7 @@ class MainWindow(QMainWindow):
         self.power_curve_canvas.draw_idle()
 
     def reset_stable_power_curve(self) -> None:
+        self.cancel_auto_vout_read()
         self.stable_power_points.clear()
         self.efficiency_points.clear()
         self.efficiency_voltage_points.clear()
@@ -1510,6 +1585,13 @@ class MainWindow(QMainWindow):
     def capture_stable_power_point(self, reading: PowerMeterReading) -> None:
         current_a = self.pending_stable_point_current_a
         if current_a is None:
+            if (
+                not reading.stable
+                and self.pending_auto_vout_current_a == self.active_output_current_a
+                and self.pending_auto_vout_generation == reading.stability_generation
+            ):
+                self.cancel_auto_vout_read()
+                self.add_log("Automatic Vout read cancelled because power is no longer stable")
             self.update_latest_stable_power_point(reading)
             return
         if not reading.stable:
@@ -1537,6 +1619,7 @@ class MainWindow(QMainWindow):
         self.update_stable_power_curve()
         self.statusBar().showMessage(f"Stable power recorded at {current_a:.3f} A: {reading.power_w:.3f} W")
         self.add_log(f"Stable power point: {current_a:.3f} A, {reading.power_w:.3f} W")
+        self.schedule_auto_vout_read()
 
     def update_latest_stable_power_point(self, reading: PowerMeterReading) -> None:
         current_a = self.recorded_stable_point_current_a
