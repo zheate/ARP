@@ -77,6 +77,16 @@ class PowerStabilityDetector:
         return StabilityResult(stable, span, covered_s, len(self._samples))
 
 
+def stability_tolerance_for_power(power_w: float) -> float:
+    """Return the allowed stability span for the current power range."""
+    power = float(power_w)
+    if power < 100.0:
+        return 0.15
+    if power < 200.0:
+        return 0.25
+    return 0.35
+
+
 def build_set_current_command(current_a: float) -> list[int]:
     value = float(current_a)
     if not math.isfinite(value) or value < 0.0 or value > 20.0:

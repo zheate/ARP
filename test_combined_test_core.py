@@ -8,10 +8,19 @@ from combined_test_core import (
     decode_i2c_value,
     record_to_row,
     spectrum_curve_to_rows,
+    stability_tolerance_for_power,
 )
 
 
 class PowerStabilityDetectorTests(unittest.TestCase):
+    def test_selects_allowed_span_from_power_range(self) -> None:
+        self.assertEqual(stability_tolerance_for_power(0.0), 0.15)
+        self.assertEqual(stability_tolerance_for_power(99.999), 0.15)
+        self.assertEqual(stability_tolerance_for_power(100.0), 0.25)
+        self.assertEqual(stability_tolerance_for_power(199.999), 0.25)
+        self.assertEqual(stability_tolerance_for_power(200.0), 0.35)
+        self.assertEqual(stability_tolerance_for_power(500.0), 0.35)
+
     def test_requires_enough_time_before_reporting_stable(self) -> None:
         detector = PowerStabilityDetector(window_s=3.0, tolerance_w=0.05)
 

@@ -6,8 +6,8 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QApplication, QDoubleSpinBox, QFormLayout, QGroupBox, QWidget
+from PySide6.QtCore import QEvent, QSettings
+from PySide6.QtWidgets import QApplication, QDoubleSpinBox, QFormLayout, QGroupBox, QLabel, QWidget
 
 import combined_test_mvp
 import power_meter_mvp
@@ -92,6 +92,37 @@ class MainWindowTests(unittest.TestCase):
         self.assertIsNotNone(window.log_text)
         window.close()
 
+    def test_stability_controls_update_the_running_power_meter_reader(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        class ReaderStub:
+            def __init__(self) -> None:
+                self.updates: list[tuple[float, float]] = []
+
+            def update_stability_settings(self, window_s: float, tolerance_w: float) -> None:
+                self.updates.append((window_s, tolerance_w))
+
+        reader = ReaderStub()
+        window.power_meter_reader = reader  # type: ignore[assignment]
+        new_window_s = window.stable_window_spin.value() + 1.0
+        window.stable_window_spin.setValue(new_window_s)
+
+        self.assertEqual(reader.updates[-1], (new_window_s, window.stable_tolerance_spin.value()))
+        window.power_meter_reader = None
+        window.close()
+
+    def test_power_reading_selects_and_displays_automatic_allowed_span(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        window.on_power_meter_reading(PowerMeterReading(1.0, 150.0, False, 0.2, 1.0))
+
+        self.assertTrue(window.stable_tolerance_spin.isReadOnly())
+        self.assertEqual(window.stable_tolerance_spin.value(), 0.25)
+        self.assertIn("<= 0.2500 W", window.stability_detail_label.text())
+        window.close()
+
     def test_input_parameters_are_restored_in_next_window(self) -> None:
         app = QApplication.instance() or QApplication([])
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -102,6 +133,8 @@ class MainWindowTests(unittest.TestCase):
             first_window.integration_spin.setValue(25000)
             first_window.stable_window_spin.setValue(5.0)
             first_window.stable_tolerance_spin.setValue(0.0123)
+            first_window.sn_field.setText("SN-001")
+            first_window.output_dir_field.setText(str(Path(temp_dir) / "records"))
             first_window.stop_after_record_check.setChecked(True)
             first_window.save_input_settings()
             first_window.close()
@@ -111,9 +144,33 @@ class MainWindowTests(unittest.TestCase):
             self.assertAlmostEqual(restored_window.power_wavelength_spin.value(), 973.125)
             self.assertEqual(restored_window.integration_spin.value(), 25000)
             self.assertAlmostEqual(restored_window.stable_window_spin.value(), 5.0)
-            self.assertAlmostEqual(restored_window.stable_tolerance_spin.value(), 0.0123)
+            self.assertAlmostEqual(restored_window.stable_tolerance_spin.value(), 0.15)
+            self.assertEqual(restored_window.sn_field.text(), "SN-001")
+            self.assertEqual(restored_window.output_dir_field.text(), str(Path(temp_dir) / "records"))
             self.assertTrue(restored_window.stop_after_record_check.isChecked())
             restored_window.close()
+
+    def test_excel_test_point_saves_liv_and_spectrum_in_one_workbook(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            window = MainWindow(QSettings(str(Path(temp_dir) / "inputs.ini"), QSettings.Format.IniFormat))
+            window.excel_workbook_path = Path(temp_dir) / "SN001_2026_07_10_14_30_25.xlsx"
+            window.latest_spectrum_wavelength = [974.0, 975.0, 976.0, 977.0, 978.0]
+            window.latest_spectrum_intensity = [0.0, 5.0, 10.0, 5.0, 0.0]
+
+            window.queue_excel_test_point(3.0, 50.5, 33.0, 33.0 / 3.0 / 50.5)
+            window.save_pending_excel_records()
+            save_thread = window.excel_save_thread
+            self.assertIsNotNone(save_thread)
+            self.assertFalse(window.save_excel_button.isEnabled())
+            self.assertTrue(save_thread.wait(5000))
+            app.processEvents()
+
+            self.assertTrue(window.excel_workbook_path.exists())
+            self.assertEqual(window.excel_recorded_currents, {3.0})
+            self.assertTrue(window.save_excel_button.isEnabled())
+            self.assertEqual(window.save_excel_button.text(), "Save Excel")
+            window.close()
 
     def test_main_window_uses_workflow_layout_without_scroll_area(self) -> None:
         app = QApplication.instance() or QApplication([])
@@ -134,16 +191,81 @@ class MainWindowTests(unittest.TestCase):
         for attribute in (
             "global_status_label",
             "power_card_value",
-            "peak_card_value",
+            "centroid_card_value",
             "fwhm_card_value",
             "stability_card_value",
-            "record_card_value",
+            "sn_field",
+            "output_dir_field",
+            "save_excel_button",
             "curves_layout",
         ):
             self.assertTrue(hasattr(window, attribute), attribute)
 
         self.assertEqual(window.curves_layout.getItemPosition(window.curves_layout.indexOf(window.power_curve_canvas))[:2], (0, 0))
         self.assertEqual(window.curves_layout.getItemPosition(window.curves_layout.indexOf(window.spectrum_curve_canvas))[:2], (1, 0))
+        card_texts = [label.text() for label in window.findChildren(QLabel)]
+        self.assertIn("Centroid wavelength / FWHM", card_texts)
+        self.assertNotIn("Peak wavelength", card_texts)
+        self.assertNotIn("Record", card_texts)
+        self.assertFalse(window.log_text.isHidden())
+        self.assertIsInstance(window.log_text, QLabel)
+        self.assertFalse(hasattr(window, "toggle_log_button"))
+        self.assertFalse(hasattr(window, "clear_log_button"))
+        window.close()
+
+    def test_log_shows_only_the_latest_line(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        window.add_log("first message")
+        window.add_log("latest message")
+
+        self.assertIn("latest message", window.log_text.text())
+        self.assertNotIn("first message", window.log_text.text())
+        self.assertFalse(window.log_text.wordWrap())
+        window.close()
+
+    def test_monitor_save_card_spans_columns_four_and_five_on_wide_windows(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.resize(1600, 1000)
+        window.show()
+        app.processEvents()
+        window._relayout_kpi_cards()
+
+        wide_positions = [
+            window.kpi_layout.getItemPosition(window.kpi_layout.indexOf(card))
+            for card in window.kpi_cards
+        ]
+        self.assertEqual(wide_positions, [(0, 0, 1, 1), (0, 1, 1, 1), (0, 2, 1, 1), (0, 3, 1, 2)])
+
+        window.resize(1000, 900)
+        app.processEvents()
+        window._relayout_kpi_cards()
+        narrow_positions = [
+            window.kpi_layout.getItemPosition(window.kpi_layout.indexOf(card))
+            for card in window.kpi_cards
+        ]
+        self.assertEqual(narrow_positions, [(0, 0, 1, 1), (0, 1, 1, 1), (1, 0, 1, 1), (2, 0, 1, 2)])
+        window.close()
+
+    def test_centroid_display_uses_short_median_window(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        for value in (976.000, 976.002, 980.000, 976.001, 976.003):
+            window.update_centroid_display(value)
+
+        self.assertEqual(window.centroid_wavelength_label.text(), "976.002 nm")
+        window.close()
+
+    def test_spin_boxes_and_combos_ignore_mouse_wheel_events(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        wheel_event = QEvent(QEvent.Type.Wheel)
+
+        self.assertTrue(window.eventFilter(window.set_current_spin, wheel_event))
+        self.assertTrue(window.eventFilter(window.power_meter_combo, wheel_event))
         window.close()
 
     def test_left_control_groups_reserve_enough_height_for_their_contents(self) -> None:
@@ -236,6 +358,27 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(list(window.power_curve_line.get_ydata()), [2.25])
         self.assertEqual(list(window.spectrum_curve_line.get_xdata()), [975.0, 976.0])
         self.assertEqual(list(window.spectrum_curve_line.get_ydata()), [10.0, 20.0])
+        window.close()
+
+    def test_saturated_spectrum_warns_and_is_not_queued_for_excel(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        wavelength = [973.0, 973.5, 974.0, 974.5, 975.0]
+        saturated_intensity = [0.0, 16000.0, 16020.0, 16010.0, 0.0]
+
+        window.on_spectrum_curve(wavelength, saturated_intensity)
+        window.on_spectrometer_reading(combined_test_mvp.SpectrometerReading(974.0, 974.0, 1.0))
+        window.queue_excel_test_point(10.0, 50.0, 200.0, 0.4)
+
+        self.assertTrue(window.latest_spectrum_saturated)
+        self.assertFalse(window.spectrum_saturation_label.isHidden())
+        self.assertEqual(window.centroid_wavelength_label.text(), "SATURATED")
+        self.assertNotIn(10.0, window.pending_excel_records)
+        self.assertIn("not queued", window.save_status_label.text())
+
+        window.on_spectrum_curve(wavelength, [0.0, 100.0, 200.0, 100.0, 0.0])
+        self.assertFalse(window.latest_spectrum_saturated)
+        self.assertTrue(window.spectrum_saturation_label.isHidden())
         window.close()
 
     def test_spectrum_x_axis_locks_to_dominant_peak_plus_minus_20_after_stable_readings(self) -> None:
@@ -471,6 +614,28 @@ class MainWindowTests(unittest.TestCase):
         self.assertFalse(window.auto_vout_timer.isActive())
         window.close()
 
+    def test_automatic_vout_read_is_rescheduled_when_power_becomes_stable_again(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.active_output_current_a = 3.0
+        window.pending_stable_point_current_a = 3.0
+        window.pending_stable_point_generation = 7
+        window.on_power_meter_reading(
+            PowerMeterReading(1.0, 10.0, True, 0.01, 3.0, stability_generation=7)
+        )
+        window.on_power_meter_reading(
+            PowerMeterReading(1.2, 10.5, False, 0.20, 3.0, stability_generation=7)
+        )
+
+        window.on_power_meter_reading(
+            PowerMeterReading(4.5, 10.0, True, 0.01, 3.0, stability_generation=7)
+        )
+
+        self.assertEqual(window.pending_auto_vout_current_a, 3.0)
+        self.assertEqual(window.pending_auto_vout_generation, 7)
+        self.assertTrue(window.auto_vout_timer.isActive())
+        window.close()
+
     def test_automatic_vout_read_runs_only_for_the_active_stable_point(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
@@ -516,6 +681,17 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(controller.read_count, 1)
         window.close()
 
+    def test_temperature_read_uses_lpower_temperature_command(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        calls: list[tuple[list[int], str, str]] = []
+        window.execute_i2c_read = lambda command, name, unit: calls.append((command, name, unit))
+
+        window.read_temperature()
+
+        self.assertEqual(calls, [([0xB4, 0x8D, 0x00, 0x00], "Module temperature", "°C")])
+        window.close()
+
     def test_auto_detect_spectrometers_keeps_auto_select_as_current_choice(self) -> None:
         app = QApplication.instance() or QApplication([])
 
@@ -549,6 +725,7 @@ class MainWindowTests(unittest.TestCase):
             "read_input_voltage_button",
             "read_output_voltage_button",
             "read_output_current_button",
+            "read_temperature_button",
             "apply_current_button",
             "refresh_power_meter_button",
             "rel_zero_check",
@@ -601,6 +778,7 @@ class MainWindowTests(unittest.TestCase):
             window.read_input_voltage_button,
             window.read_output_voltage_button,
             window.read_output_current_button,
+            window.read_temperature_button,
             window.apply_current_button,
         ):
             self.assertTrue(widget.isEnabled())
@@ -677,6 +855,7 @@ class MainWindowTests(unittest.TestCase):
             window.read_input_voltage_button,
             window.read_output_voltage_button,
             window.read_output_current_button,
+            window.read_temperature_button,
             window.apply_current_button,
         ):
             self.assertTrue(widget.isEnabled())
@@ -699,6 +878,14 @@ class SpectrumPeakAnnotationTests(unittest.TestCase):
             [(item.label, round(item.centroid_nm, 3), round(item.peak_intensity, 1)) for item in annotations],
             [("1st", 856.0, 300.0), ("2nd", 860.0, 200.0), ("3rd", 852.0, 80.0)],
         )
+
+    def test_saturation_detector_requires_a_consecutive_near_full_scale_plateau(self) -> None:
+        saturated = combined_test_mvp.detect_spectrum_saturation([0.0, 16000.0, 16020.0, 16010.0, 0.0])
+        spike = combined_test_mvp.detect_spectrum_saturation([0.0, 17000.0, 0.0])
+
+        self.assertTrue(saturated.saturated)
+        self.assertEqual(saturated.consecutive_pixels, 3)
+        self.assertFalse(spike.saturated)
 
 
 class PowerMeterDetectThreadTests(unittest.TestCase):
