@@ -16,6 +16,7 @@ from combined_test_mvp import (
     MainWindow,
     PowerMeterOption,
     PowerMeterReading,
+    POWER_SUPPLY_COMMAND_MIN_INTERVAL_S,
     SpectrometerOption,
     build_spectrum_csv_path,
     save_spectrum_curve,
@@ -485,6 +486,34 @@ class MainWindowTests(unittest.TestCase):
         window.on_auto_vout_timer_timeout()
 
         self.assertEqual(automatic_calls, [True])
+        window.close()
+
+    def test_power_supply_commands_are_blocked_for_at_least_one_second(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FakeController:
+            is_connected = True
+
+            def __init__(self) -> None:
+                self.read_count = 0
+
+            def i2c_write_read(self, _address: int, _command: list[int], _length: int) -> tuple[bool, list[int]]:
+                self.read_count += 1
+                return True, [0, 0, 0, 0]
+
+        window = MainWindow()
+        controller = FakeController()
+        window.manual_ch341_controller = controller
+        window.last_power_supply_command_monotonic_s = combined_test_mvp.time.monotonic()
+
+        self.assertIsNone(window.execute_i2c_read([0xB4, 0x88, 0x00, 0x00], "Input voltage", "V"))
+        self.assertEqual(controller.read_count, 0)
+
+        window.last_power_supply_command_monotonic_s = (
+            combined_test_mvp.time.monotonic() - POWER_SUPPLY_COMMAND_MIN_INTERVAL_S - 0.1
+        )
+        self.assertEqual(window.execute_i2c_read([0xB4, 0x88, 0x00, 0x00], "Input voltage", "V"), 0.0)
+        self.assertEqual(controller.read_count, 1)
         window.close()
 
     def test_auto_detect_spectrometers_keeps_auto_select_as_current_choice(self) -> None:

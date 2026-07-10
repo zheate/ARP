@@ -60,6 +60,7 @@ DEFAULT_I2C_ADDRESS = 0x41
 DEFAULT_I2C_SPEED = 0  # 20 KHz
 AUTO_VOUT_AFTER_STABLE_S = 5.0
 MIN_VOUT_READ_INTERVAL_S = 5.0
+POWER_SUPPLY_COMMAND_MIN_INTERVAL_S = 1.1
 PROJECT_ROOT = Path(__file__).resolve().parent
 MAX_CURVE_POINTS = 10000
 POWER_PLOT_HISTORY_S = 60.0
@@ -565,6 +566,7 @@ class MainWindow(QMainWindow):
         self.pending_auto_vout_current_a: float | None = None
         self.pending_auto_vout_generation: int | None = None
         self.last_vout_read_monotonic_s: float | None = None
+        self.last_power_supply_command_monotonic_s: float | None = None
         self.auto_vout_timer = QTimer(self)
         self.auto_vout_timer.setSingleShot(True)
         self.auto_vout_timer.timeout.connect(self.on_auto_vout_timer_timeout)
@@ -1166,6 +1168,20 @@ class MainWindow(QMainWindow):
             return None
         return self.manual_ch341_controller
 
+    def begin_power_supply_command(self, command_name: str) -> bool:
+        """Reserve the power-supply bus so I2C commands remain safely spaced."""
+        now = time.monotonic()
+        if self.last_power_supply_command_monotonic_s is not None:
+            elapsed_s = now - self.last_power_supply_command_monotonic_s
+            remaining_s = POWER_SUPPLY_COMMAND_MIN_INTERVAL_S - elapsed_s
+            if remaining_s > 0.0:
+                message = f"{command_name} blocked; wait {remaining_s:.1f} s before the next power-supply command"
+                self.statusBar().showMessage(message)
+                self.add_log(message)
+                return False
+        self.last_power_supply_command_monotonic_s = now
+        return True
+
     def read_input_voltage(self) -> None:
         self.execute_i2c_read([0xB4, 0x88, 0x00, 0x00], "Input voltage", "V")
 
@@ -1240,6 +1256,8 @@ class MainWindow(QMainWindow):
         controller = self._require_manual_i2c_controller()
         if controller is None:
             return None
+        if not self.begin_power_supply_command(name):
+            return None
         try:
             value = read_power_status_value(controller, DEFAULT_I2C_ADDRESS, command)
             raw_command = " ".join(f"{item:02X}" for item in command)
@@ -1284,6 +1302,8 @@ class MainWindow(QMainWindow):
     def apply_output_current(self) -> None:
         controller = self._require_manual_i2c_controller()
         if controller is None:
+            return
+        if not self.begin_power_supply_command("Set output current"):
             return
         try:
             command = build_set_current_command(self.set_current_spin.value())
