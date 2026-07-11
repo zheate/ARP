@@ -20,7 +20,6 @@ class CombinedTestSettings:
     stable_window_s: float
     stable_tolerance_w: float
     output_dir: Path
-    stop_after_record: bool
     spectrometer_device_id: int | None = None
 
 

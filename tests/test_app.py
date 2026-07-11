@@ -8,15 +8,19 @@ from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QSettings
-from PySide6.QtWidgets import QApplication, QDoubleSpinBox, QFormLayout, QGroupBox, QLabel, QWidget
+from PySide6.QtGui import QCloseEvent
+from PySide6.QtWidgets import QApplication, QDoubleSpinBox, QFormLayout, QGroupBox, QLabel, QMessageBox, QWidget
 
 from combined_test import devices as combined_test_devices
 from combined_test import spectrum as combined_test_spectrum
 from combined_test import window as combined_test_window
+from combined_test.automation import AutomaticTestState
+from combined_test.excel_export import ExcelTestRecord
 from combined_test.models import (
     LiveReading,
     PowerMeterOption,
     PowerMeterReading,
+    PowerMeterSettings,
     SpectrometerOption,
     SpectrometerReading,
 )
@@ -97,6 +101,76 @@ class MainWindowTests(unittest.TestCase):
         self.assertIsNotNone(window.log_text)
         window.close()
 
+    def test_automatic_test_controls_use_safe_defaults(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings = QSettings(str(Path(temp_dir) / "defaults.ini"), QSettings.Format.IniFormat)
+            window = MainWindow(settings)
+
+            self.assertEqual(window.automatic_test_toggle.text(), "自动测试")
+            self.assertFalse(window.automatic_test_toggle.isChecked())
+            self.assertTrue(window.automatic_test_content.isHidden())
+            self.assertEqual(window.auto_initial_current_spin.value(), 1.0)
+            self.assertEqual(window.auto_target_current_spin.value(), 20.0)
+            self.assertEqual(window.auto_current_step_spin.value(), 1.0)
+            self.assertEqual(window.auto_point_timeout_spin.value(), 120.0)
+            self.assertEqual(window.auto_ramp_down_step_spin.value(), 5.0)
+            self.assertEqual(window.auto_ramp_down_interval_spin.value(), 1.1)
+            self.assertTrue(window.start_automatic_test_button.isEnabled())
+            self.assertFalse(window.retry_automatic_test_button.isEnabled())
+            self.assertFalse(window.end_automatic_test_button.isEnabled())
+            window.automatic_test_toggle.click()
+            self.assertTrue(window.automatic_test_toggle.isChecked())
+            self.assertFalse(window.automatic_test_content.isHidden())
+            window.close()
+
+    def test_automatic_test_waits_for_both_acquisition_devices_before_setting_initial_current(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FakeController:
+            is_connected = True
+
+            def __init__(self) -> None:
+                self.writes: list[list[int]] = []
+
+            def i2c_write(self, _address: int, command: list[int]) -> tuple[bool, str]:
+                self.writes.append(command)
+                return True, "OK"
+
+        class ReaderStub:
+            def reset_stability_window(self) -> int:
+                return 1
+
+            def stop(self) -> None:
+                pass
+
+            def wait(self, _timeout: int) -> None:
+                pass
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            window = MainWindow(QSettings(str(Path(temp_dir) / "inputs.ini"), QSettings.Format.IniFormat))
+            controller = FakeController()
+            window.manual_ch341_controller = controller
+            window.power_meter_reader = ReaderStub()  # type: ignore[assignment]
+            window.spectrometer_reader = ReaderStub()  # type: ignore[assignment]
+            window.sn_field.setText("AUTO-001")
+            window.output_dir_field.setText(temp_dir)
+
+            window.start_automatic_test()
+
+            self.assertEqual(window.automatic_test_state, AutomaticTestState.STARTING)
+            self.assertEqual(controller.writes, [])
+            window.on_power_meter_ready()
+            self.assertEqual(controller.writes, [])
+            window.on_spectrometer_ready()
+            self.assertEqual(controller.writes, [[0xB4, 0xFF, 0x01, 0x00]])
+            self.assertEqual(window.automatic_test_state, AutomaticTestState.WAITING_STABLE)
+            self.assertIn("1/20", window.automatic_test_status_label.text())
+            self.assertIn("1.0 A", window.automatic_test_status_label.text())
+
+            window.automatic_test_state = AutomaticTestState.IDLE
+            window.close()
+
     def test_stability_controls_update_the_running_power_meter_reader(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
@@ -144,9 +218,14 @@ class MainWindowTests(unittest.TestCase):
             first_window.integration_spin.setValue(25000)
             first_window.stable_window_spin.setValue(5.0)
             first_window.stable_tolerance_spin.setValue(0.0123)
+            first_window.auto_initial_current_spin.setValue(2.0)
+            first_window.auto_target_current_spin.setValue(18.0)
+            first_window.auto_current_step_spin.setValue(2.0)
+            first_window.auto_point_timeout_spin.setValue(180.0)
+            first_window.auto_ramp_down_step_spin.setValue(4.0)
+            first_window.auto_ramp_down_interval_spin.setValue(1.5)
             first_window.sn_field.setText("SN-001")
             first_window.output_dir_field.setText(str(Path(temp_dir) / "records"))
-            first_window.stop_after_record_check.setChecked(True)
             first_window.save_input_settings()
             first_window.close()
 
@@ -156,9 +235,14 @@ class MainWindowTests(unittest.TestCase):
             self.assertEqual(restored_window.integration_spin.value(), 25000)
             self.assertAlmostEqual(restored_window.stable_window_spin.value(), 5.0)
             self.assertAlmostEqual(restored_window.stable_tolerance_spin.value(), 0.15)
+            self.assertEqual(restored_window.auto_initial_current_spin.value(), 2.0)
+            self.assertEqual(restored_window.auto_target_current_spin.value(), 18.0)
+            self.assertEqual(restored_window.auto_current_step_spin.value(), 2.0)
+            self.assertEqual(restored_window.auto_point_timeout_spin.value(), 180.0)
+            self.assertEqual(restored_window.auto_ramp_down_step_spin.value(), 4.0)
+            self.assertEqual(restored_window.auto_ramp_down_interval_spin.value(), 1.5)
             self.assertEqual(restored_window.sn_field.text(), "SN-001")
             self.assertEqual(restored_window.output_dir_field.text(), str(Path(temp_dir) / "records"))
-            self.assertTrue(restored_window.stop_after_record_check.isChecked())
             restored_window.close()
 
     def test_excel_test_point_saves_liv_and_spectrum_in_one_workbook(self) -> None:
@@ -183,6 +267,403 @@ class MainWindowTests(unittest.TestCase):
             self.assertEqual(window.save_excel_button.text(), "保存 Excel")
             window.close()
 
+    def test_automatic_test_saves_each_complete_point_immediately(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            window = MainWindow(QSettings(str(Path(temp_dir) / "inputs.ini"), QSettings.Format.IniFormat))
+            window.excel_workbook_path = Path(temp_dir) / "AUTO_2026_07_11_12_00_00.xlsx"
+            window.latest_spectrum_wavelength = [974.0, 975.0, 976.0, 977.0, 978.0]
+            window.latest_spectrum_intensity = [0.0, 5.0, 10.0, 5.0, 0.0]
+            window.active_output_current_a = 3.0
+            window.stable_power_points[3.0] = 33.0
+            window.automatic_test_state = AutomaticTestState.WAITING_VOLTAGE
+            window.automatic_test_currents = (3.0, 4.0)
+            window.automatic_test_current_index = 0
+
+            window.record_efficiency_from_vout(50.5)
+
+            self.assertEqual(window.automatic_test_state, AutomaticTestState.SAVING_POINT)
+            self.assertIsNotNone(window.excel_save_thread)
+            self.assertTrue(window.excel_save_thread.wait(5000))
+            window.automatic_test_state = AutomaticTestState.IDLE
+            window.close()
+
+    def test_successful_point_save_advances_to_the_next_automatic_current(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FakeController:
+            is_connected = True
+
+            def i2c_write(self, _address: int, _command: list[int]) -> tuple[bool, str]:
+                return True, "OK"
+
+        class ReaderStub:
+            def reset_stability_window(self) -> int:
+                return 2
+
+        record = ExcelTestRecord(
+            current_a=3.0,
+            voltage_v=50.5,
+            power_w=33.0,
+            efficiency=33.0 / 3.0 / 50.5,
+            peak_wavelength_nm=976.0,
+            centroid_nm=976.0,
+            fwhm_nm=1.0,
+            pib=0.99,
+            wavelength=[975.0, 976.0, 977.0],
+            intensity=[1.0, 10.0, 1.0],
+        )
+        window = MainWindow()
+        window.manual_ch341_controller = FakeController()
+        window.power_meter_reader = ReaderStub()  # type: ignore[assignment]
+        window.pending_excel_records[3.0] = record
+        window.excel_save_thread = types.SimpleNamespace(records=[record], path=Path("auto.xlsx"))  # type: ignore[assignment]
+        window.automatic_test_state = AutomaticTestState.SAVING_POINT
+        window.automatic_test_currents = (3.0, 4.0)
+        window.automatic_test_current_index = 0
+        window.automatic_test_settings = window.collect_automatic_test_settings()
+        window.last_power_supply_command_monotonic_s = combined_test_window.time.monotonic()
+
+        window.on_excel_save_succeeded(0.1)
+
+        self.assertEqual(window.excel_recorded_currents, {3.0})
+        self.assertEqual(window.automatic_test_current_index, 1)
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.SETTING_CURRENT)
+        self.assertTrue(window.automatic_command_timer.isActive())
+        window.automatic_command_timer.stop()
+        window.automatic_test_state = AutomaticTestState.IDLE
+        window.excel_save_thread = None
+        window.power_meter_reader = None
+        window.close()
+
+    def test_successful_target_save_starts_configured_ramp_down_without_recording_down_steps(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FakeController:
+            is_connected = True
+
+            def __init__(self) -> None:
+                self.writes: list[list[int]] = []
+
+            def i2c_write(self, _address: int, command: list[int]) -> tuple[bool, str]:
+                self.writes.append(command)
+                return True, "OK"
+
+        record = ExcelTestRecord(
+            current_a=20.0,
+            voltage_v=50.5,
+            power_w=200.0,
+            efficiency=200.0 / 20.0 / 50.5,
+            peak_wavelength_nm=976.0,
+            centroid_nm=976.0,
+            fwhm_nm=1.0,
+            pib=0.99,
+            wavelength=[975.0, 976.0, 977.0],
+            intensity=[1.0, 10.0, 1.0],
+        )
+        window = MainWindow()
+        controller = FakeController()
+        window.manual_ch341_controller = controller
+        window.pending_excel_records[20.0] = record
+        window.excel_save_thread = types.SimpleNamespace(records=[record], path=Path("auto.xlsx"))  # type: ignore[assignment]
+        window.automatic_test_state = AutomaticTestState.SAVING_POINT
+        window.automatic_test_currents = (20.0,)
+        window.automatic_test_current_index = 0
+        window.automatic_test_settings = window.collect_automatic_test_settings()
+        window.active_output_current_a = 20.0
+        window.last_power_supply_command_monotonic_s = (
+            combined_test_window.time.monotonic() - POWER_SUPPLY_COMMAND_MIN_INTERVAL_S - 0.1
+        )
+
+        window.on_excel_save_succeeded(0.1)
+
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.RAMPING_DOWN)
+        self.assertEqual(controller.writes, [[0xB4, 0xFF, 0x0F, 0x00]])
+        self.assertEqual(window.active_output_current_a, 15.0)
+        self.assertEqual(set(window.pending_excel_records), {20.0})
+        self.assertTrue(window.automatic_ramp_down_timer.isActive())
+        window.automatic_ramp_down_timer.stop()
+        window.automatic_test_state = AutomaticTestState.IDLE
+        window.excel_save_thread = None
+        window.close()
+
+    def test_controlled_ramp_down_reaches_zero_and_completes_the_test(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FakeController:
+            is_connected = True
+
+            def __init__(self) -> None:
+                self.writes: list[list[int]] = []
+
+            def i2c_write(self, _address: int, command: list[int]) -> tuple[bool, str]:
+                self.writes.append(command)
+                return True, "OK"
+
+        window = MainWindow()
+        controller = FakeController()
+        window.manual_ch341_controller = controller
+        window.automatic_test_settings = window.collect_automatic_test_settings()
+        window.active_output_current_a = 20.0
+        window.last_power_supply_command_monotonic_s = (
+            combined_test_window.time.monotonic() - POWER_SUPPLY_COMMAND_MIN_INTERVAL_S - 0.1
+        )
+
+        window.begin_automatic_ramp_down()
+        for _ in range(3):
+            window.automatic_ramp_down_timer.stop()
+            window.last_power_supply_command_monotonic_s = (
+                combined_test_window.time.monotonic() - POWER_SUPPLY_COMMAND_MIN_INTERVAL_S - 0.1
+            )
+            window.schedule_next_automatic_ramp_down_current()
+
+        self.assertEqual(
+            controller.writes,
+            [
+                [0xB4, 0xFF, 0x0F, 0x00],
+                [0xB4, 0xFF, 0x0A, 0x00],
+                [0xB4, 0xFF, 0x05, 0x00],
+                [0xB4, 0xFF, 0x00, 0x00],
+            ],
+        )
+        self.assertEqual(window.active_output_current_a, 0.0)
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.COMPLETED)
+        window.close()
+
+    def test_retry_after_ramp_down_write_failure_resumes_downward_sequence(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FakeController:
+            is_connected = True
+
+            def __init__(self) -> None:
+                self.fail = True
+                self.writes: list[list[int]] = []
+
+            def i2c_write(self, _address: int, command: list[int]) -> tuple[bool, str]:
+                self.writes.append(command)
+                return (not self.fail), ("I2C error" if self.fail else "OK")
+
+        class ReadyReaderStub:
+            is_ready = True
+
+        window = MainWindow()
+        controller = FakeController()
+        window.manual_ch341_controller = controller
+        window.power_meter_reader = ReadyReaderStub()  # type: ignore[assignment]
+        window.spectrometer_reader = ReadyReaderStub()  # type: ignore[assignment]
+        window.automatic_test_settings = window.collect_automatic_test_settings()
+        window.active_output_current_a = 15.0
+        window.last_power_supply_command_monotonic_s = (
+            combined_test_window.time.monotonic() - POWER_SUPPLY_COMMAND_MIN_INTERVAL_S - 0.1
+        )
+
+        window.begin_automatic_ramp_down()
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.PAUSED)
+        self.assertEqual(window.active_output_current_a, 15.0)
+
+        controller.fail = False
+        window.last_power_supply_command_monotonic_s = (
+            combined_test_window.time.monotonic() - POWER_SUPPLY_COMMAND_MIN_INTERVAL_S - 0.1
+        )
+        window.retry_automatic_test()
+
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.RAMPING_DOWN)
+        self.assertEqual(window.active_output_current_a, 10.0)
+        window.automatic_ramp_down_timer.stop()
+        window.automatic_test_state = AutomaticTestState.IDLE
+        window.power_meter_reader = None
+        window.spectrometer_reader = None
+        window.close()
+
+    def test_stop_all_routes_active_automatic_test_through_controlled_ramp_down(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FakeController:
+            is_connected = True
+
+            def __init__(self) -> None:
+                self.writes: list[list[int]] = []
+
+            def i2c_write(self, _address: int, command: list[int]) -> tuple[bool, str]:
+                self.writes.append(command)
+                return True, "OK"
+
+        window = MainWindow()
+        controller = FakeController()
+        window.manual_ch341_controller = controller
+        window.automatic_test_settings = window.collect_automatic_test_settings()
+        window.active_output_current_a = 10.0
+        window.automatic_test_state = AutomaticTestState.WAITING_STABLE
+        window.last_power_supply_command_monotonic_s = (
+            combined_test_window.time.monotonic() - POWER_SUPPLY_COMMAND_MIN_INTERVAL_S - 0.1
+        )
+
+        window.stop_all()
+
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.RAMPING_DOWN)
+        self.assertEqual(controller.writes, [[0xB4, 0xFF, 0x05, 0x00]])
+        window.automatic_ramp_down_timer.stop()
+        window.automatic_test_state = AutomaticTestState.IDLE
+        window.close()
+
+    def test_closing_during_automatic_test_defers_exit_until_controlled_ramp_down(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FakeController:
+            is_connected = True
+
+            def __init__(self) -> None:
+                self.writes: list[list[int]] = []
+
+            def i2c_write(self, _address: int, command: list[int]) -> tuple[bool, str]:
+                self.writes.append(command)
+                return True, "OK"
+
+        window = MainWindow()
+        controller = FakeController()
+        window.manual_ch341_controller = controller
+        window.automatic_test_settings = window.collect_automatic_test_settings()
+        window.active_output_current_a = 10.0
+        window.automatic_test_state = AutomaticTestState.PAUSED
+        window.last_power_supply_command_monotonic_s = (
+            combined_test_window.time.monotonic() - POWER_SUPPLY_COMMAND_MIN_INTERVAL_S - 0.1
+        )
+        event = QCloseEvent()
+
+        window.closeEvent(event)
+
+        self.assertFalse(event.isAccepted())
+        self.assertTrue(window.close_after_automatic_ramp_down)
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.RAMPING_DOWN)
+        self.assertEqual(controller.writes, [[0xB4, 0xFF, 0x05, 0x00]])
+        window.automatic_ramp_down_timer.stop()
+        window.close_after_automatic_ramp_down = False
+        window.automatic_test_state = AutomaticTestState.IDLE
+        window.close()
+
+    def test_excel_save_failure_pauses_automatic_test_at_current_output(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.active_output_current_a = 8.0
+        window.automatic_test_state = AutomaticTestState.SAVING_POINT
+
+        old_critical = QMessageBox.critical
+        try:
+            QMessageBox.critical = lambda *args, **kwargs: QMessageBox.StandardButton.Ok  # type: ignore[method-assign]
+            window.on_excel_save_failed("文件被占用")
+        finally:
+            QMessageBox.critical = old_critical  # type: ignore[method-assign]
+
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.PAUSED)
+        self.assertEqual(window.active_output_current_a, 8.0)
+        self.assertTrue(window.retry_automatic_test_button.isEnabled())
+        self.assertTrue(window.end_automatic_test_button.isEnabled())
+        window.automatic_test_state = AutomaticTestState.IDLE
+        window.close()
+
+    def test_retry_after_excel_failure_saves_buffered_point_without_remeasuring(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            record = ExcelTestRecord(
+                current_a=8.0,
+                voltage_v=50.5,
+                power_w=80.0,
+                efficiency=80.0 / 8.0 / 50.5,
+                peak_wavelength_nm=976.0,
+                centroid_nm=976.0,
+                fwhm_nm=1.0,
+                pib=0.99,
+                wavelength=[975.0, 976.0, 977.0],
+                intensity=[1.0, 10.0, 1.0],
+            )
+            window = MainWindow()
+            window.excel_workbook_path = Path(temp_dir) / "retry.xlsx"
+            window.pending_excel_records[8.0] = record
+            window.automatic_test_currents = (8.0, 10.0)
+            window.automatic_test_current_index = 0
+            window.automatic_test_state = AutomaticTestState.SAVING_POINT
+            window.pause_automatic_test("Excel 保存失败")
+
+            old_warning = QMessageBox.warning
+            try:
+                QMessageBox.warning = lambda *args, **kwargs: QMessageBox.StandardButton.Ok  # type: ignore[method-assign]
+                window.retry_automatic_test()
+            finally:
+                QMessageBox.warning = old_warning  # type: ignore[method-assign]
+
+            self.assertEqual(window.automatic_test_state, AutomaticTestState.SAVING_POINT)
+            self.assertIsNotNone(window.excel_save_thread)
+            self.assertTrue(window.excel_save_thread.wait(5000))
+            window.automatic_test_state = AutomaticTestState.IDLE
+            window.close()
+
+    def test_acquisition_failure_pauses_automatic_test_at_current_output(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.active_output_current_a = 6.0
+        window.automatic_test_state = AutomaticTestState.WAITING_STABLE
+
+        old_critical = QMessageBox.critical
+        try:
+            QMessageBox.critical = lambda *args, **kwargs: QMessageBox.StandardButton.Ok  # type: ignore[method-assign]
+            window.on_power_meter_failed("串口断开")
+        finally:
+            QMessageBox.critical = old_critical  # type: ignore[method-assign]
+
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.PAUSED)
+        self.assertEqual(window.active_output_current_a, 6.0)
+        self.assertIn("功率计", window.automatic_test_status_label.text())
+        window.automatic_test_state = AutomaticTestState.IDLE
+        window.close()
+
+    def test_unexpected_acquisition_stop_pauses_automatic_current_point(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.active_output_current_a = 6.0
+        window.automatic_test_state = AutomaticTestState.WAITING_STABLE
+
+        window.on_spectrometer_finished()
+
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.PAUSED)
+        self.assertIn("光谱仪", window.automatic_test_status_label.text())
+        window.automatic_test_state = AutomaticTestState.IDLE
+        window.close()
+
+    def test_retry_current_point_restarts_missing_acquisition_devices_before_reapplying_current(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FakeController:
+            is_connected = True
+
+            def __init__(self) -> None:
+                self.writes: list[list[int]] = []
+
+            def i2c_write(self, _address: int, command: list[int]) -> tuple[bool, str]:
+                self.writes.append(command)
+                return True, "OK"
+
+        window = MainWindow()
+        controller = FakeController()
+        window.manual_ch341_controller = controller
+        window.automatic_test_currents = (6.0, 8.0)
+        window.automatic_test_current_index = 0
+        window.automatic_test_settings = window.collect_automatic_test_settings()
+        window.automatic_test_state = AutomaticTestState.WAITING_STABLE
+        window.pause_automatic_test("功率计错误")
+        starts: list[str] = []
+        window.start_power_meter = lambda: starts.append("power")  # type: ignore[method-assign]
+        window.start_spectrometer = lambda: starts.append("spectrum")  # type: ignore[method-assign]
+
+        window.retry_automatic_test()
+
+        self.assertEqual(starts, ["power", "spectrum"])
+        self.assertEqual(controller.writes, [])
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.STARTING)
+        window.automatic_device_start_timer.stop()
+        window.automatic_test_state = AutomaticTestState.IDLE
+        window.close()
+
     def test_main_window_uses_workflow_layout_without_scroll_area(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
@@ -201,6 +682,9 @@ class MainWindowTests(unittest.TestCase):
 
         for attribute in (
             "global_status_label",
+            "global_psu_status_indicator",
+            "global_power_meter_status_indicator",
+            "global_spectrometer_status_indicator",
             "sn_field",
             "output_dir_field",
             "save_excel_button",
@@ -232,6 +716,32 @@ class MainWindowTests(unittest.TestCase):
         self.assertIsInstance(window.log_text, QLabel)
         self.assertFalse(hasattr(window, "toggle_log_button"))
         self.assertFalse(hasattr(window, "clear_log_button"))
+        window.close()
+
+    def test_global_device_indicators_follow_connection_state(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        self.assertIn("#dc2626", window.global_psu_status_indicator.styleSheet())
+        self.assertIn("#dc2626", window.global_power_meter_status_indicator.styleSheet())
+        self.assertIn("#dc2626", window.global_spectrometer_status_indicator.styleSheet())
+
+        class ConnectedController:
+            is_connected = True
+
+        class ReadyReader:
+            is_ready = True
+
+        window.manual_ch341_controller = ConnectedController()
+        window.power_meter_reader = ReadyReader()  # type: ignore[assignment]
+        window.spectrometer_reader = ReadyReader()  # type: ignore[assignment]
+        window.update_global_status()
+
+        self.assertIn("#16a34a", window.global_psu_status_indicator.styleSheet())
+        self.assertIn("#16a34a", window.global_power_meter_status_indicator.styleSheet())
+        self.assertIn("#16a34a", window.global_spectrometer_status_indicator.styleSheet())
+        window.power_meter_reader = None
+        window.spectrometer_reader = None
         window.close()
 
     def test_log_shows_only_the_latest_line(self) -> None:
@@ -288,7 +798,6 @@ class MainWindowTests(unittest.TestCase):
         for widget in (
             window.sn_field,
             window.output_dir_field,
-            window.stop_after_record_check,
             window.save_excel_button,
         ):
             self._form_row_containing_widget(record_form, widget)
@@ -484,6 +993,23 @@ class MainWindowTests(unittest.TestCase):
         self.assertFalse(window.latest_spectrum_saturated)
         self.assertFalse(window.live_plots.spectrum_saturation_text.get_visible())
         self.assertNotEqual(window.live_plots.spectrum_pib_text.get_text(), "PIB   -- %")
+        window.close()
+
+    def test_saturated_spectrum_pauses_automatic_test_at_the_current_point(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.latest_spectrum_wavelength = [973.0, 973.5, 974.0, 974.5, 975.0]
+        window.latest_spectrum_intensity = [0.0, 16000.0, 16020.0, 16010.0, 0.0]
+        window.active_output_current_a = 10.0
+        window.stable_power_points[10.0] = 200.0
+        window.automatic_test_state = AutomaticTestState.WAITING_VOLTAGE
+
+        window.record_efficiency_from_vout(50.0)
+
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.PAUSED)
+        self.assertEqual(window.active_output_current_a, 10.0)
+        self.assertIn("光谱饱和", window.automatic_test_status_label.text())
+        window.automatic_test_state = AutomaticTestState.IDLE
         window.close()
 
     def test_spectrum_x_axis_locks_to_dominant_peak_plus_minus_20_after_stable_readings(self) -> None:
@@ -701,6 +1227,37 @@ class MainWindowTests(unittest.TestCase):
         self.assertGreaterEqual(window.auto_vout_timer.remainingTime(), 4900)
         window.close()
 
+    def test_automatic_test_moves_to_voltage_wait_after_power_becomes_stable(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.automatic_test_state = AutomaticTestState.WAITING_STABLE
+        window.active_output_current_a = 3.0
+        window.pending_stable_point_current_a = 3.0
+        window.pending_stable_point_generation = 7
+
+        window.on_power_meter_reading(
+            PowerMeterReading(1.0, 10.0, True, 0.01, 3.0, stability_generation=7)
+        )
+
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.WAITING_VOLTAGE)
+        self.assertTrue(window.auto_vout_timer.isActive())
+        window.automatic_test_state = AutomaticTestState.IDLE
+        window.close()
+
+    def test_point_timeout_pauses_automatic_test_without_changing_current(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.active_output_current_a = 7.0
+        window.automatic_test_state = AutomaticTestState.WAITING_STABLE
+
+        window.on_automatic_point_timeout()
+
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.PAUSED)
+        self.assertEqual(window.active_output_current_a, 7.0)
+        self.assertIn("超时", window.automatic_test_status_label.text())
+        window.automatic_test_state = AutomaticTestState.IDLE
+        window.close()
+
     def test_automatic_vout_read_is_cancelled_when_power_becomes_unstable(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
@@ -758,6 +1315,53 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(automatic_calls, [True])
         window.close()
 
+    def test_automatic_voltage_read_failure_pauses_current_point(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FakeController:
+            is_connected = True
+
+            def i2c_write_read(
+                self,
+                _address: int,
+                _command: list[int],
+                _length: int,
+            ) -> tuple[bool, str]:
+                return False, "I2C error"
+
+        window = MainWindow()
+        window.manual_ch341_controller = FakeController()
+        window.active_output_current_a = 5.0
+        window.automatic_test_state = AutomaticTestState.WAITING_VOLTAGE
+        window.last_power_supply_command_monotonic_s = (
+            combined_test_window.time.monotonic() - POWER_SUPPLY_COMMAND_MIN_INTERVAL_S - 0.1
+        )
+        old_critical = QMessageBox.critical
+        try:
+            QMessageBox.critical = lambda *args, **kwargs: QMessageBox.StandardButton.Ok  # type: ignore[method-assign]
+            window.read_output_voltage(automatic=True)
+        finally:
+            QMessageBox.critical = old_critical  # type: ignore[method-assign]
+
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.PAUSED)
+        self.assertEqual(window.active_output_current_a, 5.0)
+        window.automatic_test_state = AutomaticTestState.IDLE
+        window.close()
+
+    def test_invalid_voltage_value_pauses_automatic_current_point(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.active_output_current_a = 5.0
+        window.stable_power_points[5.0] = 50.0
+        window.automatic_test_state = AutomaticTestState.WAITING_VOLTAGE
+
+        window.record_efficiency_from_vout(0.0)
+
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.PAUSED)
+        self.assertIn("大于 0", window.automatic_test_status_label.text())
+        window.automatic_test_state = AutomaticTestState.IDLE
+        window.close()
+
     def test_power_supply_commands_are_blocked_for_at_least_one_second(self) -> None:
         app = QApplication.instance() or QApplication([])
 
@@ -784,6 +1388,48 @@ class MainWindowTests(unittest.TestCase):
         )
         self.assertEqual(window.execute_i2c_read([0xB4, 0x88, 0x00, 0x00], "Input voltage", "V"), 0.0)
         self.assertEqual(controller.read_count, 1)
+        window.close()
+
+    def test_automatic_current_command_waits_for_guard_instead_of_pausing(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FakeController:
+            is_connected = True
+
+            def __init__(self) -> None:
+                self.writes: list[list[int]] = []
+
+            def i2c_write(self, _address: int, command: list[int]) -> tuple[bool, str]:
+                self.writes.append(command)
+                return True, "OK"
+
+        class ReaderStub:
+            def reset_stability_window(self) -> int:
+                return 2
+
+        window = MainWindow()
+        controller = FakeController()
+        window.manual_ch341_controller = controller
+        window.power_meter_reader = ReaderStub()  # type: ignore[assignment]
+        window.automatic_test_currents = (4.0,)
+        window.automatic_test_current_index = 0
+        window.automatic_test_settings = window.collect_automatic_test_settings()
+        window.last_power_supply_command_monotonic_s = combined_test_window.time.monotonic()
+
+        window.begin_automatic_current_point()
+
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.SETTING_CURRENT)
+        self.assertEqual(controller.writes, [])
+        self.assertTrue(window.automatic_command_timer.isActive())
+
+        window.last_power_supply_command_monotonic_s = (
+            combined_test_window.time.monotonic() - POWER_SUPPLY_COMMAND_MIN_INTERVAL_S - 0.1
+        )
+        window.on_automatic_command_timer_timeout()
+        self.assertEqual(controller.writes, [[0xB4, 0xFF, 0x04, 0x00]])
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.WAITING_STABLE)
+        window.automatic_test_state = AutomaticTestState.IDLE
+        window.power_meter_reader = None
         window.close()
 
     def test_temperature_read_uses_lpower_temperature_command(self) -> None:
@@ -894,6 +1540,30 @@ class MainWindowTests(unittest.TestCase):
         self.assertFalse(window.stop_spectrometer_button.isHidden())
         window.close()
 
+    def test_automatic_test_locks_manual_power_commands_but_allows_reconnect_while_paused(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        window.set_automatic_test_state(AutomaticTestState.WAITING_STABLE, "等待稳定")
+
+        for widget in (
+            window.connect_i2c_button,
+            window.apply_current_button,
+            window.read_input_voltage_button,
+            window.read_output_voltage_button,
+            window.read_output_current_button,
+            window.read_temperature_button,
+            window.stable_window_spin,
+            window.start_all_button,
+        ):
+            self.assertFalse(widget.isEnabled(), widget.objectName())
+
+        window.set_automatic_test_state(AutomaticTestState.PAUSED, "连接中断")
+        self.assertTrue(window.connect_i2c_button.isEnabled())
+        self.assertFalse(window.apply_current_button.isEnabled())
+        window.automatic_test_state = AutomaticTestState.IDLE
+        window.close()
+
     def test_start_stop_buttons_show_only_current_action(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
@@ -910,6 +1580,29 @@ class MainWindowTests(unittest.TestCase):
         self.assertFalse(window.stop_power_meter_button.isHidden())
         self.assertTrue(window.start_spectrometer_button.isHidden())
         self.assertFalse(window.stop_spectrometer_button.isHidden())
+        window.close()
+
+    def test_normal_acquisition_stop_requests_thread_exit_without_blocking_the_ui(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class ReaderStub:
+            def __init__(self) -> None:
+                self.stopped = False
+
+            def stop(self) -> None:
+                self.stopped = True
+
+            def wait(self, _timeout: int) -> None:
+                raise AssertionError("normal UI stop must not wait")
+
+        window = MainWindow()
+        reader = ReaderStub()
+        window.power_meter_reader = reader  # type: ignore[assignment]
+
+        window.stop_power_meter()
+
+        self.assertTrue(reader.stopped)
+        window.power_meter_reader = None
         window.close()
 
     def test_power_meter_wavelength_accepts_decimal_values(self) -> None:
@@ -1035,6 +1728,42 @@ class PowerMeterDetectThreadTests(unittest.TestCase):
         finally:
             sys.modules.clear()
             sys.modules.update(old_modules)
+
+
+class AcquisitionReadySignalTests(unittest.TestCase):
+    def test_power_meter_reader_reports_ready_after_device_configuration(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FakePowerMeter:
+            def __init__(self, _resource: str) -> None:
+                pass
+
+            def test(self) -> str:
+                return "OK"
+
+            def set_wavelength(self, _wavelength_nm: float) -> None:
+                pass
+
+            def read_power_w(self) -> float:
+                raise RuntimeError("stop test loop")
+
+            def close(self) -> None:
+                pass
+
+        old_meter_class = power_meter_mvp.CaihuangPowerMeter
+        try:
+            power_meter_mvp.CaihuangPowerMeter = FakePowerMeter
+            reader = combined_test_devices.PowerMeterReaderThread(
+                PowerMeterSettings("ASRL1::INSTR", 976.0, 1.0, 300, 3.0, 0.15)
+            )
+            ready_events: list[bool] = []
+            reader.ready.connect(lambda: ready_events.append(True))
+
+            reader.run()
+
+            self.assertEqual(ready_events, [True])
+        finally:
+            power_meter_mvp.CaihuangPowerMeter = old_meter_class
 
 
 class SpectrometerDeviceOpeningTests(unittest.TestCase):

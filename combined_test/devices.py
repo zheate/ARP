@@ -184,6 +184,7 @@ class PowerMeterDetectThread(QThread):
 class PowerMeterReaderThread(QThread):
     reading = Signal(object)
     status = Signal(str)
+    ready = Signal()
     failed = Signal(str)
 
     def __init__(self, settings: PowerMeterSettings, parent: QWidget | None = None) -> None:
@@ -195,6 +196,7 @@ class PowerMeterReaderThread(QThread):
         self._stability_generation = 0
         self._stable_window_s = float(settings.stable_window_s)
         self._stable_tolerance_w = float(settings.stable_tolerance_w)
+        self.is_ready = False
 
     def stop(self) -> None:
         self._running = False
@@ -230,6 +232,8 @@ class PowerMeterReaderThread(QThread):
                 raise RuntimeError("功率计自检未返回 OK")
             meter.set_wavelength(self.settings.wavelength_nm)
             self.status.emit(f"功率计已连接：{normalize_resource(self.settings.resource)}")
+            self.is_ready = True
+            self.ready.emit()
 
             with self._stability_state_lock:
                 stable_window_s = self._stable_window_s
@@ -277,6 +281,7 @@ class PowerMeterReaderThread(QThread):
         except Exception as exc:
             self.failed.emit(str(exc))
         finally:
+            self.is_ready = False
             if meter is not None:
                 try:
                     meter.close()
@@ -288,12 +293,14 @@ class SpectrometerReaderThread(QThread):
     reading = Signal(object)
     spectrum = Signal(object, object)
     status = Signal(str)
+    ready = Signal()
     failed = Signal(str)
 
     def __init__(self, settings: SpectrometerSettings, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.settings = settings
         self._running = False
+        self.is_ready = False
 
     def stop(self) -> None:
         self._running = False
@@ -312,6 +319,8 @@ class SpectrometerReaderThread(QThread):
             device_id = open_spectrometer_device(spectrometer, self.settings.device_id)
             spectrometer.set_integration_time(self.settings.integration_time_us)
             self.status.emit(f"光谱仪已连接，设备 ID：{device_id}")
+            self.is_ready = True
+            self.ready.emit()
 
             self._running = True
             while self._running:
@@ -329,6 +338,7 @@ class SpectrometerReaderThread(QThread):
         except Exception as exc:
             self.failed.emit(str(exc))
         finally:
+            self.is_ready = False
             if spectrometer is not None:
                 try:
                     spectrometer.close()

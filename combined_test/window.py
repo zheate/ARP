@@ -32,10 +32,19 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSpinBox,
     QStatusBar,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
+from .automation import (
+    AutomaticTestSettings,
+    AutomaticTestState,
+    MIN_POWER_SUPPLY_COMMAND_INTERVAL_S,
+    build_ramp_down_currents,
+    build_test_currents,
+    validate_automatic_test_settings,
+)
 from .core import (
     CombinedMeasurement,
     build_set_current_command,
@@ -88,8 +97,9 @@ DEFAULT_I2C_ADDRESS = 0x41
 DEFAULT_I2C_SPEED = 0  # 20 KHz
 AUTO_VOUT_AFTER_STABLE_S = 5.0
 MIN_VOUT_READ_INTERVAL_S = 5.0
-POWER_SUPPLY_COMMAND_MIN_INTERVAL_S = 1.1
+POWER_SUPPLY_COMMAND_MIN_INTERVAL_S = MIN_POWER_SUPPLY_COMMAND_INTERVAL_S
 DEFAULT_SPECTROMETER_INTEGRATION_US = 10000
+AUTOMATIC_DEVICE_START_TIMEOUT_S = 15.0
 LEFT_PANEL_MIN_WIDTH = 350
 LEFT_PANEL_MAX_WIDTH = 360
 
@@ -133,6 +143,33 @@ class MainWindow(QMainWindow):
         self.excel_recorded_currents: set[float] = set()
         self.pending_excel_records: dict[float, ExcelTestRecord] = {}
         self.excel_save_thread: ExcelSaveThread | None = None
+        self.automatic_test_state = AutomaticTestState.IDLE
+        self.automatic_test_settings: AutomaticTestSettings | None = None
+        self.automatic_test_currents: tuple[float, ...] = ()
+        self.automatic_test_current_index = -1
+        self.automatic_power_meter_ready = False
+        self.automatic_spectrometer_ready = False
+        self.automatic_pause_reason = ""
+        self.automatic_paused_from_state = AutomaticTestState.IDLE
+        self.close_after_automatic_ramp_down = False
+        self.last_point_record_error = ""
+        self.automatic_device_start_timer = QTimer(self)
+        self.automatic_device_start_timer.setSingleShot(True)
+        self.automatic_device_start_timer.timeout.connect(self.on_automatic_device_start_timeout)
+        self.automatic_point_timer = QTimer(self)
+        self.automatic_point_timer.setSingleShot(True)
+        self.automatic_point_timer.timeout.connect(self.on_automatic_point_timeout)
+        self.automatic_command_timer = QTimer(self)
+        self.automatic_command_timer.setSingleShot(True)
+        self.automatic_command_timer.setTimerType(Qt.TimerType.PreciseTimer)
+        self.automatic_command_timer.timeout.connect(self.on_automatic_command_timer_timeout)
+        self.pending_automatic_current_a: float | None = None
+        self.pending_automatic_command_kind: str | None = None
+        self.automatic_ramp_down_currents: deque[float] = deque()
+        self.automatic_ramp_down_timer = QTimer(self)
+        self.automatic_ramp_down_timer.setSingleShot(True)
+        self.automatic_ramp_down_timer.setTimerType(Qt.TimerType.PreciseTimer)
+        self.automatic_ramp_down_timer.timeout.connect(self.schedule_next_automatic_ramp_down_current)
 
         self.content_widget = QWidget(self)
         self.setCentralWidget(self.content_widget)
@@ -165,6 +202,7 @@ class MainWindow(QMainWindow):
         body.addWidget(self.left_control_panel)
 
         self._build_session_group(left)
+        self._build_automatic_test_group(left)
         self._build_power_supply_group(left)
         self._build_power_meter_group(left)
         self._build_spectrometer_group(left)
@@ -215,6 +253,28 @@ class MainWindow(QMainWindow):
         self.interval_spin.setValue(settings.value(prefix + "spectrometer_interval_ms", self.interval_spin.value(), type=int))
         self.stable_window_spin.setValue(settings.value(prefix + "stable_window_s", self.stable_window_spin.value(), type=float))
         self.stable_tolerance_spin.setValue(0.15)
+        self.auto_initial_current_spin.setValue(
+            settings.value(prefix + "auto_initial_current_a", self.auto_initial_current_spin.value(), type=float)
+        )
+        self.auto_target_current_spin.setValue(
+            settings.value(prefix + "auto_target_current_a", self.auto_target_current_spin.value(), type=float)
+        )
+        self.auto_current_step_spin.setValue(
+            settings.value(prefix + "auto_current_step_a", self.auto_current_step_spin.value(), type=float)
+        )
+        self.auto_point_timeout_spin.setValue(
+            settings.value(prefix + "auto_point_timeout_s", self.auto_point_timeout_spin.value(), type=float)
+        )
+        self.auto_ramp_down_step_spin.setValue(
+            settings.value(prefix + "auto_ramp_down_step_a", self.auto_ramp_down_step_spin.value(), type=float)
+        )
+        self.auto_ramp_down_interval_spin.setValue(
+            settings.value(
+                prefix + "auto_ramp_down_interval_s",
+                self.auto_ramp_down_interval_spin.value(),
+                type=float,
+            )
+        )
         self.sn_field.setText(str(settings.value(prefix + "sn", self.sn_field.text())))
         saved_output_dir = settings.value(
             prefix + "output_dir",
@@ -225,9 +285,7 @@ class MainWindow(QMainWindow):
             saved_output_path = saved_output_path.parent
         self.output_dir_field.setText(str(saved_output_path))
         self.output_dir_field.setCursorPosition(0)
-        self.stop_after_record_check.setChecked(
-            settings.value(prefix + "stop_after_record", self.stop_after_record_check.isChecked(), type=bool)
-        )
+
     def save_input_settings(self) -> None:
         settings = self.input_settings
         prefix = "input/"
@@ -239,9 +297,14 @@ class MainWindow(QMainWindow):
         settings.setValue(prefix + "integration_time_us", self.integration_spin.value())
         settings.setValue(prefix + "spectrometer_interval_ms", self.interval_spin.value())
         settings.setValue(prefix + "stable_window_s", self.stable_window_spin.value())
+        settings.setValue(prefix + "auto_initial_current_a", self.auto_initial_current_spin.value())
+        settings.setValue(prefix + "auto_target_current_a", self.auto_target_current_spin.value())
+        settings.setValue(prefix + "auto_current_step_a", self.auto_current_step_spin.value())
+        settings.setValue(prefix + "auto_point_timeout_s", self.auto_point_timeout_spin.value())
+        settings.setValue(prefix + "auto_ramp_down_step_a", self.auto_ramp_down_step_spin.value())
+        settings.setValue(prefix + "auto_ramp_down_interval_s", self.auto_ramp_down_interval_spin.value())
         settings.setValue(prefix + "sn", self.sn_field.text().strip())
         settings.setValue(prefix + "output_dir", self.output_dir_field.text().strip())
-        settings.setValue(prefix + "stop_after_record", self.stop_after_record_check.isChecked())
         settings.sync()
 
     def _build_global_status_bar(self, parent: QVBoxLayout) -> None:
@@ -256,13 +319,24 @@ class MainWindow(QMainWindow):
         self.global_psu_status_label = QLabel("电源：未连接", self)
         self.global_power_meter_status_label = QLabel("功率计：已停止", self)
         self.global_spectrometer_status_label = QLabel("光谱仪：已停止", self)
-        for label in (
-            self.global_psu_status_label,
-            self.global_power_meter_status_label,
-            self.global_spectrometer_status_label,
+        self.global_psu_status_indicator = QLabel(self)
+        self.global_power_meter_status_indicator = QLabel(self)
+        self.global_spectrometer_status_indicator = QLabel(self)
+        for indicator, label in (
+            (self.global_psu_status_indicator, self.global_psu_status_label),
+            (self.global_power_meter_status_indicator, self.global_power_meter_status_label),
+            (self.global_spectrometer_status_indicator, self.global_spectrometer_status_label),
         ):
-            label.setMinimumWidth(118)
-            row.addWidget(label)
+            indicator.setFixedSize(12, 12)
+            indicator.setAccessibleName(f"{label.text().split('：', 1)[0]}连接状态")
+            status_widget = QWidget(self)
+            status_layout = QHBoxLayout(status_widget)
+            status_layout.setContentsMargins(0, 0, 0, 0)
+            status_layout.setSpacing(7)
+            status_layout.addWidget(indicator)
+            status_layout.addWidget(label)
+            status_widget.setMinimumWidth(135)
+            row.addWidget(status_widget)
 
         self.start_all_button = QPushButton("开始采集", self)
         self.stop_all_button = QPushButton("全部停止", self)
@@ -275,6 +349,15 @@ class MainWindow(QMainWindow):
         row.addWidget(self.stop_all_button)
 
         parent.addLayout(row)
+
+    @staticmethod
+    def _set_status_indicator(indicator: QLabel, connected: bool) -> None:
+        color = "#16a34a" if connected else "#dc2626"
+        state = "已连接" if connected else "未连接"
+        indicator.setStyleSheet(
+            f"background-color: {color}; border: 1px solid {color}; border-radius: 6px;"
+        )
+        indicator.setToolTip(state)
 
     def _reserve_group_height(self, group: QGroupBox) -> None:
         group.setMinimumHeight(0)
@@ -298,6 +381,7 @@ class MainWindow(QMainWindow):
     def _configure_button_semantics(self) -> None:
         """Keep native controls and reserve color for destructive actions."""
         self.start_all_button.setStyleSheet("font-weight: 600;")
+        self.start_automatic_test_button.setStyleSheet("font-weight: 600;")
         self.apply_current_button.setStyleSheet("font-weight: 600;")
         self.save_excel_button.setStyleSheet("font-weight: 600;")
 
@@ -311,6 +395,7 @@ class MainWindow(QMainWindow):
             self.stop_all_button,
             self.stop_power_meter_button,
             self.stop_spectrometer_button,
+            self.end_automatic_test_button,
         ):
             button.setStyleSheet(destructive_style)
 
@@ -337,13 +422,10 @@ class MainWindow(QMainWindow):
 
         record_actions = QHBoxLayout()
         record_actions.setSpacing(8)
-        self.stop_after_record_check = QCheckBox("记录后停止", self)
-        self.stop_after_record_check.setChecked(True)
         self.save_excel_button = QPushButton("保存 Excel", self)
         self._configure_action_button(self.save_excel_button, 104)
         self.save_excel_button.setEnabled(False)
         self.save_excel_button.clicked.connect(self.save_pending_excel_records)
-        record_actions.addWidget(self.stop_after_record_check)
         record_actions.addStretch(1)
         record_actions.addWidget(self.save_excel_button)
         form.addRow("", record_actions)
@@ -410,6 +492,107 @@ class MainWindow(QMainWindow):
 
         parent.addWidget(group)
         self._reserve_group_height(group)
+
+    def _build_automatic_test_group(self, parent: QVBoxLayout) -> None:
+        self.automatic_test_section = QWidget(self)
+        section_layout = QVBoxLayout(self.automatic_test_section)
+        section_layout.setContentsMargins(0, 0, 0, 0)
+        section_layout.setSpacing(4)
+
+        self.automatic_test_toggle = QToolButton(self)
+        self.automatic_test_toggle.setText("自动测试")
+        self.automatic_test_toggle.setCheckable(True)
+        self.automatic_test_toggle.setChecked(False)
+        self.automatic_test_toggle.setArrowType(Qt.ArrowType.RightArrow)
+        self.automatic_test_toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.automatic_test_toggle.setAutoRaise(True)
+        self.automatic_test_toggle.setStyleSheet(
+            "QToolButton { border: none; font-size: 16px; font-weight: 600; padding: 4px 2px; }"
+        )
+        self.automatic_test_toggle.toggled.connect(self._set_automatic_test_expanded)
+        section_layout.addWidget(self.automatic_test_toggle)
+
+        self.automatic_test_content = QGroupBox(self)
+        form = QFormLayout(self.automatic_test_content)
+        self._configure_left_form(form)
+
+        self.auto_initial_current_spin = QDoubleSpinBox(self)
+        self.auto_initial_current_spin.setRange(0.1, 20.0)
+        self.auto_initial_current_spin.setDecimals(1)
+        self.auto_initial_current_spin.setSingleStep(0.1)
+        self.auto_initial_current_spin.setValue(1.0)
+        self.auto_initial_current_spin.setSuffix(" A")
+        form.addRow("初始电流", self.auto_initial_current_spin)
+
+        self.auto_target_current_spin = QDoubleSpinBox(self)
+        self.auto_target_current_spin.setRange(0.1, 20.0)
+        self.auto_target_current_spin.setDecimals(1)
+        self.auto_target_current_spin.setSingleStep(0.1)
+        self.auto_target_current_spin.setValue(20.0)
+        self.auto_target_current_spin.setSuffix(" A")
+        form.addRow("目标电流", self.auto_target_current_spin)
+
+        self.auto_current_step_spin = QDoubleSpinBox(self)
+        self.auto_current_step_spin.setRange(0.1, 20.0)
+        self.auto_current_step_spin.setDecimals(1)
+        self.auto_current_step_spin.setSingleStep(0.1)
+        self.auto_current_step_spin.setValue(1.0)
+        self.auto_current_step_spin.setSuffix(" A")
+        form.addRow("电流间隔", self.auto_current_step_spin)
+
+        self.auto_point_timeout_spin = QDoubleSpinBox(self)
+        self.auto_point_timeout_spin.setRange(5.0, 3600.0)
+        self.auto_point_timeout_spin.setDecimals(1)
+        self.auto_point_timeout_spin.setSingleStep(10.0)
+        self.auto_point_timeout_spin.setValue(120.0)
+        self.auto_point_timeout_spin.setSuffix(" s")
+        form.addRow("单点超时", self.auto_point_timeout_spin)
+
+        self.auto_ramp_down_step_spin = QDoubleSpinBox(self)
+        self.auto_ramp_down_step_spin.setRange(0.1, 20.0)
+        self.auto_ramp_down_step_spin.setDecimals(1)
+        self.auto_ramp_down_step_spin.setSingleStep(0.1)
+        self.auto_ramp_down_step_spin.setValue(5.0)
+        self.auto_ramp_down_step_spin.setSuffix(" A")
+        form.addRow("下电步长", self.auto_ramp_down_step_spin)
+
+        self.auto_ramp_down_interval_spin = QDoubleSpinBox(self)
+        self.auto_ramp_down_interval_spin.setRange(POWER_SUPPLY_COMMAND_MIN_INTERVAL_S, 60.0)
+        self.auto_ramp_down_interval_spin.setDecimals(1)
+        self.auto_ramp_down_interval_spin.setSingleStep(0.1)
+        self.auto_ramp_down_interval_spin.setValue(POWER_SUPPLY_COMMAND_MIN_INTERVAL_S)
+        self.auto_ramp_down_interval_spin.setSuffix(" s")
+        form.addRow("下电间隔", self.auto_ramp_down_interval_spin)
+
+        actions = QHBoxLayout()
+        actions.setSpacing(6)
+        self.start_automatic_test_button = QPushButton("开始自动测试", self)
+        self.retry_automatic_test_button = QPushButton("重试当前点", self)
+        self.end_automatic_test_button = QPushButton("结束并下电", self)
+        self.start_automatic_test_button.clicked.connect(self.start_automatic_test)
+        self.retry_automatic_test_button.clicked.connect(self.retry_automatic_test)
+        self.end_automatic_test_button.clicked.connect(self.end_automatic_test)
+        self.retry_automatic_test_button.setEnabled(False)
+        self.end_automatic_test_button.setEnabled(False)
+        actions.addWidget(self.start_automatic_test_button)
+        actions.addWidget(self.retry_automatic_test_button)
+        actions.addWidget(self.end_automatic_test_button)
+        form.addRow(actions)
+
+        self.automatic_test_status_label = QLabel("未开始", self)
+        self.automatic_test_status_label.setWordWrap(True)
+        form.addRow("状态", self.automatic_test_status_label)
+
+        section_layout.addWidget(self.automatic_test_content)
+        self.automatic_test_content.setVisible(False)
+        parent.addWidget(self.automatic_test_section)
+
+    def _set_automatic_test_expanded(self, expanded: bool) -> None:
+        self.automatic_test_toggle.setArrowType(
+            Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow
+        )
+        self.automatic_test_content.setVisible(expanded)
+        self.automatic_test_section.updateGeometry()
 
     def _build_power_meter_group(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("功率计", self)
@@ -618,6 +801,340 @@ class MainWindow(QMainWindow):
         self.start_power_meter()
         self.start_spectrometer()
 
+    def collect_automatic_test_settings(self) -> AutomaticTestSettings:
+        settings = AutomaticTestSettings(
+            initial_current_a=self.auto_initial_current_spin.value(),
+            target_current_a=self.auto_target_current_spin.value(),
+            current_step_a=self.auto_current_step_spin.value(),
+            point_timeout_s=self.auto_point_timeout_spin.value(),
+            ramp_down_step_a=self.auto_ramp_down_step_spin.value(),
+            ramp_down_interval_s=self.auto_ramp_down_interval_spin.value(),
+        )
+        return validate_automatic_test_settings(
+            settings,
+            stable_window_s=self.stable_window_spin.value(),
+            post_stable_delay_s=AUTO_VOUT_AFTER_STABLE_S,
+        )
+
+    def start_automatic_test(self) -> None:
+        if self.automatic_test_state not in (AutomaticTestState.IDLE, AutomaticTestState.COMPLETED):
+            return
+        if self.excel_save_thread is not None:
+            self.statusBar().showMessage("请等待当前 Excel 保存完成")
+            return
+        if not self._manual_i2c_connected():
+            QMessageBox.warning(self, "自动测试", "请先连接 CH341。")
+            return
+        try:
+            settings = self.collect_automatic_test_settings()
+            currents = build_test_currents(settings)
+            self.begin_test_session()
+        except ValueError as exc:
+            QMessageBox.warning(self, "自动测试", str(exc))
+            return
+
+        self.reset_power_curve()
+        self.reset_stable_power_curve()
+        self.reset_spectrum_curve()
+
+        self.automatic_test_settings = settings
+        self.automatic_test_currents = currents
+        self.automatic_test_current_index = 0
+        self.automatic_pause_reason = ""
+        self.automatic_power_meter_ready = bool(
+            self.power_meter_reader is not None and getattr(self.power_meter_reader, "is_ready", False)
+        )
+        self.automatic_spectrometer_ready = bool(
+            self.spectrometer_reader is not None and getattr(self.spectrometer_reader, "is_ready", False)
+        )
+        self.set_automatic_test_state(AutomaticTestState.STARTING, "正在启动并确认采集设备")
+
+        if self.power_meter_reader is None:
+            self.start_power_meter()
+        if self.spectrometer_reader is None:
+            self.start_spectrometer()
+        self.pending_stable_point_current_a = None
+        self.pending_stable_point_generation = None
+        self.automatic_device_start_timer.start(round(AUTOMATIC_DEVICE_START_TIMEOUT_S * 1000.0))
+        self.maybe_start_automatic_current_sequence()
+
+    def on_power_meter_ready(self) -> None:
+        self.automatic_power_meter_ready = True
+        self.update_global_status()
+        self.maybe_start_automatic_current_sequence()
+
+    def on_spectrometer_ready(self) -> None:
+        self.automatic_spectrometer_ready = True
+        self.update_global_status()
+        self.maybe_start_automatic_current_sequence()
+
+    def maybe_start_automatic_current_sequence(self) -> None:
+        if self.automatic_test_state != AutomaticTestState.STARTING:
+            return
+        if not (self.automatic_power_meter_ready and self.automatic_spectrometer_ready):
+            return
+        self.automatic_device_start_timer.stop()
+        self.begin_automatic_current_point()
+
+    def begin_automatic_current_point(self) -> None:
+        if not (0 <= self.automatic_test_current_index < len(self.automatic_test_currents)):
+            self.pause_automatic_test("自动测试电流序列无效")
+            return
+        current_a = self.automatic_test_currents[self.automatic_test_current_index]
+        self.set_automatic_test_state(AutomaticTestState.SETTING_CURRENT, f"正在设置 {current_a:.1f} A")
+        self.schedule_automatic_current_command(current_a, "test")
+
+    def schedule_automatic_current_command(self, current_a: float, kind: str) -> None:
+        self.pending_automatic_current_a = float(current_a)
+        self.pending_automatic_command_kind = kind
+        remaining_s = self.power_supply_command_interval_remaining_s()
+        if remaining_s > 0.0:
+            self.automatic_command_timer.start(max(1, math.ceil(remaining_s * 1000.0)))
+            return
+        self.on_automatic_command_timer_timeout()
+
+    def on_automatic_command_timer_timeout(self) -> None:
+        current_a = self.pending_automatic_current_a
+        kind = self.pending_automatic_command_kind
+        if current_a is None or kind is None:
+            return
+        remaining_s = self.power_supply_command_interval_remaining_s()
+        if remaining_s > 0.0:
+            self.automatic_command_timer.start(max(1, math.ceil(remaining_s * 1000.0)))
+            return
+        self.pending_automatic_current_a = None
+        self.pending_automatic_command_kind = None
+        self.write_automatic_current(current_a, kind)
+
+    def write_automatic_current(self, current_a: float, kind: str) -> None:
+        if not self._manual_i2c_connected():
+            self.pause_automatic_test("CH341 未连接")
+            return
+        controller = self.manual_ch341_controller
+        if not self.begin_power_supply_command("自动设置输出电流"):
+            self.schedule_automatic_current_command(current_a, kind)
+            return
+        try:
+            command = build_set_current_command(current_a)
+            success, result = controller.i2c_write(DEFAULT_I2C_ADDRESS, command)
+            if not success:
+                raise RuntimeError(str(result))
+        except Exception as exc:
+            self.pause_automatic_test(f"设置 {current_a:.1f} A 失败：{exc}")
+            return
+
+        if kind == "ramp_down":
+            self.on_automatic_ramp_down_current_applied(current_a)
+            return
+
+        self.cancel_auto_vout_read()
+        self.set_current_spin.setValue(current_a)
+        self.active_output_current_a = current_a
+        self.pending_stable_point_current_a = current_a
+        self.recorded_stable_point_current_a = None
+        self.recorded_stable_point_generation = None
+        if self.power_meter_reader is not None:
+            self.pending_stable_point_generation = self.power_meter_reader.reset_stability_window()
+        else:
+            self.pending_stable_point_generation = None
+        self.set_automatic_test_state(AutomaticTestState.WAITING_STABLE, f"等待 {current_a:.1f} A 功率稳定")
+        if self.automatic_test_settings is not None:
+            self.automatic_point_timer.start(round(self.automatic_test_settings.point_timeout_s * 1000.0))
+        self.add_log(
+            f"自动测试 {self.automatic_test_current_index + 1}/{len(self.automatic_test_currents)}："
+            f"输出电流已设为 {current_a:.1f} A"
+        )
+
+    def set_automatic_test_state(self, state: AutomaticTestState, detail: str = "") -> None:
+        self.automatic_test_state = state
+        active = state not in (AutomaticTestState.IDLE, AutomaticTestState.COMPLETED)
+        paused = state == AutomaticTestState.PAUSED
+        self.start_automatic_test_button.setEnabled(not active)
+        self.retry_automatic_test_button.setEnabled(paused)
+        self.end_automatic_test_button.setEnabled(active and state != AutomaticTestState.RAMPING_DOWN)
+        for widget in (
+            self.auto_initial_current_spin,
+            self.auto_target_current_spin,
+            self.auto_current_step_spin,
+            self.auto_point_timeout_spin,
+            self.auto_ramp_down_step_spin,
+            self.auto_ramp_down_interval_spin,
+            self.sn_field,
+            self.output_dir_field,
+            self.browse_button,
+            self.apply_current_button,
+            self.set_current_spin,
+            self.read_input_voltage_button,
+            self.read_output_voltage_button,
+            self.read_output_current_button,
+            self.read_temperature_button,
+            self.stable_window_spin,
+            self.start_all_button,
+        ):
+            widget.setEnabled(not active)
+        self.connect_i2c_button.setEnabled(not active or (paused and not self._manual_i2c_connected()))
+        if detail:
+            if (
+                state
+                in (
+                    AutomaticTestState.SETTING_CURRENT,
+                    AutomaticTestState.WAITING_STABLE,
+                    AutomaticTestState.WAITING_VOLTAGE,
+                    AutomaticTestState.SAVING_POINT,
+                    AutomaticTestState.PAUSED,
+                )
+                and 0 <= self.automatic_test_current_index < len(self.automatic_test_currents)
+            ):
+                current_a = self.automatic_test_currents[self.automatic_test_current_index]
+                detail = (
+                    f"{self.automatic_test_current_index + 1}/{len(self.automatic_test_currents)} · "
+                    f"{current_a:.1f} A · {detail}"
+                )
+            self.automatic_test_status_label.setText(detail)
+        self.update_global_status()
+
+    def pause_automatic_test(self, reason: str) -> None:
+        if self.automatic_test_state != AutomaticTestState.PAUSED:
+            self.automatic_paused_from_state = self.automatic_test_state
+        self.automatic_device_start_timer.stop()
+        self.automatic_point_timer.stop()
+        self.automatic_command_timer.stop()
+        self.automatic_ramp_down_timer.stop()
+        self.pending_automatic_current_a = None
+        self.pending_automatic_command_kind = None
+        self.cancel_auto_vout_read()
+        self.automatic_pause_reason = reason
+        self.set_automatic_test_state(AutomaticTestState.PAUSED, f"已暂停：{reason}")
+        self.statusBar().showMessage(f"自动测试已暂停：{reason}")
+        self.add_log(f"自动测试已暂停并保持当前电流：{reason}")
+
+    def automatic_measurement_is_active(self) -> bool:
+        return self.automatic_test_state in (
+            AutomaticTestState.STARTING,
+            AutomaticTestState.SETTING_CURRENT,
+            AutomaticTestState.WAITING_STABLE,
+            AutomaticTestState.WAITING_VOLTAGE,
+            AutomaticTestState.SAVING_POINT,
+        )
+
+    def retry_automatic_test(self) -> None:
+        if self.automatic_test_state != AutomaticTestState.PAUSED:
+            return
+        self.automatic_pause_reason = ""
+        if self.automatic_paused_from_state == AutomaticTestState.SAVING_POINT:
+            if self.excel_save_thread is not None:
+                self.automatic_test_status_label.setText("请等待当前 Excel 保存线程结束后再重试")
+                return
+            self.set_automatic_test_state(AutomaticTestState.SAVING_POINT, "正在重试保存当前测试点")
+            self.save_pending_excel_records()
+            return
+        if self.automatic_paused_from_state == AutomaticTestState.RAMPING_DOWN:
+            self.begin_automatic_ramp_down()
+            return
+        if not self._manual_i2c_connected():
+            self.pause_automatic_test("CH341 未连接")
+            return
+        self.automatic_power_meter_ready = bool(
+            self.power_meter_reader is not None and getattr(self.power_meter_reader, "is_ready", False)
+        )
+        self.automatic_spectrometer_ready = bool(
+            self.spectrometer_reader is not None and getattr(self.spectrometer_reader, "is_ready", False)
+        )
+        if not (self.automatic_power_meter_ready and self.automatic_spectrometer_ready):
+            self.set_automatic_test_state(AutomaticTestState.STARTING, "正在重新启动并确认采集设备")
+            if self.power_meter_reader is None:
+                self.start_power_meter()
+            if self.spectrometer_reader is None:
+                self.start_spectrometer()
+            self.pending_stable_point_current_a = None
+            self.pending_stable_point_generation = None
+            self.automatic_device_start_timer.start(round(AUTOMATIC_DEVICE_START_TIMEOUT_S * 1000.0))
+            self.maybe_start_automatic_current_sequence()
+            return
+        self.begin_automatic_current_point()
+
+    def end_automatic_test(self) -> None:
+        if self.automatic_test_state in (AutomaticTestState.IDLE, AutomaticTestState.COMPLETED):
+            return
+        self.begin_automatic_ramp_down()
+
+    def on_automatic_device_start_timeout(self) -> None:
+        if self.automatic_test_state == AutomaticTestState.STARTING:
+            self.pause_automatic_test("采集设备在 15 秒内未全部就绪")
+
+    def on_automatic_point_timeout(self) -> None:
+        if self.automatic_test_state in (AutomaticTestState.WAITING_STABLE, AutomaticTestState.WAITING_VOLTAGE):
+            current_a = self.active_output_current_a or 0.0
+            self.pause_automatic_test(f"{current_a:.1f} A 单点测试超时")
+
+    def on_automatic_ramp_down_current_applied(self, current_a: float) -> None:
+        self.active_output_current_a = current_a
+        self.set_current_spin.setValue(current_a)
+        self.set_automatic_test_state(
+            AutomaticTestState.RAMPING_DOWN,
+            f"分段下电：输出电流已设为 {current_a:.1f} A",
+        )
+        self.add_log(f"自动下电：输出电流已设为 {current_a:.1f} A")
+        if current_a <= 0.0:
+            self.complete_automatic_test()
+            return
+        settings = self.automatic_test_settings
+        if settings is None:
+            self.pause_automatic_test("自动下电参数不可用")
+            return
+        self.automatic_ramp_down_timer.start(max(1, math.ceil(settings.ramp_down_interval_s * 1000.0)))
+
+    def begin_automatic_ramp_down(self) -> None:
+        settings = self.automatic_test_settings
+        if settings is None:
+            try:
+                settings = self.collect_automatic_test_settings()
+            except ValueError as exc:
+                self.pause_automatic_test(str(exc))
+                return
+            self.automatic_test_settings = settings
+        self.automatic_device_start_timer.stop()
+        self.automatic_point_timer.stop()
+        self.automatic_command_timer.stop()
+        self.automatic_ramp_down_timer.stop()
+        self.cancel_auto_vout_read()
+        start_current_a = max(0.0, float(self.active_output_current_a or 0.0))
+        try:
+            self.automatic_ramp_down_currents = deque(
+                build_ramp_down_currents(start_current_a, settings.ramp_down_step_a)
+            )
+        except ValueError as exc:
+            self.pause_automatic_test(str(exc))
+            return
+        self.set_automatic_test_state(AutomaticTestState.RAMPING_DOWN, "正在分段下电")
+        self.schedule_next_automatic_ramp_down_current()
+
+    def schedule_next_automatic_ramp_down_current(self) -> None:
+        if self.automatic_test_state != AutomaticTestState.RAMPING_DOWN:
+            return
+        if not self.automatic_ramp_down_currents:
+            self.complete_automatic_test()
+            return
+        current_a = self.automatic_ramp_down_currents.popleft()
+        self.schedule_automatic_current_command(current_a, "ramp_down")
+
+    def complete_automatic_test(self) -> None:
+        self.automatic_device_start_timer.stop()
+        self.automatic_point_timer.stop()
+        self.automatic_command_timer.stop()
+        self.automatic_ramp_down_timer.stop()
+        self.pending_automatic_current_a = None
+        self.pending_automatic_command_kind = None
+        self.active_output_current_a = 0.0
+        self.set_automatic_test_state(AutomaticTestState.COMPLETED, "自动测试完成，输出电流已降至 0 A")
+        self.statusBar().showMessage("自动测试完成，输出电流已降至 0 A")
+        self.add_log("自动测试完成，输出电流已降至 0 A")
+        self.stop_power_meter()
+        self.stop_spectrometer()
+        if self.close_after_automatic_ramp_down:
+            self.close_after_automatic_ramp_down = False
+            QTimer.singleShot(0, self.close)
+
     def begin_test_session(self, reset_records: bool = True) -> Path:
         sn = sanitize_sn(self.sn_field.text())
         output_dir_text = self.output_dir_field.text().strip()
@@ -634,6 +1151,15 @@ class MainWindow(QMainWindow):
         return self.excel_workbook_path
 
     def stop_all(self) -> None:
+        if self.automatic_test_state not in (
+            AutomaticTestState.IDLE,
+            AutomaticTestState.COMPLETED,
+            AutomaticTestState.RAMPING_DOWN,
+        ):
+            self.begin_automatic_ramp_down()
+            return
+        if self.automatic_test_state == AutomaticTestState.RAMPING_DOWN:
+            return
         self.stop_power_meter()
         self.stop_spectrometer()
 
@@ -643,16 +1169,32 @@ class MainWindow(QMainWindow):
         psu_connected = self._manual_i2c_connected()
         power_running = self.power_meter_reader is not None
         spectrometer_running = self.spectrometer_reader is not None
+        power_connected = power_running and bool(getattr(self.power_meter_reader, "is_ready", False))
+        spectrometer_connected = spectrometer_running and bool(getattr(self.spectrometer_reader, "is_ready", False))
         power_detecting = self.power_meter_detect_thread is not None
+        automatic_active = self.automatic_test_state not in (
+            AutomaticTestState.IDLE,
+            AutomaticTestState.COMPLETED,
+        )
 
-        self.global_status_label.setText("测试运行中" if power_running or spectrometer_running else "测试待机")
+        if self.automatic_test_state == AutomaticTestState.PAUSED:
+            self.global_status_label.setText("自动测试已暂停")
+        elif self.automatic_test_state == AutomaticTestState.RAMPING_DOWN:
+            self.global_status_label.setText("自动测试下电中")
+        elif automatic_active:
+            self.global_status_label.setText("自动测试运行中")
+        else:
+            self.global_status_label.setText("测试运行中" if power_running or spectrometer_running else "测试待机")
         self.global_psu_status_label.setText("电源：已连接" if psu_connected else "电源：未连接")
         if power_detecting:
             self.global_power_meter_status_label.setText("功率计：检测中")
         else:
             self.global_power_meter_status_label.setText("功率计：运行中" if power_running else "功率计：已停止")
         self.global_spectrometer_status_label.setText("光谱仪：运行中" if spectrometer_running else "光谱仪：已停止")
-        self.stop_all_button.setEnabled(power_running or spectrometer_running)
+        self._set_status_indicator(self.global_psu_status_indicator, psu_connected)
+        self._set_status_indicator(self.global_power_meter_status_indicator, power_connected)
+        self._set_status_indicator(self.global_spectrometer_status_indicator, spectrometer_connected)
+        self.stop_all_button.setEnabled(power_running or spectrometer_running or automatic_active)
 
         if hasattr(self, "power_meter_status_label"):
             self.power_meter_status_label.setText("检测中" if power_detecting else ("运行中" if power_running else "已停止"))
@@ -699,16 +1241,21 @@ class MainWindow(QMainWindow):
     def begin_power_supply_command(self, command_name: str) -> bool:
         """Reserve the power-supply bus so I2C commands remain safely spaced."""
         now = time.monotonic()
-        if self.last_power_supply_command_monotonic_s is not None:
-            elapsed_s = now - self.last_power_supply_command_monotonic_s
-            remaining_s = POWER_SUPPLY_COMMAND_MIN_INTERVAL_S - elapsed_s
-            if remaining_s > 0.0:
-                message = f"{command_name}被阻止；请等待 {remaining_s:.1f} 秒后再发送下一条电源命令"
-                self.statusBar().showMessage(message)
-                self.add_log(message)
-                return False
+        remaining_s = self.power_supply_command_interval_remaining_s(now)
+        if remaining_s > 0.0:
+            message = f"{command_name}被阻止；请等待 {remaining_s:.1f} 秒后再发送下一条电源命令"
+            self.statusBar().showMessage(message)
+            self.add_log(message)
+            return False
         self.last_power_supply_command_monotonic_s = now
         return True
+
+    def power_supply_command_interval_remaining_s(self, now: float | None = None) -> float:
+        if self.last_power_supply_command_monotonic_s is None:
+            return 0.0
+        current_time = time.monotonic() if now is None else float(now)
+        elapsed_s = current_time - self.last_power_supply_command_monotonic_s
+        return max(0.0, POWER_SUPPLY_COMMAND_MIN_INTERVAL_S - elapsed_s)
 
     def read_input_voltage(self) -> None:
         self.execute_i2c_read([0xB4, 0x88, 0x00, 0x00], "输入电压", "V")
@@ -727,6 +1274,8 @@ class MainWindow(QMainWindow):
         if voltage_v is not None:
             self.last_vout_read_monotonic_s = time.monotonic()
             self.record_efficiency_from_vout(voltage_v)
+        elif automatic and self.automatic_test_state == AutomaticTestState.WAITING_VOLTAGE:
+            self.pause_automatic_test("输出电压读取失败")
 
     def vout_read_interval_remaining_s(self) -> float:
         if self.last_vout_read_monotonic_s is None:
@@ -804,18 +1353,22 @@ class MainWindow(QMainWindow):
         if current_a is None or current_a <= 0.0:
             self.statusBar().showMessage("仅记录电流大于 0 A 的效率")
             self.add_log("已读取输出电压；0 A 测试点不绘制效率")
+            self.pause_automatic_point_if_waiting("仅记录电流大于 0 A 的效率")
             return
         if self.pending_stable_point_current_a == current_a:
             self.statusBar().showMessage("请等待新设定的电流点稳定后再读取输出电压")
             self.add_log("已读取输出电压；新电流点尚未稳定，未更新效率")
+            self.pause_automatic_point_if_waiting("当前电流点尚未稳定")
             return
         if current_a not in self.stable_power_points:
             self.statusBar().showMessage("请等待当前测试点稳定后再读取输出电压")
             self.add_log("已读取输出电压；暂无稳定功率点，未绘制效率")
+            self.pause_automatic_point_if_waiting("当前测试点缺少稳定功率数据")
             return
         if voltage_v <= 0.0:
             self.statusBar().showMessage("输出电压必须大于 0 才能计算效率")
             self.add_log("已读取输出电压；输出电压为 0，未绘制效率")
+            self.pause_automatic_point_if_waiting("输出电压必须大于 0 才能计算效率")
             return
 
         power_w = self.stable_power_points[current_a]
@@ -830,7 +1383,21 @@ class MainWindow(QMainWindow):
             f"({current_a:.3f} A × {voltage_v:.3f} V) = {efficiency_percent:.2f}%"
         )
 
-        self.queue_excel_test_point(current_a, voltage_v, power_w, efficiency_percent / 100.0)
+        queued = self.queue_excel_test_point(current_a, voltage_v, power_w, efficiency_percent / 100.0)
+        if self.automatic_test_state == AutomaticTestState.WAITING_VOLTAGE:
+            if not queued:
+                self.pause_automatic_test(self.last_point_record_error or "当前测试点未能生成有效记录")
+                return
+            self.automatic_point_timer.stop()
+            self.set_automatic_test_state(
+                AutomaticTestState.SAVING_POINT,
+                f"正在保存 {current_a:.1f} A 测试点",
+            )
+            self.save_pending_excel_records()
+
+    def pause_automatic_point_if_waiting(self, reason: str) -> None:
+        if self.automatic_test_state == AutomaticTestState.WAITING_VOLTAGE:
+            self.pause_automatic_test(reason)
 
     def queue_excel_test_point(
         self,
@@ -838,11 +1405,13 @@ class MainWindow(QMainWindow):
         voltage_v: float,
         power_w: float,
         efficiency: float,
-    ) -> None:
+    ) -> bool:
+        self.last_point_record_error = ""
         if self.latest_spectrum_wavelength is None or self.latest_spectrum_intensity is None:
+            self.last_point_record_error = "暂无光谱数据"
             self.add_log("已跳过 Excel 记录：暂无光谱数据")
             self.statusBar().showMessage("获得光谱数据后才能生成测试点")
-            return
+            return False
         saturation = detect_spectrum_saturation(self.latest_spectrum_intensity)
         if saturation.saturated:
             if current_a not in self.excel_recorded_currents:
@@ -856,9 +1425,10 @@ class MainWindow(QMainWindow):
                 f"（{saturation.peak_intensity:.0f} 计数，连续 {saturation.consecutive_pixels} 个像素）；"
                 "请缩短积分时间"
             )
+            self.last_point_record_error = message
             self.statusBar().showMessage(message)
             self.add_log(message)
-            return
+            return False
         stats = calculate_stats(self.latest_spectrum_wavelength, self.latest_spectrum_intensity)
         self.pending_excel_records[current_a] = ExcelTestRecord(
             current_a=current_a,
@@ -876,6 +1446,7 @@ class MainWindow(QMainWindow):
         self.save_excel_button.setEnabled(pending_count > 0)
         self.save_status_label.setText(f"{pending_count} 个测试点待保存")
         self.statusBar().showMessage(f"{current_a:.1f} A 测试点已就绪；请单击“保存 Excel”")
+        return True
 
     def save_pending_excel_records(self) -> None:
         if self.excel_save_thread is not None:
@@ -927,20 +1498,33 @@ class MainWindow(QMainWindow):
             self.save_status_label.setText(f"已在 {elapsed_s:.2f} 秒内保存：{thread.path.name}")
         self.statusBar().showMessage(f"Excel 已在 {elapsed_s:.2f} 秒内保存：{thread.path.name}")
         self.add_log(f"Excel 已在 {elapsed_s:.2f} 秒内保存：{thread.path}")
+        if self.automatic_test_state == AutomaticTestState.SAVING_POINT:
+            expected_current = self.automatic_test_currents[self.automatic_test_current_index]
+            if expected_current not in self.excel_recorded_currents:
+                self.pause_automatic_test(f"{expected_current:.1f} A 测试点未确认写入 Excel")
+            elif self.automatic_test_current_index + 1 < len(self.automatic_test_currents):
+                self.automatic_test_current_index += 1
+                self.begin_automatic_current_point()
+            else:
+                self.begin_automatic_ramp_down()
 
     def on_excel_save_failed(self, message: str) -> None:
         self.save_status_label.setText("保存失败")
         self.add_log(f"Excel 保存失败：{message}")
+        if self.automatic_test_state == AutomaticTestState.SAVING_POINT:
+            self.pause_automatic_test(f"Excel 保存失败：{message}")
         QMessageBox.critical(self, "保存 Excel", message)
 
     def on_excel_save_finished(self) -> None:
         thread = self.excel_save_thread
         self.excel_save_thread = None
+        automatic_idle = self.automatic_test_state in (AutomaticTestState.IDLE, AutomaticTestState.COMPLETED)
         self.save_excel_button.setEnabled(
-            any(current not in self.excel_recorded_currents for current in self.pending_excel_records)
+            automatic_idle
+            and any(current not in self.excel_recorded_currents for current in self.pending_excel_records)
         )
         self.save_excel_button.setText("保存 Excel")
-        self.start_all_button.setEnabled(True)
+        self.start_all_button.setEnabled(automatic_idle)
         if thread is not None:
             thread.deleteLater()
 
@@ -1065,7 +1649,6 @@ class MainWindow(QMainWindow):
             stable_window_s=self.stable_window_spin.value(),
             stable_tolerance_w=self.stable_tolerance_spin.value(),
             output_dir=Path(self.output_dir_field.text()).expanduser(),
-            stop_after_record=self.stop_after_record_check.isChecked(),
             spectrometer_device_id=self._selected_spectrometer_device_id(),
         )
 
@@ -1131,17 +1714,19 @@ class MainWindow(QMainWindow):
         self.power_meter_reader = PowerMeterReaderThread(settings, self)
         self.power_meter_reader.reading.connect(self.on_power_meter_reading)
         self.power_meter_reader.status.connect(self.on_status)
+        self.power_meter_reader.ready.connect(self.on_power_meter_ready)
         self.power_meter_reader.failed.connect(self.on_power_meter_failed)
         self.power_meter_reader.finished.connect(self.on_power_meter_finished)
         self.power_meter_reader.start()
         self.set_power_meter_running_state(True)
 
-    def stop_power_meter(self) -> None:
+    def stop_power_meter(self, wait_for_finish: bool = False) -> None:
         self.cancel_auto_vout_read()
         if self.power_meter_reader is not None:
             self.add_log("正在停止功率计采集")
             self.power_meter_reader.stop()
-            self.power_meter_reader.wait(3000)
+            if wait_for_finish:
+                self.power_meter_reader.wait(3000)
 
     def start_spectrometer(self) -> None:
         if self.spectrometer_reader is not None:
@@ -1160,16 +1745,18 @@ class MainWindow(QMainWindow):
         self.spectrometer_reader.reading.connect(self.on_spectrometer_reading)
         self.spectrometer_reader.spectrum.connect(self.on_spectrum_curve)
         self.spectrometer_reader.status.connect(self.on_status)
+        self.spectrometer_reader.ready.connect(self.on_spectrometer_ready)
         self.spectrometer_reader.failed.connect(self.on_spectrometer_failed)
         self.spectrometer_reader.finished.connect(self.on_spectrometer_finished)
         self.spectrometer_reader.start()
         self.set_spectrometer_running_state(True)
 
-    def stop_spectrometer(self) -> None:
+    def stop_spectrometer(self, wait_for_finish: bool = False) -> None:
         if self.spectrometer_reader is not None:
             self.add_log("正在停止光谱仪采集")
             self.spectrometer_reader.stop()
-            self.spectrometer_reader.wait(3000)
+            if wait_for_finish:
+                self.spectrometer_reader.wait(3000)
 
     def update_stability_card(
         self,
@@ -1340,6 +1927,11 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"已记录 {current_a:.3f} A 时的稳定功率：{reading.power_w:.3f} W")
         self.add_log(f"稳定功率点：{current_a:.3f} A，{reading.power_w:.3f} W")
         self.schedule_auto_vout_read()
+        if self.automatic_test_state == AutomaticTestState.WAITING_STABLE:
+            self.set_automatic_test_state(
+                AutomaticTestState.WAITING_VOLTAGE,
+                f"{current_a:.1f} A 功率已稳定，等待读取输出电压",
+            )
 
     def update_latest_stable_power_point(self, reading: PowerMeterReading) -> None:
         current_a = self.recorded_stable_point_current_a
@@ -1476,23 +2068,35 @@ class MainWindow(QMainWindow):
 
     def on_power_meter_failed(self, message: str) -> None:
         self.add_log(f"功率计错误：{message}")
+        if self.automatic_measurement_is_active():
+            self.pause_automatic_test(f"功率计错误：{message}")
         QMessageBox.critical(self, "功率计错误", message)
 
     def on_spectrometer_failed(self, message: str) -> None:
         self.add_log(f"光谱仪错误：{message}")
+        if self.automatic_measurement_is_active():
+            self.pause_automatic_test(f"光谱仪错误：{message}")
         QMessageBox.critical(self, "光谱仪错误", message)
 
     def on_power_meter_finished(self) -> None:
+        should_pause = self.automatic_measurement_is_active()
+        self.automatic_power_meter_ready = False
         self.power_meter_reader = None
         self.set_power_meter_running_state(False)
         self.statusBar().showMessage("功率计已停止")
         self.add_log("功率计已停止")
+        if should_pause:
+            self.pause_automatic_test("功率计采集已停止")
 
     def on_spectrometer_finished(self) -> None:
+        should_pause = self.automatic_measurement_is_active()
+        self.automatic_spectrometer_ready = False
         self.spectrometer_reader = None
         self.set_spectrometer_running_state(False)
         self.statusBar().showMessage("光谱仪已停止")
         self.add_log("光谱仪已停止")
+        if should_pause:
+            self.pause_automatic_test("光谱仪采集已停止")
 
     def set_power_meter_running_state(self, running: bool) -> None:
         detecting = self.power_meter_detect_thread is not None
@@ -1555,13 +2159,19 @@ class MainWindow(QMainWindow):
         return f"{value:.3f}"
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        if self.automatic_test_state not in (AutomaticTestState.IDLE, AutomaticTestState.COMPLETED):
+            event.ignore()
+            self.close_after_automatic_ramp_down = True
+            if self.automatic_test_state != AutomaticTestState.RAMPING_DOWN:
+                self.begin_automatic_ramp_down()
+            return
         self.save_input_settings()
         if self.excel_save_thread is not None:
             self.excel_save_thread.wait()
         if self.power_meter_detect_thread is not None:
             self.power_meter_detect_thread.wait(3000)
-        self.stop_power_meter()
-        self.stop_spectrometer()
+        self.stop_power_meter(wait_for_finish=True)
+        self.stop_spectrometer(wait_for_finish=True)
         if self.manual_ch341_controller is not None:
             try:
                 self.manual_ch341_controller.disconnect_device()
