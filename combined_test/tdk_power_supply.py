@@ -1,22 +1,25 @@
-"""TDK-Lambda programmable power-supply adapter.
+"""TDK-Lambda RS-232 power-supply adapter.
 
-The Z+ and Genesys+ families expose a VISA resource and accept SCPI commands.
-This adapter also implements the small ``i2c_write``/``i2c_write_read`` surface
-used by the existing ARP window so the automatic current-test state machine can
-use either CH341 or TDK hardware without duplicating its safety logic.
+This module mirrors the command sequence used by scripts_runner's
+``TdkPowerControl`` driver.  The serial port is opened through PyVISA as an
+``ASRL...::INSTR`` resource, but the physical/device protocol is RS-232 rather
+than USB/LAN SCPI.
 """
 
 from __future__ import annotations
 
 import math
+import re
 from typing import Any, Callable
 
 
-TDK_DEFAULT_TIMEOUT_MS = 2000
+TDK_DEFAULT_TIMEOUT_MS = 100
+TDK_DEFAULT_BAUD_RATE = 115200
+TDK_DEFAULT_ADDRESS = 6
 
 
-def list_tdk_visa_resources(resource_manager_factory: Callable[[], Any] | None = None) -> list[str]:
-    """Return serial, USB, TCPIP and GPIB VISA resources in stable order."""
+def list_tdk_serial_resources(resource_manager_factory: Callable[[], Any] | None = None) -> list[str]:
+    """Return the VISA serial resources usable by the TDK RS-232 driver."""
     if resource_manager_factory is None:
         try:
             import pyvisa
@@ -26,22 +29,29 @@ def list_tdk_visa_resources(resource_manager_factory: Callable[[], Any] | None =
 
     manager = resource_manager_factory()
     try:
-        prefixes = ("ASRL", "USB", "TCPIP", "GPIB")
-        return sorted(str(item) for item in manager.list_resources() if str(item).upper().startswith(prefixes))
+        return sorted(str(item) for item in manager.list_resources() if str(item).upper().startswith("ASRL"))
     finally:
         manager.close()
 
 
+# Backwards-compatible import for callers from the first TDK implementation.
+list_tdk_visa_resources = list_tdk_serial_resources
+
+
 class TdkLambdaPowerSupply:
-    """SCPI controller for one TDK-Lambda VISA resource."""
+    """Controller compatible with scripts_runner's TDK RS-232 command set."""
 
     def __init__(
         self,
         resource: str,
+        baud_rate: int = TDK_DEFAULT_BAUD_RATE,
+        address: int = TDK_DEFAULT_ADDRESS,
         timeout_ms: int = TDK_DEFAULT_TIMEOUT_MS,
         resource_manager_factory: Callable[[], Any] | None = None,
     ) -> None:
         self.resource = resource.strip()
+        self.baud_rate = int(baud_rate)
+        self.address = int(address)
         self.timeout_ms = int(timeout_ms)
         self._resource_manager_factory = resource_manager_factory
         self._resource_manager: Any | None = None
@@ -49,6 +59,7 @@ class TdkLambdaPowerSupply:
         self.is_connected = False
         self.identity = ""
         self.output_enabled = False
+        # The legacy RS-232 command set does not expose portable MAX queries.
         self.maximum_voltage_v: float | None = None
         self.maximum_current_a: float | None = None
 
@@ -63,30 +74,27 @@ class TdkLambdaPowerSupply:
 
     def connect_device(self, _index: int = 0) -> tuple[bool, str]:
         if not self.resource:
-            return False, "请选择 TDK 电源 VISA 资源"
+            return False, "请选择 TDK 电源串口"
+        if not self.resource.upper().startswith("ASRL"):
+            return False, f"TDK 电源需要 RS-232 串口资源（ASRL...::INSTR）：{self.resource}"
         if self.is_connected:
             return True, self.identity or self.resource
+
         try:
             self._resource_manager = self._make_resource_manager()
             self._instrument = self._resource_manager.open_resource(self.resource)
             self._instrument.timeout = self.timeout_ms
-            # These terminators are accepted by TDK-Lambda Z+/Genesys+ serial,
-            # USB and LAN VISA sessions. Backends that do not expose the
-            # properties simply ignore the assignment.
-            try:
-                self._instrument.write_termination = "\n"
-                self._instrument.read_termination = "\n"
-            except Exception:
-                pass
-            self.identity = self._query_identity()
-            identity_upper = self.identity.upper()
-            if "TDK" not in identity_upper and "LAMBDA" not in identity_upper:
-                raise RuntimeError(f"所选资源不是 TDK-Lambda 电源：{self.identity}")
-            self.output_enabled = self._query_output_state()
-            self.maximum_voltage_v = self._query_optional_float("VOLT? MAX")
-            self.maximum_current_a = self._query_optional_float("CURR? MAX")
+            self._instrument.read_termination = "\r"
+            self._instrument.baud_rate = self.baud_rate
+
+            # Keep the scripts_runner initialization order: address first,
+            # followed by remote-control mode.  Connecting does not enable OUT.
+            self._write(f"ADR {self.address}")
+            self._write("RMT 1")
+            self.identity = f"TDK-Lambda RS-232 | {self.resource} | {self.baud_rate} baud | ADR {self.address}"
+            self.output_enabled = False
             self.is_connected = True
-            return True, f"{self.identity} | {self.resource}"
+            return True, self.identity
         except Exception as exc:
             self.disconnect_device()
             return False, f"连接 TDK 电源失败：{exc}"
@@ -97,8 +105,6 @@ class TdkLambdaPowerSupply:
         self._resource_manager = None
         self.is_connected = False
         self.output_enabled = False
-        self.maximum_voltage_v = None
-        self.maximum_current_a = None
         if instrument is not None:
             try:
                 instrument.close()
@@ -116,45 +122,24 @@ class TdkLambdaPowerSupply:
         return True
 
     def _require_instrument(self) -> Any:
-        if not self.is_connected or self._instrument is None:
+        if self._instrument is None:
             raise RuntimeError("TDK 电源未连接")
         return self._instrument
 
-    def _query_identity(self) -> str:
-        instrument = self._instrument
-        if instrument is None:
-            raise RuntimeError("TDK 电源会话未建立")
-        errors: list[str] = []
-        for command in ("*IDN?", "IDN?"):
-            try:
-                value = str(instrument.query(command)).strip()
-                if value:
-                    return value
-            except Exception as exc:
-                errors.append(str(exc))
-        raise RuntimeError("设备未响应 *IDN? / IDN?" + (f"：{errors[-1]}" if errors else ""))
+    def _write(self, command: str) -> None:
+        self._require_instrument().write(command)
 
-    def _query_output_state(self) -> bool:
-        instrument = self._instrument
-        if instrument is None:
-            return False
-        for command in ("OUTP?", "OUTP:STAT?"):
-            try:
-                value = str(instrument.query(command)).strip().upper()
-                return value in {"1", "ON", "TRUE"}
-            except Exception:
-                continue
-        return False
-
-    def _query_optional_float(self, command: str) -> float | None:
-        instrument = self._instrument
-        if instrument is None:
-            return None
-        try:
-            value = float(str(instrument.query(command)).strip())
-        except Exception:
-            return None
-        return value if math.isfinite(value) and value >= 0.0 else None
+    def _query_float(self, command: str) -> float:
+        response = str(self._require_instrument().query(command)).strip()
+        # Some Genesys units return just the number, while others echo the
+        # mnemonic (for example ``MV 12.34``).  Parse the final numeric token.
+        matches = re.findall(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[Ee][-+]?\d+)?", response)
+        if not matches:
+            raise RuntimeError(f"TDK 电源返回无效数据：{response!r}")
+        value = float(matches[-1])
+        if not math.isfinite(value):
+            raise RuntimeError(f"TDK 电源返回非有限数值：{response!r}")
+        return value
 
     @staticmethod
     def _finite_nonnegative(value: float, name: str) -> float:
@@ -164,25 +149,25 @@ class TdkLambdaPowerSupply:
         return number
 
     def set_output_enabled(self, enabled: bool) -> None:
-        self._require_instrument().write(f"OUTP {'ON' if enabled else 'OFF'}")
+        self._write(f"OUT {1 if enabled else 0}")
         self.output_enabled = bool(enabled)
 
     def set_output_current(self, current_a: float) -> None:
         value = self._finite_nonnegative(current_a, "电流")
-        self._require_instrument().write(f"CURR {value:.3f}")
+        self._write(f"PC {value:06.2f}")
 
     def set_output_voltage(self, voltage_v: float) -> None:
         value = self._finite_nonnegative(voltage_v, "电压")
-        self._require_instrument().write(f"VOLT {value:.3f}")
+        self._write(f"PV {value:06.2f}")
 
     def read_output_current(self) -> float:
-        return float(str(self._require_instrument().query("MEAS:CURR?")).strip())
+        return self._query_float("MC?")
 
     def read_output_voltage(self) -> float:
-        return float(str(self._require_instrument().query("MEAS:VOLT?")).strip())
+        return self._query_float("MV?")
 
     def i2c_write(self, _device_address: int, write_data: list[int]) -> tuple[bool, str]:
-        """Translate the ARP current frame to a TDK SCPI current command."""
+        """Translate the ARP current frame to a TDK serial current command."""
         try:
             if len(write_data) != 4 or write_data[:2] != [0xB4, 0xFF]:
                 raise ValueError("TDK 控制器不支持该 I2C 写命令")
@@ -198,7 +183,7 @@ class TdkLambdaPowerSupply:
         write_data: list[int],
         read_length: int,
     ) -> tuple[bool, list[int] | str]:
-        """Translate ARP voltage/current read frames to TDK SCPI queries."""
+        """Translate ARP voltage/current read frames to TDK serial queries."""
         try:
             if read_length != 4 or len(write_data) < 2 or write_data[0] != 0xB4:
                 raise ValueError("TDK 控制器不支持该读取命令")

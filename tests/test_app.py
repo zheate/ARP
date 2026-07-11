@@ -57,6 +57,44 @@ class SpectrumCurveFileTests(unittest.TestCase):
 
 
 class MainWindowTests(unittest.TestCase):
+    def test_driver_errors_are_translated_for_operators(self) -> None:
+        resource_missing = combined_test_window.user_facing_error_message(
+            "VI_ERROR_RSRC_NFOUND (-1073807343): Insufficient location information "
+            "or the requested device or resource is not present in the system."
+        )
+        self.assertIn("未找到指定的设备或通信资源", resource_missing)
+        self.assertIn("请检查设备是否已连接", resource_missing)
+        self.assertNotIn("Insufficient location information", resource_missing)
+
+        self.assertIn(
+            "设备通信超时",
+            combined_test_window.user_facing_error_message("VI_ERROR_TMO: Timeout expired"),
+        )
+        self.assertIn(
+            "其他程序占用",
+            combined_test_window.user_facing_error_message("Access is denied"),
+        )
+
+    def test_power_meter_error_popup_uses_translated_message(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        captured: list[tuple[str, str]] = []
+        old_critical = QMessageBox.critical
+        try:
+            QMessageBox.critical = (  # type: ignore[method-assign]
+                lambda _parent, title, message: captured.append((title, message))
+            )
+            window.on_power_meter_failed(
+                "VI_ERROR_RSRC_NFOUND (-1073807343): requested device or resource is not present"
+            )
+        finally:
+            QMessageBox.critical = old_critical  # type: ignore[method-assign]
+
+        self.assertEqual(captured[0][0], "功率计错误")
+        self.assertIn("未找到指定的设备或通信资源", captured[0][1])
+        self.assertNotIn("requested device", captured[0][1])
+        window.close()
+
     def _group(self, window: MainWindow, title: str) -> QGroupBox:
         for group in window.findChildren(QGroupBox):
             if group.title() == title:
@@ -207,7 +245,10 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertEqual(window.live_plots.stability_status_text.get_text(), "STABLE")
         self.assertIsNotNone(window.live_plots._stable_region_artist)
-        self.assertEqual(window.live_plots.power_curve_line.get_color(), "#2f8f46")
+        self.assertEqual(
+            window.live_plots.power_curve_line.get_color(),
+            window.live_plots._stable_line_color,
+        )
         window.close()
 
     def test_input_parameters_are_restored_in_next_window(self) -> None:
@@ -704,8 +745,8 @@ class MainWindowTests(unittest.TestCase):
         self.assertFalse(hasattr(window, "scroll_area"))
         self.assertTrue(hasattr(window, "left_control_panel"))
         self.assertTrue(hasattr(window, "monitor_panel"))
-        self.assertGreaterEqual(window.left_control_panel.minimumWidth(), 320)
-        self.assertLessEqual(window.left_control_panel.maximumWidth(), 360)
+        self.assertGreaterEqual(window.left_control_panel.minimumWidth(), 400)
+        self.assertGreaterEqual(window.left_control_panel.maximumWidth(), 420)
         window.close()
 
     def test_main_window_integrates_metrics_into_their_related_plots(self) -> None:
@@ -733,8 +774,8 @@ class MainWindowTests(unittest.TestCase):
         )
         self.assertEqual([window.curves_layout.columnStretch(column) for column in range(2)], [1, 1])
         self.assertEqual([window.curves_layout.rowStretch(row) for row in range(2)], [3, 2])
-        self.assertAlmostEqual(window.power_curve_axis.get_position().width, 0.77)
-        self.assertAlmostEqual(window.stable_power_axis.get_position().width, 0.77)
+        self.assertAlmostEqual(window.power_curve_axis.get_position().width, 0.67)
+        self.assertAlmostEqual(window.stable_power_axis.get_position().width, 0.67)
         self.assertFalse(hasattr(window, "kpi_panel"))
         self.assertEqual(window.live_plots.power_value_text.get_text(), "-- W")
         self.assertEqual(window.live_plots.power_value_text.get_position(), (0.975, 0.95))
@@ -948,6 +989,14 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window.stable_power_axis.get_title(), "")
         self.assertEqual(window.spectrum_curve_axis.get_title(), "")
         self.assertEqual(window.spectrum_curve_axis.get_xlabel(), "")
+        self.assertEqual(window.power_curve_axis.get_ylabel(), "Power (W)")
+        self.assertEqual(window.stable_power_axis.get_ylabel(), "Stable Power (W)")
+        self.assertEqual(window.efficiency_axis.get_ylabel(), "Efficiency (%)")
+        self.assertTrue(window.power_curve_axis.yaxis.get_visible())
+        self.assertTrue(window.stable_power_axis.yaxis.get_visible())
+        self.assertTrue(window.efficiency_axis.yaxis.get_visible())
+        self.assertGreaterEqual(window.power_curve_axis.get_position().x0, 0.17)
+        self.assertLessEqual(window.stable_power_axis.get_position().x1, 0.84)
         self.assertAlmostEqual(window.power_curve_axis.get_position().height, 0.81)
         self.assertAlmostEqual(window.stable_power_axis.get_position().height, 0.81)
         self.assertAlmostEqual(window.spectrum_curve_axis.get_position().height, 0.76)

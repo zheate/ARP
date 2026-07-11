@@ -29,6 +29,8 @@ CHART_MINIMUM_HEIGHT = 180
 CHART_LAYOUT_MARGIN = 12
 CHART_LAYOUT_SPACING = 12
 DASHBOARD_LAYOUT_MIN_WIDTH = 820
+HALF_WIDTH_CHART_LEFT_MARGIN = 0.17
+HALF_WIDTH_CHART_RIGHT_MARGIN = 0.84
 
 # Journal-style chart typography. Chinese remains available as a fallback for
 # annotations originating from device data, while all Latin text and numbers
@@ -63,9 +65,14 @@ class OneDecimalScalarFormatter(ScalarFormatter):
     """Scientific formatter whose mantissa never exceeds one decimal place."""
 
     def _set_format(self) -> None:
-        self._format = "%1.1f"
+        format_string = "%1.1f"
         if self._usetex or self._useMathText:
-            self._format = rf"$\mathdefault{{{self._format}}}$"
+            format_string = rf"$\mathdefault{{{format_string}}}$"
+        # Matplotlib 3.8+ reads ``format`` while older releases used the
+        # private ``_format`` attribute.  Populate both so a failed formatter
+        # cannot abort the canvas draw and silently remove the whole y-axis.
+        self.format = format_string
+        self._format = format_string
 
 
 class LivePlots:
@@ -98,6 +105,13 @@ class LivePlots:
         self._text_color = self.palette.color(QPalette.ColorRole.Text).name()
         window_is_light = self.palette.color(QPalette.ColorRole.Window).lightness() >= 128
         self._danger_color = "#b42318" if window_is_light else "#ff7b72"
+        self._power_line_color = POWER_LINE_COLOR if window_is_light else "#63b3ed"
+        self._stable_line_color = STABLE_LINE_COLOR if window_is_light else "#5fd07a"
+        self._efficiency_line_color = EFFICIENCY_LINE_COLOR if window_is_light else "#f2a51a"
+        self._spectrum_line_color = SPECTRUM_LINE_COLOR if window_is_light else "#a8c95f"
+        self._grid_color = (
+            self.palette.color(QPalette.ColorRole.Mid).name() if window_is_light else "#555860"
+        )
         self.group = QGroupBox("实时曲线", parent)
         self.curves_layout = QGridLayout(self.group)
         self.curves_layout.setContentsMargins(
@@ -133,7 +147,7 @@ class LivePlots:
         self._configure_canvas(self.power_curve_canvas)
         self.power_curve_axis = self.power_curve_figure.add_subplot(111)
         (self.power_curve_line,) = self.power_curve_axis.plot(
-            [], [], color=POWER_LINE_COLOR, linewidth=1.35, zorder=2
+            [], [], color=self._power_line_color, linewidth=1.35, zorder=2
         )
         self._style_axis(
             self.power_curve_figure,
@@ -174,7 +188,12 @@ class LivePlots:
             fontsize=8,
             color=self._text_color,
         )
-        self.power_curve_figure.subplots_adjust(left=0.13, right=0.90, top=0.95, bottom=0.14)
+        self.power_curve_figure.subplots_adjust(
+            left=HALF_WIDTH_CHART_LEFT_MARGIN,
+            right=HALF_WIDTH_CHART_RIGHT_MARGIN,
+            top=0.95,
+            bottom=0.14,
+        )
         self._format_power_axis(self.power_curve_axis)
 
         self.stable_power_figure = Figure(figsize=CHART_FIGURE_SIZE, dpi=100)
@@ -183,10 +202,10 @@ class LivePlots:
         self.stable_power_axis = self.stable_power_figure.add_subplot(111)
         self.efficiency_axis = self.stable_power_axis.twinx()
         (self.stable_power_line,) = self.stable_power_axis.plot(
-            [], [], color=POWER_LINE_COLOR, marker="o", markersize=4, linewidth=1.25
+            [], [], color=self._power_line_color, marker="o", markersize=4, linewidth=1.25
         )
         (self.efficiency_line,) = self.efficiency_axis.plot(
-            [], [], color=EFFICIENCY_LINE_COLOR, marker="s", markersize=4, linewidth=1.25
+            [], [], color=self._efficiency_line_color, marker="s", markersize=4, linewidth=1.25
         )
         self._style_axis(
             self.stable_power_figure,
@@ -195,20 +214,25 @@ class LivePlots:
             x_label="Current (A)",
             y_label="Stable Power (W)",
         )
-        self.efficiency_axis.set_ylabel("Efficiency (%)", color=EFFICIENCY_LINE_COLOR)
+        self.efficiency_axis.set_ylabel("Efficiency (%)", color=self._efficiency_line_color)
         self.efficiency_axis.set_ylim(20.0, 60.0)
         self.efficiency_axis.yaxis.set_major_locator(MultipleLocator(10.0))
         self.efficiency_axis.minorticks_off()
         self.efficiency_axis.tick_params(
             axis="y",
-            colors=EFFICIENCY_LINE_COLOR,
+            colors=self._efficiency_line_color,
             direction="in",
             labelsize=11,
             length=5,
             width=0.9,
         )
-        self.efficiency_axis.spines["right"].set_color(EFFICIENCY_LINE_COLOR)
-        self.stable_power_figure.subplots_adjust(left=0.13, right=0.90, top=0.95, bottom=0.14)
+        self.efficiency_axis.spines["right"].set_color(self._efficiency_line_color)
+        self.stable_power_figure.subplots_adjust(
+            left=HALF_WIDTH_CHART_LEFT_MARGIN,
+            right=HALF_WIDTH_CHART_RIGHT_MARGIN,
+            top=0.95,
+            bottom=0.14,
+        )
         self._format_power_axis(self.stable_power_axis)
 
         self.spectrum_curve_figure = Figure(figsize=CHART_FIGURE_SIZE, dpi=100)
@@ -216,7 +240,7 @@ class LivePlots:
         self._configure_canvas(self.spectrum_curve_canvas)
         self.spectrum_curve_axis = self.spectrum_curve_figure.add_subplot(111)
         (self.spectrum_curve_line,) = self.spectrum_curve_axis.plot(
-            [], [], color=SPECTRUM_LINE_COLOR, linewidth=1.25
+            [], [], color=self._spectrum_line_color, linewidth=1.25
         )
         self._style_axis(
             self.spectrum_curve_figure,
@@ -269,6 +293,7 @@ class LivePlots:
     def _configure_canvas(canvas: FigureCanvas) -> None:
         canvas.setMinimumHeight(CHART_MINIMUM_HEIGHT)
         canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        canvas.setStyleSheet("border: none;")
 
     @staticmethod
     def _format_power_axis(axis: Any) -> None:
@@ -312,7 +337,7 @@ class LivePlots:
     def _style_axis(self, figure: Figure, axis: Any, title: str, x_label: str, y_label: str) -> None:
         window_color = self.palette.color(QPalette.ColorRole.Window).name()
         plot_color = self.palette.color(QPalette.ColorRole.Base).name()
-        grid_color = self.palette.color(QPalette.ColorRole.Mid).name()
+        grid_color = self._grid_color
         figure.patch.set_facecolor(window_color)
         figure.patch.set_edgecolor(window_color)
         figure.patch.set_linewidth(0)
@@ -353,12 +378,12 @@ class LivePlots:
         self._stable_window_target_s = max(0.0, target_window_s)
         displayed_window_s = min(max(covered_window_s, 0.0), self._stable_window_target_s)
         self.stability_status_text.set_text("STABLE" if stable else "STABILIZING")
-        self.stability_status_text.set_color(STABLE_LINE_COLOR if stable else self._text_color)
+        self.stability_status_text.set_color(self._stable_line_color if stable else self._text_color)
         self.stability_detail_text.set_text(
             f"{displayed_window_s:.2f} / {self._stable_window_target_s:.2f} s"
             f"  |  ΔP {span_w:.4f} W ≤ {tolerance_w:.4f} W"
         )
-        self.power_curve_line.set_color(STABLE_LINE_COLOR if stable else POWER_LINE_COLOR)
+        self.power_curve_line.set_color(self._stable_line_color if stable else self._power_line_color)
         self._update_stability_region()
 
     def set_spectrum_metrics(
@@ -387,7 +412,7 @@ class LivePlots:
         self.stability_status_text.set_text("STABILIZING")
         self.stability_status_text.set_color(self._text_color)
         self.stability_detail_text.set_text("0.00 / -- s  |  ΔP -- W ≤ -- W")
-        self.power_curve_line.set_color(POWER_LINE_COLOR)
+        self.power_curve_line.set_color(self._power_line_color)
         self.spectrum_centroid_text.set_text("Center wavelength   -- nm")
         self.spectrum_fwhm_text.set_text("FWHM   -- nm")
         self.spectrum_pib_text.set_text("PIB   -- %")
@@ -408,7 +433,7 @@ class LivePlots:
         self._stable_region_artist = self.power_curve_axis.axvspan(
             start_s,
             end_s,
-            color=STABLE_LINE_COLOR,
+            color=self._stable_line_color,
             alpha=0.10,
             linewidth=0,
             zorder=0,
@@ -419,7 +444,7 @@ class LivePlots:
         self.power_curve_values.clear()
         self.set_power_value(None)
         self._power_stable = False
-        self.power_curve_line.set_color(POWER_LINE_COLOR)
+        self.power_curve_line.set_color(self._power_line_color)
         self.stability_status_text.set_text("STABILIZING")
         self.stability_status_text.set_color(self._text_color)
         self.stability_detail_text.set_text("0.00 / -- s  |  ΔP -- W ≤ -- W")

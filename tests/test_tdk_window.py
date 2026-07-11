@@ -56,7 +56,7 @@ class TdkWindowTests(unittest.TestCase):
             window.power_supply_controller_combo.setCurrentIndex(
                 window.power_supply_controller_combo.findData("tdk")
             )
-            window.tdk_resource_combo.setEditText("USB0::1::INSTR")
+            window.tdk_resource_combo.setEditText("ASRL3::INSTR")
 
             window.connect_i2c_device()
 
@@ -81,6 +81,31 @@ class TdkWindowTests(unittest.TestCase):
             self.assertFalse(controller.is_connected)
         finally:
             window_module.TdkLambdaPowerSupply = old_controller
+
+    def test_controller_mode_shows_only_its_relevant_rows(self) -> None:
+        window = self.make_window()
+        form = window.power_supply_form
+
+        self.assertFalse(form.isRowVisible(window.tdk_resource_row))
+        self.assertFalse(form.isRowVisible(window.tdk_voltage_row))
+        self.assertTrue(form.isRowVisible(window.power_supply_read_row))
+
+        window.power_supply_controller_combo.setCurrentIndex(
+            window.power_supply_controller_combo.findData("tdk")
+        )
+
+        self.assertTrue(form.isRowVisible(window.tdk_resource_row))
+        self.assertTrue(form.isRowVisible(window.tdk_voltage_row))
+        self.assertFalse(form.isRowVisible(window.power_supply_read_row))
+        for button in (
+            window.read_input_voltage_button,
+            window.read_output_voltage_button,
+            window.read_output_current_button,
+            window.read_temperature_button,
+        ):
+            self.assertTrue(button.isHidden())
+
+        window.close()
 
     def test_switching_controller_disconnects_existing_power_supply(self) -> None:
         window = self.make_window()

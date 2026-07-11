@@ -89,7 +89,8 @@ from .spectrum import (
 )
 from .excel_export import ExcelTestRecord, build_test_workbook_path, sanitize_sn
 from .spectrum_math import calculate_pib, calculate_stats
-from .tdk_power_supply import TdkLambdaPowerSupply, list_tdk_visa_resources
+from .tdk_power_supply import TdkLambdaPowerSupply, list_tdk_serial_resources
+from .theme import apply_application_theme
 
 
 DEFAULT_POWER_RESOURCE = "ASRL3::INSTR"
@@ -101,8 +102,38 @@ MIN_VOUT_READ_INTERVAL_S = 5.0
 POWER_SUPPLY_COMMAND_MIN_INTERVAL_S = MIN_POWER_SUPPLY_COMMAND_INTERVAL_S
 DEFAULT_SPECTROMETER_INTEGRATION_US = 10000
 AUTOMATIC_DEVICE_START_TIMEOUT_S = 15.0
-LEFT_PANEL_MIN_WIDTH = 350
-LEFT_PANEL_MAX_WIDTH = 360
+LEFT_PANEL_MIN_WIDTH = 400
+LEFT_PANEL_MAX_WIDTH = 420
+
+
+def user_facing_error_message(error: BaseException | str) -> str:
+    """Translate common driver errors into actionable operator-facing Chinese."""
+    message = str(error).strip()
+    normalized = message.lower()
+
+    if "vi_error_rsrc_nfound" in normalized or "requested device or resource is not present" in normalized:
+        return (
+            "未找到指定的设备或通信资源。\n"
+            "请检查设备是否已连接、端口选择是否正确，然后刷新端口重试。\n"
+            "错误代码：VI_ERROR_RSRC_NFOUND（-1073807343）"
+        )
+    if "vi_error_tmo" in normalized or "timeout expired" in normalized or "timed out" in normalized:
+        return "设备通信超时。请检查设备连接和通信参数，然后重新连接并重试。"
+    if "vi_error_rsrc_busy" in normalized or "resource is busy" in normalized:
+        return "设备正在被其他程序占用。请关闭占用该设备的程序后重试。"
+    if "vi_error_inv_rsrc_name" in normalized or "invalid resource reference" in normalized:
+        return "设备资源名称无效。请刷新端口并重新选择设备。"
+    if "access is denied" in normalized or "permission denied" in normalized:
+        return "无法访问设备端口。该端口可能被其他程序占用，或当前用户没有访问权限。"
+    if "could not open port" in normalized:
+        return "无法打开串口。请确认端口存在、设备已连接且未被其他程序占用。"
+    if "no module named" in normalized or "modulenotfounderror" in normalized:
+        return "缺少设备驱动依赖。请使用项目指定的运行环境，并确认相关驱动已安装。"
+    if "dll load failed" in normalized or "cannot load library" in normalized:
+        return "设备驱动库加载失败。请确认设备驱动和所需 DLL 已正确安装。"
+    if any("\u4e00" <= character <= "\u9fff" for character in message):
+        return message
+    return "设备操作失败。请检查设备连接、端口选择和驱动状态后重试。"
 
 
 class MainWindow(QMainWindow):
@@ -460,7 +491,7 @@ class MainWindow(QMainWindow):
 
         self.power_supply_controller_combo = QComboBox(self)
         self.power_supply_controller_combo.addItem("CH341 I²C", "ch341")
-        self.power_supply_controller_combo.addItem("TDK (VISA)", "tdk")
+        self.power_supply_controller_combo.addItem("TDK RS232", "tdk")
         self.power_supply_controller_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
         )
@@ -473,7 +504,7 @@ class MainWindow(QMainWindow):
         self.tdk_resource_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self.tdk_resource_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.tdk_resource_combo.setMinimumContentsLength(8)
-        self.tdk_resource_combo.setPlaceholderText("ASRL / USB / TCPIP / GPIB")
+        self.tdk_resource_combo.setPlaceholderText("ASRL3::INSTR")
         self.refresh_tdk_resources_button = QPushButton("刷新", self)
         self._configure_action_button(self.refresh_tdk_resources_button, minimum_width=58)
         self.refresh_tdk_resources_button.clicked.connect(self.refresh_tdk_resources)
@@ -481,7 +512,8 @@ class MainWindow(QMainWindow):
         tdk_resource_row.setSpacing(6)
         tdk_resource_row.addWidget(self.tdk_resource_combo, stretch=1)
         tdk_resource_row.addWidget(self.refresh_tdk_resources_button)
-        form.addRow("TDK 资源", tdk_resource_row)
+        form.addRow("TDK 串口", tdk_resource_row)
+        self.tdk_resource_row = tdk_resource_row
 
         self.tdk_voltage_spin = QDoubleSpinBox(self)
         self.tdk_voltage_spin.setRange(0.0, 1000.0)
@@ -496,6 +528,7 @@ class MainWindow(QMainWindow):
         tdk_voltage_row.addWidget(self.tdk_voltage_spin, stretch=1)
         tdk_voltage_row.addWidget(self.apply_tdk_voltage_button)
         form.addRow("TDK 电压", tdk_voltage_row)
+        self.tdk_voltage_row = tdk_voltage_row
 
         self.set_current_spin = QDoubleSpinBox(self)
         self.set_current_spin.setRange(0.0, 20.0)
@@ -554,6 +587,8 @@ class MainWindow(QMainWindow):
         read_grid.addWidget(self.read_output_current_button, 1, 0)
         read_grid.addWidget(self.read_temperature_button, 1, 1)
         form.addRow("读取", read_grid)
+        self.power_supply_form = form
+        self.power_supply_read_row = read_grid
 
         parent.addWidget(group)
         self.on_power_supply_controller_changed()
@@ -878,7 +913,7 @@ class MainWindow(QMainWindow):
             try:
                 self.begin_test_session()
             except ValueError as exc:
-                QMessageBox.warning(self, "测试记录", str(exc))
+                QMessageBox.warning(self, "测试记录", user_facing_error_message(exc))
                 return
         self.start_power_meter()
         self.start_spectrometer()
@@ -919,7 +954,7 @@ class MainWindow(QMainWindow):
             currents = build_test_currents(settings)
             self.begin_test_session()
         except ValueError as exc:
-            QMessageBox.warning(self, "自动测试", str(exc))
+            QMessageBox.warning(self, "自动测试", user_facing_error_message(exc))
             return
 
         self.reset_power_curve()
@@ -1017,7 +1052,9 @@ class MainWindow(QMainWindow):
             if not success:
                 raise RuntimeError(str(result))
         except Exception as exc:
-            self.pause_automatic_test(f"设置 {current_a:.1f} A 失败：{exc}")
+            self.pause_automatic_test(
+                f"设置 {current_a:.1f} A 失败：{user_facing_error_message(exc)}"
+            )
             return
 
         if kind == "ramp_down":
@@ -1212,7 +1249,7 @@ class MainWindow(QMainWindow):
             try:
                 settings = self.collect_automatic_test_settings()
             except ValueError as exc:
-                self.pause_automatic_test(str(exc))
+                self.pause_automatic_test(user_facing_error_message(exc))
                 return
             self.automatic_test_settings = settings
         self.automatic_device_start_timer.stop()
@@ -1226,7 +1263,7 @@ class MainWindow(QMainWindow):
                 build_ramp_down_currents(start_current_a, settings.ramp_down_step_a)
             )
         except ValueError as exc:
-            self.pause_automatic_test(str(exc))
+            self.pause_automatic_test(user_facing_error_message(exc))
             return
         self.set_automatic_test_state(AutomaticTestState.RAMPING_DOWN, "正在分段下电")
         self.schedule_next_automatic_ramp_down_current()
@@ -1343,13 +1380,20 @@ class MainWindow(QMainWindow):
                 self.power_supply_controller_combo.blockSignals(True)
                 self.power_supply_controller_combo.setCurrentIndex(previous_index)
                 self.power_supply_controller_combo.blockSignals(False)
-                QMessageBox.critical(self, "TDK 输出", f"关闭 TDK 输出失败，已保持当前连接：{exc}")
+                QMessageBox.critical(
+                    self,
+                    "TDK 输出",
+                    f"关闭 TDK 输出失败，已保持当前连接。\n{user_facing_error_message(exc)}",
+                )
                 return
             finally:
                 if not self._manual_i2c_connected():
                     self.manual_ch341_controller = None
         self.power_supply_controller_kind = selected_kind
         is_tdk = selected_kind == "tdk"
+        self.power_supply_form.setRowVisible(self.tdk_resource_row, is_tdk)
+        self.power_supply_form.setRowVisible(self.tdk_voltage_row, is_tdk)
+        self.power_supply_form.setRowVisible(self.power_supply_read_row, not is_tdk)
         if not is_tdk:
             self.set_current_spin.setMaximum(20.0)
             self.auto_initial_current_spin.setMaximum(20.0)
@@ -1374,9 +1418,9 @@ class MainWindow(QMainWindow):
     def refresh_tdk_resources(self) -> None:
         current = self.tdk_resource_combo.currentText().strip()
         try:
-            resources = list_tdk_visa_resources()
+            resources = list_tdk_serial_resources()
         except Exception as exc:
-            QMessageBox.critical(self, "TDK 电源", str(exc))
+            QMessageBox.critical(self, "TDK 电源", user_facing_error_message(exc))
             return
         self.tdk_resource_combo.clear()
         self.tdk_resource_combo.addItems(resources)
@@ -1384,7 +1428,7 @@ class MainWindow(QMainWindow):
             self.tdk_resource_combo.setEditText(current)
         elif current:
             self.tdk_resource_combo.setCurrentText(current)
-        self.statusBar().showMessage(f"找到 {len(resources)} 个可用 VISA 资源")
+        self.statusBar().showMessage(f"找到 {len(resources)} 个可用 RS-232 串口")
 
     def _get_manual_ch341_controller(self) -> Any:
         if self.manual_ch341_controller is None:
@@ -1407,7 +1451,7 @@ class MainWindow(QMainWindow):
                     controller.set_output_enabled(False)
                 controller.disconnect_device()
             except Exception as exc:
-                QMessageBox.critical(self, label, f"安全断开失败：{exc}")
+                QMessageBox.critical(self, label, f"安全断开失败。\n{user_facing_error_message(exc)}")
                 return
             if label == "TDK":
                 self.manual_ch341_controller = None
@@ -1444,7 +1488,7 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             if label == "TDK" and not bool(getattr(controller, "is_connected", False)):
                 self.manual_ch341_controller = None
-            QMessageBox.critical(self, label, str(exc))
+            QMessageBox.critical(self, label, user_facing_error_message(exc))
 
     def _require_manual_i2c_controller(self) -> Any | None:
         if not self._manual_i2c_connected():
@@ -1466,7 +1510,7 @@ class MainWindow(QMainWindow):
             self.add_log(f"TDK 输出电压已设为 {self.tdk_voltage_spin.value():.2f} V")
             self.statusBar().showMessage(f"TDK 输出电压已设为 {self.tdk_voltage_spin.value():.2f} V")
         except Exception as exc:
-            QMessageBox.critical(self, "TDK 电压", str(exc))
+            QMessageBox.critical(self, "TDK 电压", user_facing_error_message(exc))
 
     def toggle_tdk_output(self) -> None:
         controller = self._require_manual_i2c_controller()
@@ -1484,7 +1528,7 @@ class MainWindow(QMainWindow):
             self.add_log(f"TDK 输出已{'开启' if enabled else '关闭'}")
             self.statusBar().showMessage(f"TDK 输出已{'开启' if enabled else '关闭'}")
         except Exception as exc:
-            QMessageBox.critical(self, "TDK 输出", str(exc))
+            QMessageBox.critical(self, "TDK 输出", user_facing_error_message(exc))
 
     def begin_power_supply_command(self, command_name: str) -> bool:
         """Reserve the power-supply bus so I2C commands remain safely spaced."""
@@ -1593,7 +1637,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"{name}: {value:.2f} {unit}")
             return value
         except Exception as exc:
-            QMessageBox.critical(self, name, str(exc))
+            QMessageBox.critical(self, name, user_facing_error_message(exc))
             return None
 
     def record_efficiency_from_vout(self, voltage_v: float) -> None:
@@ -1714,7 +1758,7 @@ class MainWindow(QMainWindow):
             try:
                 self.begin_test_session(reset_records=False)
             except ValueError as exc:
-                QMessageBox.warning(self, "保存 Excel", str(exc))
+                QMessageBox.warning(self, "保存 Excel", user_facing_error_message(exc))
                 return
 
         records_snapshot = sorted(self.pending_excel_records.values(), key=lambda record: record.current_a)
@@ -1761,7 +1805,7 @@ class MainWindow(QMainWindow):
         self.add_log(f"Excel 保存失败：{message}")
         if self.automatic_test_state == AutomaticTestState.SAVING_POINT:
             self.pause_automatic_test(f"Excel 保存失败：{message}")
-        QMessageBox.critical(self, "保存 Excel", message)
+        QMessageBox.critical(self, "保存 Excel", user_facing_error_message(message))
 
     def on_excel_save_finished(self) -> None:
         thread = self.excel_save_thread
@@ -1802,7 +1846,7 @@ class MainWindow(QMainWindow):
             self.add_log(f"输出电流已设为 {self.set_current_spin.value():.1f} A（{raw_command}）")
             self.statusBar().showMessage(f"输出电流已设为 {self.set_current_spin.value():.1f} A")
         except Exception as exc:
-            QMessageBox.critical(self, "设置电流", str(exc))
+            QMessageBox.critical(self, "设置电流", user_facing_error_message(exc))
 
     def refresh_power_meter_resources(self) -> None:
         current = self._selected_power_resource()
@@ -1827,7 +1871,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"找到 {len(resources)} 个串口资源")
             self.add_log(f"找到 {len(resources)} 个串口资源")
         except Exception as exc:
-            QMessageBox.critical(self, "刷新端口", str(exc))
+            QMessageBox.critical(self, "刷新端口", user_facing_error_message(exc))
 
     def set_power_meter_relative_zero(self, enabled: bool) -> None:
         resource = self._selected_power_resource()
@@ -1846,7 +1890,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"相对调零{state}")
             self.add_log(f"功率计相对调零{state}")
         except Exception as exc:
-            QMessageBox.critical(self, "相对调零", str(exc))
+            QMessageBox.critical(self, "相对调零", user_facing_error_message(exc))
 
     def auto_detect_power_meters(self) -> None:
         if self.power_meter_detect_thread is not None:
@@ -1883,7 +1927,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"检测到 {len(device_ids)} 台光谱仪")
             self.add_log(f"检测到 {len(device_ids)} 台光谱仪")
         except Exception as exc:
-            QMessageBox.critical(self, "光谱仪自动检测", str(exc))
+            QMessageBox.critical(self, "光谱仪自动检测", user_facing_error_message(exc))
 
     def collect_settings(self) -> CombinedTestSettings:
         return CombinedTestSettings(
@@ -1945,7 +1989,7 @@ class MainWindow(QMainWindow):
         try:
             settings = self.collect_power_meter_settings()
         except Exception as exc:
-            QMessageBox.warning(self, "功率计", str(exc))
+            QMessageBox.warning(self, "功率计", user_facing_error_message(exc))
             return
         if not settings.resource:
             QMessageBox.warning(self, "功率计", "功率计资源不能为空。")
@@ -1983,7 +2027,7 @@ class MainWindow(QMainWindow):
         try:
             settings = self.collect_spectrometer_settings()
         except Exception as exc:
-            QMessageBox.warning(self, "光谱仪", str(exc))
+            QMessageBox.warning(self, "光谱仪", user_facing_error_message(exc))
             return
 
         self.reset_spectrum_curve()
@@ -2305,7 +2349,7 @@ class MainWindow(QMainWindow):
 
     def on_power_meter_detect_failed(self, message: str) -> None:
         self.add_log(f"功率计自动检测错误：{message}")
-        QMessageBox.critical(self, "功率计自动检测", message)
+        QMessageBox.critical(self, "功率计自动检测", user_facing_error_message(message))
 
     def on_power_meter_detect_finished(self) -> None:
         thread = self.power_meter_detect_thread
@@ -2321,15 +2365,17 @@ class MainWindow(QMainWindow):
 
     def on_power_meter_failed(self, message: str) -> None:
         self.add_log(f"功率计错误：{message}")
+        display_message = user_facing_error_message(message)
         if self.automatic_measurement_is_active():
-            self.pause_automatic_test(f"功率计错误：{message}")
-        QMessageBox.critical(self, "功率计错误", message)
+            self.pause_automatic_test(f"功率计错误：{display_message}")
+        QMessageBox.critical(self, "功率计错误", display_message)
 
     def on_spectrometer_failed(self, message: str) -> None:
         self.add_log(f"光谱仪错误：{message}")
+        display_message = user_facing_error_message(message)
         if self.automatic_measurement_is_active():
-            self.pause_automatic_test(f"光谱仪错误：{message}")
-        QMessageBox.critical(self, "光谱仪错误", message)
+            self.pause_automatic_test(f"光谱仪错误：{display_message}")
+        QMessageBox.critical(self, "光谱仪错误", display_message)
 
     def on_power_meter_finished(self) -> None:
         should_pause = self.automatic_measurement_is_active()
@@ -2471,7 +2517,11 @@ class MainWindow(QMainWindow):
                     self.manual_ch341_controller.disconnect_device()
                 except Exception as exc:
                     event.ignore()
-                    QMessageBox.critical(self, "TDK 输出", f"关闭 TDK 输出失败，窗口保持开启：{exc}")
+                    QMessageBox.critical(
+                        self,
+                        "TDK 输出",
+                        f"关闭 TDK 输出失败，窗口保持开启。\n{user_facing_error_message(exc)}",
+                    )
                     return
             else:
                 try:
@@ -2483,6 +2533,7 @@ class MainWindow(QMainWindow):
 
 def main() -> int:
     app = QApplication(sys.argv)
+    apply_application_theme(app)
     window = MainWindow()
     window.show()
     return app.exec()
