@@ -152,6 +152,7 @@ class MainWindow(QMainWindow):
         self.automatic_pause_reason = ""
         self.automatic_paused_from_state = AutomaticTestState.IDLE
         self.close_after_automatic_ramp_down = False
+        self.close_after_background_tasks = False
         self.last_point_record_error = ""
         self.automatic_device_start_timer = QTimer(self)
         self.automatic_device_start_timer.setSingleShot(True)
@@ -522,7 +523,6 @@ class MainWindow(QMainWindow):
         self.auto_initial_current_spin.setSingleStep(0.1)
         self.auto_initial_current_spin.setValue(1.0)
         self.auto_initial_current_spin.setSuffix(" A")
-        form.addRow("初始电流", self.auto_initial_current_spin)
 
         self.auto_target_current_spin = QDoubleSpinBox(self)
         self.auto_target_current_spin.setRange(0.1, 20.0)
@@ -530,7 +530,6 @@ class MainWindow(QMainWindow):
         self.auto_target_current_spin.setSingleStep(0.1)
         self.auto_target_current_spin.setValue(20.0)
         self.auto_target_current_spin.setSuffix(" A")
-        form.addRow("目标电流", self.auto_target_current_spin)
 
         self.auto_current_step_spin = QDoubleSpinBox(self)
         self.auto_current_step_spin.setRange(0.1, 20.0)
@@ -538,7 +537,6 @@ class MainWindow(QMainWindow):
         self.auto_current_step_spin.setSingleStep(0.1)
         self.auto_current_step_spin.setValue(1.0)
         self.auto_current_step_spin.setSuffix(" A")
-        form.addRow("电流间隔", self.auto_current_step_spin)
 
         self.auto_point_timeout_spin = QDoubleSpinBox(self)
         self.auto_point_timeout_spin.setRange(5.0, 3600.0)
@@ -546,7 +544,6 @@ class MainWindow(QMainWindow):
         self.auto_point_timeout_spin.setSingleStep(10.0)
         self.auto_point_timeout_spin.setValue(120.0)
         self.auto_point_timeout_spin.setSuffix(" s")
-        form.addRow("单点超时", self.auto_point_timeout_spin)
 
         self.auto_ramp_down_step_spin = QDoubleSpinBox(self)
         self.auto_ramp_down_step_spin.setRange(0.1, 20.0)
@@ -554,7 +551,6 @@ class MainWindow(QMainWindow):
         self.auto_ramp_down_step_spin.setSingleStep(0.1)
         self.auto_ramp_down_step_spin.setValue(5.0)
         self.auto_ramp_down_step_spin.setSuffix(" A")
-        form.addRow("下电步长", self.auto_ramp_down_step_spin)
 
         self.auto_ramp_down_interval_spin = QDoubleSpinBox(self)
         self.auto_ramp_down_interval_spin.setRange(POWER_SUPPLY_COMMAND_MIN_INTERVAL_S, 60.0)
@@ -562,7 +558,28 @@ class MainWindow(QMainWindow):
         self.auto_ramp_down_interval_spin.setSingleStep(0.1)
         self.auto_ramp_down_interval_spin.setValue(POWER_SUPPLY_COMMAND_MIN_INTERVAL_S)
         self.auto_ramp_down_interval_spin.setSuffix(" s")
-        form.addRow("下电间隔", self.auto_ramp_down_interval_spin)
+
+        parameter_grid = QGridLayout()
+        parameter_grid.setHorizontalSpacing(8)
+        parameter_grid.setVerticalSpacing(6)
+        parameter_grid.setColumnStretch(1, 1)
+        parameter_grid.setColumnStretch(3, 1)
+        parameters = (
+            ("初始电流", self.auto_initial_current_spin),
+            ("目标电流", self.auto_target_current_spin),
+            ("电流间隔", self.auto_current_step_spin),
+            ("单点超时", self.auto_point_timeout_spin),
+            ("下电步长", self.auto_ramp_down_step_spin),
+            ("下电间隔", self.auto_ramp_down_interval_spin),
+        )
+        for index, (label_text, spin_box) in enumerate(parameters):
+            row = index // 2
+            column = (index % 2) * 2
+            label = QLabel(label_text, self)
+            label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            parameter_grid.addWidget(label, row, column)
+            parameter_grid.addWidget(spin_box, row, column + 1)
+        form.addRow(parameter_grid)
 
         actions = QHBoxLayout()
         actions.setSpacing(6)
@@ -1527,6 +1544,7 @@ class MainWindow(QMainWindow):
         self.start_all_button.setEnabled(automatic_idle)
         if thread is not None:
             thread.deleteLater()
+        self._continue_pending_close()
 
     def apply_output_current(self) -> None:
         controller = self._require_manual_i2c_controller()
@@ -2059,8 +2077,12 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "功率计自动检测", message)
 
     def on_power_meter_detect_finished(self) -> None:
+        thread = self.power_meter_detect_thread
         self.power_meter_detect_thread = None
         self.set_power_meter_detecting_state(False)
+        if thread is not None:
+            thread.deleteLater()
+        self._continue_pending_close()
 
     def on_status(self, message: str) -> None:
         self.statusBar().showMessage(message)
@@ -2080,6 +2102,7 @@ class MainWindow(QMainWindow):
 
     def on_power_meter_finished(self) -> None:
         should_pause = self.automatic_measurement_is_active()
+        thread = self.power_meter_reader
         self.automatic_power_meter_ready = False
         self.power_meter_reader = None
         self.set_power_meter_running_state(False)
@@ -2087,9 +2110,13 @@ class MainWindow(QMainWindow):
         self.add_log("功率计已停止")
         if should_pause:
             self.pause_automatic_test("功率计采集已停止")
+        if thread is not None:
+            thread.deleteLater()
+        self._continue_pending_close()
 
     def on_spectrometer_finished(self) -> None:
         should_pause = self.automatic_measurement_is_active()
+        thread = self.spectrometer_reader
         self.automatic_spectrometer_ready = False
         self.spectrometer_reader = None
         self.set_spectrometer_running_state(False)
@@ -2097,6 +2124,9 @@ class MainWindow(QMainWindow):
         self.add_log("光谱仪已停止")
         if should_pause:
             self.pause_automatic_test("光谱仪采集已停止")
+        if thread is not None:
+            thread.deleteLater()
+        self._continue_pending_close()
 
     def set_power_meter_running_state(self, running: bool) -> None:
         detecting = self.power_meter_detect_thread is not None
@@ -2158,6 +2188,35 @@ class MainWindow(QMainWindow):
             return "--"
         return f"{value:.3f}"
 
+    @staticmethod
+    def _thread_is_running(thread: Any | None) -> bool:
+        if thread is None:
+            return False
+        is_running = getattr(thread, "isRunning", None)
+        return bool(is_running()) if callable(is_running) else False
+
+    def _background_tasks_are_running(self) -> bool:
+        return any(
+            self._thread_is_running(thread)
+            for thread in (
+                self.excel_save_thread,
+                self.power_meter_detect_thread,
+                self.power_meter_reader,
+                self.spectrometer_reader,
+            )
+        )
+
+    def _request_background_stop(self) -> None:
+        if self.power_meter_detect_thread is not None:
+            self.power_meter_detect_thread.stop()
+        self.stop_power_meter()
+        self.stop_spectrometer()
+
+    def _continue_pending_close(self) -> None:
+        if self.close_after_background_tasks and not self._background_tasks_are_running():
+            self.close_after_background_tasks = False
+            QTimer.singleShot(0, self.close)
+
     def closeEvent(self, event: QCloseEvent) -> None:
         if self.automatic_test_state not in (AutomaticTestState.IDLE, AutomaticTestState.COMPLETED):
             event.ignore()
@@ -2166,12 +2225,13 @@ class MainWindow(QMainWindow):
                 self.begin_automatic_ramp_down()
             return
         self.save_input_settings()
-        if self.excel_save_thread is not None:
-            self.excel_save_thread.wait()
-        if self.power_meter_detect_thread is not None:
-            self.power_meter_detect_thread.wait(3000)
-        self.stop_power_meter(wait_for_finish=True)
-        self.stop_spectrometer(wait_for_finish=True)
+        self._request_background_stop()
+        if self._background_tasks_are_running():
+            self.close_after_background_tasks = True
+            self.statusBar().showMessage("正在安全停止后台采集，请稍候…")
+            event.ignore()
+            return
+        self.close_after_background_tasks = False
         if self.manual_ch341_controller is not None:
             try:
                 self.manual_ch341_controller.disconnect_device()

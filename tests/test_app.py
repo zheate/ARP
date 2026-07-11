@@ -2,6 +2,7 @@ import tempfile
 import sys
 import os
 import re
+import threading
 import types
 import unittest
 from datetime import datetime
@@ -23,6 +24,7 @@ from combined_test.models import (
     PowerMeterSettings,
     SpectrometerOption,
     SpectrometerReading,
+    SpectrometerSettings,
 )
 from combined_test.persistence import (
     build_spectrum_csv_path,
@@ -540,6 +542,36 @@ class MainWindowTests(unittest.TestCase):
         window.automatic_ramp_down_timer.stop()
         window.close_after_automatic_ramp_down = False
         window.automatic_test_state = AutomaticTestState.IDLE
+        window.close()
+
+    def test_closing_waits_asynchronously_for_running_acquisition_threads(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class ReaderStub:
+            def __init__(self) -> None:
+                self.stopped = False
+
+            def stop(self) -> None:
+                self.stopped = True
+
+            def isRunning(self) -> bool:
+                return True
+
+            def wait(self, _timeout: int) -> None:
+                raise AssertionError("close must not block the GUI while hardware I/O is still running")
+
+        window = MainWindow()
+        reader = ReaderStub()
+        window.power_meter_reader = reader  # type: ignore[assignment]
+        event = QCloseEvent()
+
+        window.closeEvent(event)
+
+        self.assertFalse(event.isAccepted())
+        self.assertTrue(reader.stopped)
+        self.assertTrue(window.close_after_background_tasks)
+        window.close_after_background_tasks = False
+        window.power_meter_reader = None
         window.close()
 
     def test_excel_save_failure_pauses_automatic_test_at_current_output(self) -> None:
@@ -1731,6 +1763,90 @@ class PowerMeterDetectThreadTests(unittest.TestCase):
 
 
 class AcquisitionReadySignalTests(unittest.TestCase):
+    def test_power_meter_reader_honors_stop_requested_during_startup(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        startup_entered = threading.Event()
+        allow_startup_to_finish = threading.Event()
+
+        class SlowStartingPowerMeter:
+            def __init__(self, _resource: str) -> None:
+                startup_entered.set()
+                allow_startup_to_finish.wait(1.0)
+
+            def test(self) -> str:
+                return "OK"
+
+            def set_wavelength(self, _wavelength_nm: float) -> None:
+                pass
+
+            def read_power_w(self) -> float:
+                return 1.0
+
+            def close(self) -> None:
+                pass
+
+        old_meter_class = power_meter_mvp.CaihuangPowerMeter
+        reader = combined_test_devices.PowerMeterReaderThread(
+            PowerMeterSettings("ASRL1::INSTR", 976.0, 1.0, 20, 3.0, 0.15)
+        )
+        try:
+            power_meter_mvp.CaihuangPowerMeter = SlowStartingPowerMeter
+            reader.start()
+            self.assertTrue(startup_entered.wait(1.0))
+
+            reader.stop()
+            allow_startup_to_finish.set()
+
+            self.assertTrue(reader.wait(500), "reader restarted its loop after stop was requested")
+            self.assertFalse(reader.isRunning())
+        finally:
+            allow_startup_to_finish.set()
+            reader.stop()
+            reader.wait(1000)
+            power_meter_mvp.CaihuangPowerMeter = old_meter_class
+
+    def test_spectrometer_reader_honors_stop_requested_during_startup(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        startup_entered = threading.Event()
+        allow_startup_to_finish = threading.Event()
+
+        class SlowStartingSpectrometer:
+            def __init__(self) -> None:
+                startup_entered.set()
+                allow_startup_to_finish.wait(1.0)
+
+            def open_first(self) -> int:
+                return 7
+
+            def set_integration_time(self, _integration_time_us: int) -> None:
+                pass
+
+            def read_spectrum(self) -> tuple[list[float], list[float]]:
+                return [975.0, 976.0, 977.0], [0.0, 1.0, 0.0]
+
+            def close(self) -> None:
+                pass
+
+        original_loader = combined_test_devices.load_spectrometer_components
+        reader = combined_test_devices.SpectrometerReaderThread(SpectrometerSettings(10000, 50))
+        try:
+            combined_test_devices.load_spectrometer_components = (  # type: ignore[assignment]
+                lambda _root: (SlowStartingSpectrometer, lambda _x, _y: None)
+            )
+            reader.start()
+            self.assertTrue(startup_entered.wait(1.0))
+
+            reader.stop()
+            allow_startup_to_finish.set()
+
+            self.assertTrue(reader.wait(500), "spectrometer restarted its loop after stop was requested")
+            self.assertFalse(reader.isRunning())
+        finally:
+            allow_startup_to_finish.set()
+            reader.stop()
+            reader.wait(1000)
+            combined_test_devices.load_spectrometer_components = original_loader
+
     def test_power_meter_reader_reports_ready_after_device_configuration(self) -> None:
         app = QApplication.instance() or QApplication([])
 

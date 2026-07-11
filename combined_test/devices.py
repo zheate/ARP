@@ -136,6 +136,10 @@ class PowerMeterDetectThread(QThread):
     def __init__(self, preferred_resource: str = "", parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.preferred_resource = preferred_resource
+        self._stop_requested = threading.Event()
+
+    def stop(self) -> None:
+        self._stop_requested.set()
 
     def run(self) -> None:
         try:
@@ -167,6 +171,8 @@ class PowerMeterDetectThread(QThread):
             self.status.emit(f"正在 {len(candidates)} 个端口上检测功率计…")
             options: list[PowerMeterOption] = []
             for resource in candidates:
+                if self._stop_requested.is_set():
+                    return
                 result = CaihuangPowerMeter.probe(resource, timeout_ms=POWER_METER_PROBE_TIMEOUT_MS)
                 if result is not None:
                     options.append(
@@ -176,7 +182,8 @@ class PowerMeterDetectThread(QThread):
                             detail=result.detail,
                         )
                     )
-            self.detected.emit(options)
+            if not self._stop_requested.is_set():
+                self.detected.emit(options)
         except Exception as exc:
             self.failed.emit(str(exc))
 
@@ -190,7 +197,7 @@ class PowerMeterReaderThread(QThread):
     def __init__(self, settings: PowerMeterSettings, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.settings = settings
-        self._running = False
+        self._stop_requested = threading.Event()
         self._stability_reset_requested = threading.Event()
         self._stability_state_lock = threading.Lock()
         self._stability_generation = 0
@@ -199,7 +206,7 @@ class PowerMeterReaderThread(QThread):
         self.is_ready = False
 
     def stop(self) -> None:
-        self._running = False
+        self._stop_requested.set()
 
     def reset_stability_window(self) -> int:
         """Start a fresh stability window and return its generation number."""
@@ -231,6 +238,8 @@ class PowerMeterReaderThread(QThread):
             if meter.test() != "OK":
                 raise RuntimeError("功率计自检未返回 OK")
             meter.set_wavelength(self.settings.wavelength_nm)
+            if self._stop_requested.is_set():
+                return
             self.status.emit(f"功率计已连接：{normalize_resource(self.settings.resource)}")
             self.is_ready = True
             self.ready.emit()
@@ -242,8 +251,7 @@ class PowerMeterReaderThread(QThread):
             start = time.monotonic()
             poll_interval_s = self.settings.interval_ms / 1000.0
             next_poll_at = start
-            self._running = True
-            while self._running:
+            while not self._stop_requested.is_set():
                 with self._stability_state_lock:
                     reset_requested = self._stability_reset_requested.is_set()
                     if reset_requested:
@@ -258,6 +266,8 @@ class PowerMeterReaderThread(QThread):
                     detector.tolerance_w = stable_tolerance_w
                 elapsed = time.monotonic() - start
                 power_w = meter.read_power_w() * self.settings.software_gain
+                if self._stop_requested.is_set():
+                    break
                 stable_tolerance_w = stability_tolerance_for_power(power_w)
                 detector.tolerance_w = stable_tolerance_w
                 stability = detector.add_sample(elapsed, power_w)
@@ -275,7 +285,7 @@ class PowerMeterReaderThread(QThread):
                 next_poll_at += poll_interval_s
                 delay_s = next_poll_at - time.monotonic()
                 if delay_s > 0.0:
-                    self.msleep(max(1, round(delay_s * 1000)))
+                    self._stop_requested.wait(delay_s)
                 else:
                     next_poll_at = time.monotonic()
         except Exception as exc:
@@ -299,11 +309,11 @@ class SpectrometerReaderThread(QThread):
     def __init__(self, settings: SpectrometerSettings, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.settings = settings
-        self._running = False
+        self._stop_requested = threading.Event()
         self.is_ready = False
 
     def stop(self) -> None:
-        self._running = False
+        self._stop_requested.set()
 
     def run(self) -> None:
         spectrometer = None
@@ -318,13 +328,16 @@ class SpectrometerReaderThread(QThread):
             spectrometer = OceanSpectrometer()
             device_id = open_spectrometer_device(spectrometer, self.settings.device_id)
             spectrometer.set_integration_time(self.settings.integration_time_us)
+            if self._stop_requested.is_set():
+                return
             self.status.emit(f"光谱仪已连接，设备 ID：{device_id}")
             self.is_ready = True
             self.ready.emit()
 
-            self._running = True
-            while self._running:
+            while not self._stop_requested.is_set():
                 wavelength, intensity = spectrometer.read_spectrum()
+                if self._stop_requested.is_set():
+                    break
                 self.spectrum.emit(wavelength, intensity)
                 stats = calculate_stats(wavelength, intensity)
                 self.reading.emit(
@@ -334,7 +347,7 @@ class SpectrometerReaderThread(QThread):
                         fwhm_nm=stats.fwhm_nm,
                     )
                 )
-                self.msleep(self.settings.interval_ms)
+                self._stop_requested.wait(self.settings.interval_ms / 1000.0)
         except Exception as exc:
             self.failed.emit(str(exc))
         finally:
