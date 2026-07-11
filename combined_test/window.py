@@ -42,11 +42,13 @@ from .automation import (
     AutomaticTestState,
     MIN_POWER_SUPPLY_COMMAND_INTERVAL_S,
     build_ramp_down_currents,
+    build_ramp_up_currents,
     build_test_currents,
     validate_automatic_test_settings,
 )
 from .core import (
     CombinedMeasurement,
+    WavelengthStabilityDetector,
     build_set_current_command,
     spectrum_curve_to_rows,
     stability_tolerance_for_power,
@@ -101,6 +103,8 @@ AUTO_VOUT_AFTER_STABLE_S = 5.0
 MIN_VOUT_READ_INTERVAL_S = 5.0
 POWER_SUPPLY_COMMAND_MIN_INTERVAL_S = MIN_POWER_SUPPLY_COMMAND_INTERVAL_S
 DEFAULT_SPECTROMETER_INTEGRATION_US = 10000
+WAVELENGTH_STABILITY_TOLERANCE_NM = 0.2
+MIN_SPECTRUM_PEAK_INTENSITY = 500.0
 AUTOMATIC_DEVICE_START_TIMEOUT_S = 15.0
 LEFT_PANEL_MIN_WIDTH = 400
 LEFT_PANEL_MAX_WIDTH = 420
@@ -171,6 +175,10 @@ class MainWindow(QMainWindow):
         self.spectrum_center_locked_nm: float | None = None
         self.centroid_display_samples: deque[float] = deque(maxlen=5)
         self.latest_spectrum_saturated = False
+        self.latest_spectrum_peak_intensity = 0.0
+        self.wavelength_stability_detector = WavelengthStabilityDetector(3.0, WAVELENGTH_STABILITY_TOLERANCE_NM)
+        self.latest_wavelength_stable = False
+        self.latest_wavelength_span_nm = math.inf
         self.test_session_started_at: datetime | None = None
         self.excel_workbook_path: Path | None = None
         self.excel_recorded_currents: set[float] = set()
@@ -200,10 +208,14 @@ class MainWindow(QMainWindow):
         self.pending_automatic_current_a: float | None = None
         self.pending_automatic_command_kind: str | None = None
         self.automatic_ramp_down_currents: deque[float] = deque()
+        self.automatic_ramp_up_currents: deque[float] = deque()
         self.automatic_ramp_down_timer = QTimer(self)
         self.automatic_ramp_down_timer.setSingleShot(True)
         self.automatic_ramp_down_timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.automatic_ramp_down_timer.timeout.connect(self.schedule_next_automatic_ramp_down_current)
+        self.automatic_pause_safety_timer = QTimer(self)
+        self.automatic_pause_safety_timer.setSingleShot(True)
+        self.automatic_pause_safety_timer.timeout.connect(self.on_automatic_pause_safety_timeout)
 
         self.content_widget = QWidget(self)
         self.setCentralWidget(self.content_widget)
@@ -294,6 +306,9 @@ class MainWindow(QMainWindow):
         )
 
         self.integration_spin.setValue(settings.value(prefix + "integration_time_us", self.integration_spin.value(), type=int))
+        self.auto_integration_check.setChecked(
+            settings.value(prefix + "auto_integration_enabled", self.auto_integration_check.isChecked(), type=bool)
+        )
         self.interval_spin.setValue(settings.value(prefix + "spectrometer_interval_ms", self.interval_spin.value(), type=int))
         self.stable_window_spin.setValue(settings.value(prefix + "stable_window_s", self.stable_window_spin.value(), type=float))
         self.stable_tolerance_spin.setValue(0.15)
@@ -316,6 +331,13 @@ class MainWindow(QMainWindow):
             settings.value(
                 prefix + "auto_ramp_down_interval_s",
                 self.auto_ramp_down_interval_spin.value(),
+                type=float,
+            )
+        )
+        self.auto_pause_ramp_down_timeout_spin.setValue(
+            settings.value(
+                prefix + "auto_pause_ramp_down_timeout_s",
+                self.auto_pause_ramp_down_timeout_spin.value(),
                 type=float,
             )
         )
@@ -342,6 +364,7 @@ class MainWindow(QMainWindow):
         settings.setValue(prefix + "software_gain", self.software_gain_spin.value())
         settings.setValue(prefix + "power_meter_interval_ms", self.power_meter_interval_spin.value())
         settings.setValue(prefix + "integration_time_us", self.integration_spin.value())
+        settings.setValue(prefix + "auto_integration_enabled", self.auto_integration_check.isChecked())
         settings.setValue(prefix + "spectrometer_interval_ms", self.interval_spin.value())
         settings.setValue(prefix + "stable_window_s", self.stable_window_spin.value())
         settings.setValue(prefix + "auto_initial_current_a", self.auto_initial_current_spin.value())
@@ -350,6 +373,10 @@ class MainWindow(QMainWindow):
         settings.setValue(prefix + "auto_point_timeout_s", self.auto_point_timeout_spin.value())
         settings.setValue(prefix + "auto_ramp_down_step_a", self.auto_ramp_down_step_spin.value())
         settings.setValue(prefix + "auto_ramp_down_interval_s", self.auto_ramp_down_interval_spin.value())
+        settings.setValue(
+            prefix + "auto_pause_ramp_down_timeout_s",
+            self.auto_pause_ramp_down_timeout_spin.value(),
+        )
         settings.setValue(prefix + "sn", self.sn_field.text().strip())
         settings.setValue(prefix + "output_dir", self.output_dir_field.text().strip())
         settings.sync()
@@ -659,6 +686,14 @@ class MainWindow(QMainWindow):
         self.auto_ramp_down_interval_spin.setValue(POWER_SUPPLY_COMMAND_MIN_INTERVAL_S)
         self.auto_ramp_down_interval_spin.setSuffix(" s")
 
+        self.auto_pause_ramp_down_timeout_spin = QDoubleSpinBox(self)
+        self.auto_pause_ramp_down_timeout_spin.setRange(0.0, 600.0)
+        self.auto_pause_ramp_down_timeout_spin.setDecimals(1)
+        self.auto_pause_ramp_down_timeout_spin.setSingleStep(5.0)
+        self.auto_pause_ramp_down_timeout_spin.setValue(30.0)
+        self.auto_pause_ramp_down_timeout_spin.setSuffix(" s")
+        self.auto_pause_ramp_down_timeout_spin.setToolTip("暂停后超过此时间自动分段降至 0 A；设为 0 可关闭")
+
         parameter_grid = QGridLayout()
         parameter_grid.setHorizontalSpacing(8)
         parameter_grid.setVerticalSpacing(6)
@@ -671,6 +706,7 @@ class MainWindow(QMainWindow):
             ("单点超时", self.auto_point_timeout_spin),
             ("下电步长", self.auto_ramp_down_step_spin),
             ("下电间隔", self.auto_ramp_down_interval_spin),
+            ("暂停下电", self.auto_pause_ramp_down_timeout_spin),
         )
         for index, (label_text, spin_box) in enumerate(parameters):
             row = index // 2
@@ -805,6 +841,11 @@ class MainWindow(QMainWindow):
         self.integration_spin.setSuffix(" us")
         form.addRow("积分时间", self.integration_spin)
 
+        self.auto_integration_check = QCheckBox("启用（目标 8k–14k）", self)
+        self.auto_integration_check.setToolTip("自动调整积分时间，使光谱峰值保持在 8000–14000 counts")
+        self.auto_integration_check.setChecked(False)
+        form.addRow("自动积分", self.auto_integration_check)
+
         self.interval_spin = QSpinBox(self)
         self.interval_spin.setRange(50, 5000)
         self.interval_spin.setValue(300)
@@ -926,6 +967,7 @@ class MainWindow(QMainWindow):
             point_timeout_s=self.auto_point_timeout_spin.value(),
             ramp_down_step_a=self.auto_ramp_down_step_spin.value(),
             ramp_down_interval_s=self.auto_ramp_down_interval_spin.value(),
+            pause_ramp_down_timeout_s=self.auto_pause_ramp_down_timeout_spin.value(),
         )
         return validate_automatic_test_settings(
             settings,
@@ -945,7 +987,8 @@ class MainWindow(QMainWindow):
             return
         if (
             self.power_supply_controller_kind == "tdk"
-            and not bool(getattr(self.manual_ch341_controller, "output_enabled", False))
+            and hasattr(self.manual_ch341_controller, "output_enabled")
+            and not bool(self.manual_ch341_controller.output_enabled)
         ):
             QMessageBox.warning(self, "自动测试", "请先开启 TDK 电源输出。")
             return
@@ -1006,7 +1049,21 @@ class MainWindow(QMainWindow):
             return
         current_a = self.automatic_test_currents[self.automatic_test_current_index]
         self.set_automatic_test_state(AutomaticTestState.SETTING_CURRENT, f"正在设置 {current_a:.1f} A")
-        self.schedule_automatic_current_command(current_a, "test")
+        start_current_a = max(0.0, float(self.active_output_current_a or 0.0))
+        if current_a > start_current_a:
+            self.automatic_ramp_up_currents = deque(build_ramp_up_currents(start_current_a, current_a))
+            self.schedule_next_automatic_ramp_up_current()
+        else:
+            self.automatic_ramp_up_currents.clear()
+            self.schedule_automatic_current_command(current_a, "test")
+
+    def schedule_next_automatic_ramp_up_current(self) -> None:
+        if self.automatic_test_state != AutomaticTestState.SETTING_CURRENT:
+            return
+        if not self.automatic_ramp_up_currents:
+            self.pause_automatic_test("自动升流序列无效")
+            return
+        self.schedule_automatic_current_command(self.automatic_ramp_up_currents.popleft(), "ramp_up")
 
     def schedule_automatic_current_command(self, current_a: float, kind: str) -> None:
         self.pending_automatic_current_a = float(current_a)
@@ -1038,7 +1095,8 @@ class MainWindow(QMainWindow):
         if (
             self.power_supply_controller_kind == "tdk"
             and current_a > 0.0
-            and not bool(getattr(self.manual_ch341_controller, "output_enabled", False))
+            and hasattr(self.manual_ch341_controller, "output_enabled")
+            and not bool(self.manual_ch341_controller.output_enabled)
         ):
             self.pause_automatic_test("TDK 电源输出未开启")
             return
@@ -1060,6 +1118,16 @@ class MainWindow(QMainWindow):
         if kind == "ramp_down":
             self.on_automatic_ramp_down_current_applied(current_a)
             return
+        if kind == "ramp_up":
+            self.active_output_current_a = current_a
+            self.set_current_spin.setValue(current_a)
+            if self.automatic_ramp_up_currents:
+                self.set_automatic_test_state(
+                    AutomaticTestState.SETTING_CURRENT,
+                    f"安全升流：输出电流已设为 {current_a:.1f} A",
+                )
+                self.schedule_next_automatic_ramp_up_current()
+                return
 
         self.cancel_auto_vout_read()
         self.set_current_spin.setValue(current_a)
@@ -1071,7 +1139,8 @@ class MainWindow(QMainWindow):
             self.pending_stable_point_generation = self.power_meter_reader.reset_stability_window()
         else:
             self.pending_stable_point_generation = None
-        self.set_automatic_test_state(AutomaticTestState.WAITING_STABLE, f"等待 {current_a:.1f} A 功率稳定")
+        self.reset_wavelength_stability_window()
+        self.set_automatic_test_state(AutomaticTestState.WAITING_STABLE, f"等待 {current_a:.1f} A 功率及波长稳定")
         if self.automatic_test_settings is not None:
             self.automatic_point_timer.start(round(self.automatic_test_settings.point_timeout_s * 1000.0))
         self.add_log(
@@ -1093,6 +1162,7 @@ class MainWindow(QMainWindow):
             self.auto_point_timeout_spin,
             self.auto_ramp_down_step_spin,
             self.auto_ramp_down_interval_spin,
+            self.auto_pause_ramp_down_timeout_spin,
             self.sn_field,
             self.output_dir_field,
             self.browse_button,
@@ -1152,6 +1222,8 @@ class MainWindow(QMainWindow):
         self.automatic_point_timer.stop()
         self.automatic_command_timer.stop()
         self.automatic_ramp_down_timer.stop()
+        self.automatic_pause_safety_timer.stop()
+        self.automatic_ramp_up_currents.clear()
         self.pending_automatic_current_a = None
         self.pending_automatic_command_kind = None
         self.cancel_auto_vout_read()
@@ -1159,6 +1231,17 @@ class MainWindow(QMainWindow):
         self.set_automatic_test_state(AutomaticTestState.PAUSED, f"已暂停：{reason}")
         self.statusBar().showMessage(f"自动测试已暂停：{reason}")
         self.add_log(f"自动测试已暂停并保持当前电流：{reason}")
+        settings = self.automatic_test_settings
+        if settings is not None and settings.pause_ramp_down_timeout_s > 0.0:
+            self.automatic_pause_safety_timer.start(
+                max(1, math.ceil(settings.pause_ramp_down_timeout_s * 1000.0))
+            )
+
+    def on_automatic_pause_safety_timeout(self) -> None:
+        if self.automatic_test_state != AutomaticTestState.PAUSED:
+            return
+        self.add_log("暂停等待超时，开始自动安全下电")
+        self.begin_automatic_ramp_down()
 
     def automatic_measurement_is_active(self) -> bool:
         return self.automatic_test_state in (
@@ -1172,6 +1255,7 @@ class MainWindow(QMainWindow):
     def retry_automatic_test(self) -> None:
         if self.automatic_test_state != AutomaticTestState.PAUSED:
             return
+        self.automatic_pause_safety_timer.stop()
         self.automatic_pause_reason = ""
         if self.automatic_paused_from_state == AutomaticTestState.SAVING_POINT:
             if self.excel_save_thread is not None:
@@ -1189,7 +1273,8 @@ class MainWindow(QMainWindow):
             return
         if (
             self.power_supply_controller_kind == "tdk"
-            and not bool(getattr(self.manual_ch341_controller, "output_enabled", False))
+            and hasattr(self.manual_ch341_controller, "output_enabled")
+            and not bool(self.manual_ch341_controller.output_enabled)
         ):
             self.pause_automatic_test("TDK 电源输出未开启")
             return
@@ -1256,6 +1341,8 @@ class MainWindow(QMainWindow):
         self.automatic_point_timer.stop()
         self.automatic_command_timer.stop()
         self.automatic_ramp_down_timer.stop()
+        self.automatic_pause_safety_timer.stop()
+        self.automatic_ramp_up_currents.clear()
         self.cancel_auto_vout_read()
         start_current_a = max(0.0, float(self.active_output_current_a or 0.0))
         try:
@@ -1282,9 +1369,18 @@ class MainWindow(QMainWindow):
         self.automatic_point_timer.stop()
         self.automatic_command_timer.stop()
         self.automatic_ramp_down_timer.stop()
+        self.automatic_pause_safety_timer.stop()
         self.pending_automatic_current_a = None
         self.pending_automatic_command_kind = None
         self.active_output_current_a = 0.0
+        if self.power_supply_controller_kind == "tdk" and self.manual_ch341_controller is not None:
+            try:
+                if bool(getattr(self.manual_ch341_controller, "output_enabled", False)):
+                    self.manual_ch341_controller.set_output_enabled(False)
+            except Exception as exc:
+                self.automatic_paused_from_state = AutomaticTestState.RAMPING_DOWN
+                self.pause_automatic_test(f"TDK 输出关闭失败：{user_facing_error_message(exc)}")
+                return
         self.set_automatic_test_state(AutomaticTestState.COMPLETED, "自动测试完成，输出电流已降至 0 A")
         self.statusBar().showMessage("自动测试完成，输出电流已降至 0 A")
         self.add_log("自动测试完成，输出电流已降至 0 A")
@@ -1613,10 +1709,29 @@ class MainWindow(QMainWindow):
             or reading is None
             or not reading.stable
             or reading.stability_generation != generation
+            or (
+                self.automatic_test_state == AutomaticTestState.WAITING_VOLTAGE
+                and not self.latest_wavelength_stable
+            )
         ):
             self.add_log("当前测试点不再稳定，已取消自动读取输出电压")
             return
         self.read_output_voltage(automatic=True)
+
+    def invalidate_automatic_stability(self, reason: str) -> None:
+        if self.automatic_test_state != AutomaticTestState.WAITING_VOLTAGE:
+            return
+        self.cancel_auto_vout_read()
+        self.recorded_stable_point_current_a = None
+        self.recorded_stable_point_generation = None
+        self.pending_stable_point_current_a = self.active_output_current_a
+        if self.power_meter_reader is not None:
+            self.pending_stable_point_generation = self.power_meter_reader.reset_stability_window()
+        else:
+            self.pending_stable_point_generation = None
+        self.reset_wavelength_stability_window()
+        self.set_automatic_test_state(AutomaticTestState.WAITING_STABLE, f"{reason}，重新判稳")
+        self.add_log(f"{reason}，已取消读取输出电压并重新判稳")
 
     def read_output_current(self) -> None:
         self.execute_i2c_read([0xB4, 0x8C, 0x00, 0x00], "输出电流", "A")
@@ -1703,6 +1818,19 @@ class MainWindow(QMainWindow):
             self.last_point_record_error = "暂无光谱数据"
             self.add_log("已跳过 Excel 记录：暂无光谱数据")
             self.statusBar().showMessage("获得光谱数据后才能生成测试点")
+            return False
+        try:
+            spectrum_peak_intensity = max(float(value) for value in self.latest_spectrum_intensity)
+        except (TypeError, ValueError):
+            spectrum_peak_intensity = 0.0
+        self.latest_spectrum_peak_intensity = spectrum_peak_intensity
+        if spectrum_peak_intensity < MIN_SPECTRUM_PEAK_INTENSITY:
+            self.last_point_record_error = (
+                f"光谱信号过弱：峰值 {spectrum_peak_intensity:.0f} counts，"
+                f"必须至少达到 {MIN_SPECTRUM_PEAK_INTENSITY:.0f} counts"
+            )
+            self.statusBar().showMessage(self.last_point_record_error)
+            self.add_log(self.last_point_record_error)
             return False
         saturation = detect_spectrum_saturation(self.latest_spectrum_intensity)
         if saturation.saturated:
@@ -1969,18 +2097,27 @@ class MainWindow(QMainWindow):
 
     def on_stability_settings_changed(self, _value: float) -> None:
         """Synchronize live stability criteria with the acquisition thread."""
-        if self.power_meter_reader is None:
-            return
-        self.power_meter_reader.update_stability_settings(
+        self.reset_wavelength_stability_window()
+        if self.power_meter_reader is not None:
+            self.power_meter_reader.update_stability_settings(
+                self.stable_window_spin.value(),
+                self.stable_tolerance_spin.value(),
+            )
+
+    def reset_wavelength_stability_window(self) -> None:
+        self.wavelength_stability_detector = WavelengthStabilityDetector(
             self.stable_window_spin.value(),
-            self.stable_tolerance_spin.value(),
+            WAVELENGTH_STABILITY_TOLERANCE_NM,
         )
+        self.latest_wavelength_stable = False
+        self.latest_wavelength_span_nm = math.inf
 
     def collect_spectrometer_settings(self) -> SpectrometerSettings:
         return SpectrometerSettings(
             integration_time_us=self.integration_spin.value(),
             interval_ms=self.interval_spin.value(),
             device_id=self._selected_spectrometer_device_id(),
+            auto_integration_enabled=self.auto_integration_check.isChecked(),
         )
 
     def start_power_meter(self) -> None:
@@ -2038,11 +2175,16 @@ class MainWindow(QMainWindow):
         self.spectrometer_reader.reading.connect(self.on_spectrometer_reading)
         self.spectrometer_reader.spectrum.connect(self.on_spectrum_curve)
         self.spectrometer_reader.status.connect(self.on_status)
+        self.spectrometer_reader.integration_time_changed.connect(self.on_integration_time_changed)
         self.spectrometer_reader.ready.connect(self.on_spectrometer_ready)
         self.spectrometer_reader.failed.connect(self.on_spectrometer_failed)
         self.spectrometer_reader.finished.connect(self.on_spectrometer_finished)
         self.spectrometer_reader.start()
         self.set_spectrometer_running_state(True)
+
+    def on_integration_time_changed(self, integration_time_us: int) -> None:
+        self.integration_spin.setValue(int(integration_time_us))
+        self.reset_wavelength_stability_window()
 
     def stop_spectrometer(self, wait_for_finish: bool = False) -> None:
         if self.spectrometer_reader is not None:
@@ -2087,6 +2229,20 @@ class MainWindow(QMainWindow):
         self.capture_stable_power_point(reading)
 
     def on_spectrometer_reading(self, reading: SpectrometerReading) -> None:
+        if math.isfinite(reading.centroid_nm):
+            result = self.wavelength_stability_detector.add_sample(time.monotonic(), reading.centroid_nm)
+            was_stable = self.latest_wavelength_stable
+            self.latest_wavelength_stable = result.stable
+            self.latest_wavelength_span_nm = result.span_w
+            if (
+                was_stable
+                and not result.stable
+                and self.automatic_test_state == AutomaticTestState.WAITING_VOLTAGE
+            ):
+                self.invalidate_automatic_stability("中心波长不再稳定")
+        else:
+            self.latest_wavelength_stable = False
+            self.latest_wavelength_span_nm = math.inf
         self.update_centroid_display(reading.centroid_nm)
         self.live_plots.set_spectrum_metrics(
             fwhm_nm=math.nan if self.latest_spectrum_saturated else reading.fwhm_nm,
@@ -2130,6 +2286,10 @@ class MainWindow(QMainWindow):
         self.latest_spectrum_wavelength = wavelength
         self.latest_spectrum_intensity = intensity
         saturation = detect_spectrum_saturation(intensity)
+        try:
+            self.latest_spectrum_peak_intensity = max(float(value) for value in intensity)
+        except (TypeError, ValueError):
+            self.latest_spectrum_peak_intensity = 0.0
         was_saturated = self.latest_spectrum_saturated
         self.latest_spectrum_saturated = saturation.saturated
         try:
@@ -2176,6 +2336,7 @@ class MainWindow(QMainWindow):
 
     def capture_stable_power_point(self, reading: PowerMeterReading) -> None:
         current_a = self.pending_stable_point_current_a
+        require_joint_stability = self.automatic_test_state == AutomaticTestState.WAITING_STABLE
         if current_a is None:
             if (
                 not reading.stable
@@ -2184,6 +2345,9 @@ class MainWindow(QMainWindow):
             ):
                 self.cancel_auto_vout_read()
                 self.add_log("功率不再稳定，已取消自动读取输出电压")
+                if self.automatic_test_state == AutomaticTestState.WAITING_VOLTAGE:
+                    self.invalidate_automatic_stability("功率不再稳定")
+                    return
             self.update_latest_stable_power_point(reading)
             if (
                 reading.stable
@@ -2195,6 +2359,8 @@ class MainWindow(QMainWindow):
                 self.schedule_auto_vout_read()
             return
         if not reading.stable:
+            return
+        if require_joint_stability and not self.latest_wavelength_stable:
             return
         if (
             self.pending_stable_point_generation is not None
@@ -2217,13 +2383,23 @@ class MainWindow(QMainWindow):
         self.recorded_stable_point_current_a = current_a
         self.recorded_stable_point_generation = reading.stability_generation
         self.update_stable_power_curve()
-        self.statusBar().showMessage(f"已记录 {current_a:.3f} A 时的稳定功率：{reading.power_w:.3f} W")
-        self.add_log(f"稳定功率点：{current_a:.3f} A，{reading.power_w:.3f} W")
+        if require_joint_stability:
+            self.statusBar().showMessage(
+                f"已记录 {current_a:.3f} A 联合稳定点：{reading.power_w:.3f} W，"
+                f"波长跨度 {self.latest_wavelength_span_nm:.3f} nm"
+            )
+            self.add_log(
+                f"功率与波长稳定点：{current_a:.3f} A，{reading.power_w:.3f} W，"
+                f"波长跨度 {self.latest_wavelength_span_nm:.3f} nm"
+            )
+        else:
+            self.statusBar().showMessage(f"已记录 {current_a:.3f} A 时的稳定功率：{reading.power_w:.3f} W")
+            self.add_log(f"稳定功率点：{current_a:.3f} A，{reading.power_w:.3f} W")
         self.schedule_auto_vout_read()
         if self.automatic_test_state == AutomaticTestState.WAITING_STABLE:
             self.set_automatic_test_state(
                 AutomaticTestState.WAITING_VOLTAGE,
-                f"{current_a:.1f} A 功率已稳定，等待读取输出电压",
+                f"{current_a:.1f} A 功率及波长已稳定，等待读取输出电压",
             )
 
     def update_latest_stable_power_point(self, reading: PowerMeterReading) -> None:
@@ -2443,6 +2619,7 @@ class MainWindow(QMainWindow):
         self.detect_spectrometer_button.setEnabled(not running)
         self.spectrometer_combo.setEnabled(not running)
         self.integration_spin.setEnabled(not running)
+        self.auto_integration_check.setEnabled(not running)
         self.interval_spin.setEnabled(not running)
         self.update_global_status()
 

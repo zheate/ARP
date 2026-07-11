@@ -294,7 +294,7 @@ class MainWindowTests(unittest.TestCase):
             window = MainWindow(QSettings(str(Path(temp_dir) / "inputs.ini"), QSettings.Format.IniFormat))
             window.excel_workbook_path = Path(temp_dir) / "SN001_2026_07_10_14_30_25.xlsx"
             window.latest_spectrum_wavelength = [974.0, 975.0, 976.0, 977.0, 978.0]
-            window.latest_spectrum_intensity = [0.0, 5.0, 10.0, 5.0, 0.0]
+            window.latest_spectrum_intensity = [0.0, 5000.0, 10000.0, 5000.0, 0.0]
 
             window.queue_excel_test_point(3.0, 50.5, 33.0, 33.0 / 3.0 / 50.5)
             window.save_pending_excel_records()
@@ -316,7 +316,7 @@ class MainWindowTests(unittest.TestCase):
             window = MainWindow(QSettings(str(Path(temp_dir) / "inputs.ini"), QSettings.Format.IniFormat))
             window.excel_workbook_path = Path(temp_dir) / "AUTO_2026_07_11_12_00_00.xlsx"
             window.latest_spectrum_wavelength = [974.0, 975.0, 976.0, 977.0, 978.0]
-            window.latest_spectrum_intensity = [0.0, 5.0, 10.0, 5.0, 0.0]
+            window.latest_spectrum_intensity = [0.0, 5000.0, 10000.0, 5000.0, 0.0]
             window.active_output_current_a = 3.0
             window.stable_power_points[3.0] = 33.0
             window.automatic_test_state = AutomaticTestState.WAITING_VOLTAGE
@@ -538,6 +538,8 @@ class MainWindowTests(unittest.TestCase):
         window.automatic_test_settings = window.collect_automatic_test_settings()
         window.active_output_current_a = 10.0
         window.automatic_test_state = AutomaticTestState.WAITING_STABLE
+        window.latest_wavelength_stable = True
+        window.latest_wavelength_span_nm = 0.05
         window.last_power_supply_command_monotonic_s = (
             combined_test_window.time.monotonic() - POWER_SUPPLY_COMMAND_MIN_INTERVAL_S - 0.1
         )
@@ -1312,6 +1314,8 @@ class MainWindowTests(unittest.TestCase):
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
         window.automatic_test_state = AutomaticTestState.WAITING_STABLE
+        window.latest_wavelength_stable = True
+        window.latest_wavelength_span_nm = 0.05
         window.active_output_current_a = 3.0
         window.pending_stable_point_current_a = 3.0
         window.pending_stable_point_generation = 7
@@ -1322,6 +1326,23 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertEqual(window.automatic_test_state, AutomaticTestState.WAITING_VOLTAGE)
         self.assertTrue(window.auto_vout_timer.isActive())
+        window.automatic_test_state = AutomaticTestState.IDLE
+        window.close()
+
+    def test_automatic_test_does_not_accept_power_stability_before_wavelength_stability(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.automatic_test_state = AutomaticTestState.WAITING_STABLE
+        window.active_output_current_a = 3.0
+        window.pending_stable_point_current_a = 3.0
+        window.pending_stable_point_generation = 7
+
+        window.on_power_meter_reading(
+            PowerMeterReading(1.0, 10.0, True, 0.01, 3.0, stability_generation=7)
+        )
+
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.WAITING_STABLE)
+        self.assertIsNone(window.pending_auto_vout_current_a)
         window.automatic_test_state = AutomaticTestState.IDLE
         window.close()
 
@@ -1507,8 +1528,8 @@ class MainWindowTests(unittest.TestCase):
             combined_test_window.time.monotonic() - POWER_SUPPLY_COMMAND_MIN_INTERVAL_S - 0.1
         )
         window.on_automatic_command_timer_timeout()
-        self.assertEqual(controller.writes, [[0xB4, 0xFF, 0x04, 0x00]])
-        self.assertEqual(window.automatic_test_state, AutomaticTestState.WAITING_STABLE)
+        self.assertEqual(controller.writes, [[0xB4, 0xFF, 0x01, 0x00]])
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.SETTING_CURRENT)
         window.automatic_test_state = AutomaticTestState.IDLE
         window.power_meter_reader = None
         window.close()
@@ -1718,6 +1739,56 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertEqual(window.integration_spin.value(), 10000)
         self.assertEqual(window.collect_spectrometer_settings().integration_time_us, 10000)
+
+    def test_auto_integration_moves_toward_target_and_respects_limits(self) -> None:
+        self.assertEqual(combined_test_devices.next_auto_integration_time(10_000, 1_000, 1_000, 300_000), 20_000)
+        self.assertEqual(combined_test_devices.next_auto_integration_time(10_000, 11_000, 1_000, 300_000), 10_000)
+        self.assertEqual(combined_test_devices.next_auto_integration_time(10_000, 16_000, 1_000, 300_000), 6_875)
+
+    def test_weak_spectrum_is_not_queued_for_excel(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.latest_spectrum_wavelength = [975.0, 976.0, 977.0]
+        window.latest_spectrum_intensity = [0.0, 499.0, 0.0]
+
+        self.assertFalse(window.queue_excel_test_point(3.0, 50.0, 10.0, 0.1))
+        self.assertIn("500", window.last_point_record_error)
+        window.close()
+
+    def test_pause_arms_safety_ramp_down_timer(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.automatic_test_settings = window.collect_automatic_test_settings()
+        window.automatic_test_state = AutomaticTestState.WAITING_STABLE
+
+        window.pause_automatic_test("测试暂停")
+
+        self.assertTrue(window.automatic_pause_safety_timer.isActive())
+        window.automatic_pause_safety_timer.stop()
+        window.automatic_test_state = AutomaticTestState.IDLE
+        window.close()
+
+    def test_completed_tdk_test_turns_output_off(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FakeTdkController:
+            output_enabled = True
+
+            def set_output_enabled(self, enabled: bool) -> None:
+                self.output_enabled = enabled
+
+        window = MainWindow()
+        controller = FakeTdkController()
+        window.manual_ch341_controller = controller
+        window.power_supply_controller_kind = "tdk"
+        window.automatic_test_state = AutomaticTestState.RAMPING_DOWN
+
+        window.complete_automatic_test()
+
+        self.assertFalse(controller.output_enabled)
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.COMPLETED)
+        window.manual_ch341_controller = None
+        window.close()
         window.close()
 
     def test_power_meter_detecting_state_does_not_block_manual_power_supply_controls(self) -> None:

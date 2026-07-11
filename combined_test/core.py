@@ -79,6 +79,10 @@ class PowerStabilityDetector:
         return StabilityResult(stable, span, covered_s, len(self._samples))
 
 
+class WavelengthStabilityDetector(PowerStabilityDetector):
+    """Time-window stability detector for spectral centroid wavelength."""
+
+
 def stability_tolerance_for_power(power_w: float) -> float:
     """Return the allowed stability span for the current power range."""
     power = float(power_w)

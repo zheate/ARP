@@ -69,6 +69,7 @@ class SpectrometerSettings:
     integration_time_us: int
     interval_ms: int
     device_id: int | None = None
+    auto_integration_enabled: bool = False
 
 
 @dataclass(frozen=True)

@@ -28,6 +28,27 @@ from .models import (
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TOOLS_ROOT = REPO_ROOT / "tools"
 POWER_METER_PROBE_TIMEOUT_MS = 250
+AUTO_INTEGRATION_LOW_COUNTS = 8_000.0
+AUTO_INTEGRATION_HIGH_COUNTS = 14_000.0
+AUTO_INTEGRATION_TARGET_COUNTS = 11_000.0
+
+
+def next_auto_integration_time(
+    current_us: int,
+    peak_counts: float,
+    minimum_us: int,
+    maximum_us: int,
+) -> int:
+    """Return a bounded integration time that moves the peak into the target band."""
+    current = max(int(minimum_us), min(int(maximum_us), int(current_us)))
+    peak = float(peak_counts)
+    if AUTO_INTEGRATION_LOW_COUNTS <= peak <= AUTO_INTEGRATION_HIGH_COUNTS:
+        return current
+    if peak <= 0.0:
+        ratio = 2.0
+    else:
+        ratio = max(0.5, min(2.0, AUTO_INTEGRATION_TARGET_COUNTS / peak))
+    return max(int(minimum_us), min(int(maximum_us), round(current * ratio)))
 
 
 @lru_cache(maxsize=1)
@@ -305,6 +326,7 @@ class SpectrometerReaderThread(QThread):
     status = Signal(str)
     ready = Signal()
     failed = Signal(str)
+    integration_time_changed = Signal(int)
 
     def __init__(self, settings: SpectrometerSettings, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -327,7 +349,18 @@ class SpectrometerReaderThread(QThread):
 
             spectrometer = OceanSpectrometer()
             device_id = open_spectrometer_device(spectrometer, self.settings.device_id)
-            spectrometer.set_integration_time(self.settings.integration_time_us)
+            current_integration_us = self.settings.integration_time_us
+            spectrometer.set_integration_time(current_integration_us)
+            minimum_integration_us = int(
+                getattr(spectrometer, "get_minimum_integration_time", lambda: 1)()
+            )
+            maximum_integration_us = max(
+                minimum_integration_us,
+                min(
+                    300_000,
+                    int(getattr(spectrometer, "get_maximum_integration_time", lambda: 300_000)()),
+                ),
+            )
             if self._stop_requested.is_set():
                 return
             self.status.emit(f"光谱仪已连接，设备 ID：{device_id}")
@@ -339,6 +372,24 @@ class SpectrometerReaderThread(QThread):
                 if self._stop_requested.is_set():
                     break
                 self.spectrum.emit(wavelength, intensity)
+                if self.settings.auto_integration_enabled:
+                    try:
+                        peak_counts = max(float(value) for value in intensity)
+                    except (TypeError, ValueError):
+                        peak_counts = 0.0
+                    adjusted_integration_us = next_auto_integration_time(
+                        current_integration_us,
+                        peak_counts,
+                        minimum_integration_us,
+                        maximum_integration_us,
+                    )
+                    if adjusted_integration_us != current_integration_us:
+                        current_integration_us = adjusted_integration_us
+                        spectrometer.set_integration_time(current_integration_us)
+                        self.integration_time_changed.emit(current_integration_us)
+                        self.status.emit(f"光谱仪自动积分时间：{current_integration_us} us")
+                        self._stop_requested.wait(self.settings.interval_ms / 1000.0)
+                        continue
                 stats = calculate_stats(wavelength, intensity)
                 self.reading.emit(
                     SpectrometerReading(

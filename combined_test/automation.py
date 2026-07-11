@@ -9,6 +9,7 @@ from enum import Enum
 
 MAX_CURRENT_CENTIAMPS = 2000
 MIN_POWER_SUPPLY_COMMAND_INTERVAL_S = 1.1
+MAX_RAMP_UP_STEP_CENTIAMPS = 100
 
 
 class AutomaticTestState(str, Enum):
@@ -31,6 +32,7 @@ class AutomaticTestSettings:
     point_timeout_s: float = 120.0
     ramp_down_step_a: float = 5.0
     ramp_down_interval_s: float = MIN_POWER_SUPPLY_COMMAND_INTERVAL_S
+    pause_ramp_down_timeout_s: float = 30.0
 
 
 def _to_centiampere(value: float, name: str) -> int:
@@ -72,6 +74,27 @@ def build_ramp_down_currents(start_current_a: float, step_a: float) -> tuple[flo
     return tuple(value / 100.0 for value in currents)
 
 
+def build_ramp_up_currents(
+    start_current_a: float,
+    target_current_a: float,
+    max_step_a: float = MAX_RAMP_UP_STEP_CENTIAMPS / 100.0,
+) -> tuple[float, ...]:
+    """Build safe increasing setpoints, excluding start and including target."""
+    start = _to_centiampere(start_current_a, "当前电流")
+    target = _to_centiampere(target_current_a, "目标电流")
+    step = _to_centiampere(max_step_a, "最大升流步长")
+    if start < 0 or target < 0 or start > target or target > MAX_CURRENT_CENTIAMPS:
+        raise ValueError("升流电流必须满足 0 <= 当前电流 <= 目标电流 <= 20 A")
+    if step <= 0:
+        raise ValueError("最大升流步长必须大于 0 A")
+    currents: list[int] = []
+    current = start
+    while current < target:
+        current = min(target, current + step)
+        currents.append(current)
+    return tuple(value / 100.0 for value in currents)
+
+
 def validate_automatic_test_settings(
     settings: AutomaticTestSettings,
     *,
@@ -95,4 +118,6 @@ def validate_automatic_test_settings(
     minimum_timeout_s = stable_window + post_stable_delay
     if not math.isfinite(settings.point_timeout_s) or settings.point_timeout_s < minimum_timeout_s:
         raise ValueError(f"单点超时不能小于 {minimum_timeout_s:.1f} s")
+    if not math.isfinite(settings.pause_ramp_down_timeout_s) or settings.pause_ramp_down_timeout_s < 0.0:
+        raise ValueError("暂停安全下电等待时间必须大于或等于 0 s")
     return settings

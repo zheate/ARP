@@ -4,6 +4,7 @@ import unittest
 from combined_test.automation import (
     AutomaticTestSettings,
     build_ramp_down_currents,
+    build_ramp_up_currents,
     build_test_currents,
     validate_automatic_test_settings,
 )
@@ -32,6 +33,10 @@ class AutomaticCurrentSequenceTests(unittest.TestCase):
     def test_ramp_down_sequence_reaches_zero_without_repeating_start_current(self) -> None:
         self.assertEqual(build_ramp_down_currents(20.0, 5.0), (15.0, 10.0, 5.0, 0.0))
         self.assertEqual(build_ramp_down_currents(12.0, 5.0), (7.0, 2.0, 0.0))
+
+    def test_ramp_up_inserts_one_amp_safety_steps_and_includes_target(self) -> None:
+        self.assertEqual(build_ramp_up_currents(0.0, 3.5), (1.0, 2.0, 3.0, 3.5))
+        self.assertEqual(build_ramp_up_currents(3.0, 3.0), ())
 
     def test_ramp_down_interval_cannot_bypass_power_supply_command_guard(self) -> None:
         settings = AutomaticTestSettings(ramp_down_interval_s=1.0)

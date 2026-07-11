@@ -4,6 +4,7 @@ import unittest
 from combined_test.core import (
     CombinedMeasurement,
     PowerStabilityDetector,
+    WavelengthStabilityDetector,
     build_set_current_command,
     decode_i2c_value,
     record_to_row,
@@ -75,6 +76,14 @@ class PowerStabilityDetectorTests(unittest.TestCase):
 
         self.assertFalse(result.stable)
         self.assertAlmostEqual(result.span_w, 0.08)
+
+    def test_wavelength_stability_uses_the_same_time_window_with_nm_tolerance(self) -> None:
+        detector = WavelengthStabilityDetector(window_s=3.0, tolerance_w=0.2)
+        detector.add_sample(0.0, 976.00)
+        detector.add_sample(1.5, 976.08)
+        result = detector.add_sample(3.0, 976.15)
+        self.assertTrue(result.stable)
+        self.assertAlmostEqual(result.span_w, 0.15)
 
 
 class I2CHelperTests(unittest.TestCase):

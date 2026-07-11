@@ -104,6 +104,12 @@ class OceanSpectrometer:
         if state == -1:
             raise RuntimeError(f"Failed to set integration time: {integration_time_us} us")
 
+    def get_minimum_integration_time(self) -> int:
+        return self.control.get_minimum_integration_time()
+
+    def get_maximum_integration_time(self) -> int:
+        return self.control.get_maximum_integration_time()
+
     def read_spectrum(self) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         wavelength = self.control.get_wavelength()
         intensity = self.control.get_intensity()
