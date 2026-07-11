@@ -89,6 +89,7 @@ from .spectrum import (
 )
 from .excel_export import ExcelTestRecord, build_test_workbook_path, sanitize_sn
 from .spectrum_math import calculate_pib, calculate_stats
+from .tdk_power_supply import TdkLambdaPowerSupply, list_tdk_visa_resources
 
 
 DEFAULT_POWER_RESOURCE = "ASRL3::INSTR"
@@ -114,6 +115,7 @@ class MainWindow(QMainWindow):
         self.power_meter_reader: PowerMeterReaderThread | None = None
         self.spectrometer_reader: SpectrometerReaderThread | None = None
         self.manual_ch341_controller: Any | None = None
+        self.power_supply_controller_kind = "ch341"
         self.latest_spectrum_wavelength: Any | None = None
         self.latest_spectrum_intensity: Any | None = None
         self.stable_power_points: dict[float, float] = {}
@@ -231,7 +233,17 @@ class MainWindow(QMainWindow):
         """Restore only operator-entered configuration, never live acquisition state."""
         settings = self.input_settings
         prefix = "input/"
+        saved_controller = str(settings.value(prefix + "power_supply_controller", "ch341"))
+        controller_index = self.power_supply_controller_combo.findData(saved_controller)
+        if controller_index >= 0:
+            self.power_supply_controller_combo.setCurrentIndex(controller_index)
+        saved_tdk_resource = str(settings.value(prefix + "tdk_resource", ""))
+        if saved_tdk_resource:
+            self.tdk_resource_combo.setEditText(saved_tdk_resource)
         self.set_current_spin.setValue(settings.value(prefix + "set_current_a", self.set_current_spin.value(), type=float))
+        self.tdk_voltage_spin.setValue(
+            settings.value(prefix + "tdk_voltage_v", self.tdk_voltage_spin.value(), type=float)
+        )
 
         saved_resource = extract_power_resource_name(
             str(settings.value(prefix + "power_resource", self.power_meter_combo.currentText()))
@@ -290,6 +302,9 @@ class MainWindow(QMainWindow):
     def save_input_settings(self) -> None:
         settings = self.input_settings
         prefix = "input/"
+        settings.setValue(prefix + "power_supply_controller", self._selected_power_supply_kind())
+        settings.setValue(prefix + "tdk_resource", self.tdk_resource_combo.currentText().strip())
+        settings.setValue(prefix + "tdk_voltage_v", self.tdk_voltage_spin.value())
         settings.setValue(prefix + "set_current_a", self.set_current_spin.value())
         settings.setValue(prefix + "power_resource", self._selected_power_resource())
         settings.setValue(prefix + "power_wavelength_nm", self.power_wavelength_spin.value())
@@ -443,6 +458,45 @@ class MainWindow(QMainWindow):
         form = QFormLayout(group)
         self._configure_left_form(form)
 
+        self.power_supply_controller_combo = QComboBox(self)
+        self.power_supply_controller_combo.addItem("CH341 I²C", "ch341")
+        self.power_supply_controller_combo.addItem("TDK (VISA)", "tdk")
+        self.power_supply_controller_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self.power_supply_controller_combo.setMinimumContentsLength(10)
+        self.power_supply_controller_combo.currentIndexChanged.connect(self.on_power_supply_controller_changed)
+        form.addRow("控制器", self.power_supply_controller_combo)
+
+        self.tdk_resource_combo = QComboBox(self)
+        self.tdk_resource_combo.setEditable(True)
+        self.tdk_resource_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.tdk_resource_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+        self.tdk_resource_combo.setMinimumContentsLength(8)
+        self.tdk_resource_combo.setPlaceholderText("ASRL / USB / TCPIP / GPIB")
+        self.refresh_tdk_resources_button = QPushButton("刷新", self)
+        self._configure_action_button(self.refresh_tdk_resources_button, minimum_width=58)
+        self.refresh_tdk_resources_button.clicked.connect(self.refresh_tdk_resources)
+        tdk_resource_row = QHBoxLayout()
+        tdk_resource_row.setSpacing(6)
+        tdk_resource_row.addWidget(self.tdk_resource_combo, stretch=1)
+        tdk_resource_row.addWidget(self.refresh_tdk_resources_button)
+        form.addRow("TDK 资源", tdk_resource_row)
+
+        self.tdk_voltage_spin = QDoubleSpinBox(self)
+        self.tdk_voltage_spin.setRange(0.0, 1000.0)
+        self.tdk_voltage_spin.setDecimals(2)
+        self.tdk_voltage_spin.setSingleStep(1.0)
+        self.tdk_voltage_spin.setSuffix(" V")
+        self.apply_tdk_voltage_button = QPushButton("设置电压", self)
+        self._configure_action_button(self.apply_tdk_voltage_button)
+        self.apply_tdk_voltage_button.clicked.connect(self.apply_tdk_output_voltage)
+        tdk_voltage_row = QHBoxLayout()
+        tdk_voltage_row.setSpacing(6)
+        tdk_voltage_row.addWidget(self.tdk_voltage_spin, stretch=1)
+        tdk_voltage_row.addWidget(self.apply_tdk_voltage_button)
+        form.addRow("TDK 电压", tdk_voltage_row)
+
         self.set_current_spin = QDoubleSpinBox(self)
         self.set_current_spin.setRange(0.0, 20.0)
         self.set_current_spin.setDecimals(1)
@@ -468,6 +522,16 @@ class MainWindow(QMainWindow):
         connection_row.addWidget(self.connect_i2c_button)
         form.addRow("连接", connection_row)
 
+        self.tdk_output_button = QPushButton("开启输出", self)
+        self._configure_action_button(self.tdk_output_button)
+        self.tdk_output_button.clicked.connect(self.toggle_tdk_output)
+        self.tdk_output_status_label = QLabel("输出关闭", self)
+        output_row = QHBoxLayout()
+        output_row.setSpacing(6)
+        output_row.addWidget(self.tdk_output_status_label, stretch=1)
+        output_row.addWidget(self.tdk_output_button)
+        form.addRow("TDK 输出", output_row)
+
         read_grid = QGridLayout()
         self.read_input_voltage_button = QPushButton("输入电压", self)
         self.read_output_voltage_button = QPushButton("输出电压", self)
@@ -492,6 +556,7 @@ class MainWindow(QMainWindow):
         form.addRow("读取", read_grid)
 
         parent.addWidget(group)
+        self.on_power_supply_controller_changed()
         self._reserve_group_height(group)
 
     def _build_automatic_test_group(self, parent: QVBoxLayout) -> None:
@@ -840,7 +905,14 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("请等待当前 Excel 保存完成")
             return
         if not self._manual_i2c_connected():
-            QMessageBox.warning(self, "自动测试", "请先连接 CH341。")
+            label = "TDK" if self._selected_power_supply_kind() == "tdk" else "CH341"
+            QMessageBox.warning(self, "自动测试", f"请先连接 {label}。")
+            return
+        if (
+            self.power_supply_controller_kind == "tdk"
+            and not bool(getattr(self.manual_ch341_controller, "output_enabled", False))
+        ):
+            QMessageBox.warning(self, "自动测试", "请先开启 TDK 电源输出。")
             return
         try:
             settings = self.collect_automatic_test_settings()
@@ -925,7 +997,15 @@ class MainWindow(QMainWindow):
 
     def write_automatic_current(self, current_a: float, kind: str) -> None:
         if not self._manual_i2c_connected():
-            self.pause_automatic_test("CH341 未连接")
+            label = "TDK" if self._selected_power_supply_kind() == "tdk" else "CH341"
+            self.pause_automatic_test(f"{label} 未连接")
+            return
+        if (
+            self.power_supply_controller_kind == "tdk"
+            and current_a > 0.0
+            and not bool(getattr(self.manual_ch341_controller, "output_enabled", False))
+        ):
+            self.pause_automatic_test("TDK 电源输出未开启")
             return
         controller = self.manual_ch341_controller
         if not self.begin_power_supply_command("自动设置输出电流"):
@@ -987,8 +1067,26 @@ class MainWindow(QMainWindow):
             self.read_temperature_button,
             self.stable_window_spin,
             self.start_all_button,
+            self.power_supply_controller_combo,
+            self.tdk_resource_combo,
+            self.refresh_tdk_resources_button,
+            self.tdk_voltage_spin,
+            self.apply_tdk_voltage_button,
+            self.tdk_output_button,
         ):
             widget.setEnabled(not active)
+        if self._selected_power_supply_kind() != "tdk":
+            for widget in (
+                self.tdk_resource_combo,
+                self.refresh_tdk_resources_button,
+                self.tdk_voltage_spin,
+                self.apply_tdk_voltage_button,
+                self.tdk_output_button,
+            ):
+                widget.setEnabled(False)
+        legacy_power_controller = self._selected_power_supply_kind() != "tdk"
+        self.read_input_voltage_button.setEnabled(not active and legacy_power_controller)
+        self.read_temperature_button.setEnabled(not active and legacy_power_controller)
         self.connect_i2c_button.setEnabled(not active or (paused and not self._manual_i2c_connected()))
         if detail:
             if (
@@ -1049,7 +1147,14 @@ class MainWindow(QMainWindow):
             self.begin_automatic_ramp_down()
             return
         if not self._manual_i2c_connected():
-            self.pause_automatic_test("CH341 未连接")
+            label = "TDK" if self._selected_power_supply_kind() == "tdk" else "CH341"
+            self.pause_automatic_test(f"{label} 未连接")
+            return
+        if (
+            self.power_supply_controller_kind == "tdk"
+            and not bool(getattr(self.manual_ch341_controller, "output_enabled", False))
+        ):
+            self.pause_automatic_test("TDK 电源输出未开启")
             return
         self.automatic_power_meter_ready = bool(
             self.power_meter_reader is not None and getattr(self.power_meter_reader, "is_ready", False)
@@ -1221,19 +1326,96 @@ class MainWindow(QMainWindow):
     def _manual_i2c_connected(self) -> bool:
         return self.manual_ch341_controller is not None and bool(getattr(self.manual_ch341_controller, "is_connected", False))
 
+    def _selected_power_supply_kind(self) -> str:
+        return str(self.power_supply_controller_combo.currentData() or "ch341")
+
+    def on_power_supply_controller_changed(self) -> None:
+        selected_kind = self._selected_power_supply_kind()
+        if self._manual_i2c_connected() and selected_kind != self.power_supply_controller_kind:
+            try:
+                if self.power_supply_controller_kind == "tdk" and bool(
+                    getattr(self.manual_ch341_controller, "output_enabled", False)
+                ):
+                    self.manual_ch341_controller.set_output_enabled(False)
+                self.manual_ch341_controller.disconnect_device()
+            except Exception as exc:
+                previous_index = self.power_supply_controller_combo.findData(self.power_supply_controller_kind)
+                self.power_supply_controller_combo.blockSignals(True)
+                self.power_supply_controller_combo.setCurrentIndex(previous_index)
+                self.power_supply_controller_combo.blockSignals(False)
+                QMessageBox.critical(self, "TDK 输出", f"关闭 TDK 输出失败，已保持当前连接：{exc}")
+                return
+            finally:
+                if not self._manual_i2c_connected():
+                    self.manual_ch341_controller = None
+        self.power_supply_controller_kind = selected_kind
+        is_tdk = selected_kind == "tdk"
+        if not is_tdk:
+            self.set_current_spin.setMaximum(20.0)
+            self.auto_initial_current_spin.setMaximum(20.0)
+            self.auto_target_current_spin.setMaximum(20.0)
+            self.tdk_voltage_spin.setMaximum(1000.0)
+        for widget in (
+            self.tdk_resource_combo,
+            self.refresh_tdk_resources_button,
+            self.tdk_voltage_spin,
+            self.apply_tdk_voltage_button,
+            self.tdk_output_button,
+        ):
+            widget.setEnabled(is_tdk)
+        self.read_input_voltage_button.setEnabled(not is_tdk)
+        self.read_temperature_button.setEnabled(not is_tdk)
+        self.connect_i2c_button.setText("连接 TDK" if is_tdk else "连接 CH341")
+        self.i2c_status_label.setText("未连接")
+        self.tdk_output_status_label.setText("输出关闭")
+        self.tdk_output_button.setText("开启输出")
+        self.update_global_status()
+
+    def refresh_tdk_resources(self) -> None:
+        current = self.tdk_resource_combo.currentText().strip()
+        try:
+            resources = list_tdk_visa_resources()
+        except Exception as exc:
+            QMessageBox.critical(self, "TDK 电源", str(exc))
+            return
+        self.tdk_resource_combo.clear()
+        self.tdk_resource_combo.addItems(resources)
+        if current and current not in resources:
+            self.tdk_resource_combo.setEditText(current)
+        elif current:
+            self.tdk_resource_combo.setCurrentText(current)
+        self.statusBar().showMessage(f"找到 {len(resources)} 个可用 VISA 资源")
+
     def _get_manual_ch341_controller(self) -> Any:
         if self.manual_ch341_controller is None:
-            controller_class = load_legacy_ch341_controller_class()
-            self.manual_ch341_controller = controller_class()
+            if self._selected_power_supply_kind() == "tdk":
+                resource = self.tdk_resource_combo.currentText().strip()
+                self.manual_ch341_controller = TdkLambdaPowerSupply(resource)
+                self.power_supply_controller_kind = "tdk"
+            else:
+                controller_class = load_legacy_ch341_controller_class()
+                self.manual_ch341_controller = controller_class()
+                self.power_supply_controller_kind = "ch341"
         return self.manual_ch341_controller
 
     def connect_i2c_device(self) -> None:
         controller = self._get_manual_ch341_controller()
+        label = "TDK" if self.power_supply_controller_kind == "tdk" else "CH341"
         if self._manual_i2c_connected():
-            controller.disconnect_device()
-            self.connect_i2c_button.setText("连接 CH341")
+            try:
+                if label == "TDK" and bool(getattr(controller, "output_enabled", False)):
+                    controller.set_output_enabled(False)
+                controller.disconnect_device()
+            except Exception as exc:
+                QMessageBox.critical(self, label, f"安全断开失败：{exc}")
+                return
+            if label == "TDK":
+                self.manual_ch341_controller = None
+            self.connect_i2c_button.setText(f"连接 {label}")
             self.i2c_status_label.setText("未连接")
-            self.add_log("CH341 已断开")
+            self.tdk_output_status_label.setText("输出关闭")
+            self.tdk_output_button.setText("开启输出")
+            self.add_log(f"{label} 已断开")
             self.update_global_status()
             return
 
@@ -1242,18 +1424,67 @@ class MainWindow(QMainWindow):
             connected, detail = controller.connect_device(0)
             if not connected:
                 raise RuntimeError(str(detail))
-            self.connect_i2c_button.setText("断开 CH341")
+            self.connect_i2c_button.setText(f"断开 {label}")
             self.i2c_status_label.setText("已连接")
-            self.add_log(f"CH341 已连接：{detail}")
+            if label == "TDK":
+                output_enabled = bool(getattr(controller, "output_enabled", False))
+                self.tdk_output_status_label.setText("输出开启" if output_enabled else "输出关闭")
+                self.tdk_output_button.setText("关闭输出" if output_enabled else "开启输出")
+                maximum_voltage = getattr(controller, "maximum_voltage_v", None)
+                maximum_current = getattr(controller, "maximum_current_a", None)
+                if maximum_voltage is not None:
+                    self.tdk_voltage_spin.setMaximum(float(maximum_voltage))
+                if maximum_current is not None:
+                    current_limit = min(20.0, float(maximum_current))
+                    self.set_current_spin.setMaximum(current_limit)
+                    self.auto_initial_current_spin.setMaximum(current_limit)
+                    self.auto_target_current_spin.setMaximum(current_limit)
+            self.add_log(f"{label} 已连接：{detail}")
             self.update_global_status()
         except Exception as exc:
-            QMessageBox.critical(self, "CH341", str(exc))
+            if label == "TDK" and not bool(getattr(controller, "is_connected", False)):
+                self.manual_ch341_controller = None
+            QMessageBox.critical(self, label, str(exc))
 
     def _require_manual_i2c_controller(self) -> Any | None:
         if not self._manual_i2c_connected():
-            QMessageBox.warning(self, "CH341", "请先连接 CH341。")
+            label = "TDK" if self._selected_power_supply_kind() == "tdk" else "CH341"
+            QMessageBox.warning(self, label, f"请先连接 {label}。")
             return None
         return self.manual_ch341_controller
+
+    def apply_tdk_output_voltage(self) -> None:
+        controller = self._require_manual_i2c_controller()
+        if controller is None:
+            return
+        if self.power_supply_controller_kind != "tdk":
+            return
+        if not self.begin_power_supply_command("设置 TDK 输出电压"):
+            return
+        try:
+            controller.set_output_voltage(self.tdk_voltage_spin.value())
+            self.add_log(f"TDK 输出电压已设为 {self.tdk_voltage_spin.value():.2f} V")
+            self.statusBar().showMessage(f"TDK 输出电压已设为 {self.tdk_voltage_spin.value():.2f} V")
+        except Exception as exc:
+            QMessageBox.critical(self, "TDK 电压", str(exc))
+
+    def toggle_tdk_output(self) -> None:
+        controller = self._require_manual_i2c_controller()
+        if controller is None:
+            return
+        if self.power_supply_controller_kind != "tdk":
+            return
+        if not self.begin_power_supply_command("切换 TDK 输出"):
+            return
+        try:
+            enabled = not bool(getattr(controller, "output_enabled", False))
+            controller.set_output_enabled(enabled)
+            self.tdk_output_status_label.setText("输出开启" if enabled else "输出关闭")
+            self.tdk_output_button.setText("关闭输出" if enabled else "开启输出")
+            self.add_log(f"TDK 输出已{'开启' if enabled else '关闭'}")
+            self.statusBar().showMessage(f"TDK 输出已{'开启' if enabled else '关闭'}")
+        except Exception as exc:
+            QMessageBox.critical(self, "TDK 输出", str(exc))
 
     def begin_power_supply_command(self, command_name: str) -> bool:
         """Reserve the power-supply bus so I2C commands remain safely spaced."""
@@ -2233,10 +2464,20 @@ class MainWindow(QMainWindow):
             return
         self.close_after_background_tasks = False
         if self.manual_ch341_controller is not None:
-            try:
-                self.manual_ch341_controller.disconnect_device()
-            except Exception:
-                pass
+            if self.power_supply_controller_kind == "tdk":
+                try:
+                    if bool(getattr(self.manual_ch341_controller, "output_enabled", False)):
+                        self.manual_ch341_controller.set_output_enabled(False)
+                    self.manual_ch341_controller.disconnect_device()
+                except Exception as exc:
+                    event.ignore()
+                    QMessageBox.critical(self, "TDK 输出", f"关闭 TDK 输出失败，窗口保持开启：{exc}")
+                    return
+            else:
+                try:
+                    self.manual_ch341_controller.disconnect_device()
+                except Exception:
+                    pass
         super().closeEvent(event)
 
 

@@ -27,6 +27,20 @@ Run standalone diagnostics from the repository root with `python -m tools.power_
 
 ## Device Detection
 
+- The power-supply controller can be switched between the legacy `CH341 I²C`
+  path and `TDK (VISA)` in the Power group.
+- TDK-Lambda control uses PyVISA resources (`ASRL`, `USB`, `TCPIP`, or `GPIB`)
+  and SCPI commands. The UI can enumerate resources, query `*IDN?`, set
+  `VOLT`/`CURR`, switch `OUTP`, and read `MEAS:VOLT?` / `MEAS:CURR?`.
+- Connecting a TDK supply never turns its output on automatically. The operator
+  must explicitly enable the output before starting an automatic current test.
+- Disconnecting, switching controllers, or closing the app turns an enabled TDK
+  output off first; if that command fails, the app keeps the connection/window
+  open and reports the failure instead of pretending the supply is safe.
+- The legacy input-voltage and temperature buttons are disabled in TDK mode:
+  input voltage duplicates TDK output voltage, while temperature is not a
+  portable query across the supported TDK-Lambda families.
+
 - Power meters are discovered from VISA serial resources whose names start with `ASRL`.
 - Supported power-meter probing currently uses the Caihuang protocol: send `$TES`, then optionally `$VER`.
 - Detected power meters are shown as:
