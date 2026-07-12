@@ -1,0 +1,77 @@
+from __future__ import annotations
+
+import unittest
+from datetime import datetime
+from pathlib import Path
+
+from combined_test.device_interfaces import ControllerPowerSupply, PowerSupply
+from combined_test.excel_export import ExcelTestRecord
+from combined_test.record_store import RecordStore, SessionRecordStore
+
+
+class FakeController:
+    is_connected = True
+    output_enabled = True
+
+    def __init__(self) -> None:
+        self.writes: list[tuple[int, list[int]]] = []
+        self.voltage_v = 0.0
+
+    def i2c_write(self, address: int, command: list[int]) -> tuple[bool, str]:
+        self.writes.append((address, command))
+        return True, "ok"
+
+    def i2c_write_read(
+        self,
+        _address: int,
+        command: list[int],
+        _read_length: int,
+    ) -> tuple[bool, list[int]]:
+        value = 12.34 if command[1] == 0x8B else 4.56
+        integer = int(value)
+        return True, [0, 0, integer, round((value - integer) * 100)]
+
+    def disconnect_device(self) -> bool:
+        self.is_connected = False
+        return True
+
+    def set_output_voltage(self, voltage_v: float) -> None:
+        self.voltage_v = voltage_v
+
+    def set_output_enabled(self, enabled: bool) -> None:
+        self.output_enabled = enabled
+
+
+class DeviceInterfaceTests(unittest.TestCase):
+    def test_controller_adapter_exposes_semantic_power_supply_operations(self) -> None:
+        controller = FakeController()
+        supply = ControllerPowerSupply(controller)
+
+        self.assertIsInstance(supply, PowerSupply)
+        supply.set_current(3.25)
+
+        self.assertEqual(controller.writes, [(0x41, [0xB4, 0xFF, 3, 25])])
+        self.assertAlmostEqual(supply.read_output_voltage(), 12.34)
+        self.assertAlmostEqual(supply.read_output_current(), 4.56)
+        supply.set_voltage(24.0)
+        supply.set_output_enabled(False)
+        self.assertEqual(controller.voltage_v, 24.0)
+        self.assertFalse(controller.output_enabled)
+
+    def test_session_record_store_owns_session_and_pending_record_state(self) -> None:
+        store = SessionRecordStore()
+        started_at = datetime(2026, 7, 12, 9, 30, 0)
+        path = store.begin_session(Path("records"), "SN-1", started_at)
+        record = ExcelTestRecord(1, 2, 3, 0.5, 976, 976, 1, 0.8, [975, 976], [1, 2])
+
+        store.queue(record)
+
+        self.assertIsInstance(store, RecordStore)
+        self.assertEqual(path, Path("records/SN-1_2026_07_12_09_30_00.xlsx"))
+        self.assertEqual(store.unsaved_records(), (record,))
+        store.mark_saved((record,))
+        self.assertEqual(store.unsaved_records(), ())
+
+
+if __name__ == "__main__":
+    unittest.main()

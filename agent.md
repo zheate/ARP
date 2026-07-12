@@ -14,6 +14,10 @@
 - `main.py` is the stable operator entry point.
 - `combined_test/window.py` owns Qt layout, signal wiring, and operator interactions.
 - `combined_test/devices.py` owns hardware loading, device selection helpers, and acquisition threads.
+- `combined_test/device_interfaces.py` defines the stable `PowerSupply`, `PowerMeter`, and `SpectrumMeter` ports plus the legacy/TDK power adapter.
+- `combined_test/automation.py` owns automatic-test planning and device-independent state transitions.
+- `combined_test/automatic_controller.py` owns the Qt-timed automatic-test lifecycle and coordinates the device/store ports.
+- `combined_test/record_store.py` defines the `RecordStore` port and owns session/pending/saved record state.
 - `combined_test/spectrum.py` owns saturation detection and peak annotation analysis.
 - `combined_test/plots.py` owns realtime chart history, scaling, annotations, and render throttling.
 - `combined_test/persistence.py` owns background Excel and CSV writes.

@@ -2,7 +2,9 @@ import math
 import unittest
 
 from combined_test.automation import (
+    AutomaticTestOrchestrator,
     AutomaticTestSettings,
+    AutomaticTestState,
     build_ramp_down_currents,
     build_ramp_up_currents,
     build_test_currents,
@@ -55,6 +57,34 @@ class AutomaticCurrentSequenceTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             validate_automatic_test_settings(settings, stable_window_s=3.0, post_stable_delay_s=5.0)
+
+
+class AutomaticTestOrchestratorTests(unittest.TestCase):
+    def test_start_waits_for_both_devices_and_exposes_current_point(self) -> None:
+        orchestrator = AutomaticTestOrchestrator()
+        settings = AutomaticTestSettings(initial_current_a=1.0, target_current_a=2.0)
+
+        orchestrator.start(settings, power_meter_ready=False, spectrum_meter_ready=False)
+        orchestrator.mark_power_meter_ready()
+
+        self.assertEqual(orchestrator.state, AutomaticTestState.STARTING)
+        self.assertFalse(orchestrator.acquisition_ready)
+        orchestrator.mark_spectrum_meter_ready()
+        self.assertTrue(orchestrator.acquisition_ready)
+        self.assertEqual(orchestrator.current_a, 1.0)
+
+    def test_pause_remembers_previous_state_and_ramp_down_reaches_zero(self) -> None:
+        orchestrator = AutomaticTestOrchestrator()
+        settings = AutomaticTestSettings(ramp_down_step_a=5.0)
+        orchestrator.start(settings, power_meter_ready=True, spectrum_meter_ready=True)
+        orchestrator.set_state(AutomaticTestState.WAITING_STABLE)
+
+        orchestrator.pause("功率计失败")
+        ramp_down = orchestrator.begin_ramp_down(12.0)
+
+        self.assertEqual(orchestrator.paused_from_state, AutomaticTestState.WAITING_STABLE)
+        self.assertEqual(ramp_down, (7.0, 2.0, 0.0))
+        self.assertEqual(orchestrator.state, AutomaticTestState.RAMPING_DOWN)
 
 
 if __name__ == "__main__":

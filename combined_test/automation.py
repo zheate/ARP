@@ -35,6 +35,76 @@ class AutomaticTestSettings:
     pause_ramp_down_timeout_s: float = 30.0
 
 
+class AutomaticTestOrchestrator:
+    """Own the device-independent state and sequencing of an automatic test."""
+
+    def __init__(self) -> None:
+        self.state = AutomaticTestState.IDLE
+        self.settings: AutomaticTestSettings | None = None
+        self.currents: tuple[float, ...] = ()
+        self.current_index = -1
+        self.power_meter_ready = False
+        self.spectrum_meter_ready = False
+        self.pause_reason = ""
+        self.paused_from_state = AutomaticTestState.IDLE
+
+    @property
+    def acquisition_ready(self) -> bool:
+        return self.power_meter_ready and self.spectrum_meter_ready
+
+    @property
+    def current_a(self) -> float | None:
+        if 0 <= self.current_index < len(self.currents):
+            return self.currents[self.current_index]
+        return None
+
+    def start(
+        self,
+        settings: AutomaticTestSettings,
+        *,
+        power_meter_ready: bool,
+        spectrum_meter_ready: bool,
+    ) -> None:
+        self.settings = settings
+        self.currents = build_test_currents(settings)
+        self.current_index = 0
+        self.power_meter_ready = bool(power_meter_ready)
+        self.spectrum_meter_ready = bool(spectrum_meter_ready)
+        self.pause_reason = ""
+        self.state = AutomaticTestState.STARTING
+
+    def set_state(self, state: AutomaticTestState) -> None:
+        self.state = state
+
+    def mark_power_meter_ready(self) -> None:
+        self.power_meter_ready = True
+
+    def mark_spectrum_meter_ready(self) -> None:
+        self.spectrum_meter_ready = True
+
+    def pause(self, reason: str) -> None:
+        if self.state != AutomaticTestState.PAUSED:
+            self.paused_from_state = self.state
+        self.pause_reason = str(reason)
+        self.state = AutomaticTestState.PAUSED
+
+    def advance(self) -> bool:
+        if self.current_index + 1 >= len(self.currents):
+            return False
+        self.current_index += 1
+        return True
+
+    def begin_ramp_down(self, start_current_a: float) -> tuple[float, ...]:
+        if self.settings is None:
+            raise ValueError("自动下电参数不可用")
+        currents = build_ramp_down_currents(start_current_a, self.settings.ramp_down_step_a)
+        self.state = AutomaticTestState.RAMPING_DOWN
+        return currents
+
+    def complete(self) -> None:
+        self.state = AutomaticTestState.COMPLETED
+
+
 def _to_centiampere(value: float, name: str) -> int:
     number = float(value)
     if not math.isfinite(number):

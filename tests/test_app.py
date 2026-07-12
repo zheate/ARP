@@ -1492,6 +1492,35 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(controller.read_count, 1)
         window.close()
 
+    def test_manual_current_write_uses_power_supply_port_without_false_failure(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FakeController:
+            is_connected = True
+
+            def __init__(self) -> None:
+                self.writes: list[list[int]] = []
+
+            def i2c_write(self, _address: int, command: list[int]) -> tuple[bool, str]:
+                self.writes.append(command)
+                return True, "OK"
+
+            def disconnect_device(self) -> bool:
+                self.is_connected = False
+                return True
+
+        window = MainWindow()
+        controller = FakeController()
+        window.manual_ch341_controller = controller
+        window.set_current_spin.setValue(3.2)
+
+        window.apply_output_current()
+
+        self.assertEqual(controller.writes, [[0xB4, 0xFF, 3, 20]])
+        self.assertEqual(window.active_output_current_a, 3.2)
+        self.assertIn("3.2 A", window.log_text.text())
+        window.close()
+
     def test_automatic_current_command_waits_for_guard_instead_of_pausing(self) -> None:
         app = QApplication.instance() or QApplication([])
 
