@@ -250,7 +250,7 @@ class LivePlots:
             y_label="Intensity (counts)",
         )
         self.spectrum_centroid_text = self.spectrum_curve_figure.text(
-            0.28,
+            0.22,
             0.055,
             "Center wavelength   -- nm",
             ha="center",
@@ -259,7 +259,7 @@ class LivePlots:
             color=self._text_color,
         )
         self.spectrum_fwhm_text = self.spectrum_curve_figure.text(
-            0.50,
+            0.43,
             0.055,
             "FWHM   -- nm",
             ha="center",
@@ -268,9 +268,18 @@ class LivePlots:
             color=self._text_color,
         )
         self.spectrum_pib_text = self.spectrum_curve_figure.text(
-            0.68,
+            0.62,
             0.055,
             "PIB   -- %",
+            ha="center",
+            va="center",
+            fontsize=10,
+            color=self._text_color,
+        )
+        self.spectrum_smsr_text = self.spectrum_curve_figure.text(
+            0.80,
+            0.055,
+            "SMSR   -- dB",
             ha="center",
             va="center",
             fontsize=10,
@@ -391,6 +400,7 @@ class LivePlots:
         centroid_nm: float | None = None,
         fwhm_nm: float | None = None,
         pib: float | None = None,
+        smsr_db: float | None = None,
         saturated: bool | None = None,
     ) -> None:
         if centroid_nm is not None:
@@ -402,6 +412,9 @@ class LivePlots:
         if pib is not None:
             pib_text = "-- %" if not math.isfinite(pib) else f"{pib * 100.0:.2f} %"
             self.spectrum_pib_text.set_text(f"PIB   {pib_text}")
+        if smsr_db is not None:
+            smsr_text = "-- dB" if not math.isfinite(smsr_db) else f"{smsr_db:.2f} dB"
+            self.spectrum_smsr_text.set_text(f"SMSR   {smsr_text}")
         if saturated is not None:
             self.spectrum_saturation_text.set_visible(saturated)
 
@@ -413,11 +426,15 @@ class LivePlots:
         self.stability_status_text.set_color(self._text_color)
         self.stability_detail_text.set_text("0.00 / -- s  |  ΔP -- W ≤ -- W")
         self.power_curve_line.set_color(self._power_line_color)
+        self._reset_spectrum_metric_texts()
+        self._remove_stability_region()
+
+    def _reset_spectrum_metric_texts(self) -> None:
         self.spectrum_centroid_text.set_text("Center wavelength   -- nm")
         self.spectrum_fwhm_text.set_text("FWHM   -- nm")
         self.spectrum_pib_text.set_text("PIB   -- %")
+        self.spectrum_smsr_text.set_text("SMSR   -- dB")
         self.spectrum_saturation_text.set_visible(False)
-        self._remove_stability_region()
 
     def _remove_stability_region(self) -> None:
         if self._stable_region_artist is not None:
@@ -523,10 +540,7 @@ class LivePlots:
     def reset_spectrum(self) -> None:
         self.clear_spectrum_annotations()
         self.spectrum_peak_annotations.clear()
-        self.spectrum_centroid_text.set_text("Center wavelength   -- nm")
-        self.spectrum_fwhm_text.set_text("FWHM   -- nm")
-        self.spectrum_pib_text.set_text("PIB   -- %")
-        self.spectrum_saturation_text.set_visible(False)
+        self._reset_spectrum_metric_texts()
         self.spectrum_curve_line.set_data([], [])
         self.spectrum_curve_axis.set_xlim(0, 1)
         self.spectrum_curve_axis.set_ylim(0, 1)

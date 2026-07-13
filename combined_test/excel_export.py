@@ -12,6 +12,7 @@ from typing import Iterable
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font
+from openpyxl.worksheet.worksheet import Worksheet
 
 
 RESULT_HEADERS = (
@@ -23,6 +24,7 @@ RESULT_HEADERS = (
     "质心波长(nm)",
     "FWHM(nm)",
     "PIB",
+    "SMSR(dB)",
 )
 INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
@@ -39,6 +41,7 @@ class ExcelTestRecord:
     pib: float
     wavelength: Iterable[float]
     intensity: Iterable[float]
+    smsr_db: float = math.nan
 
 
 def sanitize_sn(sn: str) -> str:
@@ -58,14 +61,21 @@ def _finite_or_none(value: float) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def _ensure_result_headers(sheet: Worksheet) -> None:
+    for column, header in enumerate(RESULT_HEADERS, start=1):
+        cell = sheet.cell(row=2, column=column, value=header)
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(horizontal="center")
+    sheet.column_dimensions["I"].width = 12
+
+
 def _create_workbook(path: Path) -> Workbook:
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "测试数据"
     sheet["A1"] = "LIV"
     sheet["J1"] = "光谱"
-    for column, header in enumerate(RESULT_HEADERS, start=1):
-        sheet.cell(row=2, column=column, value=header)
+    _ensure_result_headers(sheet)
 
     sheet.freeze_panes = "A3"
     sheet.column_dimensions["A"].width = 12
@@ -76,12 +86,8 @@ def _create_workbook(path: Path) -> Workbook:
     sheet.column_dimensions["F"].width = 16
     sheet.column_dimensions["G"].width = 12
     sheet.column_dimensions["H"].width = 12
-    sheet.column_dimensions["I"].width = 3
     sheet["A1"].font = Font(bold=True)
     sheet["J1"].font = Font(bold=True)
-    for cell in sheet[2]:
-        cell.font = Font(bold=True)
-        cell.alignment = Alignment(horizontal="center")
     return workbook
 
 
@@ -114,6 +120,7 @@ def save_test_records(path: Path, records: Iterable[ExcelTestRecord]) -> None:
             record.centroid_nm,
             record.fwhm_nm,
             record.pib,
+            record.smsr_db,
         )
         for column, value in enumerate(result_values, start=1):
             sheet.cell(row=result_row, column=column, value=_finite_or_none(value))
@@ -121,6 +128,7 @@ def save_test_records(path: Path, records: Iterable[ExcelTestRecord]) -> None:
             sheet.cell(row=result_row, column=column).number_format = "0.000"
         for column in (4, 8):
             sheet.cell(row=result_row, column=column).number_format = "0.00%"
+        sheet.cell(row=result_row, column=9).number_format = "0.00"
 
         spectrum_column = 10 + index * 2
         sheet.cell(row=2, column=spectrum_column, value=f"{current:.1f}A")
@@ -155,12 +163,13 @@ def append_test_record(path: Path, record: ExcelTestRecord) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     workbook = load_workbook(target) if target.exists() else _create_workbook(target)
     sheet = workbook[workbook.sheetnames[0]]
+    _ensure_result_headers(sheet)
 
     result_by_current: dict[float, tuple[float | None, ...]] = {}
     row = 3
     while sheet.cell(row=row, column=1).value is not None:
         current = float(sheet.cell(row=row, column=1).value)
-        result_by_current[current] = tuple(sheet.cell(row=row, column=column).value for column in range(1, 9))
+        result_by_current[current] = tuple(sheet.cell(row=row, column=column).value for column in range(1, 10))
         row += 1
     previous_result_end_row = row - 1
     result_by_current[float(record.current_a)] = (
@@ -172,10 +181,11 @@ def append_test_record(path: Path, record: ExcelTestRecord) -> None:
         record.centroid_nm,
         record.fwhm_nm,
         record.pib,
+        record.smsr_db,
     )
 
     for clear_row in range(3, previous_result_end_row + 1):
-        for column in range(1, 9):
+        for column in range(1, 10):
             sheet.cell(row=clear_row, column=column).value = None
     for result_row, current in enumerate(sorted(result_by_current), start=3):
         for column, value in enumerate(result_by_current[current], start=1):
@@ -184,6 +194,7 @@ def append_test_record(path: Path, record: ExcelTestRecord) -> None:
             sheet.cell(row=result_row, column=column).number_format = "0.000"
         for column in (4, 8):
             sheet.cell(row=result_row, column=column).number_format = "0.00%"
+        sheet.cell(row=result_row, column=9).number_format = "0.00"
 
     spectra_by_current: dict[float, list[tuple[float | None, float | None]]] = {}
     previous_max_row = sheet.max_row

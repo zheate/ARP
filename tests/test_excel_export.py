@@ -3,7 +3,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
 from combined_test.excel_export import ExcelTestRecord, append_test_record, build_test_workbook_path, save_test_records
 
@@ -19,6 +19,7 @@ class ExcelExportTests(unittest.TestCase):
             centroid_nm=976.0,
             fwhm_nm=1.2,
             pib=0.995,
+            smsr_db=32.5,
             wavelength=[974.0, 976.0, 978.0],
             intensity=[10.0, 100.0, 20.0],
         )
@@ -38,9 +39,9 @@ class ExcelExportTests(unittest.TestCase):
             sheet = workbook[workbook.sheetnames[0]]
             self.assertEqual(sheet["A1"].value, "LIV")
             self.assertEqual(sheet["J1"].value, "光谱")
-            self.assertEqual([sheet.cell(2, column).value for column in range(1, 9)], [
+            self.assertEqual([sheet.cell(2, column).value for column in range(1, 10)], [
                 "电流(A)", "电压(V)", "功率(W)", "电光效率",
-                "中心波长(nm)", "质心波长(nm)", "FWHM(nm)", "PIB",
+                "中心波长(nm)", "质心波长(nm)", "FWHM(nm)", "PIB", "SMSR(dB)",
             ])
             self.assertEqual(sheet["A3"].value, 3.0)
             self.assertEqual(sheet["A4"].value, 4.0)
@@ -50,6 +51,8 @@ class ExcelExportTests(unittest.TestCase):
             self.assertEqual([sheet.cell(row, 11).value for row in range(3, 6)], [10.0, 100.0, 20.0])
             self.assertEqual(sheet["D3"].number_format, "0.00%")
             self.assertEqual(sheet["H3"].number_format, "0.00%")
+            self.assertEqual(sheet["I3"].value, 32.5)
+            self.assertEqual(sheet["I3"].number_format, "0.00")
             workbook.close()
 
     def test_batch_save_writes_all_records_once_in_current_order(self) -> None:
@@ -63,6 +66,31 @@ class ExcelExportTests(unittest.TestCase):
             self.assertEqual([sheet.cell(row, 1).value for row in range(3, 6)], [2.0, 4.0, 8.0])
             self.assertEqual([sheet.cell(2, column).value for column in (10, 12, 14)], ["2.0A", "4.0A", "8.0A"])
             workbook.close()
+
+    def test_append_migrates_legacy_workbook_smsr_header(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "legacy.xlsx"
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.title = "测试数据"
+            sheet["A1"] = "LIV"
+            sheet["J1"] = "光谱"
+            legacy_headers = (
+                "电流(A)", "电压(V)", "功率(W)", "电光效率",
+                "中心波长(nm)", "质心波长(nm)", "FWHM(nm)", "PIB",
+            )
+            for column, header in enumerate(legacy_headers, start=1):
+                sheet.cell(2, column, header)
+            workbook.save(path)
+            workbook.close()
+
+            append_test_record(path, self._record(3.0))
+
+            migrated = load_workbook(path)
+            sheet = migrated["测试数据"]
+            self.assertEqual(sheet["I2"].value, "SMSR(dB)")
+            self.assertEqual(sheet["I3"].value, 32.5)
+            migrated.close()
 
 
 if __name__ == "__main__":

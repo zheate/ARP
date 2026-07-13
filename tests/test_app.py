@@ -787,6 +787,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertIn("Center wavelength", window.live_plots.spectrum_centroid_text.get_text())
         self.assertIn("FWHM", window.live_plots.spectrum_fwhm_text.get_text())
         self.assertIn("PIB", window.live_plots.spectrum_pib_text.get_text())
+        self.assertIn("SMSR", window.live_plots.spectrum_smsr_text.get_text())
         self.assertFalse(window.log_text.isHidden())
         self.assertIsInstance(window.log_text, QLabel)
         self.assertFalse(hasattr(window, "toggle_log_button"))
@@ -1075,7 +1076,20 @@ class MainWindowTests(unittest.TestCase):
         window.on_spectrum_curve(wavelength, [0.0, 100.0, 200.0, 100.0, 0.0])
         self.assertFalse(window.latest_spectrum_saturated)
         self.assertFalse(window.live_plots.spectrum_saturation_text.get_visible())
-        self.assertNotEqual(window.live_plots.spectrum_pib_text.get_text(), "PIB   -- %")
+        self.assertEqual(window.live_plots.spectrum_pib_text.get_text(), "PIB   -- %")
+        window.close()
+
+    def test_spectrum_curve_displays_smsr_from_main_and_highest_side_mode(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        wavelength = [956.0 + index * 0.1 for index in range(401)]
+        intensity = [0.0] * len(wavelength)
+        intensity[179:182] = [60.0, 100.0, 60.0]
+        intensity[199:202] = [600.0, 1000.0, 600.0]
+        window.on_spectrum_curve(wavelength, intensity)
+
+        self.assertEqual(window.live_plots.spectrum_smsr_text.get_text(), "SMSR   10.00 dB")
         window.close()
 
     def test_saturated_spectrum_pauses_automatic_test_at_the_current_point(self) -> None:

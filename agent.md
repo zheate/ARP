@@ -64,5 +64,6 @@ Run standalone diagnostics from the repository root with `python -m tools.power_
 - Full spectrum curves are stored in the same worksheet's right-side `Spectra` area, with one wavelength/intensity column pair per current point.
 - Both LIV rows and Spectra column pairs are rewritten in ascending-current order on every save.
 - `Save Excel` snapshots all queued points, rebuilds the workbook once on an `ExcelSaveThread`, and atomically replaces the target file so the GUI remains responsive during large saves.
-- PIB uses `scipy.signal.medfilt(intensity)` and the default 974.5-977.5 nm band (976.0 +/- 1.5 nm).
+- PIB uses trapezoidal spectral-power integration: 974.5-977.5 nm divided by the fixed 956-996 nm pump-laser analysis band.
+- SMSR uses `10 * log10(main peak / highest resolved side-mode peak)` within 956-996 nm; saturated or unresolved spectra report no SMSR value.
 - Spectrum saturation is flagged when at least 3 consecutive pixels are at or above 16000 counts and within 99.5% of the frame maximum; saturated points show a red warning and are not queued for Excel.

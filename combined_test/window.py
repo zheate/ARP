@@ -90,7 +90,7 @@ from .spectrum import (
     detect_spectrum_saturation,
 )
 from .excel_export import ExcelTestRecord, sanitize_sn
-from .spectrum_math import calculate_pib, calculate_stats
+from .spectrum_math import calculate_pib, calculate_smsr, calculate_stats
 from .tdk_power_supply import TdkLambdaPowerSupply, list_tdk_serial_resources
 from .theme import apply_application_theme
 
@@ -1518,6 +1518,7 @@ class MainWindow(QMainWindow):
             self.add_log(message)
             return False
         stats = calculate_stats(self.latest_spectrum_wavelength, self.latest_spectrum_intensity)
+        smsr = calculate_smsr(self.latest_spectrum_wavelength, self.latest_spectrum_intensity)
         self.record_store.queue(ExcelTestRecord(
             current_a=current_a,
             voltage_v=voltage_v,
@@ -1529,6 +1530,7 @@ class MainWindow(QMainWindow):
             pib=calculate_pib(self.latest_spectrum_wavelength, self.latest_spectrum_intensity),
             wavelength=list(self.latest_spectrum_wavelength),
             intensity=list(self.latest_spectrum_intensity),
+            smsr_db=smsr.smsr_db,
         ))
         pending_count = len([current for current in self.pending_excel_records if current not in self.excel_recorded_currents])
         self.save_excel_button.setEnabled(pending_count > 0)
@@ -1948,7 +1950,12 @@ class MainWindow(QMainWindow):
             if not saturation.saturated and has_enough_pib_samples
             else math.nan
         )
-        self.live_plots.set_spectrum_metrics(pib=pib, saturated=saturation.saturated)
+        smsr = calculate_smsr(wavelength, intensity) if not saturation.saturated else None
+        self.live_plots.set_spectrum_metrics(
+            pib=pib,
+            smsr_db=math.nan if smsr is None else smsr.smsr_db,
+            saturated=saturation.saturated,
+        )
         if saturation.saturated and not was_saturated:
             message = (
                 f"光谱饱和：峰值 {saturation.peak_intensity:.0f} 计数，连续 "
