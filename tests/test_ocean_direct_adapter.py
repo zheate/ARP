@@ -103,6 +103,9 @@ class OceanDirectControlTests(unittest.TestCase):
 
         control.close_device()
         self.assertEqual(api.closed_device_id, 202)
+        control.shutdown()
+        control.shutdown()
+        self.assertTrue(api.shutdown_called)
 
 
 if __name__ == "__main__":

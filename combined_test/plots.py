@@ -24,6 +24,8 @@ from .spectrum import SPECTRUM_CENTER_LOCK_HALF_RANGE_NM, find_spectrum_peak_ann
 MAX_CURVE_POINTS = 10000
 POWER_PLOT_HISTORY_S = 60.0
 PLOT_REFRESH_INTERVAL_S = 0.2
+POWER_DISPLAY_SMOOTHING_WINDOW_S = 0.2
+POWER_DISPLAY_DECIMALS = 3
 CHART_FIGURE_SIZE = (4.2, 2.8)
 CHART_MINIMUM_HEIGHT = 180
 CHART_LAYOUT_MARGIN = 12
@@ -124,6 +126,7 @@ class LivePlots:
         self.curves_layout.setVerticalSpacing(CHART_LAYOUT_SPACING)
         self.power_curve_times: deque[float] = deque(maxlen=MAX_CURVE_POINTS)
         self.power_curve_values: deque[float] = deque(maxlen=MAX_CURVE_POINTS)
+        self._power_display_samples: deque[tuple[float, float]] = deque()
         self.spectrum_peak_annotations: list[SpectrumPeakAnnotation] = []
         self.spectrum_peak_annotation_artists: list[Any] = []
         self._last_power_draw_s = -math.inf
@@ -459,6 +462,7 @@ class LivePlots:
     def reset_power(self) -> None:
         self.power_curve_times.clear()
         self.power_curve_values.clear()
+        self._power_display_samples.clear()
         self.set_power_value(None)
         self._power_stable = False
         self.power_curve_line.set_color(self._power_line_color)
@@ -478,8 +482,23 @@ class LivePlots:
         if not math.isfinite(elapsed) or not math.isfinite(power):
             return
 
+        if self._power_display_samples and elapsed < self._power_display_samples[-1][0]:
+            self._power_display_samples.clear()
+        self._power_display_samples.append((elapsed, power))
+        smoothing_cutoff = elapsed - POWER_DISPLAY_SMOOTHING_WINDOW_S
+        while (
+            len(self._power_display_samples) > 1
+            and self._power_display_samples[0][0] < smoothing_cutoff
+        ):
+            self._power_display_samples.popleft()
+        display_power = round(
+            math.fsum(sample_power for _sample_time, sample_power in self._power_display_samples)
+            / len(self._power_display_samples),
+            POWER_DISPLAY_DECIMALS,
+        )
+
         self.power_curve_times.append(elapsed)
-        self.power_curve_values.append(power)
+        self.power_curve_values.append(display_power)
         cutoff = max(0.0, elapsed - POWER_PLOT_HISTORY_S)
         while self.power_curve_times and self.power_curve_times[0] < cutoff:
             self.power_curve_times.popleft()
@@ -487,7 +506,7 @@ class LivePlots:
 
         times = list(self.power_curve_times)
         powers = list(self.power_curve_values)
-        self.set_power_value(power)
+        self.set_power_value(display_power)
         self.power_curve_line.set_data(times, powers)
         x_max = max(10.0, times[-1])
         y_min = min(powers)

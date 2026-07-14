@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSpinBox,
     QStatusBar,
+    QTabWidget,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -91,8 +92,14 @@ from .spectrum import (
 )
 from .excel_export import ExcelTestRecord, sanitize_sn
 from .spectrum_math import calculate_pib, calculate_smsr, calculate_stats
-from .tdk_power_supply import TdkLambdaPowerSupply, list_tdk_serial_resources
+from .tdk_power_supply import (
+    TdkLambdaPowerSupply,
+    compensate_tdk_output_voltage,
+    list_tdk_serial_resources,
+)
 from .theme import apply_application_theme
+from tools.pd_daq_mvp import PdDaqPanel
+from tools.visa_session import visa_resource_manager
 
 
 DEFAULT_POWER_RESOURCE = "ASRL3::INSTR"
@@ -106,8 +113,11 @@ DEFAULT_SPECTROMETER_INTEGRATION_US = 10000
 WAVELENGTH_STABILITY_TOLERANCE_NM = 0.2
 MIN_SPECTRUM_PEAK_INTENSITY = 500.0
 AUTOMATIC_DEVICE_START_TIMEOUT_S = 15.0
+BACKGROUND_STOP_TIMEOUT_S = 10.0
 LEFT_PANEL_MIN_WIDTH = 440
 LEFT_PANEL_MAX_WIDTH = 460
+LEGACY_CURRENT_LIMIT_A = 20.0
+TDK_CURRENT_INPUT_MAX_A = math.inf
 
 
 def user_facing_error_message(error: BaseException | str) -> str:
@@ -144,7 +154,7 @@ class MainWindow(QMainWindow):
     def __init__(self, input_settings: QSettings | None = None) -> None:
         super().__init__()
         self.input_settings = input_settings or QSettings("Changguang Huaxin", "Pump Driver Integrated Test")
-        self.setWindowTitle("电源 / 功率计 / 波长综合测试")
+        self.setWindowTitle("电源 / 功率计 / 光谱 / PD 综合测试")
         self.resize(1450, 980)
         self.power_meter_detect_thread: PowerMeterDetectThread | None = None
         self.power_meter_reader: PowerMeter | None = None
@@ -202,6 +212,9 @@ class MainWindow(QMainWindow):
         self.automatic_paused_from_state = AutomaticTestState.IDLE
         self.close_after_automatic_ramp_down = False
         self.close_after_background_tasks = False
+        self.background_stop_timeout_timer = QTimer(self)
+        self.background_stop_timeout_timer.setSingleShot(True)
+        self.background_stop_timeout_timer.timeout.connect(self.on_background_stop_timeout)
         self.automatic_completion_record: ExcelTestRecord | None = None
         self.last_point_record_error = ""
         self.automatic_device_start_timer = QTimer(self)
@@ -226,8 +239,10 @@ class MainWindow(QMainWindow):
         self.automatic_pause_safety_timer.setSingleShot(True)
         self.automatic_pause_safety_timer.timeout.connect(self.on_automatic_pause_safety_timeout)
 
-        self.content_widget = QWidget(self)
-        self.setCentralWidget(self.content_widget)
+        self.main_tabs = QTabWidget(self)
+        self.setCentralWidget(self.main_tabs)
+        self.content_widget = QWidget(self.main_tabs)
+        self.main_tabs.addTab(self.content_widget, "联合测试")
 
         root = self.content_widget
         main = QVBoxLayout(root)
@@ -273,6 +288,12 @@ class MainWindow(QMainWindow):
         self._build_curve_panel(monitor)
 
         self._build_log_panel(main)
+
+        self.pd_panel = PdDaqPanel(self.main_tabs, auto_refresh=False)
+        self.pd_tab_index = self.main_tabs.addTab(self.pd_panel, "PD 采集")
+        self.main_tabs.currentChanged.connect(self.on_main_tab_changed)
+        self.pd_panel.running_changed.connect(lambda _running: self.update_global_status())
+        self.pd_panel.acquisition_finished.connect(self._continue_pending_close)
         self._configure_button_semantics()
         self._disable_wheel_input_changes()
         self._restore_input_settings()
@@ -348,6 +369,13 @@ class MainWindow(QMainWindow):
                 prefix + "auto_pause_ramp_down_timeout_s",
                 self.auto_pause_ramp_down_timeout_spin.value(),
                 type=float,
+            )
+        )
+        self.auto_use_spectrometer_check.setChecked(
+            settings.value(
+                prefix + "auto_use_spectrometer",
+                self.auto_use_spectrometer_check.isChecked(),
+                type=bool,
             )
         )
         self.sn_field.setText(str(settings.value(prefix + "sn", self.sn_field.text())))
@@ -471,6 +499,7 @@ class MainWindow(QMainWindow):
             prefix + "auto_pause_ramp_down_timeout_s",
             self.auto_pause_ramp_down_timeout_spin.value(),
         )
+        settings.setValue(prefix + "auto_use_spectrometer", self.auto_use_spectrometer_check.isChecked())
         settings.setValue(prefix + "sn", self.sn_field.text().strip())
         settings.setValue(prefix + "output_dir", self.output_dir_field.text().strip())
         settings.sync()
@@ -563,6 +592,7 @@ class MainWindow(QMainWindow):
             self.stop_all_button,
             self.stop_power_meter_button,
             self.stop_spectrometer_button,
+            self.pd_panel.stop_button,
             self.end_automatic_test_button,
         ):
             button.setStyleSheet(destructive_style)
@@ -607,6 +637,7 @@ class MainWindow(QMainWindow):
 
     def _build_power_supply_group(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("电源", self)
+        self.power_supply_group = group
         form = QFormLayout(group)
         self._configure_left_form(form)
 
@@ -788,6 +819,13 @@ class MainWindow(QMainWindow):
         self.auto_pause_ramp_down_timeout_spin.setValue(30.0)
         self.auto_pause_ramp_down_timeout_spin.setSuffix(" s")
         self.auto_pause_ramp_down_timeout_spin.setToolTip("暂停后超过此时间自动分段降至 0 A；设为 0 可关闭")
+
+        self.auto_use_spectrometer_check = QCheckBox("使用光谱仪（同时判断波长稳定）", self)
+        self.auto_use_spectrometer_check.setChecked(True)
+        self.auto_use_spectrometer_check.setToolTip(
+            "未连接光谱仪时取消勾选；自动测试将只等待功率稳定，并继续计算和保存效率"
+        )
+        form.addRow("自动判稳", self.auto_use_spectrometer_check)
 
         parameter_grid = QGridLayout()
         # Keep the two parameter columns inside the scroll-area viewport. If
@@ -1016,6 +1054,12 @@ class MainWindow(QMainWindow):
         parent.addWidget(self.live_plots.group, stretch=2)
         self.reset_curves()
 
+    def on_main_tab_changed(self, index: int) -> None:
+        if index != self.pd_tab_index or self.pd_panel.reader is not None:
+            return
+        if self.pd_panel.device_combo.count() == 0:
+            self.pd_panel.refresh_devices()
+
     def _build_log_panel(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("日志", self)
         layout = QHBoxLayout(group)
@@ -1087,6 +1131,7 @@ class MainWindow(QMainWindow):
             return
         self.stop_power_meter()
         self.stop_spectrometer()
+        self.pd_panel.stop_acquisition()
 
     def update_global_status(self) -> None:
         if not hasattr(self, "global_status_label"):
@@ -1094,6 +1139,8 @@ class MainWindow(QMainWindow):
         psu_connected = self._manual_i2c_connected()
         power_running = self.power_meter_reader is not None
         spectrometer_running = self.spectrometer_reader is not None
+        pd_panel = getattr(self, "pd_panel", None)
+        pd_running = pd_panel is not None and pd_panel.reader is not None
         power_connected = power_running and bool(getattr(self.power_meter_reader, "is_ready", False))
         spectrometer_connected = spectrometer_running and bool(getattr(self.spectrometer_reader, "is_ready", False))
         power_detecting = self.power_meter_detect_thread is not None
@@ -1109,7 +1156,9 @@ class MainWindow(QMainWindow):
         elif automatic_active:
             self.global_status_label.setText("自动测试运行中")
         else:
-            self.global_status_label.setText("测试运行中" if power_running or spectrometer_running else "测试待机")
+            self.global_status_label.setText(
+                "测试运行中" if power_running or spectrometer_running or pd_running else "测试待机"
+            )
         self.global_psu_status_label.setText("电源：已连接" if psu_connected else "电源：未连接")
         if power_detecting:
             self.global_power_meter_status_label.setText("功率计：检测中")
@@ -1119,7 +1168,9 @@ class MainWindow(QMainWindow):
         self._set_status_indicator(self.global_psu_status_indicator, psu_connected)
         self._set_status_indicator(self.global_power_meter_status_indicator, power_connected)
         self._set_status_indicator(self.global_spectrometer_status_indicator, spectrometer_connected)
-        self.stop_all_button.setEnabled(power_running or spectrometer_running or automatic_active)
+        self.stop_all_button.setEnabled(
+            power_running or spectrometer_running or pd_running or automatic_active
+        )
 
         if hasattr(self, "power_meter_status_label"):
             self.power_meter_status_label.setText("检测中" if power_detecting else ("运行中" if power_running else "已停止"))
@@ -1137,9 +1188,7 @@ class MainWindow(QMainWindow):
         selected_kind = self._selected_power_supply_kind()
         if self._manual_i2c_connected() and selected_kind != self.power_supply_controller_kind:
             try:
-                if self.power_supply_controller_kind == "tdk" and bool(
-                    getattr(self.manual_ch341_controller, "output_enabled", False)
-                ):
+                if self.power_supply_controller_kind == "tdk":
                     self.manual_ch341_controller.set_output_enabled(False)
                 self.manual_ch341_controller.disconnect_device()
             except Exception as exc:
@@ -1162,10 +1211,21 @@ class MainWindow(QMainWindow):
         self.power_supply_form.setRowVisible(self.tdk_voltage_row, is_tdk)
         self.power_supply_form.setRowVisible(self.tdk_output_row, is_tdk)
         self.power_supply_form.setRowVisible(self.power_supply_read_row, not is_tdk)
+        current_maximum = TDK_CURRENT_INPUT_MAX_A if is_tdk else LEGACY_CURRENT_LIMIT_A
+        for current_widget in (
+            self.set_current_spin,
+            self.auto_initial_current_spin,
+            self.auto_target_current_spin,
+            self.auto_current_step_spin,
+            self.auto_ramp_down_step_spin,
+        ):
+            current_widget.setMaximum(current_maximum)
+            current_widget.setToolTip(
+                "TDK 模式不设置软件电流上限，请勿超过电源及被测产品的额定值。"
+                if is_tdk
+                else "CH341 控制协议的电流范围为 0–20 A。"
+            )
         if not is_tdk:
-            self.set_current_spin.setMaximum(20.0)
-            self.auto_initial_current_spin.setMaximum(20.0)
-            self.auto_target_current_spin.setMaximum(20.0)
             self.tdk_voltage_spin.setMaximum(1000.0)
         for widget in (
             self.tdk_resource_combo,
@@ -1181,6 +1241,8 @@ class MainWindow(QMainWindow):
         self.i2c_status_label.setText("未连接")
         self.tdk_output_status_label.setText("输出关闭")
         self.tdk_output_button.setText("开启输出")
+        if hasattr(self, "power_supply_group"):
+            self._reserve_group_height(self.power_supply_group)
         self.update_global_status()
 
     def refresh_tdk_resources(self) -> None:
@@ -1215,7 +1277,7 @@ class MainWindow(QMainWindow):
         label = "TDK" if self.power_supply_controller_kind == "tdk" else "CH341"
         if self._manual_i2c_connected():
             try:
-                if label == "TDK" and bool(getattr(controller, "output_enabled", False)):
+                if label == "TDK":
                     controller.set_output_enabled(False)
                 controller.disconnect_device()
             except Exception as exc:
@@ -1243,14 +1305,8 @@ class MainWindow(QMainWindow):
                 self.tdk_output_status_label.setText("输出开启" if output_enabled else "输出关闭")
                 self.tdk_output_button.setText("关闭输出" if output_enabled else "开启输出")
                 maximum_voltage = getattr(controller, "maximum_voltage_v", None)
-                maximum_current = getattr(controller, "maximum_current_a", None)
                 if maximum_voltage is not None:
                     self.tdk_voltage_spin.setMaximum(float(maximum_voltage))
-                if maximum_current is not None:
-                    current_limit = min(20.0, float(maximum_current))
-                    self.set_current_spin.setMaximum(current_limit)
-                    self.auto_initial_current_spin.setMaximum(current_limit)
-                    self.auto_target_current_spin.setMaximum(current_limit)
             self.add_log(f"{label} 已连接：{detail}")
             self.update_global_status()
         except Exception as exc:
@@ -1389,6 +1445,7 @@ class MainWindow(QMainWindow):
             or reading.stability_generation != generation
             or (
                 self.automatic_test_state == AutomaticTestState.WAITING_VOLTAGE
+                and self.automatic_controller.automatic_uses_spectrometer()
                 and not self.latest_wavelength_stable
             )
         ):
@@ -1427,15 +1484,26 @@ class MainWindow(QMainWindow):
             power_supply = self.get_power_supply()
             if command[1] == 0x8B and power_supply is not None:
                 value = power_supply.read_output_voltage()
+                command_label = "RS-232 MV?" if self.power_supply_controller_kind == "tdk" else None
             elif command[1] == 0x8C and power_supply is not None:
                 value = power_supply.read_output_current()
+                command_label = "RS-232 MC?" if self.power_supply_controller_kind == "tdk" else None
             else:
                 value = read_power_status_value(controller, DEFAULT_I2C_ADDRESS, command)
+                command_label = None
             raw_command = " ".join(f"{item:02X}" for item in command)
-            self.add_log(f"{name}: {value:.2f} {unit} ({raw_command})")
+            self.add_log(f"{name}: {value:.2f} {unit} ({command_label or raw_command})")
             self.statusBar().showMessage(f"{name}: {value:.2f} {unit}")
             return value
         except Exception as exc:
+            if (
+                self.power_supply_controller_kind == "tdk"
+                and not bool(getattr(controller, "is_connected", False))
+            ):
+                self.i2c_status_label.setText("连接已失效")
+                self.connect_i2c_button.setText("重新连接 TDK")
+                self.tdk_output_status_label.setText("输出状态未知")
+                self.update_global_status()
             QMessageBox.critical(self, name, user_facing_error_message(exc))
             return None
 
@@ -1456,6 +1524,14 @@ class MainWindow(QMainWindow):
             self.add_log("已读取输出电压；暂无稳定功率点，未绘制效率")
             self.pause_automatic_point_if_waiting("当前测试点缺少稳定功率数据")
             return
+
+        raw_voltage_v = float(voltage_v)
+        if self.power_supply_controller_kind == "tdk":
+            voltage_v = compensate_tdk_output_voltage(raw_voltage_v, current_a)
+            self.add_log(
+                f"TDK 线阻补偿：MV? {raw_voltage_v:.3f} V → "
+                f"负载端 {voltage_v:.3f} V（修正 {voltage_v - raw_voltage_v:+.3f} V）"
+            )
         if voltage_v <= 0.0:
             self.statusBar().showMessage("输出电压必须大于 0 才能计算效率")
             self.add_log("已读取输出电压；输出电压为 0，未绘制效率")
@@ -1489,6 +1565,27 @@ class MainWindow(QMainWindow):
         efficiency: float,
     ) -> bool:
         self.last_point_record_error = ""
+        spectrum_optional = (
+            self.automatic_measurement_is_active()
+            and not self.automatic_controller.automatic_uses_spectrometer()
+        )
+        if spectrum_optional:
+            self.record_store.queue(ExcelTestRecord(
+                current_a=current_a,
+                voltage_v=voltage_v,
+                power_w=power_w,
+                efficiency=efficiency,
+                peak_wavelength_nm=math.nan,
+                centroid_nm=math.nan,
+                fwhm_nm=math.nan,
+                pib=math.nan,
+                wavelength=[],
+                intensity=[],
+                smsr_db=math.nan,
+            ))
+            self.save_excel_button.setEnabled(True)
+            self.add_log(f"已加入无光谱测试点：{current_a:.3f} A")
+            return True
         if self.latest_spectrum_wavelength is None or self.latest_spectrum_intensity is None:
             self.last_point_record_error = "暂无光谱数据"
             self.add_log("已跳过 Excel 记录：暂无光谱数据")
@@ -1634,13 +1731,8 @@ class MainWindow(QMainWindow):
     def refresh_power_meter_resources(self) -> None:
         current = self._selected_power_resource()
         try:
-            import pyvisa
-
-            rm = pyvisa.ResourceManager()
-            try:
+            with visa_resource_manager() as rm:
                 resources = sorted(str(item) for item in rm.list_resources() if str(item).startswith("ASRL"))
-            finally:
-                rm.close()
             self.power_meter_combo.clear()
             self.power_meter_combo.addItems(resources)
             if current:
@@ -1893,6 +1985,7 @@ class MainWindow(QMainWindow):
                 was_stable
                 and not result.stable
                 and self.automatic_test_state == AutomaticTestState.WAITING_VOLTAGE
+                and self.automatic_controller.automatic_uses_spectrometer()
             ):
                 self.invalidate_automatic_stability("中心波长不再稳定")
         else:
@@ -1997,6 +2090,9 @@ class MainWindow(QMainWindow):
     def capture_stable_power_point(self, reading: PowerMeterReading) -> None:
         current_a = self.pending_stable_point_current_a
         require_joint_stability = self.automatic_test_state == AutomaticTestState.WAITING_STABLE
+        require_spectrum_stability = (
+            require_joint_stability and self.automatic_controller.automatic_uses_spectrometer()
+        )
         if current_a is None:
             if (
                 not reading.stable
@@ -2020,7 +2116,7 @@ class MainWindow(QMainWindow):
             return
         if not reading.stable:
             return
-        if require_joint_stability and not self.latest_wavelength_stable:
+        if require_spectrum_stability and not self.latest_wavelength_stable:
             return
         if (
             self.pending_stable_point_generation is not None
@@ -2043,7 +2139,7 @@ class MainWindow(QMainWindow):
         self.recorded_stable_point_current_a = current_a
         self.recorded_stable_point_generation = reading.stability_generation
         self.update_stable_power_curve()
-        if require_joint_stability:
+        if require_spectrum_stability:
             self.statusBar().showMessage(
                 f"已记录 {current_a:.3f} A 联合稳定点：{reading.power_w:.3f} W，"
                 f"波长跨度 {self.latest_wavelength_span_nm:.3f} nm"
@@ -2311,6 +2407,7 @@ class MainWindow(QMainWindow):
                 self.power_meter_detect_thread,
                 self.power_meter_reader,
                 self.spectrometer_reader,
+                self.pd_panel.reader,
             )
         )
 
@@ -2319,11 +2416,135 @@ class MainWindow(QMainWindow):
             self.power_meter_detect_thread.stop()
         self.stop_power_meter()
         self.stop_spectrometer()
+        self.pd_panel.stop_acquisition()
 
     def _continue_pending_close(self) -> None:
         if self.close_after_background_tasks and not self._background_tasks_are_running():
+            self.background_stop_timeout_timer.stop()
             self.close_after_background_tasks = False
             QTimer.singleShot(0, self.close)
+
+    def _ask_background_stop_timeout_action(self, can_force: bool) -> str:
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Icon.Critical)
+        dialog.setWindowTitle("后台设备停止超时")
+        dialog.setText("采集设备未能在限定时间内停止。")
+        dialog.setInformativeText(
+            "可以继续等待，或取消退出并检查设备连接。"
+            + ("\n强制停止可能使设备驱动需要重新连接。" if can_force else "\nExcel 正在保存，不能强制停止。")
+        )
+        retry_button = dialog.addButton("继续等待", QMessageBox.ButtonRole.AcceptRole)
+        force_button = (
+            dialog.addButton("强制停止并退出", QMessageBox.ButtonRole.DestructiveRole)
+            if can_force
+            else None
+        )
+        cancel_button = dialog.addButton("取消退出", QMessageBox.ButtonRole.RejectRole)
+        dialog.setDefaultButton(retry_button)
+        dialog.setEscapeButton(cancel_button)
+        dialog.exec()
+        clicked_button = dialog.clickedButton()
+        if force_button is not None and clicked_button is force_button:
+            return "force"
+        if clicked_button is retry_button:
+            return "retry"
+        return "cancel"
+
+    def on_background_stop_timeout(self) -> None:
+        if not self.close_after_background_tasks:
+            return
+        if not self._background_tasks_are_running():
+            self._continue_pending_close()
+            return
+
+        excel_is_running = self._thread_is_running(self.excel_save_thread)
+        action = self._ask_background_stop_timeout_action(not excel_is_running)
+        if action == "retry":
+            self._request_background_stop()
+            self.background_stop_timeout_timer.start(round(BACKGROUND_STOP_TIMEOUT_S * 1000.0))
+            return
+        if action == "cancel":
+            self.close_after_background_tasks = False
+            self.statusBar().showMessage("已取消退出；请检查未响应的设备连接")
+            return
+
+        for thread in (
+            self.power_meter_detect_thread,
+            self.power_meter_reader,
+            self.spectrometer_reader,
+            self.pd_panel.reader,
+        ):
+            if not self._thread_is_running(thread):
+                continue
+            terminate = getattr(thread, "terminate", None)
+            if callable(terminate):
+                terminate()
+            wait = getattr(thread, "wait", None)
+            if callable(wait):
+                wait(1000)
+
+        if self._background_tasks_are_running():
+            self.close_after_background_tasks = False
+            QMessageBox.critical(self, "退出失败", "后台设备仍未停止，窗口将保持打开。")
+            return
+        self.close_after_background_tasks = False
+        QTimer.singleShot(0, self.close)
+
+    def _ask_tdk_shutdown_failure_action(self, error: BaseException) -> str:
+        """Let the operator recover when the supply no longer answers during exit."""
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Icon.Critical)
+        dialog.setWindowTitle("TDK 输出关闭失败")
+        dialog.setText("无法确认 TDK 输出已经关闭。")
+        dialog.setInformativeText(
+            f"{user_facing_error_message(error)}\n\n"
+            "可重试发送关闭命令；如果设备已经断开，可强制退出程序。\n"
+            "强制退出前请在电源面板确认输出已关闭。"
+        )
+        retry_button = dialog.addButton("重试关闭输出", QMessageBox.ButtonRole.AcceptRole)
+        force_button = dialog.addButton("强制退出", QMessageBox.ButtonRole.DestructiveRole)
+        cancel_button = dialog.addButton("取消", QMessageBox.ButtonRole.RejectRole)
+        dialog.setDefaultButton(retry_button)
+        dialog.setEscapeButton(cancel_button)
+        dialog.exec()
+        clicked_button = dialog.clickedButton()
+        if clicked_button is retry_button:
+            return "retry"
+        if clicked_button is force_button:
+            return "force"
+        return "cancel"
+
+    def _shutdown_tdk_for_close(self, event: QCloseEvent) -> bool:
+        """Turn off and release TDK, with an explicit escape hatch for a dead link."""
+        controller = self.manual_ch341_controller
+        if controller is None:
+            return True
+
+        # Always send OUT 0. The cached flag starts as False after connecting
+        # and cannot prove that the supply was already off before connection.
+        while True:
+            try:
+                controller.set_output_enabled(False)
+                break
+            except Exception as exc:
+                action = self._ask_tdk_shutdown_failure_action(exc)
+                if action == "retry":
+                    continue
+                if action == "cancel":
+                    event.ignore()
+                    return False
+
+                self.add_log("TDK 未确认输出关闭；操作者选择强制退出，请检查电源面板")
+                break
+
+        # Once OUT 0 succeeded (or the operator explicitly accepted the
+        # unknown hardware state), a serial-close failure must not trap the UI.
+        try:
+            controller.disconnect_device()
+        except Exception as exc:
+            self.add_log(f"退出时释放 TDK 串口失败：{user_facing_error_message(exc)}")
+        self.manual_ch341_controller = None
+        return True
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self.automatic_test_state not in (AutomaticTestState.IDLE, AutomaticTestState.COMPLETED):
@@ -2336,23 +2557,15 @@ class MainWindow(QMainWindow):
         self._request_background_stop()
         if self._background_tasks_are_running():
             self.close_after_background_tasks = True
+            self.background_stop_timeout_timer.start(round(BACKGROUND_STOP_TIMEOUT_S * 1000.0))
             self.statusBar().showMessage("正在安全停止后台采集，请稍候…")
             event.ignore()
             return
+        self.background_stop_timeout_timer.stop()
         self.close_after_background_tasks = False
         if self.manual_ch341_controller is not None:
             if self.power_supply_controller_kind == "tdk":
-                try:
-                    if bool(getattr(self.manual_ch341_controller, "output_enabled", False)):
-                        self.manual_ch341_controller.set_output_enabled(False)
-                    self.manual_ch341_controller.disconnect_device()
-                except Exception as exc:
-                    event.ignore()
-                    QMessageBox.critical(
-                        self,
-                        "TDK 输出",
-                        f"关闭 TDK 输出失败，窗口保持开启。\n{user_facing_error_message(exc)}",
-                    )
+                if not self._shutdown_tdk_for_close(event):
                     return
             else:
                 try:

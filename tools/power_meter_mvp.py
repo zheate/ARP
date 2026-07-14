@@ -30,6 +30,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from tools.visa_session import acquire_visa_resource_manager, release_visa_resource_manager
+
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
@@ -88,13 +90,25 @@ class CaihuangPowerMeter:
 
     def __init__(self, resource: str) -> None:
         self.resource = normalize_resource(resource)
-        self.rm = pyvisa.ResourceManager()
-        self.inst = self.rm.open_resource(self.resource)
-        configure_caihuang(self.inst)
+        self.rm = acquire_visa_resource_manager()
+        self.inst = None
+        try:
+            self.inst = self.rm.open_resource(self.resource)
+            configure_caihuang(self.inst)
+        except Exception:
+            if self.inst is not None:
+                try:
+                    self.inst.close()
+                except Exception:
+                    pass
+                self.inst = None
+            release_visa_resource_manager(self.rm)
+            self.rm = None
+            raise
 
     @staticmethod
     def probe(resource: str, timeout_ms: int = 1000) -> ProbeResult | None:
-        rm = pyvisa.ResourceManager()
+        rm = acquire_visa_resource_manager()
         inst = None
         try:
             inst = rm.open_resource(normalize_resource(resource))
@@ -117,7 +131,7 @@ class CaihuangPowerMeter:
                     inst.close()
                 except Exception:
                     pass
-            rm.close()
+            release_visa_resource_manager(rm)
         return None
 
     def test(self) -> str:
@@ -137,8 +151,15 @@ class CaihuangPowerMeter:
             raise RuntimeError(f"set relative zero failed: {reply}")
 
     def close(self) -> None:
-        self.inst.close()
-        self.rm.close()
+        inst, rm = self.inst, self.rm
+        self.inst = None
+        self.rm = None
+        try:
+            if inst is not None:
+                inst.close()
+        finally:
+            if rm is not None:
+                release_visa_resource_manager(rm)
 
 
 class PowerReaderThread(QThread):
@@ -194,7 +215,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Power Meter MVP")
         self.resize(1100, 720)
 
-        self.rm = pyvisa.ResourceManager()
+        self.rm = acquire_visa_resource_manager()
         self.reader: PowerReaderThread | None = None
         self.times: Deque[float] = deque(maxlen=MAX_SAMPLES)
         self.powers: Deque[float] = deque(maxlen=MAX_SAMPLES)
@@ -434,7 +455,9 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self.stop_reading()
-        self.rm.close()
+        rm, self.rm = self.rm, None
+        if rm is not None:
+            release_visa_resource_manager(rm)
         super().closeEvent(event)
 
 

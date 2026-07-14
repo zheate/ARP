@@ -52,7 +52,9 @@ def sanitize_sn(sn: str) -> str:
 
 
 def build_test_workbook_path(output_dir: Path, sn: str, test_time: datetime) -> Path:
-    filename = f"{sanitize_sn(sn)}_{test_time.strftime('%Y_%m_%d_%H_%M_%S')}.xlsx"
+    # Distinct sessions must never silently replace each other, even when two
+    # tests start during the same second.
+    filename = f"{sanitize_sn(sn)}_{test_time.strftime('%Y_%m_%d_%H_%M_%S_%f')}.xlsx"
     return Path(output_dir).expanduser() / filename
 
 
@@ -97,8 +99,8 @@ def save_test_records(path: Path, records: Iterable[ExcelTestRecord]) -> None:
     for record in records:
         wavelength_values = [float(value) for value in record.wavelength]
         intensity_values = [float(value) for value in record.intensity]
-        if not wavelength_values or len(wavelength_values) != len(intensity_values):
-            raise ValueError("波长和强度数据不能为空且长度必须一致")
+        if len(wavelength_values) != len(intensity_values):
+            raise ValueError("波长和强度数据长度必须一致")
         records_by_current[float(record.current_a)] = (record, wavelength_values, intensity_values)
     if not records_by_current:
         raise ValueError("至少需要一个测试记录")
@@ -108,6 +110,7 @@ def save_test_records(path: Path, records: Iterable[ExcelTestRecord]) -> None:
     workbook = _create_workbook(target)
     sheet = workbook[workbook.sheetnames[0]]
 
+    spectrum_index = 0
     for index, current in enumerate(sorted(records_by_current)):
         record, wavelength_values, intensity_values = records_by_current[current]
         result_row = 3 + index
@@ -130,18 +133,20 @@ def save_test_records(path: Path, records: Iterable[ExcelTestRecord]) -> None:
             sheet.cell(row=result_row, column=column).number_format = "0.00%"
         sheet.cell(row=result_row, column=9).number_format = "0.00"
 
-        spectrum_column = 10 + index * 2
-        sheet.cell(row=2, column=spectrum_column, value=f"{current:.1f}A")
-        sheet.column_dimensions[sheet.cell(row=1, column=spectrum_column).column_letter].width = 14
-        sheet.column_dimensions[sheet.cell(row=1, column=spectrum_column + 1).column_letter].width = 14
-        for spectrum_row, (wavelength_nm, intensity) in enumerate(
-            zip(wavelength_values, intensity_values),
-            start=3,
-        ):
-            sheet.cell(row=spectrum_row, column=spectrum_column, value=_finite_or_none(wavelength_nm))
-            sheet.cell(row=spectrum_row, column=spectrum_column + 1, value=_finite_or_none(intensity))
-            sheet.cell(row=spectrum_row, column=spectrum_column).number_format = "0.000000"
-            sheet.cell(row=spectrum_row, column=spectrum_column + 1).number_format = "0.000000"
+        if wavelength_values:
+            spectrum_column = 10 + spectrum_index * 2
+            spectrum_index += 1
+            sheet.cell(row=2, column=spectrum_column, value=f"{current:.1f}A")
+            sheet.column_dimensions[sheet.cell(row=1, column=spectrum_column).column_letter].width = 14
+            sheet.column_dimensions[sheet.cell(row=1, column=spectrum_column + 1).column_letter].width = 14
+            for spectrum_row, (wavelength_nm, intensity) in enumerate(
+                zip(wavelength_values, intensity_values),
+                start=3,
+            ):
+                sheet.cell(row=spectrum_row, column=spectrum_column, value=_finite_or_none(wavelength_nm))
+                sheet.cell(row=spectrum_row, column=spectrum_column + 1, value=_finite_or_none(intensity))
+                sheet.cell(row=spectrum_row, column=spectrum_column).number_format = "0.000000"
+                sheet.cell(row=spectrum_row, column=spectrum_column + 1).number_format = "0.000000"
 
     temporary = target.with_name(f".{target.stem}.tmp.xlsx")
     try:
@@ -156,8 +161,8 @@ def save_test_records(path: Path, records: Iterable[ExcelTestRecord]) -> None:
 def append_test_record(path: Path, record: ExcelTestRecord) -> None:
     wavelength_values = [float(value) for value in record.wavelength]
     intensity_values = [float(value) for value in record.intensity]
-    if not wavelength_values or len(wavelength_values) != len(intensity_values):
-        raise ValueError("波长和强度数据不能为空且长度必须一致")
+    if len(wavelength_values) != len(intensity_values):
+        raise ValueError("波长和强度数据长度必须一致")
 
     target = Path(path).expanduser()
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -215,7 +220,10 @@ def append_test_record(path: Path, record: ExcelTestRecord) -> None:
                 continue
             points.append((wavelength_nm, intensity))
         spectra_by_current[current] = points
-    spectra_by_current[float(record.current_a)] = list(zip(wavelength_values, intensity_values))
+    if wavelength_values:
+        spectra_by_current[float(record.current_a)] = list(zip(wavelength_values, intensity_values))
+    else:
+        spectra_by_current.pop(float(record.current_a), None)
 
     for clear_row in range(2, previous_max_row + 1):
         for column in range(10, previous_max_column + 1):

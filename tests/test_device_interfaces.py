@@ -58,6 +58,38 @@ class DeviceInterfaceTests(unittest.TestCase):
         self.assertEqual(controller.voltage_v, 24.0)
         self.assertFalse(controller.output_enabled)
 
+    def test_serial_controller_uses_direct_operations_without_i2c_compatibility(self) -> None:
+        class FakeSerialController:
+            is_connected = True
+            output_enabled = True
+
+            def __init__(self) -> None:
+                self.current_a = 0.0
+
+            def set_output_current(self, current_a: float) -> None:
+                self.current_a = current_a
+
+            def read_output_voltage(self) -> float:
+                return 29.5
+
+            def read_output_current(self) -> float:
+                return 2.0
+
+            def i2c_write(self, *_args: object) -> tuple[bool, str]:
+                raise AssertionError("RS-232 controller must not use i2c_write")
+
+            def i2c_write_read(self, *_args: object) -> tuple[bool, list[int]]:
+                raise AssertionError("RS-232 controller must not use i2c_write_read")
+
+        controller = FakeSerialController()
+        supply = ControllerPowerSupply(controller)
+
+        supply.set_current(2.0)
+
+        self.assertEqual(controller.current_a, 2.0)
+        self.assertEqual(supply.read_output_voltage(), 29.5)
+        self.assertEqual(supply.read_output_current(), 2.0)
+
     def test_session_record_store_owns_session_and_pending_record_state(self) -> None:
         store = SessionRecordStore()
         started_at = datetime(2026, 7, 12, 9, 30, 0)
@@ -67,7 +99,7 @@ class DeviceInterfaceTests(unittest.TestCase):
         store.queue(record)
 
         self.assertIsInstance(store, RecordStore)
-        self.assertEqual(path, Path("records/SN-1_2026_07_12_09_30_00.xlsx"))
+        self.assertEqual(path, Path("records/SN-1_2026_07_12_09_30_00_000000.xlsx"))
         self.assertEqual(store.unsaved_records(), (record,))
         store.mark_saved((record,))
         self.assertEqual(store.unsaved_records(), ())

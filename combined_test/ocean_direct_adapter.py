@@ -21,6 +21,7 @@ class OceanDirectControl:
         self._api = api if api is not None else self._load_api(dll_path)
         self._device_id: int | None = None
         self._pixel_count = 0
+        self._shutdown = False
         self._api.odapi_initialize()
         self._configure_return_types()
 
@@ -103,9 +104,12 @@ class OceanDirectControl:
         self._device_id = None
 
     def shutdown(self) -> None:
+        if self._shutdown:
+            return
         shutdown = getattr(self._api, "odapi_shutdown", None)
         if shutdown is not None:
             shutdown()
+        self._shutdown = True
 
     def _get_formatted_spectrum_length(self) -> int:
         return self._call_int_with_error("odapi_get_formatted_spectrum_length", "get_formatted_spectrum_length")

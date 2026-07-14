@@ -25,9 +25,23 @@ class ExcelExportTests(unittest.TestCase):
         )
 
     def test_path_uses_sn_and_test_time(self) -> None:
-        path = build_test_workbook_path(Path("records"), "SN:001", datetime(2026, 7, 10, 14, 30, 25))
+        path = build_test_workbook_path(
+            Path("records"),
+            "SN:001",
+            datetime(2026, 7, 10, 14, 30, 25, 123456),
+        )
 
-        self.assertEqual(path, Path("records/SN_001_2026_07_10_14_30_25.xlsx"))
+        self.assertEqual(path, Path("records/SN_001_2026_07_10_14_30_25_123456.xlsx"))
+
+    def test_paths_are_distinct_for_sessions_started_in_the_same_second(self) -> None:
+        first = build_test_workbook_path(
+            Path("records"), "SN001", datetime(2026, 7, 10, 14, 30, 25, 1)
+        )
+        second = build_test_workbook_path(
+            Path("records"), "SN001", datetime(2026, 7, 10, 14, 30, 25, 2)
+        )
+
+        self.assertNotEqual(first, second)
 
     def test_appends_liv_and_full_spectra_to_same_reference_layout_workbook(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -65,6 +79,32 @@ class ExcelExportTests(unittest.TestCase):
             sheet = workbook[workbook.sheetnames[0]]
             self.assertEqual([sheet.cell(row, 1).value for row in range(3, 6)], [2.0, 4.0, 8.0])
             self.assertEqual([sheet.cell(2, column).value for column in (10, 12, 14)], ["2.0A", "4.0A", "8.0A"])
+            workbook.close()
+
+    def test_batch_save_accepts_liv_record_without_spectrum(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "without_spectrum.xlsx"
+            record = ExcelTestRecord(
+                current_a=3.0,
+                voltage_v=50.0,
+                power_w=75.0,
+                efficiency=0.5,
+                peak_wavelength_nm=float("nan"),
+                centroid_nm=float("nan"),
+                fwhm_nm=float("nan"),
+                pib=float("nan"),
+                smsr_db=float("nan"),
+                wavelength=[],
+                intensity=[],
+            )
+
+            save_test_records(path, [record])
+
+            workbook = load_workbook(path, data_only=False)
+            sheet = workbook[workbook.sheetnames[0]]
+            self.assertEqual([sheet.cell(3, column).value for column in range(1, 5)], [3.0, 50.0, 75.0, 0.5])
+            self.assertEqual([sheet.cell(3, column).value for column in range(5, 10)], [None] * 5)
+            self.assertIsNone(sheet["J2"].value)
             workbook.close()
 
     def test_append_migrates_legacy_workbook_smsr_header(self) -> None:

@@ -1,4 +1,4 @@
-"""Launch the combined optical test application."""
+"""Launch the combined optical and PD acquisition application."""
 
 from combined_test.window import main
 

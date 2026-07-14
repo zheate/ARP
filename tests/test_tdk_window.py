@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import math
 import tempfile
 import unittest
 from pathlib import Path
 
 from PySide6.QtCore import QSettings
+from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QApplication
 
 import combined_test.window as window_module
@@ -128,6 +130,146 @@ class TdkWindowTests(unittest.TestCase):
         self.assertFalse(controller.output_enabled)
         self.assertIsNone(window.manual_ch341_controller)
         self.assertEqual(window.connect_i2c_button.text(), "连接 CH341")
+        window.close()
+
+    def test_tdk_mode_removes_software_current_limit_and_ch341_restores_it(self) -> None:
+        window = self.make_window()
+
+        window.power_supply_controller_combo.setCurrentIndex(
+            window.power_supply_controller_combo.findData("tdk")
+        )
+
+        for widget in (
+            window.set_current_spin,
+            window.auto_initial_current_spin,
+            window.auto_target_current_spin,
+            window.auto_current_step_spin,
+            window.auto_ramp_down_step_spin,
+        ):
+            self.assertTrue(math.isinf(widget.maximum()))
+        window.set_current_spin.setValue(30.0)
+        window.auto_initial_current_spin.setValue(25.0)
+        window.auto_target_current_spin.setValue(30.0)
+        settings = window.collect_automatic_test_settings()
+        self.assertEqual(window.set_current_spin.value(), 30.0)
+        self.assertIsNone(settings.maximum_current_a)
+
+        window.power_supply_controller_combo.setCurrentIndex(
+            window.power_supply_controller_combo.findData("ch341")
+        )
+
+        self.assertEqual(window.set_current_spin.maximum(), 20.0)
+        self.assertEqual(window.auto_target_current_spin.maximum(), 20.0)
+        self.assertEqual(window.set_current_spin.value(), 20.0)
+        window.close()
+
+    def test_close_retries_tdk_output_off_then_exits(self) -> None:
+        class RetryController(FakeTdkController):
+            def __init__(self) -> None:
+                super().__init__("ASRL4::INSTR")
+                self.is_connected = True
+                self.output_enabled = True
+                self.output_off_attempts = 0
+
+            def set_output_enabled(self, enabled: bool) -> None:
+                self.output_off_attempts += 1
+                if self.output_off_attempts == 1:
+                    raise RuntimeError("temporary serial failure")
+                super().set_output_enabled(enabled)
+
+        window = self.make_window()
+        controller = RetryController()
+        window.manual_ch341_controller = controller
+        window.power_supply_controller_kind = "tdk"
+        actions: list[str] = []
+        window._ask_tdk_shutdown_failure_action = (  # type: ignore[method-assign]
+            lambda _error: actions.append("retry") or "retry"
+        )
+        event = QCloseEvent()
+
+        window.closeEvent(event)
+
+        self.assertTrue(event.isAccepted())
+        self.assertEqual(actions, ["retry"])
+        self.assertEqual(controller.output_off_attempts, 2)
+        self.assertFalse(controller.is_connected)
+        self.assertIsNone(window.manual_ch341_controller)
+        window.close()
+
+    def test_close_sends_output_off_even_when_cached_state_is_false(self) -> None:
+        class StateTrackingController(FakeTdkController):
+            def __init__(self) -> None:
+                super().__init__("ASRL4::INSTR")
+                self.is_connected = True
+                self.output_enabled = False
+                self.output_commands: list[bool] = []
+
+            def set_output_enabled(self, enabled: bool) -> None:
+                self.output_commands.append(enabled)
+                super().set_output_enabled(enabled)
+
+        window = self.make_window()
+        controller = StateTrackingController()
+        window.manual_ch341_controller = controller
+        window.power_supply_controller_kind = "tdk"
+        event = QCloseEvent()
+
+        window.closeEvent(event)
+
+        self.assertTrue(event.isAccepted())
+        self.assertEqual(controller.output_commands, [False])
+        self.assertFalse(controller.is_connected)
+        self.assertIsNone(window.manual_ch341_controller)
+        window.close()
+
+    def test_close_can_force_exit_when_tdk_does_not_answer(self) -> None:
+        class FailedController(FakeTdkController):
+            def __init__(self) -> None:
+                super().__init__("ASRL4::INSTR")
+                self.is_connected = True
+                self.output_enabled = True
+                self.output_off_attempts = 0
+
+            def set_output_enabled(self, _enabled: bool) -> None:
+                self.output_off_attempts += 1
+                raise RuntimeError("serial link lost")
+
+        window = self.make_window()
+        controller = FailedController()
+        window.manual_ch341_controller = controller
+        window.power_supply_controller_kind = "tdk"
+        window._ask_tdk_shutdown_failure_action = lambda _error: "force"  # type: ignore[method-assign]
+        event = QCloseEvent()
+
+        window.closeEvent(event)
+
+        self.assertTrue(event.isAccepted())
+        self.assertEqual(controller.output_off_attempts, 1)
+        self.assertFalse(controller.is_connected)
+        self.assertIsNone(window.manual_ch341_controller)
+        self.assertIn("强制退出", window.log_text.text())
+        window.close()
+
+    def test_cancel_after_tdk_shutdown_failure_keeps_window_open(self) -> None:
+        class FailedController(FakeTdkController):
+            def set_output_enabled(self, _enabled: bool) -> None:
+                raise RuntimeError("serial link lost")
+
+        window = self.make_window()
+        controller = FailedController("ASRL4::INSTR")
+        controller.is_connected = True
+        controller.output_enabled = True
+        window.manual_ch341_controller = controller
+        window.power_supply_controller_kind = "tdk"
+        window._ask_tdk_shutdown_failure_action = lambda _error: "cancel"  # type: ignore[method-assign]
+        event = QCloseEvent()
+
+        window.closeEvent(event)
+
+        self.assertFalse(event.isAccepted())
+        self.assertTrue(controller.is_connected)
+        self.assertIs(window.manual_ch341_controller, controller)
+        window.manual_ch341_controller = None
         window.close()
 
 

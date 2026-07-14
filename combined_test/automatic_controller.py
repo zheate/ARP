@@ -120,18 +120,29 @@ class AutomaticTestController:
 
     def on_stable_power_captured(self, current_a: float) -> None:
         if self.automatic_test_state == AutomaticTestState.WAITING_STABLE:
+            stable_label = (
+                "功率及波长已稳定" if self.automatic_uses_spectrometer() else "功率已稳定"
+            )
             self.set_automatic_test_state(
                 AutomaticTestState.WAITING_VOLTAGE,
-                f"{current_a:.1f} A 功率及波长已稳定，等待读取输出电压",
+                f"{current_a:.1f} A {stable_label}，等待读取输出电压",
             )
 
     def on_acquisition_failed(self, device_label: str, message: str) -> None:
+        if device_label == "光谱仪" and not self.automatic_uses_spectrometer():
+            return
         if self.automatic_measurement_is_active():
             self.pause_automatic_test(f"{device_label}错误：{self._error_formatter(message)}")
 
     def on_acquisition_stopped(self, device_label: str) -> None:
+        if device_label == "光谱仪" and not self.automatic_uses_spectrometer():
+            return
         if self.automatic_measurement_is_active():
             self.pause_automatic_test(f"{device_label}采集已停止")
+
+    def automatic_uses_spectrometer(self) -> bool:
+        settings = self.automatic_test_settings
+        return settings is None or settings.use_spectrometer
 
     def collect_automatic_test_settings(self) -> AutomaticTestSettings:
         settings = AutomaticTestSettings(
@@ -142,6 +153,10 @@ class AutomaticTestController:
             ramp_down_step_a=self.auto_ramp_down_step_spin.value(),
             ramp_down_interval_s=self.auto_ramp_down_interval_spin.value(),
             pause_ramp_down_timeout_s=self.auto_pause_ramp_down_timeout_spin.value(),
+            use_spectrometer=self.auto_use_spectrometer_check.isChecked(),
+            maximum_current_a=(
+                None if self._selected_power_supply_kind() == "tdk" else 20.0
+            ),
         )
         return validate_automatic_test_settings(
             settings,
@@ -190,7 +205,7 @@ class AutomaticTestController:
 
         if self.power_meter_reader is None:
             self.start_power_meter()
-        if self.spectrometer_reader is None:
+        if settings.use_spectrometer and self.spectrometer_reader is None:
             self.start_spectrometer()
         self.pending_stable_point_current_a = None
         self.pending_stable_point_generation = None
@@ -223,7 +238,15 @@ class AutomaticTestController:
         self.set_automatic_test_state(AutomaticTestState.SETTING_CURRENT, f"正在设置 {current_a:.1f} A")
         start_current_a = max(0.0, float(self.active_output_current_a or 0.0))
         if current_a > start_current_a:
-            self.automatic_ramp_up_currents = deque(build_ramp_up_currents(start_current_a, current_a))
+            settings = self.automatic_test_settings
+            maximum_current_a = settings.maximum_current_a if settings is not None else 20.0
+            self.automatic_ramp_up_currents = deque(
+                build_ramp_up_currents(
+                    start_current_a,
+                    current_a,
+                    maximum_current_a=maximum_current_a,
+                )
+            )
             self.schedule_next_automatic_ramp_up_current()
         else:
             self.automatic_ramp_up_currents.clear()
@@ -280,8 +303,40 @@ class AutomaticTestController:
                 raise RuntimeError("电源未连接")
             power_supply.set_current(current_a)
         except Exception as exc:
+            raw_error = str(exc).strip()
+            display_error = self._error_formatter(exc)
+            if raw_error and raw_error != display_error:
+                display_error = f"{display_error}（原始错误：{raw_error}）"
+            self.add_log(f"设置 {current_a:.1f} A 原始错误：{raw_error or type(exc).__name__}")
+            if kind == "ramp_down" and self.power_supply_controller_kind == "tdk":
+                self.add_log("TDK 分段降流失败，正在尝试直接关闭输出")
+                try:
+                    power_supply = self.get_power_supply()
+                    if power_supply is None:
+                        raise RuntimeError("TDK 电源未连接")
+                    power_supply.set_output_enabled(False)
+                except Exception as shutdown_exc:
+                    shutdown_raw = str(shutdown_exc).strip()
+                    shutdown_display = self._error_formatter(shutdown_exc)
+                    if shutdown_raw and shutdown_raw != shutdown_display:
+                        shutdown_display = (
+                            f"{shutdown_display}（原始错误：{shutdown_raw}）"
+                        )
+                    self.pause_automatic_test(
+                        f"分段下电失败：{display_error}；直接关闭 TDK 输出也失败：{shutdown_display}"
+                    )
+                    return
+                self.add_log("分段降流失败，但已确认 TDK 输出直接关闭")
+                self.complete_automatic_test(
+                    tdk_output_already_disabled=True,
+                    completion_detail=(
+                        f"分段下电失败（原始错误：{raw_error or type(exc).__name__}），"
+                        "已直接关闭 TDK 输出"
+                    ),
+                )
+                return
             self.pause_automatic_test(
-                f"设置 {current_a:.1f} A 失败：{self._error_formatter(exc)}"
+                f"设置 {current_a:.1f} A 失败：{display_error}"
             )
             return
 
@@ -309,8 +364,13 @@ class AutomaticTestController:
             self.pending_stable_point_generation = self.power_meter_reader.reset_stability_window()
         else:
             self.pending_stable_point_generation = None
-        self.reset_wavelength_stability_window()
-        self.set_automatic_test_state(AutomaticTestState.WAITING_STABLE, f"等待 {current_a:.1f} A 功率及波长稳定")
+        if self.automatic_uses_spectrometer():
+            self.reset_wavelength_stability_window()
+        stability_label = "功率及波长稳定" if self.automatic_uses_spectrometer() else "功率稳定"
+        self.set_automatic_test_state(
+            AutomaticTestState.WAITING_STABLE,
+            f"等待 {current_a:.1f} A {stability_label}",
+        )
         if self.automatic_test_settings is not None:
             self.automatic_point_timer.start(round(self.automatic_test_settings.point_timeout_s * 1000.0))
         self.add_log(
@@ -333,6 +393,7 @@ class AutomaticTestController:
             self.auto_ramp_down_step_spin,
             self.auto_ramp_down_interval_spin,
             self.auto_pause_ramp_down_timeout_spin,
+            self.auto_use_spectrometer_check,
             self.sn_field,
             self.output_dir_field,
             self.browse_button,
@@ -448,14 +509,16 @@ class AutomaticTestController:
         self.automatic_power_meter_ready = bool(
             self.power_meter_reader is not None and getattr(self.power_meter_reader, "is_ready", False)
         )
+        use_spectrometer = self.automatic_uses_spectrometer()
         self.automatic_spectrometer_ready = bool(
-            self.spectrometer_reader is not None and getattr(self.spectrometer_reader, "is_ready", False)
+            not use_spectrometer
+            or (self.spectrometer_reader is not None and getattr(self.spectrometer_reader, "is_ready", False))
         )
         if not (self.automatic_power_meter_ready and self.automatic_spectrometer_ready):
             self.set_automatic_test_state(AutomaticTestState.STARTING, "正在重新启动并确认采集设备")
             if self.power_meter_reader is None:
                 self.start_power_meter()
-            if self.spectrometer_reader is None:
+            if use_spectrometer and self.spectrometer_reader is None:
                 self.start_spectrometer()
             self.pending_stable_point_current_a = None
             self.pending_stable_point_generation = None
@@ -467,6 +530,8 @@ class AutomaticTestController:
     def end_automatic_test(self) -> None:
         if self.automatic_test_state in (AutomaticTestState.IDLE, AutomaticTestState.COMPLETED):
             return
+        self.statusBar().showMessage("已收到结束指令，正在安全下电")
+        self.add_log("操作者请求结束自动测试，开始安全下电")
         self.begin_automatic_ramp_down()
 
     def on_automatic_device_start_timeout(self) -> None:
@@ -529,7 +594,12 @@ class AutomaticTestController:
         current_a = self.automatic_ramp_down_currents.popleft()
         self.schedule_automatic_current_command(current_a, "ramp_down")
 
-    def complete_automatic_test(self) -> None:
+    def complete_automatic_test(
+        self,
+        *,
+        tdk_output_already_disabled: bool = False,
+        completion_detail: str = "",
+    ) -> None:
         self.automatic_device_start_timer.stop()
         self.automatic_point_timer.stop()
         self.automatic_command_timer.stop()
@@ -537,39 +607,51 @@ class AutomaticTestController:
         self.automatic_pause_safety_timer.stop()
         self.pending_automatic_current_a = None
         self.pending_automatic_command_kind = None
-        self.active_output_current_a = 0.0
-        if self.power_supply_controller_kind == "tdk" and self.manual_ch341_controller is not None:
+        if (
+            self.power_supply_controller_kind == "tdk"
+            and self.manual_ch341_controller is not None
+            and not tdk_output_already_disabled
+        ):
             try:
-                if bool(getattr(self.manual_ch341_controller, "output_enabled", False)):
-                    power_supply = self.get_power_supply()
-                    if power_supply is None:
-                        raise RuntimeError("TDK 电源未连接")
-                    power_supply.set_output_enabled(False)
+                power_supply = self.get_power_supply()
+                if power_supply is None:
+                    raise RuntimeError("TDK 电源未连接")
+                power_supply.set_output_enabled(False)
             except Exception as exc:
                 self.automatic_paused_from_state = AutomaticTestState.RAMPING_DOWN
                 self.pause_automatic_test(f"TDK 输出关闭失败：{self._error_formatter(exc)}")
                 return
+        self.active_output_current_a = 0.0
+        self.set_current_spin.setValue(0.0)
         self.automatic_orchestrator.complete()
-        self.set_automatic_test_state(AutomaticTestState.COMPLETED, "自动测试完成，输出电流已降至 0 A")
-        self.statusBar().showMessage("自动测试完成，输出电流已降至 0 A")
-        self.add_log("自动测试完成，输出电流已降至 0 A")
+        completed_message = completion_detail or "自动测试完成，输出电流已降至 0 A"
+        self.set_automatic_test_state(AutomaticTestState.COMPLETED, completed_message)
+        self.statusBar().showMessage(completed_message)
+        self.add_log(completed_message)
         self.stop_power_meter()
         self.stop_spectrometer()
         completion_record = self.automatic_completion_record
         self.automatic_completion_record = None
         if completion_record is not None and not self.close_after_automatic_ramp_down:
+            summary_lines = [
+                "测试完成",
+                "",
+                f"目标电流：{completion_record.current_a:.1f} A",
+                f"功率：{completion_record.power_w:.3f} W",
+                f"效率：{completion_record.efficiency * 100.0:.2f} %",
+            ]
+            if self.automatic_uses_spectrometer():
+                summary_lines.extend(
+                    (
+                        f"中心波长：{completion_record.peak_wavelength_nm:.3f} nm",
+                        f"FWHM：{completion_record.fwhm_nm:.3f} nm",
+                        f"PIB：{completion_record.pib * 100.0:.2f} %",
+                    )
+                )
             QMessageBox.information(
                 self._host,
                 "自动测试完成",
-                (
-                    "测试完成\n\n"
-                    f"目标电流：{completion_record.current_a:.1f} A\n"
-                    f"功率：{completion_record.power_w:.3f} W\n"
-                    f"效率：{completion_record.efficiency * 100.0:.2f} %\n"
-                    f"中心波长：{completion_record.peak_wavelength_nm:.3f} nm\n"
-                    f"FWHM：{completion_record.fwhm_nm:.3f} nm\n"
-                    f"PIB：{completion_record.pib * 100.0:.2f} %"
-                ),
+                "\n".join(summary_lines),
             )
         if self.close_after_automatic_ramp_down:
             self.close_after_automatic_ramp_down = False

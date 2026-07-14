@@ -14,8 +14,12 @@ env/
 *.tmp
 *.bak
 
+# Runtime measurement data kept local only.
+pd_data/
+
 # Hardware/vendor drivers kept local only.
 local_drivers/
+assets/驱动/
 CH341DLL.DLL
 CH341DLL.H
 CH341DLLA64.DLL

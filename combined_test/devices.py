@@ -15,6 +15,8 @@ from typing import Any
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QWidget
 
+from tools.visa_session import visa_resource_manager
+
 from .core import PowerStabilityDetector, decode_i2c_value, stability_tolerance_for_power
 from .models import (
     PowerMeterOption,
@@ -170,16 +172,13 @@ class PowerMeterDetectThread(QThread):
             except ModuleNotFoundError as exc:
                 raise RuntimeError(f"缺少功率计依赖：{exc.name}。请在 sth_eb314 环境中运行。") from exc
 
-            rm = pyvisa.ResourceManager()
-            try:
+            with visa_resource_manager() as rm:
                 resources: list[str] = []
                 for item in rm.list_resources():
                     resource = normalize_power_resource_name(str(item))
                     if resource.startswith("ASRL"):
                         resources.append(resource)
                 resources.sort()
-            finally:
-                rm.close()
 
             candidates: list[str] = []
             preferred = normalize_power_resource_name(self.preferred_resource)

@@ -40,6 +40,50 @@ class AutomaticCurrentSequenceTests(unittest.TestCase):
         self.assertEqual(build_ramp_up_currents(0.0, 3.5), (1.0, 2.0, 3.0, 3.5))
         self.assertEqual(build_ramp_up_currents(3.0, 3.0), ())
 
+    def test_tdk_sequences_have_no_software_current_ceiling(self) -> None:
+        settings = AutomaticTestSettings(
+            initial_current_a=25.0,
+            target_current_a=30.0,
+            current_step_a=2.0,
+            ramp_down_step_a=7.0,
+            maximum_current_a=None,
+        )
+
+        self.assertEqual(build_test_currents(settings), (25.0, 27.0, 29.0, 30.0))
+        self.assertEqual(
+            build_ramp_up_currents(20.0, 23.0, maximum_current_a=None),
+            (21.0, 22.0, 23.0),
+        )
+        self.assertEqual(
+            build_ramp_down_currents(30.0, 7.0, maximum_current_a=None),
+            (23.0, 16.0, 9.0, 2.0, 0.0),
+        )
+        self.assertIs(
+            validate_automatic_test_settings(
+                settings,
+                stable_window_s=3.0,
+                post_stable_delay_s=5.0,
+            ),
+            settings,
+        )
+
+    def test_legacy_sequences_still_reject_current_above_twenty_amps(self) -> None:
+        settings = AutomaticTestSettings(initial_current_a=20.0, target_current_a=21.0)
+
+        with self.assertRaisesRegex(ValueError, "20 A"):
+            build_test_currents(settings)
+
+    def test_unlimited_current_sequence_rejects_excessive_point_count(self) -> None:
+        settings = AutomaticTestSettings(
+            initial_current_a=1.0,
+            target_current_a=20_000.0,
+            current_step_a=0.1,
+            maximum_current_a=None,
+        )
+
+        with self.assertRaisesRegex(ValueError, "测试点数"):
+            build_test_currents(settings)
+
     def test_ramp_down_interval_cannot_bypass_power_supply_command_guard(self) -> None:
         settings = AutomaticTestSettings(ramp_down_interval_s=1.0)
 
@@ -85,6 +129,14 @@ class AutomaticTestOrchestratorTests(unittest.TestCase):
         self.assertEqual(orchestrator.paused_from_state, AutomaticTestState.WAITING_STABLE)
         self.assertEqual(ramp_down, (7.0, 2.0, 0.0))
         self.assertEqual(orchestrator.state, AutomaticTestState.RAMPING_DOWN)
+
+    def test_spectrometer_can_be_optional_for_acquisition_readiness(self) -> None:
+        orchestrator = AutomaticTestOrchestrator()
+        settings = AutomaticTestSettings(use_spectrometer=False)
+
+        orchestrator.start(settings, power_meter_ready=True, spectrum_meter_ready=False)
+
+        self.assertTrue(orchestrator.acquisition_ready)
 
 
 if __name__ == "__main__":

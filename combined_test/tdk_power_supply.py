@@ -10,28 +10,60 @@ from __future__ import annotations
 
 import math
 import re
+import time
 from typing import Any, Callable
 
+from tools.visa_session import acquire_visa_resource_manager, release_visa_resource_manager
 
-TDK_DEFAULT_TIMEOUT_MS = 100
-TDK_DEFAULT_BAUD_RATE = 115200
+
+TDK_DEFAULT_TIMEOUT_MS = 1000
+# scripts_runner relies on PyVISA's ASRL default, which is 9600 baud. The
+# installed GSP150-102 also acknowledges GEN commands at this rate.
+TDK_DEFAULT_BAUD_RATE = 9600
 TDK_DEFAULT_ADDRESS = 6
+TDK_COMMAND_RESPONSE_DELAY_S = 0.05
+# Legacy scripts_runner calibration: actual load voltage minus the raw MV?
+# voltage was fitted against current with a first-order polynomial.
+TDK_LINE_VOLTAGE_SLOPE_V_PER_A = -0.022621428571428535
+TDK_LINE_VOLTAGE_INTERCEPT_V = -0.02882857142857197
+TDK_NUMERIC_RESPONSE_PATTERN = re.compile(
+    r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[Ee][-+]?\d+)?"
+)
+
+
+def compensate_tdk_output_voltage(raw_voltage_v: float, current_a: float) -> float:
+    """Convert the TDK MV? reading to the calibrated load-side voltage."""
+    voltage = float(raw_voltage_v)
+    current = float(current_a)
+    if not math.isfinite(voltage) or not math.isfinite(current):
+        raise ValueError("TDK voltage compensation requires finite voltage and current")
+    return (
+        voltage
+        + TDK_LINE_VOLTAGE_SLOPE_V_PER_A * current
+        + TDK_LINE_VOLTAGE_INTERCEPT_V
+    )
 
 
 def list_tdk_serial_resources(resource_manager_factory: Callable[[], Any] | None = None) -> list[str]:
     """Return the VISA serial resources usable by the TDK RS-232 driver."""
-    if resource_manager_factory is None:
-        try:
-            import pyvisa
-        except ModuleNotFoundError as exc:
-            raise RuntimeError("缺少 TDK 电源依赖 pyvisa，请在 sth_eb314 环境中运行。") from exc
-        resource_manager_factory = pyvisa.ResourceManager
-
-    manager = resource_manager_factory()
+    shared_manager = resource_manager_factory is None
     try:
-        return sorted(str(item) for item in manager.list_resources() if str(item).upper().startswith("ASRL"))
+        manager = (
+            acquire_visa_resource_manager()
+            if shared_manager
+            else resource_manager_factory()
+        )
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("缺少 TDK 电源依赖 pyvisa，请在 sth_eb314 环境中运行。") from exc
+    try:
+        # Restrict VISA discovery to serial resources. An unrestricted NI-VISA
+        # scan also probes USB/LAN/GPIB and can block the Qt UI for ~10 seconds.
+        return sorted(str(item) for item in manager.list_resources("ASRL?*::INSTR"))
     finally:
-        manager.close()
+        if shared_manager:
+            release_visa_resource_manager(manager)
+        else:
+            manager.close()
 
 
 # Backwards-compatible import for callers from the first TDK implementation.
@@ -55,6 +87,7 @@ class TdkLambdaPowerSupply:
         self.timeout_ms = int(timeout_ms)
         self._resource_manager_factory = resource_manager_factory
         self._resource_manager: Any | None = None
+        self._resource_manager_is_shared = False
         self._instrument: Any | None = None
         self.is_connected = False
         self.identity = ""
@@ -65,12 +98,14 @@ class TdkLambdaPowerSupply:
 
     def _make_resource_manager(self) -> Any:
         if self._resource_manager_factory is not None:
+            self._resource_manager_is_shared = False
             return self._resource_manager_factory()
         try:
-            import pyvisa
+            manager = acquire_visa_resource_manager()
         except ModuleNotFoundError as exc:
             raise RuntimeError("缺少 TDK 电源依赖 pyvisa，请在 sth_eb314 环境中运行。") from exc
-        return pyvisa.ResourceManager()
+        self._resource_manager_is_shared = True
+        return manager
 
     def connect_device(self, _index: int = 0) -> tuple[bool, str]:
         if not self.resource:
@@ -85,10 +120,12 @@ class TdkLambdaPowerSupply:
             self._instrument = self._resource_manager.open_resource(self.resource)
             self._instrument.timeout = self.timeout_ms
             self._instrument.read_termination = "\r"
+            self._instrument.write_termination = "\r"
             self._instrument.baud_rate = self.baud_rate
 
             # Keep the scripts_runner initialization order: address first,
-            # followed by remote-control mode.  Connecting does not enable OUT.
+            # followed by remote-control mode. Each command must be acknowledged
+            # so an open COM port cannot be mistaken for a connected supply.
             self._write(f"ADR {self.address}")
             self._write("RMT 1")
             self.identity = f"TDK-Lambda RS-232 | {self.resource} | {self.baud_rate} baud | ADR {self.address}"
@@ -101,8 +138,10 @@ class TdkLambdaPowerSupply:
 
     def disconnect_device(self) -> bool:
         instrument, manager = self._instrument, self._resource_manager
+        manager_is_shared = self._resource_manager_is_shared
         self._instrument = None
         self._resource_manager = None
+        self._resource_manager_is_shared = False
         self.is_connected = False
         self.output_enabled = False
         if instrument is not None:
@@ -112,7 +151,10 @@ class TdkLambdaPowerSupply:
                 pass
         if manager is not None:
             try:
-                manager.close()
+                if manager_is_shared:
+                    release_visa_resource_manager(manager)
+                else:
+                    manager.close()
             except Exception:
                 pass
         return True
@@ -126,17 +168,42 @@ class TdkLambdaPowerSupply:
             raise RuntimeError("TDK 电源未连接")
         return self._instrument
 
+    def _exchange(self, command: str) -> str:
+        instrument = self._require_instrument()
+        try:
+            instrument.write(command)
+            time.sleep(TDK_COMMAND_RESPONSE_DELAY_S)
+            return str(instrument.read()).strip()
+        except Exception as exc:
+            error_text = str(exc).lower()
+            if "invalid session" in error_text or "resource might be closed" in error_text:
+                self.disconnect_device()
+                raise RuntimeError(
+                    "TDK RS-232 会话已失效，串口可能已被关闭；请断开后重新连接 TDK"
+                ) from exc
+            raise
+
     def _write(self, command: str) -> None:
-        self._require_instrument().write(command)
+        response = self._exchange(command)
+        if response.upper() != "OK":
+            display_response = response if response else "<空响应>"
+            raise RuntimeError(f"TDK 电源未确认命令 {command!r}：{display_response!r}")
 
     def _query_float(self, command: str) -> float:
-        response = str(self._require_instrument().query(command)).strip()
+        response = self._exchange(command)
         # Some Genesys units return just the number, while others echo the
-        # mnemonic (for example ``MV 12.34``).  Parse the final numeric token.
-        matches = re.findall(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[Ee][-+]?\d+)?", response)
-        if not matches:
+        # mnemonic (for example ``MV 12.34``). Match the whole response so an
+        # error such as ``E01`` or ``ERROR 12`` cannot become a measurement.
+        mnemonic = command.rstrip("?").strip()
+        match = re.fullmatch(
+            rf"(?:{re.escape(mnemonic)}\??\s*[:=]?\s*)?"
+            rf"({TDK_NUMERIC_RESPONSE_PATTERN.pattern})(?:\s*[A-Za-z]+)?",
+            response,
+            re.IGNORECASE,
+        )
+        if match is None:
             raise RuntimeError(f"TDK 电源返回无效数据：{response!r}")
-        value = float(matches[-1])
+        value = float(match.group(1))
         if not math.isfinite(value):
             raise RuntimeError(f"TDK 电源返回非有限数值：{response!r}")
         return value

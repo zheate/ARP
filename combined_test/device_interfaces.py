@@ -94,6 +94,10 @@ class ControllerPowerSupply:
         return bool(getattr(self.controller, "output_enabled", True))
 
     def set_current(self, current_a: float) -> None:
+        setter = getattr(self.controller, "set_output_current", None)
+        if callable(setter):
+            setter(float(current_a))
+            return
         success, detail = self.controller.i2c_write(
             self.address,
             build_set_current_command(float(current_a)),
@@ -114,6 +118,9 @@ class ControllerPowerSupply:
         setter(bool(enabled))
 
     def read_output_voltage(self) -> float:
+        reader = getattr(self.controller, "read_output_voltage", None)
+        if callable(reader):
+            return float(reader())
         return read_power_status_value(
             self.controller,
             self.address,
@@ -121,6 +128,9 @@ class ControllerPowerSupply:
         )
 
     def read_output_current(self) -> float:
+        reader = getattr(self.controller, "read_output_current", None)
+        if callable(reader):
+            return float(reader())
         return read_power_status_value(
             self.controller,
             self.address,

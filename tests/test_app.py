@@ -57,6 +57,60 @@ class SpectrumCurveFileTests(unittest.TestCase):
 
 
 class MainWindowTests(unittest.TestCase):
+    def setUp(self) -> None:
+        """Keep GUI tests independent from the operator's registry settings."""
+        self._settings_temp_dir = tempfile.TemporaryDirectory()
+        self._settings_index = 0
+        self._original_window_qsettings = combined_test_window.QSettings
+
+        def isolated_settings(*_args: object, **_kwargs: object) -> QSettings:
+            self._settings_index += 1
+            path = Path(self._settings_temp_dir.name) / f"window-{self._settings_index}.ini"
+            return QSettings(str(path), QSettings.Format.IniFormat)
+
+        combined_test_window.QSettings = isolated_settings  # type: ignore[assignment]
+
+    def tearDown(self) -> None:
+        combined_test_window.QSettings = self._original_window_qsettings  # type: ignore[assignment]
+        self._settings_temp_dir.cleanup()
+
+    def test_tdk_efficiency_uses_line_compensated_load_voltage(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.power_supply_controller_kind = "tdk"
+        window.active_output_current_a = 10.0
+        window.stable_power_points[10.0] = 80.0
+        queued_points: list[tuple[float, float, float, float]] = []
+        window.queue_excel_test_point = (  # type: ignore[method-assign]
+            lambda current, voltage, power, efficiency: queued_points.append(
+                (current, voltage, power, efficiency)
+            )
+            or False
+        )
+
+        window.record_efficiency_from_vout(29.656)
+
+        corrected_voltage = 29.400957142857145
+        self.assertAlmostEqual(window.efficiency_voltage_points[10.0], corrected_voltage)
+        self.assertAlmostEqual(
+            window.efficiency_points[10.0],
+            80.0 / 10.0 / corrected_voltage * 100.0,
+        )
+        self.assertAlmostEqual(queued_points[0][1], corrected_voltage)
+        window.close()
+
+    def test_ch341_efficiency_keeps_the_raw_voltage(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.power_supply_controller_kind = "ch341"
+        window.active_output_current_a = 10.0
+        window.stable_power_points[10.0] = 80.0
+
+        window.record_efficiency_from_vout(29.656)
+
+        self.assertEqual(window.efficiency_voltage_points[10.0], 29.656)
+        window.close()
+
     def test_driver_errors_are_translated_for_operators(self) -> None:
         resource_missing = combined_test_window.user_facing_error_message(
             "VI_ERROR_RSRC_NFOUND (-1073807343): Insufficient location information "
@@ -156,6 +210,7 @@ class MainWindowTests(unittest.TestCase):
             self.assertEqual(window.auto_point_timeout_spin.value(), 120.0)
             self.assertEqual(window.auto_ramp_down_step_spin.value(), 5.0)
             self.assertEqual(window.auto_ramp_down_interval_spin.value(), 1.1)
+            self.assertTrue(window.auto_use_spectrometer_check.isChecked())
             self.assertTrue(window.start_automatic_test_button.isEnabled())
             self.assertFalse(window.retry_automatic_test_button.isEnabled())
             self.assertFalse(window.end_automatic_test_button.isEnabled())
@@ -208,6 +263,50 @@ class MainWindowTests(unittest.TestCase):
             self.assertIn("1/20", window.automatic_test_status_label.text())
             self.assertIn("1.0 A", window.automatic_test_status_label.text())
 
+            window.automatic_test_state = AutomaticTestState.IDLE
+            window.close()
+
+    def test_automatic_test_without_spectrometer_starts_after_power_meter_is_ready(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FakeController:
+            is_connected = True
+
+            def __init__(self) -> None:
+                self.writes: list[list[int]] = []
+
+            def i2c_write(self, _address: int, command: list[int]) -> tuple[bool, str]:
+                self.writes.append(command)
+                return True, "OK"
+
+        class ReaderStub:
+            def reset_stability_window(self) -> int:
+                return 1
+
+            def stop(self) -> None:
+                pass
+
+            def wait(self, _timeout: int) -> None:
+                pass
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            window = MainWindow(QSettings(str(Path(temp_dir) / "inputs.ini"), QSettings.Format.IniFormat))
+            controller = FakeController()
+            window.manual_ch341_controller = controller
+            window.power_meter_reader = ReaderStub()  # type: ignore[assignment]
+            window.auto_use_spectrometer_check.setChecked(False)
+            window.sn_field.setText("AUTO-NO-SPECTRUM")
+            window.output_dir_field.setText(temp_dir)
+            spectrometer_starts: list[bool] = []
+            window.start_spectrometer = lambda: spectrometer_starts.append(True)  # type: ignore[method-assign]
+
+            window.start_automatic_test()
+            window.on_power_meter_ready()
+
+            self.assertEqual(spectrometer_starts, [])
+            self.assertEqual(controller.writes, [[0xB4, 0xFF, 0x01, 0x00]])
+            self.assertEqual(window.automatic_test_state, AutomaticTestState.WAITING_STABLE)
+            self.assertIn("功率稳定", window.automatic_test_status_label.text())
             window.automatic_test_state = AutomaticTestState.IDLE
             window.close()
 
@@ -519,6 +618,72 @@ class MainWindowTests(unittest.TestCase):
         window.spectrometer_reader = None
         window.close()
 
+    def test_tdk_ramp_down_write_failure_falls_back_to_output_off(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FailedCurrentController:
+            is_connected = True
+            output_enabled = True
+
+            def __init__(self) -> None:
+                self.output_commands: list[bool] = []
+
+            def i2c_write(self, _address: int, _command: list[int]) -> tuple[bool, str]:
+                return False, "PC command rejected: E01"
+
+            def set_output_enabled(self, enabled: bool) -> None:
+                self.output_commands.append(enabled)
+                self.output_enabled = enabled
+
+        window = MainWindow()
+        controller = FailedCurrentController()
+        window.manual_ch341_controller = controller
+        window.power_supply_controller_kind = "tdk"
+        window.automatic_test_settings = window.collect_automatic_test_settings()
+        window.active_output_current_a = 4.0
+        window.automatic_test_state = AutomaticTestState.PAUSED
+        window.last_power_supply_command_monotonic_s = (
+            combined_test_window.time.monotonic() - POWER_SUPPLY_COMMAND_MIN_INTERVAL_S - 0.1
+        )
+
+        window.end_automatic_test()
+
+        self.assertEqual(controller.output_commands, [False])
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.COMPLETED)
+        self.assertEqual(window.active_output_current_a, 0.0)
+        self.assertEqual(window.set_current_spin.value(), 0.0)
+        self.assertIn("直接关闭 TDK 输出", window.automatic_test_status_label.text())
+        self.assertIn("PC command rejected: E01", window.log_text.text())
+        window.manual_ch341_controller = None
+        window.close()
+
+    def test_failed_tdk_output_shutdown_does_not_report_zero_current(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FailedOutputController:
+            is_connected = True
+            output_enabled = True
+
+            def set_output_enabled(self, _enabled: bool) -> None:
+                raise RuntimeError("OUT 0 timeout")
+
+        window = MainWindow()
+        controller = FailedOutputController()
+        window.manual_ch341_controller = controller
+        window.power_supply_controller_kind = "tdk"
+        window.active_output_current_a = 4.0
+        window.set_current_spin.setValue(4.0)
+        window.automatic_test_state = AutomaticTestState.RAMPING_DOWN
+
+        window.complete_automatic_test()
+
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.PAUSED)
+        self.assertEqual(window.active_output_current_a, 4.0)
+        self.assertEqual(window.set_current_spin.value(), 4.0)
+        self.assertIn("TDK 输出关闭失败", window.automatic_test_status_label.text())
+        window.manual_ch341_controller = None
+        window.close()
+
     def test_stop_all_routes_active_automatic_test_through_controlled_ramp_down(self) -> None:
         app = QApplication.instance() or QApplication([])
 
@@ -613,7 +778,47 @@ class MainWindowTests(unittest.TestCase):
         self.assertFalse(event.isAccepted())
         self.assertTrue(reader.stopped)
         self.assertTrue(window.close_after_background_tasks)
+        self.assertTrue(window.background_stop_timeout_timer.isActive())
+        window.background_stop_timeout_timer.stop()
         window.close_after_background_tasks = False
+        window.power_meter_reader = None
+        window.close()
+
+    def test_close_timeout_allows_explicit_force_stop_of_hung_acquisition(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class HungReader:
+            def __init__(self) -> None:
+                self.running = True
+                self.stopped = False
+                self.terminated = False
+
+            def stop(self) -> None:
+                self.stopped = True
+
+            def isRunning(self) -> bool:
+                return self.running
+
+            def terminate(self) -> None:
+                self.terminated = True
+                self.running = False
+
+            def wait(self, _timeout: int) -> bool:
+                return not self.running
+
+        window = MainWindow()
+        reader = HungReader()
+        window.power_meter_reader = reader  # type: ignore[assignment]
+        window._ask_background_stop_timeout_action = lambda _can_force: "force"  # type: ignore[method-assign]
+        event = QCloseEvent()
+
+        window.closeEvent(event)
+        window.background_stop_timeout_timer.stop()
+        window.on_background_stop_timeout()
+
+        self.assertTrue(reader.stopped)
+        self.assertTrue(reader.terminated)
+        self.assertFalse(window.close_after_background_tasks)
         window.power_meter_reader = None
         window.close()
 
@@ -1069,6 +1274,32 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(list(window.power_curve_line.get_xdata()), [61.0])
         window.close()
 
+    def test_power_curve_rounds_and_smooths_display_without_changing_raw_reading(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        raw_reading = PowerMeterReading(0.2, 1.0074, False, 0.01, 0.2)
+        window.update_power_curve(0.0, 1.0004)
+        window.update_power_curve(0.1, 1.0044)
+        window.on_power_meter_reading(raw_reading)
+
+        self.assertEqual(list(window.power_curve_values), [1.0, 1.002, 1.004])
+        self.assertEqual(list(window.power_curve_line.get_ydata()), [1.0, 1.002, 1.004])
+        self.assertIs(window.latest_power_meter_reading, raw_reading)
+        self.assertEqual(window.latest_power_meter_reading.power_w, 1.0074)
+        window.close()
+
+    def test_power_curve_smoothing_window_drops_old_samples(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        window.update_power_curve(0.0, 1.0)
+        window.update_power_curve(0.1, 3.0)
+        window.update_power_curve(0.31, 5.0)
+
+        self.assertEqual(list(window.power_curve_values), [1.0, 2.0, 5.0])
+        window.close()
+
     def test_saturated_spectrum_warns_and_is_not_queued_for_excel(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
@@ -1372,6 +1603,31 @@ class MainWindowTests(unittest.TestCase):
         window.automatic_test_state = AutomaticTestState.IDLE
         window.close()
 
+    def test_automatic_test_without_spectrometer_uses_power_stability_and_queues_liv(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            window = MainWindow(
+                QSettings(str(Path(temp_dir) / "inputs.ini"), QSettings.Format.IniFormat)
+            )
+            window.auto_use_spectrometer_check.setChecked(False)
+            window.automatic_test_settings = window.collect_automatic_test_settings()
+            window.automatic_test_state = AutomaticTestState.WAITING_STABLE
+            window.active_output_current_a = 3.0
+            window.pending_stable_point_current_a = 3.0
+            window.pending_stable_point_generation = 7
+
+            window.on_power_meter_reading(
+                PowerMeterReading(1.0, 75.0, True, 0.01, 3.0, stability_generation=7)
+            )
+
+            self.assertEqual(window.automatic_test_state, AutomaticTestState.WAITING_VOLTAGE)
+            self.assertTrue(window.queue_excel_test_point(3.0, 50.0, 75.0, 0.5))
+            record = window.pending_excel_records[3.0]
+            self.assertEqual(list(record.wavelength), [])
+            self.assertEqual(list(record.intensity), [])
+            window.automatic_test_state = AutomaticTestState.IDLE
+            window.close()
+
     def test_point_timeout_pauses_automatic_test_without_changing_current(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
@@ -1474,6 +1730,34 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window.automatic_test_state, AutomaticTestState.PAUSED)
         self.assertEqual(window.active_output_current_a, 5.0)
         window.automatic_test_state = AutomaticTestState.IDLE
+        window.close()
+
+    def test_tdk_voltage_read_uses_rs232_label_without_i2c_frame(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FakeTdkController:
+            is_connected = True
+            output_enabled = True
+
+            def read_output_voltage(self) -> float:
+                return 29.5
+
+            def i2c_write_read(self, *_args: object) -> tuple[bool, list[int]]:
+                raise AssertionError("TDK voltage read must not use I2C")
+
+        window = MainWindow()
+        window.manual_ch341_controller = FakeTdkController()
+        window.power_supply_controller_kind = "tdk"
+        window.last_power_supply_command_monotonic_s = (
+            combined_test_window.time.monotonic() - POWER_SUPPLY_COMMAND_MIN_INTERVAL_S - 0.1
+        )
+
+        value = window.execute_i2c_read([0xB4, 0x8B, 0x00, 0x00], "输出电压", "V")
+
+        self.assertEqual(value, 29.5)
+        self.assertIn("RS-232 MV?", window.log_text.text())
+        self.assertNotIn("B4 8B", window.log_text.text())
+        window.manual_ch341_controller = None
         window.close()
 
     def test_invalid_voltage_value_pauses_automatic_current_point(self) -> None:
@@ -1886,6 +2170,92 @@ class MainWindowTests(unittest.TestCase):
             self.assertIn(expected, captured[0][1])
         self.assertIsNone(window.automatic_completion_record)
         window.close()
+
+    def test_automatic_completion_without_spectrometer_omits_spectrum_summary(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        record = ExcelTestRecord(
+            current_a=4.0,
+            voltage_v=14.7,
+            power_w=8.871,
+            efficiency=0.1465,
+            peak_wavelength_nm=float("nan"),
+            centroid_nm=float("nan"),
+            fwhm_nm=float("nan"),
+            pib=float("nan"),
+            wavelength=[],
+            intensity=[],
+        )
+        window = MainWindow()
+        window.auto_use_spectrometer_check.setChecked(False)
+        window.automatic_test_settings = window.collect_automatic_test_settings()
+        window.automatic_test_state = AutomaticTestState.RAMPING_DOWN
+        window.automatic_completion_record = record
+        captured: list[tuple[str, str]] = []
+        old_information = QMessageBox.information
+        try:
+            QMessageBox.information = (  # type: ignore[method-assign]
+                lambda _parent, title, message: captured.append((title, message))
+            )
+            window.complete_automatic_test()
+        finally:
+            QMessageBox.information = old_information  # type: ignore[method-assign]
+
+        self.assertEqual(captured[0][0], "自动测试完成")
+        self.assertIn("目标电流：4.0 A", captured[0][1])
+        self.assertIn("功率：8.871 W", captured[0][1])
+        self.assertIn("效率：14.65 %", captured[0][1])
+        for unexpected in ("中心波长", "FWHM", "PIB", "nan"):
+            self.assertNotIn(unexpected, captured[0][1])
+        window.close()
+
+    def test_optional_spectrometer_instability_does_not_restart_power_stability(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.auto_use_spectrometer_check.setChecked(False)
+        window.automatic_test_settings = window.collect_automatic_test_settings()
+        window.automatic_test_state = AutomaticTestState.WAITING_VOLTAGE
+        window.latest_wavelength_stable = True
+        window.wavelength_stability_detector = types.SimpleNamespace(
+            add_sample=lambda *_args: types.SimpleNamespace(stable=False, span_w=1.0)
+        )
+
+        window.on_spectrometer_reading(SpectrometerReading(976.0, 976.0, 1.0))
+
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.WAITING_VOLTAGE)
+        window.automatic_test_state = AutomaticTestState.IDLE
+        window.close()
+
+    def test_automatic_vout_read_without_spectrometer_does_not_require_wavelength_stability(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            window = MainWindow(
+                QSettings(str(Path(temp_dir) / "inputs.ini"), QSettings.Format.IniFormat)
+            )
+            window.auto_use_spectrometer_check.setChecked(False)
+            window.automatic_test_settings = window.collect_automatic_test_settings()
+            window.automatic_test_state = AutomaticTestState.WAITING_VOLTAGE
+            window.active_output_current_a = 3.0
+            window.recorded_stable_point_current_a = 3.0
+            window.recorded_stable_point_generation = 7
+            window.pending_auto_vout_current_a = 3.0
+            window.pending_auto_vout_generation = 7
+            window.latest_wavelength_stable = False
+            window.latest_power_meter_reading = PowerMeterReading(
+                1.0,
+                10.0,
+                True,
+                0.01,
+                3.0,
+                stability_generation=7,
+            )
+            reads: list[bool] = []
+            window.read_output_voltage = lambda automatic=False: reads.append(automatic)  # type: ignore[method-assign]
+
+            window.on_auto_vout_timer_timeout()
+
+            self.assertEqual(reads, [True])
+            window.automatic_test_state = AutomaticTestState.IDLE
+            window.close()
 
     def test_power_meter_detecting_state_does_not_block_manual_power_supply_controls(self) -> None:
         app = QApplication.instance() or QApplication([])

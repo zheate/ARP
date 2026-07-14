@@ -10,6 +10,7 @@ from enum import Enum
 MAX_CURRENT_CENTIAMPS = 2000
 MIN_POWER_SUPPLY_COMMAND_INTERVAL_S = 1.1
 MAX_RAMP_UP_STEP_CENTIAMPS = 100
+MAX_AUTOMATIC_SEQUENCE_POINTS = 10_000
 
 
 class AutomaticTestState(str, Enum):
@@ -33,6 +34,8 @@ class AutomaticTestSettings:
     ramp_down_step_a: float = 5.0
     ramp_down_interval_s: float = MIN_POWER_SUPPLY_COMMAND_INTERVAL_S
     pause_ramp_down_timeout_s: float = 30.0
+    use_spectrometer: bool = True
+    maximum_current_a: float | None = MAX_CURRENT_CENTIAMPS / 100.0
 
 
 class AutomaticTestOrchestrator:
@@ -50,7 +53,11 @@ class AutomaticTestOrchestrator:
 
     @property
     def acquisition_ready(self) -> bool:
-        return self.power_meter_ready and self.spectrum_meter_ready
+        spectrum_ready = (
+            bool(self.settings is not None and not self.settings.use_spectrometer)
+            or self.spectrum_meter_ready
+        )
+        return self.power_meter_ready and spectrum_ready
 
     @property
     def current_a(self) -> float | None:
@@ -97,7 +104,11 @@ class AutomaticTestOrchestrator:
     def begin_ramp_down(self, start_current_a: float) -> tuple[float, ...]:
         if self.settings is None:
             raise ValueError("自动下电参数不可用")
-        currents = build_ramp_down_currents(start_current_a, self.settings.ramp_down_step_a)
+        currents = build_ramp_down_currents(
+            start_current_a,
+            self.settings.ramp_down_step_a,
+            maximum_current_a=self.settings.maximum_current_a,
+        )
         self.state = AutomaticTestState.RAMPING_DOWN
         return currents
 
@@ -112,35 +123,61 @@ def _to_centiampere(value: float, name: str) -> int:
     return round(number * 100.0)
 
 
+def _maximum_centiampere(maximum_current_a: float | None) -> int | None:
+    if maximum_current_a is None:
+        return None
+    maximum = _to_centiampere(maximum_current_a, "最大电流")
+    if maximum <= 0:
+        raise ValueError("最大电流必须大于 0 A")
+    return maximum
+
+
+def _validate_sequence_size(point_count: int) -> None:
+    if point_count > MAX_AUTOMATIC_SEQUENCE_POINTS:
+        raise ValueError(
+            f"自动测试点数不能超过 {MAX_AUTOMATIC_SEQUENCE_POINTS}；请增大电流步长"
+        )
+
+
 def build_test_currents(settings: AutomaticTestSettings) -> tuple[float, ...]:
     """Build an increasing current sequence that always includes the target."""
     initial = _to_centiampere(settings.initial_current_a, "初始电流")
     target = _to_centiampere(settings.target_current_a, "目标电流")
     step = _to_centiampere(settings.current_step_a, "电流间隔")
-    if initial <= 0 or target <= 0 or initial > target or target > MAX_CURRENT_CENTIAMPS:
-        raise ValueError("电流必须满足 0 < 初始电流 <= 目标电流 <= 20 A")
+    maximum = _maximum_centiampere(settings.maximum_current_a)
+    if initial <= 0 or target <= 0 or initial > target:
+        raise ValueError("电流必须满足 0 < 初始电流 <= 目标电流")
+    if maximum is not None and target > maximum:
+        raise ValueError(f"目标电流不能超过 {maximum / 100.0:g} A")
     if step <= 0:
         raise ValueError("电流间隔必须大于 0 A")
 
-    currents = [initial]
-    while currents[-1] < target:
-        currents.append(min(target, currents[-1] + step))
+    step_count = (target - initial + step - 1) // step
+    _validate_sequence_size(step_count + 1)
+    currents = [min(target, initial + index * step) for index in range(step_count + 1)]
     return tuple(value / 100.0 for value in currents)
 
 
-def build_ramp_down_currents(start_current_a: float, step_a: float) -> tuple[float, ...]:
+def build_ramp_down_currents(
+    start_current_a: float,
+    step_a: float,
+    *,
+    maximum_current_a: float | None = MAX_CURRENT_CENTIAMPS / 100.0,
+) -> tuple[float, ...]:
     """Build descending setpoints after a completed or aborted test."""
     current = _to_centiampere(start_current_a, "当前电流")
     step = _to_centiampere(step_a, "下电步长")
-    if current < 0 or current > MAX_CURRENT_CENTIAMPS:
-        raise ValueError("当前电流必须在 0 至 20 A 范围内")
+    maximum = _maximum_centiampere(maximum_current_a)
+    if current < 0:
+        raise ValueError("当前电流必须大于或等于 0 A")
+    if maximum is not None and current > maximum:
+        raise ValueError(f"当前电流不能超过 {maximum / 100.0:g} A")
     if step <= 0:
         raise ValueError("下电步长必须大于 0 A")
 
-    currents: list[int] = []
-    while current > 0:
-        current = max(0, current - step)
-        currents.append(current)
+    step_count = (current + step - 1) // step
+    _validate_sequence_size(step_count)
+    currents = [max(0, current - index * step) for index in range(1, step_count + 1)]
     return tuple(value / 100.0 for value in currents)
 
 
@@ -148,20 +185,23 @@ def build_ramp_up_currents(
     start_current_a: float,
     target_current_a: float,
     max_step_a: float = MAX_RAMP_UP_STEP_CENTIAMPS / 100.0,
+    *,
+    maximum_current_a: float | None = MAX_CURRENT_CENTIAMPS / 100.0,
 ) -> tuple[float, ...]:
     """Build safe increasing setpoints, excluding start and including target."""
     start = _to_centiampere(start_current_a, "当前电流")
     target = _to_centiampere(target_current_a, "目标电流")
     step = _to_centiampere(max_step_a, "最大升流步长")
-    if start < 0 or target < 0 or start > target or target > MAX_CURRENT_CENTIAMPS:
-        raise ValueError("升流电流必须满足 0 <= 当前电流 <= 目标电流 <= 20 A")
+    maximum = _maximum_centiampere(maximum_current_a)
+    if start < 0 or target < 0 or start > target:
+        raise ValueError("升流电流必须满足 0 <= 当前电流 <= 目标电流")
+    if maximum is not None and target > maximum:
+        raise ValueError(f"目标电流不能超过 {maximum / 100.0:g} A")
     if step <= 0:
         raise ValueError("最大升流步长必须大于 0 A")
-    currents: list[int] = []
-    current = start
-    while current < target:
-        current = min(target, current + step)
-        currents.append(current)
+    step_count = (target - start + step - 1) // step
+    _validate_sequence_size(step_count)
+    currents = [min(target, start + index * step) for index in range(1, step_count + 1)]
     return tuple(value / 100.0 for value in currents)
 
 
@@ -173,7 +213,11 @@ def validate_automatic_test_settings(
 ) -> AutomaticTestSettings:
     """Validate settings shared by the UI and automatic runner."""
     build_test_currents(settings)
-    build_ramp_down_currents(settings.target_current_a, settings.ramp_down_step_a)
+    build_ramp_down_currents(
+        settings.target_current_a,
+        settings.ramp_down_step_a,
+        maximum_current_a=settings.maximum_current_a,
+    )
     if (
         not math.isfinite(settings.ramp_down_interval_s)
         or settings.ramp_down_interval_s < MIN_POWER_SUPPLY_COMMAND_INTERVAL_S

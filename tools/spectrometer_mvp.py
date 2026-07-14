@@ -85,6 +85,7 @@ class OceanSpectrometer:
                 control.close_device()
             except Exception:
                 pass
+            control.shutdown()
 
     def open_first(self) -> int:
         state = self.control.find_usb_devices()
@@ -116,7 +117,10 @@ class OceanSpectrometer:
         return wavelength, intensity
 
     def close(self) -> None:
-        self.control.close_device()
+        try:
+            self.control.close_device()
+        finally:
+            self.control.shutdown()
 
 
 class SpectrumReaderThread(QThread):

@@ -20,20 +20,21 @@ SPECTRUM_SATURATION_PLATEAU_FRACTION = 0.995
 SPECTRUM_SATURATION_MIN_CONSECUTIVE_PIXELS = 3
 
 
-def _finite_floats(values: Iterable[Any]) -> list[float]:
+def _spectrum_floats(values: Iterable[Any]) -> list[float]:
+    """Convert samples without removing gaps between physical pixels."""
     result: list[float] = []
     for raw_value in values:
         value = float(raw_value)
-        if math.isfinite(value):
-            result.append(value)
+        result.append(value)
     return result
 
 
 def detect_spectrum_saturation(intensity: Iterable[Any]) -> SpectrumSaturationResult:
-    values = _finite_floats(intensity)
-    if not values:
+    values = _spectrum_floats(intensity)
+    finite_values = [value for value in values if math.isfinite(value)]
+    if not finite_values:
         return SpectrumSaturationResult(False, math.nan, 0)
-    peak_intensity = max(values)
+    peak_intensity = max(finite_values)
     if peak_intensity < SPECTRUM_SATURATION_MIN_INTENSITY:
         return SpectrumSaturationResult(False, peak_intensity, 0)
 
@@ -44,7 +45,7 @@ def detect_spectrum_saturation(intensity: Iterable[Any]) -> SpectrumSaturationRe
     longest_run = 0
     current_run = 0
     for value in values:
-        if value >= plateau_floor:
+        if math.isfinite(value) and value >= plateau_floor:
             current_run += 1
             longest_run = max(longest_run, current_run)
         else:

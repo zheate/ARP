@@ -34,13 +34,14 @@ Run standalone diagnostics from the repository root with `python -m tools.power_
 - The power-supply controller can be switched between the legacy `CH341 I²C`
   path and `TDK (RS-232)` in the Power group.
 - TDK-Lambda control follows scripts_runner's serial driver: PyVISA enumerates
-  `ASRL...::INSTR` resources and opens the RS-232 link at 115200 baud. It sends
+  `ASRL...::INSTR` resources and opens the serial link at 9600 baud. It sends
   `ADR 6`, `RMT 1`, `PV`/`PC`, `OUT`, and reads `MV?` / `MC?`.
 - Connecting a TDK supply never turns its output on automatically. The operator
   must explicitly enable the output before starting an automatic current test.
 - Disconnecting, switching controllers, or closing the app turns an enabled TDK
-  output off first; if that command fails, the app keeps the connection/window
-  open and reports the failure instead of pretending the supply is safe.
+  output off first. If the close-time command fails, the operator can retry,
+  cancel, or explicitly force exit after checking the supply's physical panel;
+  the app never reports an unconfirmed output as safely turned off.
 - The legacy input-voltage and temperature buttons are disabled in TDK mode:
   input voltage duplicates TDK output voltage, while temperature is not a
   portable query across the supported TDK-Lambda families.
@@ -59,7 +60,7 @@ Run standalone diagnostics from the repository root with `python -m tools.power_
 
 - After setting output current, the app samples power and spectrum data.
 - `Start Acquisition` requires an SN and starts a new recording session.
-- The session workbook is named `<SN>_YYYY_MM_DD_HH_MM_SS.xlsx` in the selected Excel output folder.
+- The session workbook is named `<SN>_YYYY_MM_DD_HH_MM_SS_ffffff.xlsx` in the selected Excel output folder.
 - Once power is stable and Vout is read, the point is queued with its current spectrum. `Save Excel` writes all queued points to the workbook's left-side `LIV` area.
 - Full spectrum curves are stored in the same worksheet's right-side `Spectra` area, with one wavelength/intensity column pair per current point.
 - Both LIV rows and Spectra column pairs are rewritten in ascending-current order on every save.

@@ -43,6 +43,12 @@ class SpectrumAnalysisTests(unittest.TestCase):
         self.assertEqual(saturated.consecutive_pixels, 3)
         self.assertFalse(spike.saturated)
 
+    def test_non_finite_pixel_breaks_a_saturation_plateau(self) -> None:
+        result = detect_spectrum_saturation([16000.0, float("nan"), 16000.0, 16000.0])
+
+        self.assertFalse(result.saturated)
+        self.assertEqual(result.consecutive_pixels, 2)
+
 
 if __name__ == "__main__":
     unittest.main()
