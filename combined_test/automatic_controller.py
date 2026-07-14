@@ -111,6 +111,7 @@ class AutomaticTestController:
         elif self.automatic_orchestrator.advance():
             self.begin_automatic_current_point()
         else:
+            self.automatic_completion_record = self.record_store.pending_records.get(expected_current)
             self.begin_automatic_ramp_down()
 
     def on_record_save_failed(self, message: str) -> None:
@@ -174,6 +175,7 @@ class AutomaticTestController:
         self.reset_power_curve()
         self.reset_stable_power_curve()
         self.reset_spectrum_curve()
+        self.automatic_completion_record = None
 
         self.automatic_orchestrator.start(
             settings,
@@ -553,6 +555,22 @@ class AutomaticTestController:
         self.add_log("自动测试完成，输出电流已降至 0 A")
         self.stop_power_meter()
         self.stop_spectrometer()
+        completion_record = self.automatic_completion_record
+        self.automatic_completion_record = None
+        if completion_record is not None and not self.close_after_automatic_ramp_down:
+            QMessageBox.information(
+                self._host,
+                "自动测试完成",
+                (
+                    "测试完成\n\n"
+                    f"目标电流：{completion_record.current_a:.1f} A\n"
+                    f"功率：{completion_record.power_w:.3f} W\n"
+                    f"效率：{completion_record.efficiency * 100.0:.2f} %\n"
+                    f"中心波长：{completion_record.peak_wavelength_nm:.3f} nm\n"
+                    f"FWHM：{completion_record.fwhm_nm:.3f} nm\n"
+                    f"PIB：{completion_record.pib * 100.0:.2f} %"
+                ),
+            )
         if self.close_after_automatic_ramp_down:
             self.close_after_automatic_ramp_down = False
             QTimer.singleShot(0, self.close)

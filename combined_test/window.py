@@ -106,8 +106,8 @@ DEFAULT_SPECTROMETER_INTEGRATION_US = 10000
 WAVELENGTH_STABILITY_TOLERANCE_NM = 0.2
 MIN_SPECTRUM_PEAK_INTENSITY = 500.0
 AUTOMATIC_DEVICE_START_TIMEOUT_S = 15.0
-LEFT_PANEL_MIN_WIDTH = 400
-LEFT_PANEL_MAX_WIDTH = 420
+LEFT_PANEL_MIN_WIDTH = 440
+LEFT_PANEL_MAX_WIDTH = 460
 
 
 def user_facing_error_message(error: BaseException | str) -> str:
@@ -202,6 +202,7 @@ class MainWindow(QMainWindow):
         self.automatic_paused_from_state = AutomaticTestState.IDLE
         self.close_after_automatic_ramp_down = False
         self.close_after_background_tasks = False
+        self.automatic_completion_record: ExcelTestRecord | None = None
         self.last_point_record_error = ""
         self.automatic_device_start_timer = QTimer(self)
         self.automatic_device_start_timer.setSingleShot(True)
@@ -788,7 +789,10 @@ class MainWindow(QMainWindow):
         self.auto_pause_ramp_down_timeout_spin.setToolTip("暂停后超过此时间自动分段降至 0 A；设为 0 可关闭")
 
         parameter_grid = QGridLayout()
-        parameter_grid.setHorizontalSpacing(8)
+        # Keep the two parameter columns inside the scroll-area viewport. If
+        # this grid is wider than the viewport, focusing a field can scroll it
+        # horizontally even though the scrollbar is hidden and clip labels.
+        parameter_grid.setHorizontalSpacing(6)
         parameter_grid.setVerticalSpacing(6)
         parameter_grid.setColumnStretch(1, 1)
         parameter_grid.setColumnStretch(3, 1)
@@ -1013,7 +1017,6 @@ class MainWindow(QMainWindow):
 
     def _build_log_panel(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("日志", self)
-        group.setMaximumHeight(58)
         layout = QHBoxLayout(group)
         layout.setContentsMargins(10, 6, 10, 8)
         self.log_text = QLabel("就绪", self)
@@ -1021,6 +1024,7 @@ class MainWindow(QMainWindow):
         self.log_text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         layout.addWidget(self.log_text, stretch=1)
         parent.addWidget(group)
+        self._reserve_group_height(group)
 
     def _disable_wheel_input_changes(self) -> None:
         for widget in self.findChildren(QAbstractSpinBox):

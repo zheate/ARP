@@ -823,13 +823,19 @@ class MainWindowTests(unittest.TestCase):
     def test_log_shows_only_the_latest_line(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
+        window.show()
+        app.processEvents()
 
         window.add_log("first message")
         window.add_log("latest message")
+        app.processEvents()
 
         self.assertIn("latest message", window.log_text.text())
         self.assertNotIn("first message", window.log_text.text())
         self.assertFalse(window.log_text.wordWrap())
+        self.assertGreaterEqual(window.log_text.height(), window.log_text.sizeHint().height())
+        self.assertGreaterEqual(window.log_text.geometry().bottom(), window.log_text.sizeHint().height())
+        self.assertGreaterEqual(window.log_text.parentWidget().height(), window.log_text.geometry().bottom() + 1)
         window.close()
 
     def test_plot_layout_stacks_only_below_the_dashboard_width(self) -> None:
@@ -963,6 +969,12 @@ class MainWindowTests(unittest.TestCase):
         window.show()
         app.processEvents()
 
+        self.assertLessEqual(window.left_control_content.width(), window.left_control_panel.viewport().width())
+
+        window.automatic_test_toggle.setChecked(True)
+        app.processEvents()
+
+        self.assertEqual(window.left_control_panel.horizontalScrollBar().maximum(), 0)
         self.assertLessEqual(window.left_control_content.width(), window.left_control_panel.viewport().width())
         window.close()
 
@@ -1832,6 +1844,47 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window.automatic_test_state, AutomaticTestState.COMPLETED)
         window.manual_ch341_controller = None
         window.close()
+
+    def test_successful_automatic_test_shows_target_current_summary_after_ramp_down(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        record = ExcelTestRecord(
+            current_a=20.0,
+            voltage_v=50.5,
+            power_w=200.0,
+            efficiency=0.19802,
+            peak_wavelength_nm=976.1234,
+            centroid_nm=976.12,
+            fwhm_nm=0.2474,
+            pib=0.99123,
+            wavelength=[975.0, 976.0, 977.0],
+            intensity=[1.0, 10.0, 1.0],
+        )
+        window = MainWindow()
+        window.automatic_test_state = AutomaticTestState.RAMPING_DOWN
+        window.automatic_completion_record = record
+        captured: list[tuple[str, str]] = []
+        old_information = QMessageBox.information
+        try:
+            QMessageBox.information = (  # type: ignore[method-assign]
+                lambda _parent, title, message: captured.append((title, message))
+            )
+            window.complete_automatic_test()
+        finally:
+            QMessageBox.information = old_information  # type: ignore[method-assign]
+
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.COMPLETED)
+        self.assertEqual(captured[0][0], "自动测试完成")
+        for expected in (
+            "测试完成",
+            "目标电流：20.0 A",
+            "功率：200.000 W",
+            "效率：19.80 %",
+            "中心波长：976.123 nm",
+            "FWHM：0.247 nm",
+            "PIB：99.12 %",
+        ):
+            self.assertIn(expected, captured[0][1])
+        self.assertIsNone(window.automatic_completion_record)
         window.close()
 
     def test_power_meter_detecting_state_does_not_block_manual_power_supply_controls(self) -> None:
