@@ -48,6 +48,7 @@ AUTOMATIC_CONTROLLER_METHODS = (
     "begin_automatic_ramp_down",
     "schedule_next_automatic_ramp_down_current",
     "complete_automatic_test",
+    "reset_automatic_test",
 )
 
 
@@ -444,6 +445,9 @@ class AutomaticTestController:
                     f"{current_a:.1f} A · {detail}"
                 )
             self.automatic_test_status_label.setText(detail)
+        state_ui_handler = getattr(self._host, "on_automatic_state_ui_changed", None)
+        if callable(state_ui_handler):
+            state_ui_handler(state, detail)
         self.update_global_status()
 
     def pause_automatic_test(self, reason: str) -> None:
@@ -632,27 +636,21 @@ class AutomaticTestController:
         self.stop_spectrometer()
         completion_record = self.automatic_completion_record
         self.automatic_completion_record = None
-        if completion_record is not None and not self.close_after_automatic_ramp_down:
-            summary_lines = [
-                "测试完成",
-                "",
-                f"目标电流：{completion_record.current_a:.1f} A",
-                f"功率：{completion_record.power_w:.3f} W",
-                f"效率：{completion_record.efficiency * 100.0:.2f} %",
-            ]
-            if self.automatic_uses_spectrometer():
-                summary_lines.extend(
-                    (
-                        f"中心波长：{completion_record.peak_wavelength_nm:.3f} nm",
-                        f"FWHM：{completion_record.fwhm_nm:.3f} nm",
-                        f"PIB：{completion_record.pib * 100.0:.2f} %",
-                    )
-                )
-            QMessageBox.information(
-                self._host,
-                "自动测试完成",
-                "\n".join(summary_lines),
-            )
+        if not self.close_after_automatic_ramp_down:
+            result_handler = getattr(self._host, "show_automatic_result", None)
+            if callable(result_handler):
+                result_handler(completion_record, completed_message)
         if self.close_after_automatic_ramp_down:
             self.close_after_automatic_ramp_down = False
             QTimer.singleShot(0, self.close)
+
+    def reset_automatic_test(self) -> None:
+        """Return a completed workflow to preparation without bypassing lifecycle ownership."""
+        if self.automatic_test_state not in (AutomaticTestState.IDLE, AutomaticTestState.COMPLETED):
+            return
+        self.automatic_test_settings = None
+        self.automatic_test_currents = ()
+        self.automatic_test_current_index = -1
+        self.automatic_completion_record = None
+        self.automatic_run_started_monotonic_s = None
+        self.set_automatic_test_state(AutomaticTestState.IDLE, "准备测试")

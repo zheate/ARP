@@ -10,7 +10,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from PySide6.QtGui import QPalette
-from PySide6.QtWidgets import QGridLayout, QGroupBox, QSizePolicy, QWidget
+from PySide6.QtWidgets import QGridLayout, QGroupBox, QSizePolicy, QTabWidget, QWidget
 from matplotlib import rcParams
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.font_manager import FontProperties
@@ -82,6 +82,7 @@ class LivePlots:
 
     COMPATIBILITY_ATTRIBUTES = (
         "curves_layout",
+        "chart_tabs",
         "power_curve_figure",
         "power_curve_canvas",
         "power_curve_axis",
@@ -124,6 +125,7 @@ class LivePlots:
         )
         self.curves_layout.setHorizontalSpacing(CHART_LAYOUT_SPACING)
         self.curves_layout.setVerticalSpacing(CHART_LAYOUT_SPACING)
+        self.chart_tabs = QTabWidget(self.group)
         self.power_curve_times: deque[float] = deque(maxlen=MAX_CURVE_POINTS)
         self.power_curve_values: deque[float] = deque(maxlen=MAX_CURVE_POINTS)
         self._power_display_samples: deque[tuple[float, float]] = deque()
@@ -316,19 +318,22 @@ class LivePlots:
         axis.yaxis.set_major_formatter(formatter)
 
     def relayout(self, available_width: int) -> None:
-        mode = "dashboard" if available_width >= DASHBOARD_LAYOUT_MIN_WIDTH else "stacked"
+        mode = "dashboard" if available_width >= DASHBOARD_LAYOUT_MIN_WIDTH else "tabbed"
         if mode == self._layout_mode:
             return
         self._layout_mode = mode
 
         while self.curves_layout.count():
             self.curves_layout.takeAt(0)
+        while self.chart_tabs.count():
+            self.chart_tabs.removeTab(0)
         for row in range(3):
             self.curves_layout.setRowStretch(row, 0)
         for column in range(3):
             self.curves_layout.setColumnStretch(column, 0)
 
         if mode == "dashboard":
+            self.chart_tabs.hide()
             self.curves_layout.addWidget(self.power_curve_canvas, 0, 0)
             self.curves_layout.addWidget(self.stable_power_canvas, 0, 1)
             self.curves_layout.addWidget(self.spectrum_curve_canvas, 1, 0, 1, 2)
@@ -338,12 +343,12 @@ class LivePlots:
             self.curves_layout.setColumnStretch(1, 1)
             return
 
-        self.curves_layout.addWidget(self.power_curve_canvas, 0, 0)
-        self.curves_layout.addWidget(self.stable_power_canvas, 1, 0)
-        self.curves_layout.addWidget(self.spectrum_curve_canvas, 2, 0)
+        self.chart_tabs.show()
+        self.chart_tabs.addTab(self.power_curve_canvas, "功率实时")
+        self.chart_tabs.addTab(self.stable_power_canvas, "功率 / 效率")
+        self.chart_tabs.addTab(self.spectrum_curve_canvas, "光谱")
+        self.curves_layout.addWidget(self.chart_tabs, 0, 0)
         self.curves_layout.setRowStretch(0, 1)
-        self.curves_layout.setRowStretch(1, 1)
-        self.curves_layout.setRowStretch(2, 1)
         self.curves_layout.setColumnStretch(0, 1)
 
     def _style_axis(self, figure: Figure, axis: Any, title: str, x_label: str, y_label: str) -> None:
