@@ -37,9 +37,13 @@ class PowerStabilityDetectorTests(unittest.TestCase):
         detector = PowerStabilityDetector(window_s=3.0, tolerance_w=0.05)
 
         detector.add_sample(0.0, 10.00)
-        detector.add_sample(1.0, 10.02)
-        result = detector.add_sample(3.0, 10.03)
+        detector.add_sample(0.75, 10.01)
+        detector.add_sample(1.5, 10.02)
+        detector.add_sample(2.25, 10.02)
+        first_candidate = detector.add_sample(3.0, 10.03)
+        result = detector.add_sample(3.1, 10.03)
 
+        self.assertFalse(first_candidate.stable)
         self.assertTrue(result.stable)
         self.assertAlmostEqual(result.span_w, 0.03)
 
@@ -47,11 +51,16 @@ class PowerStabilityDetectorTests(unittest.TestCase):
         detector = PowerStabilityDetector(window_s=3.0, tolerance_w=0.05)
 
         detector.add_sample(0.0, 10.00)
+        detector.add_sample(0.75, 10.01)
+        detector.add_sample(1.5, 10.01)
+        detector.add_sample(2.25, 10.02)
         result = detector.add_sample(2.95, 10.02)
 
         self.assertFalse(result.stable)
         self.assertAlmostEqual(result.window_s, 2.95)
         result = detector.add_sample(3.0, 10.02)
+        self.assertFalse(result.stable)
+        result = detector.add_sample(3.1, 10.02)
         self.assertTrue(result.stable)
 
     def test_reports_stable_when_poll_jitter_would_otherwise_leave_coverage_at_2_99_seconds(self) -> None:
@@ -63,6 +72,8 @@ class PowerStabilityDetectorTests(unittest.TestCase):
         self.assertFalse(result.stable)
         result = detector.add_sample(3.289, 10.01)
 
+        self.assertFalse(result.stable)
+        result = detector.add_sample(3.588, 10.01)
         self.assertTrue(result.stable)
         self.assertGreaterEqual(result.window_s, 3.0)
         self.assertLessEqual(result.span_w, 0.05)
@@ -80,10 +91,67 @@ class PowerStabilityDetectorTests(unittest.TestCase):
     def test_wavelength_stability_uses_the_same_time_window_with_nm_tolerance(self) -> None:
         detector = WavelengthStabilityDetector(window_s=3.0, tolerance_w=0.2)
         detector.add_sample(0.0, 976.00)
-        detector.add_sample(1.5, 976.08)
-        result = detector.add_sample(3.0, 976.15)
+        detector.add_sample(0.75, 976.02)
+        detector.add_sample(1.5, 976.04)
+        detector.add_sample(2.25, 976.06)
+        detector.add_sample(3.0, 976.08)
+        result = detector.add_sample(3.1, 976.08)
         self.assertTrue(result.stable)
-        self.assertAlmostEqual(result.span_w, 0.15)
+        self.assertAlmostEqual(result.span_w, 0.08)
+
+    def test_requires_enough_samples_to_prove_stability(self) -> None:
+        detector = PowerStabilityDetector(window_s=3.0, tolerance_w=0.05)
+
+        detector.add_sample(0.0, 10.00)
+        result = detector.add_sample(3.0, 10.00)
+
+        self.assertFalse(result.stable)
+        self.assertEqual(result.sample_count, 2)
+
+    def test_rejects_a_long_sampling_gap(self) -> None:
+        detector = PowerStabilityDetector(window_s=3.0, tolerance_w=0.05)
+        for elapsed_s in (0.0, 0.1, 0.2, 0.3, 3.0, 3.1):
+            result = detector.add_sample(elapsed_s, 10.00)
+
+        self.assertFalse(result.stable)
+
+    def test_ignores_one_isolated_interior_spike(self) -> None:
+        detector = PowerStabilityDetector(window_s=3.0, tolerance_w=0.05)
+        values = (10.00, 10.01, 10.20, 10.01, 10.02, 10.01, 10.01)
+        for elapsed_s, power_w in zip((0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0), values):
+            result = detector.add_sample(elapsed_s, power_w)
+        self.assertFalse(result.stable)
+
+        result = detector.add_sample(3.1, 10.01)
+        self.assertTrue(result.stable)
+        self.assertAlmostEqual(result.span_w, 0.02)
+
+    def test_rejects_sustained_drift_within_peak_to_peak_tolerance(self) -> None:
+        detector = PowerStabilityDetector(window_s=3.0, tolerance_w=0.05)
+        for index, elapsed_s in enumerate((0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.1)):
+            result = detector.add_sample(elapsed_s, 10.00 + index * 0.005)
+
+        self.assertFalse(result.stable)
+        self.assertLessEqual(result.span_w, 0.05)
+
+    def test_stable_state_drops_immediately_on_a_real_step(self) -> None:
+        detector = PowerStabilityDetector(window_s=3.0, tolerance_w=0.05)
+        for elapsed_s in (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.1):
+            result = detector.add_sample(elapsed_s, 10.00)
+        self.assertTrue(result.stable)
+
+        result = detector.add_sample(3.2, 10.10)
+        self.assertFalse(result.stable)
+
+    def test_non_finite_reading_never_reports_stable(self) -> None:
+        detector = PowerStabilityDetector(window_s=3.0, tolerance_w=0.05)
+        for elapsed_s in (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.1):
+            result = detector.add_sample(elapsed_s, 10.00)
+        self.assertTrue(result.stable)
+
+        result = detector.add_sample(3.2, math.nan)
+        self.assertFalse(result.stable)
+        self.assertTrue(math.isinf(result.span_w))
 
 
 class I2CHelperTests(unittest.TestCase):

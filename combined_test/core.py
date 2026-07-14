@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from collections import deque
 from dataclasses import dataclass
+from statistics import median
 from typing import Deque, Iterable
 
 
@@ -48,6 +49,19 @@ class CombinedMeasurement:
 
 
 class PowerStabilityDetector:
+    """Conservative time-window detector with noise and drift protection.
+
+    A stable result requires enough continuously sampled data, an acceptable
+    robust peak-to-peak span, and no meaningful shift between the beginning
+    and end of the window.  One isolated interior spike may be ignored, but a
+    new endpoint or a sustained level change is never treated as a spike.
+    """
+
+    MIN_SAMPLE_COUNT = 5
+    MAX_SAMPLE_GAP_FRACTION = 0.5
+    MAX_CENTER_SHIFT_FRACTION = 0.5
+    REQUIRED_CONFIRMATIONS = 2
+
     def __init__(self, window_s: float, tolerance_w: float) -> None:
         if window_s <= 0:
             raise ValueError("稳定窗口必须大于 0 秒")
@@ -56,13 +70,53 @@ class PowerStabilityDetector:
         self.window_s = float(window_s)
         self.tolerance_w = float(tolerance_w)
         self._samples: Deque[tuple[float, float]] = deque()
+        self._stable_confirmations = 0
 
     def reset(self) -> None:
         self._samples.clear()
+        self._stable_confirmations = 0
+
+    def _remove_isolated_spike(self, samples: list[tuple[float, float]]) -> list[tuple[float, float]]:
+        """Remove at most one clear, single-sample interior impulse."""
+        if len(samples) < self.MIN_SAMPLE_COUNT or self.tolerance_w <= 0.0:
+            return samples
+
+        candidates: list[tuple[float, int]] = []
+        neighbor_limit = self.tolerance_w * self.MAX_CENTER_SHIFT_FRACTION
+        for index in range(1, len(samples) - 1):
+            previous_power = samples[index - 1][1]
+            power = samples[index][1]
+            next_power = samples[index + 1][1]
+            neighbor_center = (previous_power + next_power) / 2.0
+            deviation = abs(power - neighbor_center)
+            if abs(previous_power - next_power) <= neighbor_limit and deviation > self.tolerance_w:
+                candidates.append((deviation, index))
+
+        if not candidates:
+            return samples
+        _deviation, spike_index = max(candidates)
+        return samples[:spike_index] + samples[spike_index + 1 :]
+
+    def _unstable_result(self, span: float, covered_s: float) -> StabilityResult:
+        self._stable_confirmations = 0
+        return StabilityResult(False, span, covered_s, len(self._samples))
 
     def add_sample(self, elapsed_s: float, power_w: float) -> StabilityResult:
-        self._samples.append((float(elapsed_s), float(power_w)))
-        cutoff = float(elapsed_s) - self.window_s
+        elapsed = float(elapsed_s)
+        power = float(power_w)
+        if not math.isfinite(elapsed) or not math.isfinite(power):
+            return self._unstable_result(math.inf, 0.0)
+
+        if self._samples and elapsed < self._samples[-1][0]:
+            # A restarted clock must not be combined with the previous run.
+            self.reset()
+        elif self._samples and elapsed == self._samples[-1][0]:
+            # Replacing a duplicate timestamp avoids manufacturing sample
+            # density when a source retries the same acquisition instant.
+            self._samples.pop()
+
+        self._samples.append((elapsed, power))
+        cutoff = elapsed - self.window_s
         # Keep the sample immediately before the window cutoff.  A fixed polling
         # interval rarely lands exactly on the cutoff (for example, 2.99 s for a
         # 3.00 s window).  Removing that boundary sample first can make the
@@ -72,10 +126,36 @@ class PowerStabilityDetector:
         while len(self._samples) > 1 and self._samples[1][0] <= cutoff:
             self._samples.popleft()
 
-        powers = [sample[1] for sample in self._samples]
+        samples = list(self._samples)
+        filtered_samples = self._remove_isolated_spike(samples)
+        powers = [sample[1] for sample in filtered_samples]
         span = max(powers) - min(powers) if powers else math.inf
         covered_s = self._samples[-1][0] - self._samples[0][0] if len(self._samples) >= 2 else 0.0
-        stable = covered_s >= self.window_s and span <= self.tolerance_w
+        if covered_s < self.window_s or len(filtered_samples) < self.MIN_SAMPLE_COUNT:
+            return self._unstable_result(span, covered_s)
+
+        gaps = [
+            samples[index][0] - samples[index - 1][0]
+            for index in range(1, len(samples))
+        ]
+        if gaps and max(gaps) > self.window_s * self.MAX_SAMPLE_GAP_FRACTION:
+            return self._unstable_result(span, covered_s)
+
+        section_size = max(2, len(filtered_samples) // 3)
+        beginning_center = median(sample[1] for sample in filtered_samples[:section_size])
+        ending_center = median(sample[1] for sample in filtered_samples[-section_size:])
+        center_shift = abs(ending_center - beginning_center)
+        comparison_margin = max(1e-12, self.tolerance_w * 1e-12)
+        candidate_stable = (
+            span <= self.tolerance_w + comparison_margin
+            and center_shift
+            <= self.tolerance_w * self.MAX_CENTER_SHIFT_FRACTION + comparison_margin
+        )
+        if not candidate_stable:
+            return self._unstable_result(span, covered_s)
+
+        self._stable_confirmations += 1
+        stable = self._stable_confirmations >= self.REQUIRED_CONFIRMATIONS
         return StabilityResult(stable, span, covered_s, len(self._samples))
 
 
