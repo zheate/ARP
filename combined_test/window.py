@@ -685,6 +685,7 @@ class MainWindow(QMainWindow):
         output_row.addWidget(self.tdk_output_status_label, stretch=1)
         output_row.addWidget(self.tdk_output_button)
         form.addRow("TDK 输出", output_row)
+        self.tdk_output_row = output_row
 
         read_grid = QGridLayout()
         self.read_input_voltage_button = QPushButton("输入电压", self)
@@ -1159,6 +1160,7 @@ class MainWindow(QMainWindow):
         is_tdk = selected_kind == "tdk"
         self.power_supply_form.setRowVisible(self.tdk_resource_row, is_tdk)
         self.power_supply_form.setRowVisible(self.tdk_voltage_row, is_tdk)
+        self.power_supply_form.setRowVisible(self.tdk_output_row, is_tdk)
         self.power_supply_form.setRowVisible(self.power_supply_read_row, not is_tdk)
         if not is_tdk:
             self.set_current_spin.setMaximum(20.0)

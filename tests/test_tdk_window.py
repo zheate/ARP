@@ -88,6 +88,7 @@ class TdkWindowTests(unittest.TestCase):
 
         self.assertFalse(form.isRowVisible(window.tdk_resource_row))
         self.assertFalse(form.isRowVisible(window.tdk_voltage_row))
+        self.assertFalse(form.isRowVisible(window.tdk_output_row))
         self.assertTrue(form.isRowVisible(window.power_supply_read_row))
 
         window.power_supply_controller_combo.setCurrentIndex(
@@ -96,6 +97,7 @@ class TdkWindowTests(unittest.TestCase):
 
         self.assertTrue(form.isRowVisible(window.tdk_resource_row))
         self.assertTrue(form.isRowVisible(window.tdk_voltage_row))
+        self.assertTrue(form.isRowVisible(window.tdk_output_row))
         self.assertFalse(form.isRowVisible(window.power_supply_read_row))
         for button in (
             window.read_input_voltage_button,
