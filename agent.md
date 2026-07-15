@@ -47,9 +47,11 @@ Run standalone diagnostics from the repository root with `python -m tools.power_
   portable query across the supported TDK-Lambda families.
 
 - Power meters are discovered from VISA serial resources whose names start with `ASRL`.
-- Supported power-meter probing currently uses the Caihuang protocol: send `$TES`, then optionally `$VER`.
-- Detected power meters are shown as:
-  `Caihuang CHLP-P | ASRLx::INSTR | OK...`
+- Supported power-meter probing tries Caihuang first (`$TES`, then optionally `$VER`),
+  then LaserPoint (`*SERNU:` at 38400 baud) on ports that did not match Caihuang.
+- Detected power meters are shown as either:
+  `Caihuang CHLP-P | ASRLx::INSTR | OK...` or
+  `LaserPoint | ASRLx::INSTR | SN ...`.
 - If multiple power meters are detected, choose the target meter from the Power Meter device combo box before starting the test.
 - Spectrometers are discovered through OceanDirect `find_usb_devices()` and `get_device_ids()`.
 - The exposed OceanDirect wrapper does not provide model or serial-number methods, so spectrometers are shown as:

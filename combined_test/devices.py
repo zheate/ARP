@@ -156,9 +156,16 @@ class PowerMeterDetectThread(QThread):
     status = Signal(str)
     failed = Signal(str)
 
-    def __init__(self, preferred_resource: str = "", parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        preferred_resource: str = "",
+        parent: QWidget | None = None,
+        *,
+        scan_all_resources: bool = True,
+    ) -> None:
         super().__init__(parent)
         self.preferred_resource = preferred_resource
+        self.scan_all_resources = scan_all_resources
         self._stop_requested = threading.Event()
 
     def stop(self) -> None:
@@ -168,7 +175,7 @@ class PowerMeterDetectThread(QThread):
         try:
             try:
                 import pyvisa
-                from tools.power_meter_mvp import CaihuangPowerMeter
+                from tools.power_meter_mvp import CaihuangPowerMeter, LaserPointPowerMeter
             except ModuleNotFoundError as exc:
                 raise RuntimeError(f"缺少功率计依赖：{exc.name}。请在 sth_eb314 环境中运行。") from exc
 
@@ -184,24 +191,29 @@ class PowerMeterDetectThread(QThread):
             preferred = normalize_power_resource_name(self.preferred_resource)
             if preferred:
                 candidates.append(preferred)
-            for resource in resources:
-                if resource not in candidates:
-                    candidates.append(resource)
+            if self.scan_all_resources:
+                for resource in resources:
+                    if resource not in candidates:
+                        candidates.append(resource)
 
             self.status.emit(f"正在 {len(candidates)} 个端口上检测功率计…")
             options: list[PowerMeterOption] = []
             for resource in candidates:
                 if self._stop_requested.is_set():
                     return
-                result = CaihuangPowerMeter.probe(resource, timeout_ms=POWER_METER_PROBE_TIMEOUT_MS)
-                if result is not None:
+                for meter_class in (CaihuangPowerMeter, LaserPointPowerMeter):
+                    result = meter_class.probe(resource, timeout_ms=POWER_METER_PROBE_TIMEOUT_MS)
+                    if result is None:
+                        continue
                     options.append(
                         PowerMeterOption(
                             resource=result.resource,
                             device_type=result.device_type,
                             detail=result.detail,
+                            driver_kind=result.driver_kind,
                         )
                     )
+                    break
             if not self._stop_requested.is_set():
                 self.detected.emit(options)
         except Exception as exc:
@@ -250,17 +262,35 @@ class PowerMeterReaderThread(QThread):
         meter = None
         try:
             try:
-                from tools.power_meter_mvp import CaihuangPowerMeter, normalize_resource
+                from tools.power_meter_mvp import (
+                    CaihuangPowerMeter,
+                    LaserPointPowerMeter,
+                    normalize_resource,
+                )
             except ModuleNotFoundError as exc:
                 raise RuntimeError(f"缺少功率计依赖：{exc.name}。请在 sth_eb314 环境中运行。") from exc
 
-            meter = CaihuangPowerMeter(self.settings.resource)
+            meter_classes = {
+                "caihuang": CaihuangPowerMeter,
+                "laserpoint": LaserPointPowerMeter,
+            }
+            meter_class = meter_classes.get(self.settings.driver_kind)
+            if meter_class is None:
+                raise RuntimeError(f"不支持的功率计驱动类型：{self.settings.driver_kind}")
+
+            meter = meter_class(self.settings.resource)
             if meter.test() != "OK":
                 raise RuntimeError("功率计自检未返回 OK")
+            if self.settings.driver_kind == "laserpoint":
+                meter.set_power_mode()
+                meter.set_gain_mode(3)
             meter.set_wavelength(self.settings.wavelength_nm)
             if self._stop_requested.is_set():
                 return
-            self.status.emit(f"功率计已连接：{normalize_resource(self.settings.resource)}")
+            meter_name = getattr(meter, "device_type", self.settings.driver_kind)
+            self.status.emit(
+                f"功率计已连接：{meter_name} | {normalize_resource(self.settings.resource)}"
+            )
             self.is_ready = True
             self.ready.emit()
 
@@ -322,7 +352,6 @@ class PowerMeterReaderThread(QThread):
 
 class SpectrometerReaderThread(QThread):
     reading = Signal(object)
-    spectrum = Signal(object, object)
     status = Signal(str)
     ready = Signal()
     failed = Signal(str)
@@ -332,10 +361,26 @@ class SpectrometerReaderThread(QThread):
         super().__init__(parent)
         self.settings = settings
         self._stop_requested = threading.Event()
+        self._latest_spectrum_lock = threading.Lock()
+        self._latest_spectrum: tuple[Any, Any] | None = None
         self.is_ready = False
 
     def stop(self) -> None:
         self._stop_requested.set()
+
+    def take_latest_spectrum(self) -> tuple[Any, Any] | None:
+        """Return the newest frame and discard any older, superseded frame."""
+        with self._latest_spectrum_lock:
+            spectrum = self._latest_spectrum
+            self._latest_spectrum = None
+        return spectrum
+
+    def _publish_latest_spectrum(self, wavelength: Any, intensity: Any) -> None:
+        # The GUI deliberately polls this one-slot mailbox. A queued Qt signal
+        # per frame would retain every pair of arrays when plotting is slower
+        # than acquisition and can grow memory without a bound.
+        with self._latest_spectrum_lock:
+            self._latest_spectrum = (wavelength, intensity)
 
     def run(self) -> None:
         spectrometer = None
@@ -371,7 +416,7 @@ class SpectrometerReaderThread(QThread):
                 wavelength, intensity = spectrometer.read_spectrum()
                 if self._stop_requested.is_set():
                     break
-                self.spectrum.emit(wavelength, intensity)
+                self._publish_latest_spectrum(wavelength, intensity)
                 if self.settings.auto_integration_enabled:
                     try:
                         peak_counts = max(float(value) for value in intensity)

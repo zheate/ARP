@@ -28,9 +28,11 @@ class PowerMeterOption:
     resource: str
     device_type: str
     detail: str
+    driver_kind: str = "caihuang"
 
     def label(self) -> str:
-        return f"{self.device_type} | {self.resource} | {self.detail}"
+        parts = (self.device_type, self.resource, self.detail)
+        return " | ".join(part for part in parts if part)
 
 
 @dataclass(frozen=True)
@@ -62,6 +64,7 @@ class PowerMeterSettings:
     interval_ms: int
     stable_window_s: float
     stable_tolerance_w: float
+    driver_kind: str = "caihuang"
 
 
 @dataclass(frozen=True)

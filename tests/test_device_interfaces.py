@@ -5,7 +5,9 @@ from datetime import datetime
 from pathlib import Path
 
 from combined_test.device_interfaces import ControllerPowerSupply, PowerSupply
+from combined_test.devices import SpectrometerReaderThread
 from combined_test.excel_export import ExcelTestRecord
+from combined_test.models import SpectrometerSettings
 from combined_test.record_store import RecordStore, SessionRecordStore
 
 
@@ -43,6 +45,17 @@ class FakeController:
 
 
 class DeviceInterfaceTests(unittest.TestCase):
+    def test_spectrometer_mailbox_keeps_only_the_latest_frame(self) -> None:
+        reader = SpectrometerReaderThread(SpectrometerSettings(10_000, 50))
+        first = ([975.0], [10.0])
+        latest = ([976.0], [20.0])
+
+        reader._publish_latest_spectrum(*first)
+        reader._publish_latest_spectrum(*latest)
+
+        self.assertEqual(reader.take_latest_spectrum(), latest)
+        self.assertIsNone(reader.take_latest_spectrum())
+
     def test_controller_adapter_exposes_semantic_power_supply_operations(self) -> None:
         controller = FakeController()
         supply = ControllerPowerSupply(controller)

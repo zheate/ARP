@@ -124,9 +124,11 @@ class TdkWindowTests(unittest.TestCase):
             for index in (
                 window.automatic_tab_index,
                 window.records_tab_index,
-                window.pd_tab_index,
             ):
                 self.assertFalse(window.main_tabs.isTabEnabled(index))
+            self.assertTrue(window.main_tabs.isTabEnabled(window.pd_tab_index))
+            window.main_tabs.setCurrentIndex(window.pd_tab_index)
+            self.assertEqual(window.main_tabs.currentIndex(), window.pd_tab_index)
 
             window.last_power_supply_command_monotonic_s = None
             window.toggle_tdk_output()

@@ -1,8 +1,9 @@
-"""Standalone power-meter diagnostic UI and Caihuang adapter."""
+"""Standalone power-meter diagnostic UI and serial power-meter adapters."""
 
 from __future__ import annotations
 
 import math
+import re
 import sys
 import time
 from collections import deque
@@ -48,6 +49,7 @@ class ProbeResult:
     resource: str
     device_type: str
     detail: str
+    driver_kind: str = "caihuang"
 
 
 def normalize_resource(name: str) -> str:
@@ -68,6 +70,20 @@ def configure_caihuang(inst: pyvisa.resources.Resource, timeout_ms: int = 1000) 
         inst.stop_bits = constants.StopBits.one
 
 
+def configure_laserpoint(inst: pyvisa.resources.Resource, timeout_ms: int = 1000) -> None:
+    """Configure the VISA serial session used by scripts_runner's LaserPoint driver."""
+    inst.timeout = int(timeout_ms)
+    inst.write_termination = ":"
+    inst.read_termination = ";"
+    if hasattr(inst, "baud_rate"):
+        inst.baud_rate = 38400
+        inst.data_bits = 8
+        inst.parity = constants.Parity.none
+        inst.stop_bits = constants.StopBits.one
+        if hasattr(inst, "flow_control"):
+            inst.flow_control = constants.ControlFlow.none
+
+
 def parse_power_w(raw: str) -> float:
     text = raw.strip()
     if text.upper() == "OVERFLOW":
@@ -85,8 +101,43 @@ def format_wavelength_nm(wavelength_nm: float) -> str:
     return f"{value:.6f}".rstrip("0").rstrip(".")
 
 
+def format_laserpoint_wavelength_nm(wavelength_nm: float) -> str:
+    """Return LaserPoint's five-digit integer wavelength field."""
+    value = float(wavelength_nm)
+    if not math.isfinite(value) or not value.is_integer():
+        raise RuntimeError("LaserPoint 波长必须是整数 nm")
+    integer_value = int(value)
+    if integer_value < 0 or integer_value > 99999:
+        raise RuntimeError("LaserPoint 波长必须在 0 至 99999 nm 范围内")
+    return f"{integer_value:05d}"
+
+
+def parse_laserpoint_serial(raw: str) -> str:
+    """Extract the six-digit serial returned by the LaserPoint SERNU command."""
+    text = raw.strip().rstrip(";").strip()
+    match = re.search(r"(?<!\d)(\d{6})(?!\d)", text)
+    if match is None:
+        raise RuntimeError(f"LaserPoint 序列号响应无效：{text or '<empty>'}")
+    return match.group(1)
+
+
+def parse_laserpoint_power_w(raw: str) -> float:
+    """Parse the numeric OUTPM response, tolerating a short textual prefix."""
+    text = raw.strip().rstrip(";").strip()
+    if not text or text.startswith("?"):
+        raise RuntimeError(f"LaserPoint 功率响应无效：{text or '<empty>'}")
+    match = re.search(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?", text)
+    if match is None:
+        raise RuntimeError(f"LaserPoint 功率响应无效：{text}")
+    value = float(match.group(0))
+    if not math.isfinite(value):
+        raise RuntimeError(f"LaserPoint 功率响应无效：{text}")
+    return value
+
+
 class CaihuangPowerMeter:
     device_type = "Caihuang CHLP-P"
+    driver_kind = "caihuang"
 
     def __init__(self, resource: str) -> None:
         self.resource = normalize_resource(resource)
@@ -122,7 +173,12 @@ class CaihuangPowerMeter:
                         detail = f"OK, version {version}"
                 except Exception:
                     pass
-                return ProbeResult(normalize_resource(resource), CaihuangPowerMeter.device_type, detail)
+                return ProbeResult(
+                    normalize_resource(resource),
+                    CaihuangPowerMeter.device_type,
+                    detail,
+                    CaihuangPowerMeter.driver_kind,
+                )
         except Exception:
             return None
         finally:
@@ -149,6 +205,93 @@ class CaihuangPowerMeter:
         reply = self.inst.query(f"$REL={1 if enabled else 0}").strip()
         if reply != "SUCCEED":
             raise RuntimeError(f"set relative zero failed: {reply}")
+
+    def close(self) -> None:
+        inst, rm = self.inst, self.rm
+        self.inst = None
+        self.rm = None
+        try:
+            if inst is not None:
+                inst.close()
+        finally:
+            if rm is not None:
+                release_visa_resource_manager(rm)
+
+
+class LaserPointPowerMeter:
+    """PyVISA adapter matching the LaserPoint protocol used by scripts_runner."""
+
+    device_type = "LaserPoint"
+    driver_kind = "laserpoint"
+
+    def __init__(self, resource: str) -> None:
+        self.resource = normalize_resource(resource)
+        self.rm = acquire_visa_resource_manager()
+        self.inst = None
+        self.serial_number = ""
+        try:
+            self.inst = self.rm.open_resource(self.resource)
+            configure_laserpoint(self.inst)
+        except Exception:
+            if self.inst is not None:
+                try:
+                    self.inst.close()
+                except Exception:
+                    pass
+                self.inst = None
+            release_visa_resource_manager(self.rm)
+            self.rm = None
+            raise
+
+    @staticmethod
+    def probe(resource: str, timeout_ms: int = 1000) -> ProbeResult | None:
+        rm = acquire_visa_resource_manager()
+        inst = None
+        try:
+            normalized_resource = normalize_resource(resource)
+            inst = rm.open_resource(normalized_resource)
+            configure_laserpoint(inst, timeout_ms=timeout_ms)
+            serial_number = parse_laserpoint_serial(inst.query("*SERNU"))
+            return ProbeResult(
+                normalized_resource,
+                LaserPointPowerMeter.device_type,
+                f"SN {serial_number}",
+                LaserPointPowerMeter.driver_kind,
+            )
+        except Exception:
+            return None
+        finally:
+            if inst is not None:
+                try:
+                    inst.close()
+                except Exception:
+                    pass
+            release_visa_resource_manager(rm)
+
+    def test(self) -> str:
+        self.serial_number = parse_laserpoint_serial(self.inst.query("*SERNU"))
+        return "OK"
+
+    def _setting_command(self, command: str) -> None:
+        # scripts_runner's compiled driver sends these setters without waiting
+        # for a reply. Waiting here would turn a successful write-only command
+        # into a VISA timeout on the supported LaserPoint controller.
+        self.inst.write(command)
+
+    def set_power_mode(self) -> None:
+        self._setting_command("*POWER")
+
+    def set_gain_mode(self, mode: int) -> None:
+        value = int(mode)
+        if value < 0 or value > 3:
+            raise ValueError("LaserPoint 增益模式必须在 0 至 3 之间")
+        self._setting_command(f"*SETX1 {value}")
+
+    def set_wavelength(self, wavelength_nm: float) -> None:
+        self._setting_command(f"*SETLAM{format_laserpoint_wavelength_nm(wavelength_nm)}")
+
+    def read_power_w(self) -> float:
+        return parse_laserpoint_power_w(self.inst.query("*OUTPM"))
 
     def close(self) -> None:
         inst, rm = self.inst, self.rm

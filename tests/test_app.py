@@ -270,13 +270,18 @@ class MainWindowTests(unittest.TestCase):
         window.set_automatic_test_state(AutomaticTestState.WAITING_STABLE, "等待功率稳定")
 
         self.assertEqual(window.automatic_stack.currentIndex(), window.automatic_run_index)
+        self.assertEqual(window.main_tabs.currentIndex(), window.automatic_tab_index)
         self.assertEqual(window.run_progress_label.text(), "2 / 3 点")
         self.assertEqual(window.run_current_label.text(), "当前 2.0 A")
         self.assertEqual(window.run_stage_label.text(), "等待稳定")
         self.assertIn("2/3", window.global_progress_label.text())
         self.assertTrue(window.pause_automatic_test_button.isEnabled())
         self.assertFalse(window.main_tabs.isTabEnabled(window.manual_tab_index))
-        self.assertFalse(window.main_tabs.isTabEnabled(window.pd_tab_index))
+        self.assertTrue(window.main_tabs.isTabEnabled(window.pd_tab_index))
+        window.main_tabs.setCurrentIndex(window.pd_tab_index)
+        self.assertEqual(window.main_tabs.currentIndex(), window.pd_tab_index)
+        window.set_automatic_test_state(AutomaticTestState.WAITING_VOLTAGE, "读取输出电压")
+        self.assertEqual(window.main_tabs.currentIndex(), window.pd_tab_index)
         self.assertTrue(window.stop_power_meter_button.isHidden())
         self.assertTrue(window.stop_spectrometer_button.isHidden())
 
@@ -855,6 +860,109 @@ class MainWindowTests(unittest.TestCase):
         window.automatic_test_state = AutomaticTestState.IDLE
         window.close()
 
+    def test_manual_emergency_stop_immediately_sets_ch341_current_to_zero_and_stops_acquisition(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FakeController:
+            is_connected = True
+
+            def __init__(self) -> None:
+                self.writes: list[list[int]] = []
+
+            def i2c_write(self, _address: int, command: list[int]) -> tuple[bool, str]:
+                self.writes.append(command)
+                return True, "OK"
+
+        window = MainWindow()
+        controller = FakeController()
+        window.manual_ch341_controller = controller
+        window.active_output_current_a = 8.0
+        window.set_current_spin.setValue(8.0)
+        window.manual_power_tab_lock_active = True
+        self.assertTrue(window.emergency_stop_button.isEnabled())
+        stopped: list[str] = []
+        window.stop_power_meter = lambda: stopped.append("power")  # type: ignore[method-assign]
+        window.stop_spectrometer = lambda: stopped.append("spectrum")  # type: ignore[method-assign]
+        window.pd_panel.stop_acquisition = lambda: stopped.append("pd")  # type: ignore[method-assign]
+        # A recent routine command must not delay an emergency command.
+        window.last_power_supply_command_monotonic_s = combined_test_window.time.monotonic()
+
+        window.emergency_stop_button.click()
+
+        self.assertEqual(controller.writes, [[0xB4, 0xFF, 0x00, 0x00]])
+        self.assertEqual(window.active_output_current_a, 0.0)
+        self.assertEqual(window.set_current_spin.value(), 0.0)
+        self.assertFalse(window.manual_power_tab_lock_active)
+        self.assertEqual(stopped, ["power", "spectrum", "pd"])
+        self.assertIn("电源电流已归零", window.statusBar().currentMessage())
+        window.manual_ch341_controller = None
+        window.close()
+
+    def test_manual_emergency_stop_closes_tdk_output_after_setting_zero_current(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FakeTdkController:
+            is_connected = True
+            output_enabled = True
+
+            def __init__(self) -> None:
+                self.commands: list[str] = []
+
+            def set_output_current(self, current_a: float) -> None:
+                self.commands.append(f"current:{current_a:g}")
+
+            def set_output_enabled(self, enabled: bool) -> None:
+                self.commands.append(f"output:{int(enabled)}")
+                self.output_enabled = enabled
+
+        window = MainWindow()
+        controller = FakeTdkController()
+        window.manual_ch341_controller = controller
+        window.power_supply_controller_kind = "tdk"
+        window.active_output_current_a = 5.0
+        window.set_current_spin.setValue(5.0)
+
+        window.emergency_stop()
+
+        self.assertEqual(controller.commands, ["current:0", "output:0"])
+        self.assertFalse(controller.output_enabled)
+        self.assertEqual(window.active_output_current_a, 0.0)
+        self.assertEqual(window.tdk_output_status_label.text(), "输出关闭")
+        self.assertIn("TDK 输出已关闭", window.statusBar().currentMessage())
+        window.manual_ch341_controller = None
+        window.close()
+
+    def test_failed_manual_emergency_current_command_does_not_report_zero(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FailedController:
+            is_connected = True
+
+            def i2c_write(self, _address: int, _command: list[int]) -> tuple[bool, str]:
+                return False, "write timeout"
+
+        window = MainWindow()
+        window.manual_ch341_controller = FailedController()
+        window.active_output_current_a = 4.0
+        window.set_current_spin.setValue(4.0)
+        captured: list[tuple[str, str]] = []
+        old_critical = QMessageBox.critical
+        try:
+            QMessageBox.critical = (  # type: ignore[method-assign]
+                lambda _parent, title, message: captured.append((title, message))
+            )
+            window.emergency_stop()
+        finally:
+            QMessageBox.critical = old_critical  # type: ignore[method-assign]
+
+        self.assertEqual(window.active_output_current_a, 4.0)
+        self.assertEqual(window.set_current_spin.value(), 4.0)
+        self.assertEqual(captured[0][0], "紧急停止")
+        self.assertIn("电流置零失败", captured[0][1])
+        self.assertIn("请立即检查电源面板", window.statusBar().currentMessage())
+        window.manual_ch341_controller = None
+        window.close()
+
     def test_closing_during_automatic_test_defers_exit_until_controlled_ramp_down(self) -> None:
         app = QApplication.instance() or QApplication([])
 
@@ -1118,6 +1226,35 @@ class MainWindowTests(unittest.TestCase):
         self.assertFalse(window.prepare_tdk_resource_combo.isHidden())
         self.assertNotEqual(window.prepare_power_meter_button.text(), "设置")
         window.close()
+
+    def test_prepare_page_displays_power_meter_name_and_keeps_resource_as_data(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        self.assertIn("功率计（待检测）", window.prepare_power_meter_combo.currentText())
+        self.assertEqual(window._selected_power_resource(), "ASRL3::INSTR")
+
+        window.power_meter_combo.setEditText("ASRL8::INSTR")
+        self.assertEqual(window._selected_power_resource(), "ASRL8::INSTR")
+        window.close()
+
+    def test_prepare_page_restores_detected_power_meter_name(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings = QSettings(str(Path(temp_dir) / "inputs.ini"), QSettings.Format.IniFormat)
+            settings.setValue("input/power_resource", "ASRL3::INSTR")
+            settings.setValue("input/power_meter_device_type", "LaserPoint")
+            settings.setValue("input/power_meter_detail", "SN 123456")
+            settings.setValue("input/power_meter_driver_kind", "laserpoint")
+
+            window = MainWindow(settings)
+
+            self.assertEqual(
+                window.prepare_power_meter_combo.currentText(),
+                "LaserPoint | ASRL3::INSTR | SN 123456",
+            )
+            self.assertEqual(window.collect_power_meter_settings().driver_kind, "laserpoint")
+            window.close()
 
     def test_prepare_page_exposes_open_and_close_actions_for_measurement_devices(self) -> None:
         app = QApplication.instance() or QApplication([])
@@ -2245,10 +2382,13 @@ class MainWindowTests(unittest.TestCase):
         for index in (
             window.automatic_tab_index,
             window.records_tab_index,
-            window.pd_tab_index,
         ):
             self.assertFalse(window.main_tabs.isTabEnabled(index))
             self.assertIn("0 A", window.main_tabs.tabToolTip(index))
+        self.assertTrue(window.main_tabs.isTabEnabled(window.pd_tab_index))
+        self.assertIn("加电期间", window.main_tabs.tabToolTip(window.pd_tab_index))
+        window.main_tabs.setCurrentIndex(window.pd_tab_index)
+        self.assertEqual(window.main_tabs.currentIndex(), window.pd_tab_index)
 
         window.last_power_supply_command_monotonic_s = None
         window.set_current_spin.setValue(0.0)
@@ -2776,7 +2916,7 @@ class SpectrumPeakAnnotationTests(unittest.TestCase):
 
 class PowerMeterDetectThreadTests(unittest.TestCase):
     def test_power_meter_detect_thread_probes_selected_port_first_with_short_timeout(self) -> None:
-        calls: list[tuple[str, int]] = []
+        calls: list[tuple[str, str, int]] = []
 
         class FakeResourceManager:
             def list_resources(self) -> tuple[str, str]:
@@ -2788,19 +2928,29 @@ class PowerMeterDetectThreadTests(unittest.TestCase):
         class FakeCaihuangPowerMeter:
             @staticmethod
             def probe(resource: str, timeout_ms: int = 1000) -> object | None:
-                calls.append((resource, timeout_ms))
+                calls.append(("caihuang", resource, timeout_ms))
                 if resource == "ASRL2::INSTR":
                     return types.SimpleNamespace(
                         resource=resource,
                         device_type="Caihuang CHLP-P",
                         detail="OK",
+                        driver_kind="caihuang",
                     )
+                return None
+
+        class FakeLaserPointPowerMeter:
+            @staticmethod
+            def probe(resource: str, timeout_ms: int = 1000) -> object | None:
+                calls.append(("laserpoint", resource, timeout_ms))
                 return None
 
         old_modules = dict(sys.modules)
         try:
             sys.modules["pyvisa"] = types.SimpleNamespace(ResourceManager=lambda: FakeResourceManager())
-            sys.modules["tools.power_meter_mvp"] = types.SimpleNamespace(CaihuangPowerMeter=FakeCaihuangPowerMeter)
+            sys.modules["tools.power_meter_mvp"] = types.SimpleNamespace(
+                CaihuangPowerMeter=FakeCaihuangPowerMeter,
+                LaserPointPowerMeter=FakeLaserPointPowerMeter,
+            )
             thread = combined_test_devices.PowerMeterDetectThread("ASRL2::INSTR")
             detected: list[PowerMeterOption] = []
             statuses: list[str] = []
@@ -2809,10 +2959,69 @@ class PowerMeterDetectThreadTests(unittest.TestCase):
 
             thread.run()
 
-            self.assertEqual(calls[0], ("ASRL2::INSTR", combined_test_devices.POWER_METER_PROBE_TIMEOUT_MS))
-            self.assertEqual(calls[1], ("ASRL1::INSTR", combined_test_devices.POWER_METER_PROBE_TIMEOUT_MS))
+            self.assertEqual(
+                calls[0],
+                ("caihuang", "ASRL2::INSTR", combined_test_devices.POWER_METER_PROBE_TIMEOUT_MS),
+            )
+            self.assertEqual(
+                calls[1],
+                ("caihuang", "ASRL1::INSTR", combined_test_devices.POWER_METER_PROBE_TIMEOUT_MS),
+            )
+            self.assertEqual(
+                calls[2],
+                ("laserpoint", "ASRL1::INSTR", combined_test_devices.POWER_METER_PROBE_TIMEOUT_MS),
+            )
             self.assertEqual([option.resource for option in detected], ["ASRL2::INSTR"])
+            self.assertEqual(detected[0].driver_kind, "caihuang")
             self.assertIn("检测功率计", statuses[0])
+        finally:
+            sys.modules.clear()
+            sys.modules.update(old_modules)
+
+    def test_power_meter_detect_thread_falls_back_to_laserpoint_protocol(self) -> None:
+        calls: list[tuple[str, str]] = []
+
+        class FakeResourceManager:
+            def list_resources(self) -> tuple[str]:
+                return ("ASRL4::INSTR",)
+
+            def close(self) -> None:
+                pass
+
+        class FakeCaihuangPowerMeter:
+            @staticmethod
+            def probe(resource: str, timeout_ms: int = 1000) -> None:
+                calls.append(("caihuang", resource))
+                return None
+
+        class FakeLaserPointPowerMeter:
+            @staticmethod
+            def probe(resource: str, timeout_ms: int = 1000) -> object:
+                calls.append(("laserpoint", resource))
+                return types.SimpleNamespace(
+                    resource=resource,
+                    device_type="LaserPoint",
+                    detail="SN 123456",
+                    driver_kind="laserpoint",
+                )
+
+        old_modules = dict(sys.modules)
+        try:
+            sys.modules["pyvisa"] = types.SimpleNamespace(ResourceManager=lambda: FakeResourceManager())
+            sys.modules["tools.power_meter_mvp"] = types.SimpleNamespace(
+                CaihuangPowerMeter=FakeCaihuangPowerMeter,
+                LaserPointPowerMeter=FakeLaserPointPowerMeter,
+            )
+            thread = combined_test_devices.PowerMeterDetectThread()
+            detected: list[PowerMeterOption] = []
+            thread.detected.connect(lambda options: detected.extend(options))
+
+            thread.run()
+
+            self.assertEqual(calls, [("caihuang", "ASRL4::INSTR"), ("laserpoint", "ASRL4::INSTR")])
+            self.assertEqual(len(detected), 1)
+            self.assertEqual(detected[0].driver_kind, "laserpoint")
+            self.assertEqual(detected[0].label(), "LaserPoint | ASRL4::INSTR | SN 123456")
         finally:
             sys.modules.clear()
             sys.modules.update(old_modules)
@@ -2937,6 +3146,66 @@ class AcquisitionReadySignalTests(unittest.TestCase):
         finally:
             power_meter_mvp.CaihuangPowerMeter = old_meter_class
 
+    def test_power_meter_reader_configures_selected_laserpoint_driver(self) -> None:
+        calls: list[object] = []
+
+        class FakeLaserPointPowerMeter:
+            driver_kind = "laserpoint"
+            device_type = "LaserPoint"
+
+            def __init__(self, resource: str) -> None:
+                calls.append(("open", resource))
+
+            def test(self) -> str:
+                calls.append("test")
+                return "OK"
+
+            def set_power_mode(self) -> None:
+                calls.append("power_mode")
+
+            def set_gain_mode(self, mode: int) -> None:
+                calls.append(("gain_mode", mode))
+
+            def set_wavelength(self, wavelength_nm: float) -> None:
+                calls.append(("wavelength", wavelength_nm))
+
+            def read_power_w(self) -> float:
+                raise RuntimeError("stop test loop")
+
+            def close(self) -> None:
+                calls.append("close")
+
+        old_meter_class = power_meter_mvp.LaserPointPowerMeter
+        try:
+            power_meter_mvp.LaserPointPowerMeter = FakeLaserPointPowerMeter
+            reader = combined_test_devices.PowerMeterReaderThread(
+                PowerMeterSettings(
+                    "ASRL4::INSTR",
+                    976.0,
+                    1.0,
+                    300,
+                    3.0,
+                    0.15,
+                    driver_kind="laserpoint",
+                )
+            )
+
+            reader.run()
+
+            self.assertEqual(
+                calls[:5],
+                [
+                    ("open", "ASRL4::INSTR"),
+                    "test",
+                    "power_mode",
+                    ("gain_mode", 3),
+                    ("wavelength", 976.0),
+                ],
+            )
+            self.assertEqual(calls[-1], "close")
+        finally:
+            power_meter_mvp.LaserPointPowerMeter = old_meter_class
+
 
 class SpectrometerDeviceOpeningTests(unittest.TestCase):
     def test_open_spectrometer_device_falls_back_when_selected_runtime_id_changed(self) -> None:
@@ -2969,6 +3238,82 @@ class PowerMeterCommandFormattingTests(unittest.TestCase):
         self.assertEqual(power_meter_mvp.format_wavelength_nm(976.5), "976.5")
         self.assertEqual(power_meter_mvp.format_wavelength_nm(976.125), "976.125")
 
+    def test_laserpoint_wavelength_uses_five_digit_integer_field(self) -> None:
+        self.assertEqual(power_meter_mvp.format_laserpoint_wavelength_nm(976.0), "00976")
+        with self.assertRaisesRegex(RuntimeError, "整数"):
+            power_meter_mvp.format_laserpoint_wavelength_nm(976.5)
+
+    def test_laserpoint_response_parsers_validate_serial_and_power(self) -> None:
+        self.assertEqual(power_meter_mvp.parse_laserpoint_serial("SN 123456;"), "123456")
+        self.assertAlmostEqual(power_meter_mvp.parse_laserpoint_power_w("P=12.345;"), 12.345)
+        with self.assertRaises(RuntimeError):
+            power_meter_mvp.parse_laserpoint_serial("OK;")
+
+    def test_laserpoint_adapter_uses_scripts_runner_serial_protocol(self) -> None:
+        class FakeInstrument:
+            def __init__(self) -> None:
+                self.timeout = 0
+                self.write_termination = ""
+                self.read_termination = ""
+                self.baud_rate = 0
+                self.data_bits = 0
+                self.parity = None
+                self.stop_bits = None
+                self.flow_control = None
+                self.queries: list[str] = []
+                self.writes: list[str] = []
+
+            def query(self, command: str) -> str:
+                self.queries.append(command)
+                return {
+                    "*SERNU": "123456",
+                    "*OUTPM": "1.25",
+                }[command]
+
+            def write(self, command: str) -> None:
+                self.writes.append(command)
+
+            def close(self) -> None:
+                pass
+
+        class FakeResourceManager:
+            def __init__(self, instrument: FakeInstrument) -> None:
+                self.instrument = instrument
+
+            def open_resource(self, resource: str) -> FakeInstrument:
+                self.resource = resource
+                return self.instrument
+
+        instrument = FakeInstrument()
+        resource_manager = FakeResourceManager(instrument)
+        original_acquire = power_meter_mvp.acquire_visa_resource_manager
+        original_release = power_meter_mvp.release_visa_resource_manager
+        try:
+            power_meter_mvp.acquire_visa_resource_manager = lambda: resource_manager
+            power_meter_mvp.release_visa_resource_manager = lambda _rm: None
+            meter = power_meter_mvp.LaserPointPowerMeter("COM4")
+
+            self.assertEqual(meter.test(), "OK")
+            meter.set_power_mode()
+            meter.set_gain_mode(3)
+            meter.set_wavelength(976.0)
+            self.assertAlmostEqual(meter.read_power_w(), 1.25)
+            meter.close()
+
+            self.assertEqual(resource_manager.resource, "ASRL4::INSTR")
+            self.assertEqual(instrument.timeout, 1000)
+            self.assertEqual(instrument.baud_rate, 38400)
+            self.assertEqual(instrument.write_termination, ":")
+            self.assertEqual(instrument.read_termination, ";")
+            self.assertEqual(
+                instrument.queries,
+                ["*SERNU", "*OUTPM"],
+            )
+            self.assertEqual(instrument.writes, ["*POWER", "*SETX1 3", "*SETLAM00976"])
+        finally:
+            power_meter_mvp.acquire_visa_resource_manager = original_acquire
+            power_meter_mvp.release_visa_resource_manager = original_release
+
 
 class DeviceOptionTests(unittest.TestCase):
     def test_power_meter_option_label_includes_model_resource_and_detail(self) -> None:
@@ -2979,6 +3324,15 @@ class DeviceOptionTests(unittest.TestCase):
         )
 
         self.assertEqual(option.label(), "Caihuang CHLP-P | ASRL4::INSTR | OK, version 1.2")
+
+    def test_power_meter_option_label_omits_empty_detection_detail(self) -> None:
+        option = PowerMeterOption(
+            resource="ASRL3::INSTR",
+            device_type="Caihuang CHLP-P",
+            detail="",
+        )
+
+        self.assertEqual(option.label(), "Caihuang CHLP-P | ASRL3::INSTR")
 
     def test_spectrometer_option_label_includes_ocean_model_and_device_id(self) -> None:
         option = SpectrometerOption(device_id=123)

@@ -12,7 +12,7 @@ from pathlib import Path
 from statistics import median
 from typing import Any
 
-from PySide6.QtCore import QEvent, QSettings, QTimer, Qt, QUrl
+from PySide6.QtCore import QEvent, QLockFile, QSettings, QStandardPaths, QTimer, Qt, QUrl
 from PySide6.QtGui import QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
@@ -107,6 +107,7 @@ from tools.visa_session import visa_resource_manager
 
 
 DEFAULT_POWER_RESOURCE = "ASRL3::INSTR"
+UNDETECTED_POWER_METER_NAME = "功率计（待检测）"
 DEFAULT_OUTPUT_DIR = "test_records"
 DEFAULT_I2C_ADDRESS = 0x41
 DEFAULT_I2C_SPEED = 0  # 20 KHz
@@ -118,6 +119,7 @@ WAVELENGTH_STABILITY_TOLERANCE_NM = 0.2
 MIN_SPECTRUM_PEAK_INTENSITY = 500.0
 AUTOMATIC_DEVICE_START_TIMEOUT_S = 15.0
 BACKGROUND_STOP_TIMEOUT_S = 10.0
+SPECTRUM_UI_REFRESH_MS = 200
 PREPARE_CHECKLIST_MIN_WIDTH = 300
 MANUAL_COLUMN_MIN_WIDTH = 360
 LEGACY_CURRENT_LIMIT_A = 20.0
@@ -161,6 +163,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("电源 / 功率计 / 光谱 / PD 综合测试")
         self.resize(1450, 980)
         self.power_meter_detect_thread: PowerMeterDetectThread | None = None
+        self._power_meter_detection_silent = False
         self.power_meter_reader: PowerMeter | None = None
         self.spectrometer_reader: SpectrumMeter | None = None
         self._power_meter_fault_message = ""
@@ -169,6 +172,9 @@ class MainWindow(QMainWindow):
         self.power_supply_controller_kind = "ch341"
         self.latest_spectrum_wavelength: Any | None = None
         self.latest_spectrum_intensity: Any | None = None
+        self.spectrum_refresh_timer = QTimer(self)
+        self.spectrum_refresh_timer.setInterval(SPECTRUM_UI_REFRESH_MS)
+        self.spectrum_refresh_timer.timeout.connect(self.refresh_latest_spectrum)
         self.stable_power_points: dict[float, float] = {}
         self.efficiency_points: dict[float, float] = {}
         self.efficiency_voltage_points: dict[float, float] = {}
@@ -396,12 +402,36 @@ class MainWindow(QMainWindow):
         saved_resource = extract_power_resource_name(
             str(settings.value(prefix + "power_resource", self.power_meter_combo.currentText()))
         )
-        resource_index = self.power_meter_combo.findText(saved_resource)
-        if resource_index < 0 and saved_resource:
-            self.power_meter_combo.addItem(saved_resource, None)
-            resource_index = self.power_meter_combo.count() - 1
+        saved_device_type = str(settings.value(prefix + "power_meter_device_type", "")).strip()
+        saved_detail = str(settings.value(prefix + "power_meter_detail", "")).strip()
+        saved_driver_kind = str(settings.value(prefix + "power_meter_driver_kind", "caihuang")).strip()
+        resource_index = self._find_power_meter_resource_index(saved_resource)
+        if resource_index >= 0 and saved_device_type:
+            saved_option = PowerMeterOption(
+                resource=saved_resource,
+                device_type=saved_device_type,
+                detail=saved_detail,
+                driver_kind=saved_driver_kind or "caihuang",
+            )
+            self.power_meter_combo.setItemText(resource_index, saved_option.label())
+            self.power_meter_combo.setItemData(resource_index, saved_option)
+        elif resource_index < 0 and saved_resource:
+            resource_index = self._add_power_meter_resource_option(
+                saved_resource,
+                device_type=saved_device_type or UNDETECTED_POWER_METER_NAME,
+                detail=saved_detail,
+                driver_kind=saved_driver_kind or "caihuang",
+            )
         if resource_index >= 0:
             self.power_meter_combo.setCurrentIndex(resource_index)
+            # Both workflow pages share the item model but editable combo boxes
+            # keep separate line-edit text. Updating the current item's label
+            # does not reliably notify the preparation-page line edit.
+            restored_label = self.power_meter_combo.itemText(resource_index)
+            self.power_meter_combo.setEditText(restored_label)
+            if hasattr(self, "prepare_power_meter_combo"):
+                self.prepare_power_meter_combo.setCurrentIndex(resource_index)
+                self.prepare_power_meter_combo.setEditText(restored_label)
         self.power_wavelength_spin.setValue(
             settings.value(prefix + "power_wavelength_nm", self.power_wavelength_spin.value(), type=float)
         )
@@ -560,6 +590,11 @@ class MainWindow(QMainWindow):
         settings.setValue(prefix + "tdk_voltage_v", self.tdk_voltage_spin.value())
         settings.setValue(prefix + "set_current_a", self.set_current_spin.value())
         settings.setValue(prefix + "power_resource", self._selected_power_resource())
+        power_meter_option = self.power_meter_combo.currentData()
+        if isinstance(power_meter_option, PowerMeterOption):
+            settings.setValue(prefix + "power_meter_device_type", power_meter_option.device_type)
+            settings.setValue(prefix + "power_meter_detail", power_meter_option.detail)
+            settings.setValue(prefix + "power_meter_driver_kind", power_meter_option.driver_kind)
         settings.setValue(prefix + "power_wavelength_nm", self.power_wavelength_spin.value())
         settings.setValue(prefix + "software_gain", self.software_gain_spin.value())
         settings.setValue(prefix + "power_meter_interval_ms", self.power_meter_interval_spin.value())
@@ -633,6 +668,12 @@ class MainWindow(QMainWindow):
         row.addWidget(title)
         row.addWidget(description)
         row.addStretch(1)
+        self.emergency_stop_button = QPushButton("紧急停止", self.manual_page)
+        self.emergency_stop_button.setAccessibleName("手动测试紧急停止")
+        self.emergency_stop_button.setToolTip("立即将电源电流置零、关闭 TDK 输出，并停止全部采集设备")
+        self.emergency_stop_button.setMinimumSize(112, 36)
+        self.emergency_stop_button.clicked.connect(self.emergency_stop)
+        row.addWidget(self.emergency_stop_button)
         self.stop_all_button = QPushButton("停止全部设备", self.manual_page)
         self.stop_all_button.setMinimumSize(112, 32)
         self.stop_all_button.clicked.connect(self.stop_all)
@@ -728,6 +769,12 @@ class MainWindow(QMainWindow):
         destructive_style = (
             f"QPushButton {{ color: {danger_color}; font-weight: 600; }}"
             f"QPushButton:disabled {{ color: {semantic.secondary_text}; }}"
+        )
+        self.emergency_stop_button.setStyleSheet(
+            "QPushButton { background-color: #c62828; color: white; "
+            "font-weight: 700; border: none; border-radius: 4px; padding: 6px 14px; }"
+            "QPushButton:hover { background-color: #b71c1c; }"
+            "QPushButton:pressed { background-color: #8e0000; }"
         )
         for button in (
             self.stop_all_button,
@@ -1474,7 +1521,7 @@ class MainWindow(QMainWindow):
         self.power_meter_combo.setEditable(True)
         self.power_meter_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.power_meter_combo.setMinimumContentsLength(8)
-        self.power_meter_combo.addItem(DEFAULT_POWER_RESOURCE, None)
+        self._add_power_meter_resource_option(DEFAULT_POWER_RESOURCE)
         self.detect_power_meter_button = QPushButton("自动检测", self)
         self._configure_action_button(self.detect_power_meter_button)
         self.detect_power_meter_button.clicked.connect(self.auto_detect_power_meters)
@@ -2037,23 +2084,43 @@ class MainWindow(QMainWindow):
             return
         automatic_active = self._automatic_workflow_is_active()
         manual_lock = self.manual_power_tab_lock_active and not automatic_active
+        was_on_pd_tab = self.main_tabs.currentIndex() == self.pd_tab_index
         locked_hint = "手动电源正在输出，请先将电流降至 0 A；TDK 电源还需关闭输出"
-        for index in (
-            self.automatic_tab_index,
-            self.records_tab_index,
+        # PD uses an independent NI-DAQ task, so operators may start or stop it
+        # after the power output or automatic test has already begun.
+        self.main_tabs.setTabEnabled(self.pd_tab_index, True)
+        self.main_tabs.setTabToolTip(
             self.pd_tab_index,
-        ):
-            self.main_tabs.setTabEnabled(index, not manual_lock and not automatic_active)
-            self.main_tabs.setTabToolTip(index, locked_hint if manual_lock else "")
+            "加电期间可手动启动或停止 PD 采集" if manual_lock or automatic_active else "",
+        )
+        # Keep the automatic tab enabled while locking the other workflow tabs.
+        # Disabling the current tab even briefly makes QTabWidget select PD as
+        # the only available page, which looks like an automatic navigation.
+        self.main_tabs.setTabEnabled(self.automatic_tab_index, not manual_lock)
+        self.main_tabs.setTabToolTip(
+            self.automatic_tab_index,
+            locked_hint if manual_lock else "",
+        )
+        self.main_tabs.setTabEnabled(
+            self.records_tab_index,
+            not manual_lock and not automatic_active,
+        )
+        self.main_tabs.setTabToolTip(
+            self.records_tab_index,
+            locked_hint if manual_lock else "",
+        )
         self.main_tabs.setTabEnabled(
             self.manual_tab_index,
             manual_lock or not automatic_active or self.automatic_test_state == AutomaticTestState.PAUSED,
         )
-        if manual_lock:
+        if manual_lock and not was_on_pd_tab:
             self.main_tabs.setCurrentIndex(self.manual_tab_index)
             return
-        self.main_tabs.setTabEnabled(self.automatic_tab_index, True)
-        if automatic_active and self.automatic_test_state != AutomaticTestState.PAUSED:
+        if (
+            automatic_active
+            and self.automatic_test_state != AutomaticTestState.PAUSED
+            and not was_on_pd_tab
+        ):
             self.main_tabs.setCurrentIndex(self.automatic_tab_index)
 
     def on_automatic_state_ui_changed(self, state: AutomaticTestState, detail: str = "") -> None:
@@ -2333,6 +2400,108 @@ class MainWindow(QMainWindow):
         self.stop_power_meter()
         self.stop_spectrometer()
         self.pd_panel.stop_acquisition()
+
+    def emergency_stop(self) -> None:
+        """Immediately de-energize the supply and stop every acquisition task."""
+        automatic_active = self._automatic_workflow_is_active()
+        if automatic_active:
+            self.automatic_controller._set_pending_terminal_outcome(
+                AutomaticTestTerminalOutcome.STOPPED_BY_OPERATOR,
+                "操作者执行紧急停止",
+            )
+            for timer in (
+                self.automatic_device_start_timer,
+                self.automatic_point_timer,
+                self.automatic_command_timer,
+                self.automatic_ramp_down_timer,
+                self.automatic_pause_safety_timer,
+            ):
+                timer.stop()
+            self.automatic_ramp_up_currents.clear()
+            self.automatic_ramp_down_currents.clear()
+            self.pending_automatic_current_a = None
+            self.pending_automatic_command_kind = None
+
+        self.cancel_auto_vout_read()
+        power_supply = self.get_power_supply()
+        is_tdk = self.power_supply_controller_kind == "tdk"
+        power_supply_connected = bool(power_supply is not None and power_supply.connected)
+        current_zero_confirmed = (
+            not power_supply_connected
+            and float(self.active_output_current_a or 0.0) <= 0.0
+            and not self._manual_output_is_energized()
+        )
+        output_off_confirmed = not is_tdk
+        errors: list[str] = []
+
+        if not power_supply_connected:
+            if not current_zero_confirmed:
+                errors.append("电源未连接，无法确认输出电流已归零")
+        else:
+            assert power_supply is not None
+            try:
+                # Emergency commands deliberately bypass the routine command interval.
+                power_supply.set_current(0.0)
+                current_zero_confirmed = True
+            except Exception as exc:
+                errors.append(f"电流置零失败：{user_facing_error_message(exc)}")
+
+            if is_tdk:
+                try:
+                    power_supply.set_output_enabled(False)
+                    output_off_confirmed = True
+                    self.automatic_controller._mark_output_shutdown_confirmed()
+                    self.sync_tdk_output_controls(False)
+                except Exception as exc:
+                    self.automatic_controller._mark_output_shutdown_unconfirmed()
+                    errors.append(f"TDK 输出关闭失败：{user_facing_error_message(exc)}")
+
+        supply_is_safe = output_off_confirmed if is_tdk else current_zero_confirmed
+        if current_zero_confirmed or (is_tdk and output_off_confirmed):
+            self.active_output_current_a = 0.0
+            self.set_current_spin.setValue(0.0)
+            self.pending_stable_point_current_a = None
+            self.pending_stable_point_generation = None
+            self.recorded_stable_point_current_a = None
+            self.recorded_stable_point_generation = None
+            self.last_power_supply_command_monotonic_s = time.monotonic()
+            self.update_stable_power_curve()
+
+        # Acquisition shutdown must still be requested even when a supply command fails.
+        self.stop_power_meter()
+        self.stop_spectrometer()
+        self.pd_panel.stop_acquisition()
+        self._refresh_manual_power_tab_lock(manual_action=True)
+
+        if automatic_active and supply_is_safe:
+            self.complete_automatic_test(
+                tdk_output_already_disabled=is_tdk,
+                completion_detail="紧急停止已执行，电源已安全停止",
+            )
+        else:
+            self.update_global_status()
+
+        if errors:
+            detail = "\n".join(errors)
+            self.add_log(f"紧急停止存在异常：{'；'.join(errors)}")
+            if supply_is_safe:
+                self.statusBar().showMessage("紧急停止已执行，但部分电源命令返回异常")
+            else:
+                self.statusBar().showMessage("紧急停止未完成，请立即检查电源面板")
+            QMessageBox.critical(
+                self,
+                "紧急停止",
+                f"{detail}\n\n请立即检查电源面板并确认输出状态。",
+            )
+            return
+
+        message = "紧急停止已执行：电源电流已归零，采集设备正在停止"
+        if not power_supply_connected:
+            message = "紧急停止已执行：未检测到已连接电源，采集设备正在停止"
+        elif is_tdk:
+            message = "紧急停止已执行：TDK 输出已关闭，采集设备正在停止"
+        self.statusBar().showMessage(message)
+        self.add_log(message)
 
     def update_global_status(self) -> None:
         if not hasattr(self, "global_status_label"):
@@ -3052,9 +3221,10 @@ class MainWindow(QMainWindow):
             with visa_resource_manager() as rm:
                 resources = sorted(str(item) for item in rm.list_resources() if str(item).startswith("ASRL"))
             self.power_meter_combo.clear()
-            self.power_meter_combo.addItems(resources)
+            for resource in resources:
+                self._add_power_meter_resource_option(resource)
             if current:
-                index = self.power_meter_combo.findText(current)
+                index = self._find_power_meter_resource_index(current)
                 if index >= 0:
                     self.power_meter_combo.setCurrentIndex(index)
                 else:
@@ -3071,6 +3241,16 @@ class MainWindow(QMainWindow):
         if not resource:
             QMessageBox.warning(self, "相对调零", "请先选择功率计。")
             return
+        option = self.power_meter_combo.currentData()
+        if isinstance(option, PowerMeterOption) and option.driver_kind == "laserpoint":
+            signals_were_blocked = self.rel_zero_check.blockSignals(True)
+            try:
+                self.rel_zero_check.setChecked(False)
+            finally:
+                self.rel_zero_check.blockSignals(signals_were_blocked)
+            if enabled:
+                QMessageBox.warning(self, "相对调零", "LaserPoint 不支持彩煌的相对调零指令。")
+            return
         try:
             from tools.power_meter_mvp import CaihuangPowerMeter
 
@@ -3085,11 +3265,23 @@ class MainWindow(QMainWindow):
         except Exception as exc:
             QMessageBox.critical(self, "相对调零", user_facing_error_message(exc))
 
-    def auto_detect_power_meters(self) -> None:
+    def auto_detect_power_meters(self, _checked: bool = False) -> None:
+        self._start_power_meter_detection(scan_all_resources=True, silent=False)
+
+    def auto_detect_selected_power_meter(self) -> None:
+        """Quietly identify the saved meter without probing unrelated serial ports."""
+        self._start_power_meter_detection(scan_all_resources=False, silent=True)
+
+    def _start_power_meter_detection(self, *, scan_all_resources: bool, silent: bool) -> None:
         if self.power_meter_detect_thread is not None:
             return
         self._power_meter_fault_message = ""
-        self.power_meter_detect_thread = PowerMeterDetectThread(self._selected_power_resource(), self)
+        self._power_meter_detection_silent = silent
+        self.power_meter_detect_thread = PowerMeterDetectThread(
+            self._selected_power_resource(),
+            self,
+            scan_all_resources=scan_all_resources,
+        )
         self.power_meter_detect_thread.detected.connect(self.on_power_meter_detected)
         self.power_meter_detect_thread.status.connect(self.on_status)
         self.power_meter_detect_thread.failed.connect(self.on_power_meter_detect_failed)
@@ -3143,10 +3335,39 @@ class MainWindow(QMainWindow):
         )
 
     def _selected_power_resource(self) -> str:
+        current_text = self.power_meter_combo.currentText()
         option = self.power_meter_combo.currentData()
-        if isinstance(option, PowerMeterOption):
+        if isinstance(option, PowerMeterOption) and current_text == option.label():
             return option.resource
-        return extract_power_resource_name(self.power_meter_combo.currentText())
+        return extract_power_resource_name(current_text)
+
+    def _add_power_meter_resource_option(
+        self,
+        resource: str,
+        *,
+        device_type: str = UNDETECTED_POWER_METER_NAME,
+        detail: str = "",
+        driver_kind: str = "caihuang",
+    ) -> int:
+        """Add a selectable resource while presenting the supported meter name."""
+        option = PowerMeterOption(
+            resource=normalize_power_resource_name(resource),
+            device_type=device_type,
+            detail=detail,
+            driver_kind=driver_kind,
+        )
+        self.power_meter_combo.addItem(option.label(), option)
+        return self.power_meter_combo.count() - 1
+
+    def _find_power_meter_resource_index(self, resource: str) -> int:
+        normalized = normalize_power_resource_name(resource)
+        for index in range(self.power_meter_combo.count()):
+            option = self.power_meter_combo.itemData(index)
+            if isinstance(option, PowerMeterOption) and option.resource == normalized:
+                return index
+            if extract_power_resource_name(self.power_meter_combo.itemText(index)) == normalized:
+                return index
+        return -1
 
     def _selected_spectrometer_device_id(self) -> int | None:
         option = self.spectrometer_combo.currentData()
@@ -3155,6 +3376,7 @@ class MainWindow(QMainWindow):
         return None
 
     def collect_power_meter_settings(self) -> PowerMeterSettings:
+        option = self.power_meter_combo.currentData()
         return PowerMeterSettings(
             resource=self._selected_power_resource(),
             wavelength_nm=self.power_wavelength_spin.value(),
@@ -3162,6 +3384,7 @@ class MainWindow(QMainWindow):
             interval_ms=self.power_meter_interval_spin.value(),
             stable_window_s=self.stable_window_spin.value(),
             stable_tolerance_w=self.stable_tolerance_spin.value(),
+            driver_kind=(option.driver_kind if isinstance(option, PowerMeterOption) else "caihuang"),
         )
 
     def on_stability_settings_changed(self, _value: float) -> None:
@@ -3242,13 +3465,13 @@ class MainWindow(QMainWindow):
         self.add_log("正在启动光谱仪采集")
         self.spectrometer_reader = SpectrometerReaderThread(settings, self)
         self.spectrometer_reader.reading.connect(self.on_spectrometer_reading)
-        self.spectrometer_reader.spectrum.connect(self.on_spectrum_curve)
         self.spectrometer_reader.status.connect(self.on_status)
         self.spectrometer_reader.integration_time_changed.connect(self.on_integration_time_changed)
         self.spectrometer_reader.ready.connect(self.on_spectrometer_ready)
         self.spectrometer_reader.failed.connect(self.on_spectrometer_failed)
         self.spectrometer_reader.finished.connect(self.on_spectrometer_finished)
         self.spectrometer_reader.start()
+        self.spectrum_refresh_timer.start()
         self.set_spectrometer_running_state(True)
 
     def on_integration_time_changed(self, integration_time_us: int) -> None:
@@ -3261,6 +3484,18 @@ class MainWindow(QMainWindow):
             self.spectrometer_reader.stop()
             if wait_for_finish:
                 self.spectrometer_reader.wait(3000)
+
+    def refresh_latest_spectrum(self) -> None:
+        """Render at most one newest frame, dropping superseded frames."""
+        reader = self.spectrometer_reader
+        if reader is None:
+            return
+        take_latest = getattr(reader, "take_latest_spectrum", None)
+        if not callable(take_latest):
+            return
+        spectrum = take_latest()
+        if spectrum is not None:
+            self.on_spectrum_curve(*spectrum)
 
     def update_stability_card(
         self,
@@ -3597,10 +3832,12 @@ class MainWindow(QMainWindow):
 
     def on_power_meter_detected(self, options: list[PowerMeterOption]) -> None:
         self._power_meter_fault_message = ""
+        selected_resource = self._selected_power_resource() or DEFAULT_POWER_RESOURCE
         self.power_meter_combo.clear()
         if not options:
-            self.power_meter_combo.addItem(DEFAULT_POWER_RESOURCE, None)
-            QMessageBox.warning(self, "功率计自动检测", "未检测到支持的功率计。")
+            self._add_power_meter_resource_option(selected_resource)
+            if not self._power_meter_detection_silent:
+                QMessageBox.warning(self, "功率计自动检测", "未检测到支持的功率计。")
             self.statusBar().showMessage("未检测到支持的功率计")
             return
 
@@ -3614,11 +3851,13 @@ class MainWindow(QMainWindow):
         self._power_meter_fault_message = user_facing_error_message(message)
         self.add_log(f"功率计自动检测错误：{message}")
         self.update_global_status()
-        QMessageBox.critical(self, "功率计自动检测", user_facing_error_message(message))
+        if not self._power_meter_detection_silent:
+            QMessageBox.critical(self, "功率计自动检测", user_facing_error_message(message))
 
     def on_power_meter_detect_finished(self) -> None:
         thread = self.power_meter_detect_thread
         self.power_meter_detect_thread = None
+        self._power_meter_detection_silent = False
         self.set_power_meter_detecting_state(False)
         if thread is not None:
             thread.deleteLater()
@@ -3661,6 +3900,8 @@ class MainWindow(QMainWindow):
     def on_spectrometer_finished(self) -> None:
         should_pause = self.automatic_measurement_is_active()
         thread = self.spectrometer_reader
+        self.refresh_latest_spectrum()
+        self.spectrum_refresh_timer.stop()
         self.automatic_spectrometer_ready = False
         self.spectrometer_reader = None
         self.set_spectrometer_running_state(False)
@@ -3922,10 +4163,22 @@ class MainWindow(QMainWindow):
 
 def main() -> int:
     app = QApplication(sys.argv)
+    lock_directory = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.TempLocation)
+    instance_lock = QLockFile(
+        str(Path(lock_directory or Path.home()) / "changguang_huaxin_pump_driver_test.lock")
+    )
+    instance_lock.setStaleLockTime(30_000)
+    if not instance_lock.tryLock(100):
+        QMessageBox.warning(None, "程序已在运行", "检测到测试程序已经启动，请使用现有窗口。")
+        return 0
     apply_application_theme(app)
     window = MainWindow()
     window.show()
-    return app.exec()
+    QTimer.singleShot(0, window.auto_detect_selected_power_meter)
+    try:
+        return app.exec()
+    finally:
+        instance_lock.unlock()
 
 
 if __name__ == "__main__":

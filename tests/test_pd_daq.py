@@ -235,6 +235,35 @@ class MainWindowPdIntegrationTests(unittest.TestCase):
         finally:
             pd_daq_module.discover_ni_daq_devices = original_discover
 
+    def test_pd_can_be_opened_and_started_after_manual_power_is_energized(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        original_discover = pd_daq_module.discover_ni_daq_devices
+        fake_device = DaqDeviceInfo(
+            name="Dev9",
+            product_type="USB-6009",
+            serial_number=9,
+            ai_channels=("Dev9/ai0",),
+            voltage_ranges=(10.0,),
+            max_single_channel_rate_hz=48_000.0,
+            simulated=False,
+        )
+        pd_daq_module.discover_ni_daq_devices = lambda: ("NI-DAQmx test", [fake_device])
+        try:
+            window = MainWindow()
+            window.main_tabs.setCurrentIndex(window.manual_tab_index)
+            window.manual_power_tab_lock_active = True
+            window._update_main_tab_access()
+
+            window.main_tabs.setCurrentIndex(window.pd_tab_index)
+            app.processEvents()
+
+            self.assertEqual(window.main_tabs.currentIndex(), window.pd_tab_index)
+            self.assertEqual(window.pd_panel.channel_combo.currentText(), "Dev9/ai0")
+            self.assertTrue(window.pd_panel.start_button.isEnabled())
+            window.close()
+        finally:
+            pd_daq_module.discover_ni_daq_devices = original_discover
+
     def test_stop_all_and_background_tracking_include_pd_reader(self) -> None:
         app = QApplication.instance() or QApplication([])
 

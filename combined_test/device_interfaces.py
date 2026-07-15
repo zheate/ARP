@@ -62,7 +62,6 @@ class PowerMeter(Protocol):
 class SpectrumMeter(Protocol):
     is_ready: bool
     reading: Any
-    spectrum: Any
     integration_time_changed: Any
     status: Any
     ready: Any
@@ -74,6 +73,8 @@ class SpectrumMeter(Protocol):
     def isRunning(self) -> bool: ...
 
     def wait(self, timeout_ms: int = ...) -> bool: ...
+
+    def take_latest_spectrum(self) -> tuple[Any, Any] | None: ...
 
     def stop(self) -> None: ...
 
