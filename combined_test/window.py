@@ -173,6 +173,7 @@ class MainWindow(QMainWindow):
         self.efficiency_points: dict[float, float] = {}
         self.efficiency_voltage_points: dict[float, float] = {}
         self.active_output_current_a: float | None = None
+        self.manual_power_tab_lock_active = False
         self.pending_stable_point_current_a: float | None = None
         self.pending_stable_point_generation: int | None = None
         self.recorded_stable_point_current_a: float | None = None
@@ -196,6 +197,7 @@ class MainWindow(QMainWindow):
         self.latest_wavelength_stable = False
         self.latest_wavelength_span_nm = math.inf
         self.test_session_started_at: datetime | None = None
+        self.test_session_station = ""
         self.record_store: RecordStore = SessionRecordStore()
         self.excel_save_thread: ExcelSaveThread | None = None
         self.automatic_orchestrator = AutomaticTestOrchestrator()
@@ -298,15 +300,22 @@ class MainWindow(QMainWindow):
         self.manual_page = QWidget(self.main_tabs)
         self.manual_tab_index = self.main_tabs.addTab(self.manual_page, "手动调试")
         manual_layout = QVBoxLayout(self.manual_page)
-        manual_layout.setContentsMargins(16, 14, 16, 12)
-        manual_layout.setSpacing(10)
-        self._build_manual_toolbar(manual_layout)
-        self.left_control_panel = QScrollArea(self.manual_page)
-        self.left_control_panel.setWidgetResizable(True)
-        self.left_control_panel.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.left_control_panel.setFrameShape(QScrollArea.Shape.NoFrame)
-        self.left_control_content = QWidget(self.left_control_panel)
-        self.left_control_panel.setWidget(self.left_control_content)
+        manual_layout.setContentsMargins(0, 0, 0, 0)
+        manual_layout.setSpacing(0)
+        self.manual_scroll_area = QScrollArea(self.manual_page)
+        self.manual_scroll_area.setWidgetResizable(True)
+        self.manual_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.manual_scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.manual_scroll_content = QWidget(self.manual_scroll_area)
+        self.manual_scroll_area.setWidget(self.manual_scroll_content)
+        manual_content_layout = QVBoxLayout(self.manual_scroll_content)
+        manual_content_layout.setContentsMargins(16, 14, 16, 12)
+        manual_content_layout.setSpacing(10)
+        manual_layout.addWidget(self.manual_scroll_area)
+        # Compatibility aliases retained for callers that focus manual settings.
+        self.left_control_panel = self.manual_scroll_area
+        self._build_manual_toolbar(manual_content_layout)
+        self.left_control_content = QWidget(self.manual_scroll_content)
         manual_columns = QHBoxLayout(self.left_control_content)
         manual_columns.setContentsMargins(0, 0, 0, 0)
         manual_columns.setSpacing(10)
@@ -327,8 +336,13 @@ class MainWindow(QMainWindow):
         measurement_column.addStretch(1)
         manual_columns.addWidget(power_column_widget, stretch=1)
         manual_columns.addWidget(measurement_column_widget, stretch=1)
-        manual_layout.addWidget(self.left_control_panel, stretch=1)
-        self._build_log_panel(manual_layout)
+        manual_content_layout.addWidget(self.left_control_content)
+        self.manual_monitor_panel = QWidget(self.manual_scroll_content)
+        self.manual_monitor_layout = QVBoxLayout(self.manual_monitor_panel)
+        self.manual_monitor_layout.setContentsMargins(0, 0, 0, 0)
+        self.manual_monitor_layout.setSpacing(0)
+        manual_content_layout.addWidget(self.manual_monitor_panel, stretch=1)
+        self._build_log_panel(manual_content_layout)
 
         run_layout = QVBoxLayout(self.automatic_run_page)
         run_layout.setContentsMargins(0, 0, 0, 0)
@@ -338,6 +352,7 @@ class MainWindow(QMainWindow):
         monitor = QVBoxLayout(self.monitor_panel)
         monitor.setContentsMargins(0, 0, 0, 0)
         monitor.setSpacing(10)
+        self.automatic_monitor_layout = monitor
         run_layout.addWidget(self.monitor_panel, stretch=1)
         self._build_curve_panel(monitor)
         self._build_automatic_run_footer(run_layout)
@@ -439,6 +454,9 @@ class MainWindow(QMainWindow):
             )
         )
         self.sn_field.setText(str(settings.value(prefix + "sn", self.sn_field.text())))
+        self.test_station_field.setText(
+            str(settings.value(prefix + "test_station", self.test_station_field.text()))
+        )
         saved_output_dir = settings.value(
             prefix + "output_dir",
             settings.value(prefix + "csv_path", self.output_dir_field.text()),
@@ -561,6 +579,7 @@ class MainWindow(QMainWindow):
         )
         settings.setValue(prefix + "auto_use_spectrometer", self.auto_use_spectrometer_check.isChecked())
         settings.setValue(prefix + "sn", self.sn_field.text().strip())
+        settings.setValue(prefix + "test_station", self.test_station_field.text().strip())
         settings.setValue(prefix + "output_dir", self.output_dir_field.text().strip())
         settings.sync()
 
@@ -648,6 +667,51 @@ class MainWindow(QMainWindow):
         form.setHorizontalSpacing(8)
         form.setVerticalSpacing(6)
 
+    def _build_manual_details_section(
+        self,
+        parent: QVBoxLayout,
+        group: QGroupBox,
+        accessible_name: str,
+    ) -> tuple[QToolButton, QWidget, QFormLayout]:
+        toggle = QToolButton(group)
+        toggle.setText("详细配置")
+        toggle.setAccessibleName(f"{accessible_name}详细配置")
+        toggle.setCheckable(True)
+        toggle.setChecked(False)
+        toggle.setArrowType(Qt.ArrowType.RightArrow)
+        toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        parent.addWidget(toggle)
+
+        content = QWidget(group)
+        form = QFormLayout(content)
+        self._configure_left_form(form)
+        form.setContentsMargins(0, 0, 0, 0)
+        content.hide()
+        parent.addWidget(content)
+        toggle.toggled.connect(
+            lambda expanded, button=toggle, panel=content, owner=group: self._set_manual_details_expanded(
+                button,
+                panel,
+                owner,
+                expanded,
+            )
+        )
+        return toggle, content, form
+
+    def _set_manual_details_expanded(
+        self,
+        toggle: QToolButton,
+        content: QWidget,
+        group: QGroupBox,
+        expanded: bool,
+    ) -> None:
+        toggle.setArrowType(Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
+        content.setVisible(expanded)
+        group.setMinimumHeight(0)
+        group.updateGeometry()
+        if hasattr(self, "manual_scroll_content"):
+            self.manual_scroll_content.updateGeometry()
+
     @staticmethod
     def _configure_action_button(button: QPushButton, minimum_width: int = 88) -> None:
         button.setMinimumWidth(minimum_width)
@@ -669,6 +733,8 @@ class MainWindow(QMainWindow):
             self.stop_all_button,
             self.stop_power_meter_button,
             self.stop_spectrometer_button,
+            self.prepare_power_meter_close_button,
+            self.prepare_spectrometer_close_button,
             self.pd_panel.stop_button,
             self.end_automatic_test_button,
         ):
@@ -680,10 +746,6 @@ class MainWindow(QMainWindow):
         form = QFormLayout(group)
         self._configure_left_form(form)
 
-        self.test_plan_label = QLabel("976 nm 标准测试", self)
-        self.test_plan_label.setAccessibleName("测试方案：976 nm 标准测试")
-        form.addRow("测试方案", self.test_plan_label)
-
         self.sn_field = QLineEdit(self)
         self.sn_field.setPlaceholderText("开始测试前必填")
         self.sn_field.setAccessibleName("产品 SN")
@@ -691,6 +753,14 @@ class MainWindow(QMainWindow):
         sn_label = QLabel("SN", self)
         sn_label.setBuddy(self.sn_field)
         form.addRow(sn_label, self.sn_field)
+
+        self.test_station_field = QLineEdit(self)
+        self.test_station_field.setPlaceholderText("开始测试前必填，如老化站 1")
+        self.test_station_field.setAccessibleName("测试站别")
+        self.test_station_field.setMaximumWidth(420)
+        station_label = QLabel("测试站别", self)
+        station_label.setBuddy(self.test_station_field)
+        form.addRow(station_label, self.test_station_field)
 
         self.output_dir_field = QLineEdit(str(Path(DEFAULT_OUTPUT_DIR).resolve()), self)
         self.output_dir_field.setPlaceholderText("Excel 输出文件夹")
@@ -766,21 +836,46 @@ class MainWindow(QMainWindow):
         self.prepare_spectrometer_combo.setMaximumWidth(360)
         self.prepare_power_meter_button = QPushButton("自动检测", self)
         self.prepare_spectrometer_button = QPushButton("自动检测", self)
+        self.prepare_power_meter_open_button = QPushButton("打开", self)
+        self.prepare_power_meter_close_button = QPushButton("关闭", self)
+        self.prepare_spectrometer_open_button = QPushButton("打开", self)
+        self.prepare_spectrometer_close_button = QPushButton("关闭", self)
         self.prepare_power_meter_button.clicked.connect(self.auto_detect_power_meters)
         self.prepare_spectrometer_button.clicked.connect(self.auto_detect_spectrometers)
+        self.prepare_power_meter_open_button.clicked.connect(self.start_power_meter)
+        self.prepare_power_meter_close_button.clicked.connect(self.stop_power_meter)
+        self.prepare_spectrometer_open_button.clicked.connect(self.start_spectrometer)
+        self.prepare_spectrometer_close_button.clicked.connect(self.stop_spectrometer)
 
         rows = (
-            ("功率计", self.prepare_power_meter_combo, self.prepare_power_meter_button),
-            ("光谱仪", self.prepare_spectrometer_combo, self.prepare_spectrometer_button),
+            (
+                "功率计",
+                self.prepare_power_meter_combo,
+                self.prepare_power_meter_button,
+                self.prepare_power_meter_open_button,
+                self.prepare_power_meter_close_button,
+            ),
+            (
+                "光谱仪",
+                self.prepare_spectrometer_combo,
+                self.prepare_spectrometer_button,
+                self.prepare_spectrometer_open_button,
+                self.prepare_spectrometer_close_button,
+            ),
         )
-        for row, (name, combo, button) in enumerate(rows):
+        for row, (name, combo, detect_button, open_button, close_button) in enumerate(rows):
             name_label = QLabel(name, self)
             name_label.setBuddy(combo)
-            self._configure_action_button(button, 84)
+            for button in (detect_button, open_button, close_button):
+                self._configure_action_button(button, 84)
             measurement_grid.addWidget(name_label, row, 0)
             measurement_grid.addWidget(combo, row, 1)
-            measurement_grid.addWidget(button, row, 2)
-        measurement_grid.setColumnStretch(1, 1)
+            measurement_grid.addWidget(detect_button, row, 2)
+            measurement_grid.addWidget(open_button, row, 3)
+            measurement_grid.addWidget(close_button, row, 4)
+        measurement_grid.setColumnStretch(1, 3)
+        for column in range(2, 5):
+            measurement_grid.setColumnStretch(column, 1)
         parent.addWidget(measurement_group)
 
     def _build_preflight_panel(self, parent: QHBoxLayout) -> None:
@@ -792,7 +887,7 @@ class MainWindow(QMainWindow):
         layout.setSpacing(8)
 
         self.preflight_labels: dict[str, QLabel] = {}
-        for key in ("sn", "output", "power", "tdk", "power_meter", "spectrometer", "settings"):
+        for key in ("sn", "station", "output", "power", "tdk", "power_meter", "spectrometer", "settings"):
             label = QLabel(group)
             label.setWordWrap(True)
             self.preflight_labels[key] = label
@@ -889,12 +984,14 @@ class MainWindow(QMainWindow):
         summary_group = QGroupBox("测试摘要", self.automatic_result_page)
         summary_form = QFormLayout(summary_group)
         self.result_sn_label = QLabel("--", summary_group)
+        self.result_station_label = QLabel("--", summary_group)
         self.result_points_label = QLabel("0 / 0", summary_group)
         self.result_time_label = QLabel("--", summary_group)
         self.result_file_label = QLabel("--", summary_group)
         self.result_file_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.result_file_label.setWordWrap(True)
         summary_form.addRow("SN", self.result_sn_label)
+        summary_form.addRow("测试站别", self.result_station_label)
         summary_form.addRow("测试点", self.result_points_label)
         summary_form.addRow("完成时间", self.result_time_label)
         summary_form.addRow("结果文件", self.result_file_label)
@@ -995,8 +1092,16 @@ class MainWindow(QMainWindow):
     def _build_power_supply_group(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("电源", self)
         self.power_supply_group = group
-        form = QFormLayout(group)
+        group_layout = QVBoxLayout(group)
+        group_layout.setContentsMargins(8, 10, 8, 10)
+        group_layout.setSpacing(6)
+        self.power_supply_details_content = QWidget(group)
+        form = QFormLayout(self.power_supply_details_content)
         self._configure_left_form(form)
+        form.setContentsMargins(0, 0, 0, 0)
+        group_layout.addWidget(self.power_supply_details_content)
+        self.power_supply_form = form
+        self.power_supply_details_form = form
 
         self.power_supply_controller_combo = QComboBox(self)
         self.power_supply_controller_combo.setAccessibleName("电源控制器")
@@ -1008,7 +1113,6 @@ class MainWindow(QMainWindow):
         )
         self.power_supply_controller_combo.setMinimumContentsLength(10)
         self.power_supply_controller_combo.currentIndexChanged.connect(self.on_power_supply_controller_changed)
-        form.addRow("控制器", self.power_supply_controller_combo)
 
         self.tdk_resource_combo = QComboBox(self)
         self.tdk_resource_combo.setAccessibleName("TDK 通信端口")
@@ -1025,7 +1129,6 @@ class MainWindow(QMainWindow):
         tdk_resource_row.setSpacing(6)
         tdk_resource_row.addWidget(self.tdk_resource_combo, stretch=1)
         tdk_resource_row.addWidget(self.refresh_tdk_resources_button)
-        form.addRow("TDK 串口", tdk_resource_row)
         self.tdk_resource_row = tdk_resource_row
 
         self.tdk_voltage_spin = QDoubleSpinBox(self)
@@ -1040,7 +1143,6 @@ class MainWindow(QMainWindow):
         tdk_voltage_row.setSpacing(6)
         tdk_voltage_row.addWidget(self.tdk_voltage_spin, stretch=1)
         tdk_voltage_row.addWidget(self.apply_tdk_voltage_button)
-        form.addRow("TDK 电压", tdk_voltage_row)
         self.tdk_voltage_row = tdk_voltage_row
 
         self.set_current_spin = QDoubleSpinBox(self)
@@ -1056,7 +1158,6 @@ class MainWindow(QMainWindow):
         current_row.setSpacing(6)
         current_row.addWidget(self.set_current_spin, stretch=1)
         current_row.addWidget(self.apply_current_button)
-        form.addRow("设定电流", current_row)
 
         self.connect_i2c_button = QPushButton("连接 CH341", self)
         self._configure_action_button(self.connect_i2c_button)
@@ -1066,7 +1167,7 @@ class MainWindow(QMainWindow):
         connection_row.setSpacing(6)
         connection_row.addWidget(self.i2c_status_label, stretch=1)
         connection_row.addWidget(self.connect_i2c_button)
-        form.addRow("连接", connection_row)
+        self.power_supply_connection_row = connection_row
 
         self.tdk_output_button = QPushButton("开启输出", self)
         self._configure_action_button(self.tdk_output_button)
@@ -1076,7 +1177,6 @@ class MainWindow(QMainWindow):
         output_row.setSpacing(6)
         output_row.addWidget(self.tdk_output_status_label, stretch=1)
         output_row.addWidget(self.tdk_output_button)
-        form.addRow("TDK 输出", output_row)
         self.tdk_output_row = output_row
 
         read_grid = QGridLayout()
@@ -1100,9 +1200,17 @@ class MainWindow(QMainWindow):
         read_grid.addWidget(self.read_output_voltage_button, 0, 1)
         read_grid.addWidget(self.read_output_current_button, 1, 0)
         read_grid.addWidget(self.read_temperature_button, 1, 1)
-        form.addRow("读取", read_grid)
-        self.power_supply_form = form
         self.power_supply_read_row = read_grid
+
+        # Follow the safe operating sequence shown to the operator. Enabling
+        # TDK output confirms 0 A, so the final current command must come after it.
+        form.addRow("控制器", self.power_supply_controller_combo)
+        form.addRow("TDK 串口", self.tdk_resource_row)
+        form.addRow("连接", self.power_supply_connection_row)
+        form.addRow("TDK 电压", self.tdk_voltage_row)
+        form.addRow("TDK 输出", self.tdk_output_row)
+        form.addRow("设定电流", current_row)
+        form.addRow("读取", self.power_supply_read_row)
 
         parent.addWidget(group)
         self.on_power_supply_controller_changed()
@@ -1345,8 +1453,20 @@ class MainWindow(QMainWindow):
 
     def _build_power_meter_group(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("功率计", self)
-        form = QFormLayout(group)
+        group_layout = QVBoxLayout(group)
+        group_layout.setContentsMargins(8, 10, 8, 10)
+        group_layout.setSpacing(6)
+        form = QFormLayout()
         self._configure_left_form(form)
+        form.setContentsMargins(0, 0, 0, 0)
+        group_layout.addLayout(form)
+        (
+            self.power_meter_details_toggle,
+            self.power_meter_details_content,
+            details_form,
+        ) = self._build_manual_details_section(group_layout, group, "功率计")
+        self.power_meter_form = form
+        self.power_meter_details_form = details_form
 
         self.power_meter_combo = QComboBox(self)
         self.power_meter_combo.setAccessibleName("功率计资源")
@@ -1362,7 +1482,7 @@ class MainWindow(QMainWindow):
         device_row.setSpacing(6)
         device_row.addWidget(self.power_meter_combo, stretch=1)
         device_row.addWidget(self.detect_power_meter_button)
-        form.addRow("设备", device_row)
+        details_form.addRow("设备", device_row)
 
         power_actions = QHBoxLayout()
         power_actions.setSpacing(8)
@@ -1373,7 +1493,7 @@ class MainWindow(QMainWindow):
         self.rel_zero_check.toggled.connect(self.set_power_meter_relative_zero)
         power_actions.addWidget(self.refresh_power_meter_button)
         power_actions.addWidget(self.rel_zero_check)
-        form.addRow(power_actions)
+        details_form.addRow(power_actions)
 
         self.power_wavelength_spin = QDoubleSpinBox(self)
         self.power_wavelength_spin.setRange(190.0, 25000.0)
@@ -1381,20 +1501,20 @@ class MainWindow(QMainWindow):
         self.power_wavelength_spin.setSingleStep(0.1)
         self.power_wavelength_spin.setValue(976.0)
         self.power_wavelength_spin.setSuffix(" nm")
-        form.addRow("波长", self.power_wavelength_spin)
+        details_form.addRow("波长", self.power_wavelength_spin)
 
         self.software_gain_spin = QDoubleSpinBox(self)
         self.software_gain_spin.setRange(0.000001, 1000000.0)
         self.software_gain_spin.setDecimals(6)
         self.software_gain_spin.setValue(1.0)
-        form.addRow("软件增益", self.software_gain_spin)
+        details_form.addRow("软件增益", self.software_gain_spin)
 
         self.power_meter_interval_spin = QSpinBox(self)
         self.power_meter_interval_spin.setRange(20, 5000)
         self.power_meter_interval_spin.setValue(300)
         self.power_meter_interval_spin.setSingleStep(50)
         self.power_meter_interval_spin.setSuffix(" ms")
-        form.addRow("采样间隔", self.power_meter_interval_spin)
+        details_form.addRow("采样间隔", self.power_meter_interval_spin)
 
         self.power_meter_status_label = QLabel("已停止", self)
         power_run_actions = QHBoxLayout()
@@ -1416,8 +1536,20 @@ class MainWindow(QMainWindow):
 
     def _build_spectrometer_group(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("光谱仪", self)
-        form = QFormLayout(group)
+        group_layout = QVBoxLayout(group)
+        group_layout.setContentsMargins(8, 10, 8, 10)
+        group_layout.setSpacing(6)
+        form = QFormLayout()
         self._configure_left_form(form)
+        form.setContentsMargins(0, 0, 0, 0)
+        group_layout.addLayout(form)
+        (
+            self.spectrometer_details_toggle,
+            self.spectrometer_details_content,
+            details_form,
+        ) = self._build_manual_details_section(group_layout, group, "光谱仪")
+        self.spectrometer_form = form
+        self.spectrometer_details_form = details_form
 
         self.spectrometer_combo = QComboBox(self)
         self.spectrometer_combo.setAccessibleName("光谱仪设备")
@@ -1432,26 +1564,26 @@ class MainWindow(QMainWindow):
         device_row.setSpacing(6)
         device_row.addWidget(self.spectrometer_combo, stretch=1)
         device_row.addWidget(self.detect_spectrometer_button)
-        form.addRow("设备", device_row)
+        details_form.addRow("设备", device_row)
 
         self.integration_spin = QSpinBox(self)
         self.integration_spin.setRange(1, 10_000_000)
         self.integration_spin.setValue(DEFAULT_SPECTROMETER_INTEGRATION_US)
         self.integration_spin.setSingleStep(100)
         self.integration_spin.setSuffix(" us")
-        form.addRow("积分时间", self.integration_spin)
+        details_form.addRow("积分时间", self.integration_spin)
 
         self.auto_integration_check = QCheckBox("启用（目标 8k–14k）", self)
         self.auto_integration_check.setToolTip("自动调整积分时间，使光谱峰值保持在 8000–14000 counts")
         self.auto_integration_check.setChecked(False)
-        form.addRow("自动积分", self.auto_integration_check)
+        details_form.addRow("自动积分", self.auto_integration_check)
 
         self.interval_spin = QSpinBox(self)
         self.interval_spin.setRange(50, 5000)
         self.interval_spin.setValue(300)
         self.interval_spin.setSingleStep(50)
         self.interval_spin.setSuffix(" ms")
-        form.addRow("采样间隔", self.interval_spin)
+        details_form.addRow("采样间隔", self.interval_spin)
 
         self.spectrometer_status_label = QLabel("已停止", self)
         spectrometer_run_actions = QHBoxLayout()
@@ -1467,20 +1599,6 @@ class MainWindow(QMainWindow):
         spectrometer_run_actions.addWidget(self.start_spectrometer_button)
         spectrometer_run_actions.addWidget(self.stop_spectrometer_button)
         form.addRow("状态", spectrometer_run_actions)
-
-        spectrum_actions = QHBoxLayout()
-        spectrum_actions.setSpacing(6)
-        self.copy_spectrum_button = QPushButton("复制 CSV", self)
-        self.save_spectrum_button = QPushButton("保存 CSV", self)
-        self._configure_action_button(self.copy_spectrum_button)
-        self._configure_action_button(self.save_spectrum_button)
-        self.copy_spectrum_button.setEnabled(False)
-        self.save_spectrum_button.setEnabled(False)
-        self.copy_spectrum_button.clicked.connect(self.copy_spectrum_csv)
-        self.save_spectrum_button.clicked.connect(self.save_spectrum_csv)
-        spectrum_actions.addWidget(self.copy_spectrum_button)
-        spectrum_actions.addWidget(self.save_spectrum_button)
-        form.addRow("光谱数据", spectrum_actions)
 
         parent.addWidget(group)
         self._reserve_group_height(group)
@@ -1525,7 +1643,10 @@ class MainWindow(QMainWindow):
             prepare.setEditText(source.currentText())
 
         source.currentIndexChanged.connect(
-            lambda index, target=prepare: self._sync_combo_index(target, index)
+            lambda _index, source=source, target=prepare: self._sync_combo_index(
+                target,
+                source.currentIndex(),
+            )
         )
         prepare.currentIndexChanged.connect(
             lambda index, target=source: self._apply_combo_index(target, index)
@@ -1554,33 +1675,108 @@ class MainWindow(QMainWindow):
             return
         is_tdk = self._selected_power_supply_kind() == "tdk"
         connected = self._manual_i2c_connected()
+        automatic_active = self._automatic_workflow_is_active()
+        selection_enabled = not connected and not automatic_active
         output_enabled = bool(
             is_tdk
             and connected
             and getattr(self.manual_ch341_controller, "output_enabled", False)
         )
+        self.power_supply_controller_combo.setEnabled(selection_enabled)
+        self.prepare_power_supply_combo.setEnabled(selection_enabled)
         self.prepare_tdk_resource_label.setVisible(is_tdk)
         self.prepare_tdk_resource_combo.setVisible(is_tdk)
         self.prepare_tdk_output_button.setVisible(is_tdk)
-        self.prepare_tdk_resource_combo.setEnabled(is_tdk and not connected)
+        tdk_resource_enabled = is_tdk and selection_enabled
+        self.tdk_resource_combo.setEnabled(tdk_resource_enabled)
+        self.prepare_tdk_resource_combo.setEnabled(tdk_resource_enabled)
+        self.refresh_tdk_resources_button.setEnabled(tdk_resource_enabled)
         self.prepare_psu_button.setText("断开" if connected else "连接")
         self.prepare_tdk_output_button.setText("关闭输出" if output_enabled else "开启输出")
-        self.prepare_tdk_output_button.setEnabled(is_tdk and connected)
+        self.prepare_tdk_output_button.setEnabled(is_tdk and connected and not automatic_active)
+
+    def _update_prepare_measurement_controls(self) -> None:
+        """Keep preparation-page device actions aligned with acquisition state."""
+        if not hasattr(self, "prepare_power_meter_open_button"):
+            return
+        power_running = self.power_meter_reader is not None
+        power_detecting = self.power_meter_detect_thread is not None
+        spectrometer_running = self.spectrometer_reader is not None
+        automatic_active = self._automatic_workflow_is_active()
+
+        self.prepare_power_meter_open_button.setEnabled(
+            not power_running and not power_detecting and not automatic_active
+        )
+        self.prepare_power_meter_close_button.setEnabled(power_running and not automatic_active)
+        self.prepare_power_meter_button.setEnabled(
+            not power_running and not power_detecting and not automatic_active
+        )
+        self.prepare_power_meter_combo.setEnabled(
+            not power_running and not power_detecting and not automatic_active
+        )
+
+        self.prepare_spectrometer_open_button.setEnabled(
+            not spectrometer_running and not automatic_active
+        )
+        self.prepare_spectrometer_close_button.setEnabled(
+            spectrometer_running and not automatic_active
+        )
+        self.prepare_spectrometer_button.setEnabled(
+            not spectrometer_running and not automatic_active
+        )
+        self.prepare_spectrometer_combo.setEnabled(
+            not spectrometer_running and not automatic_active
+        )
+
+    def sync_tdk_output_controls(self, enabled: bool) -> None:
+        """Show one confirmed TDK output state on both workflow pages."""
+        output_enabled = bool(enabled)
+        self.tdk_output_status_label.setText("输出开启" if output_enabled else "输出关闭")
+        button_text = "关闭输出" if output_enabled else "开启输出"
+        self.tdk_output_button.setText(button_text)
+        self.prepare_tdk_output_button.setText(button_text)
 
     def _build_curve_panel(self, parent: QVBoxLayout) -> None:
         self.live_plots = LivePlots(self)
         self.live_plots.expose_compatibility_attributes(self)
         parent.addWidget(self.live_plots.group, stretch=2)
+        self._live_plots_layout = parent
         self.reset_curves()
 
     def on_main_tab_changed(self, index: int) -> None:
+        self._place_live_plots_for_tab(index)
         if index != self.pd_tab_index or self.pd_panel.reader is not None:
             return
         if self.pd_panel.device_combo.count() == 0:
             self.pd_panel.refresh_devices()
 
+    def _place_live_plots_for_tab(self, index: int) -> None:
+        """Keep one live plot history visible in both automatic and manual modes."""
+        if not hasattr(self, "live_plots"):
+            return
+        target_layout = (
+            self.manual_monitor_layout
+            if index == self.manual_tab_index
+            else self.automatic_monitor_layout
+        )
+        if self._live_plots_layout is target_layout:
+            return
+        self._live_plots_layout.removeWidget(self.live_plots.group)
+        target_layout.addWidget(self.live_plots.group, stretch=2)
+        self._live_plots_layout = target_layout
+        self.live_plots.group.show()
+        self.live_plots.relayout(
+            max(self.live_plots.group.width(), self.width() - 64)
+        )
+
     def open_manual_settings(self, section: str = "") -> None:
         self.main_tabs.setCurrentIndex(self.manual_tab_index)
+        details_toggle = {
+            "power_meter": getattr(self, "power_meter_details_toggle", None),
+            "spectrometer": getattr(self, "spectrometer_details_toggle", None),
+        }.get(section)
+        if details_toggle is not None:
+            details_toggle.setChecked(True)
         target = {
             "power": getattr(self, "power_supply_controller_combo", None),
             "power_meter": getattr(self, "power_meter_combo", None),
@@ -1594,7 +1790,7 @@ class MainWindow(QMainWindow):
         target.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _connect_preflight_updates(self) -> None:
-        for line_edit in (self.sn_field, self.output_dir_field):
+        for line_edit in (self.sn_field, self.test_station_field, self.output_dir_field):
             line_edit.textChanged.connect(self.refresh_preflight_checklist)
         for spin_box in (
             self.auto_initial_current_spin,
@@ -1662,6 +1858,7 @@ class MainWindow(QMainWindow):
         ):
             return
         sn_ok = bool(self.sn_field.text().strip())
+        station_ok = bool(self.test_station_field.text().strip())
         output_text = self.output_dir_field.text().strip()
         output_ok = self._output_directory_is_writable(output_text)
         power_ok = self._manual_i2c_connected()
@@ -1690,6 +1887,11 @@ class MainWindow(QMainWindow):
             settings_error = str(exc) or settings_error
 
         self._set_checklist_item(self.preflight_labels["sn"], sn_ok, "SN 已填写" if sn_ok else "请填写产品 SN")
+        self._set_checklist_item(
+            self.preflight_labels["station"],
+            station_ok,
+            "测试站别已填写" if station_ok else "请填写测试站别",
+        )
         self._set_checklist_item(
             self.preflight_labels["output"],
             output_ok,
@@ -1736,6 +1938,8 @@ class MainWindow(QMainWindow):
         blockers: list[str] = []
         if not sn_ok:
             blockers.append("请填写产品 SN")
+        if not station_ok:
+            blockers.append("请填写测试站别")
         if not output_ok:
             blockers.append("请选择有效输出目录")
         if not power_ok:
@@ -1761,6 +1965,8 @@ class MainWindow(QMainWindow):
         self.preflight_action_button.setVisible(bool(blockers))
         if not sn_ok:
             self.preflight_action_button.setText("填写 SN")
+        elif not station_ok:
+            self.preflight_action_button.setText("填写测试站别")
         elif not output_ok:
             self.preflight_action_button.setText("选择输出目录")
         elif not power_ok:
@@ -1777,6 +1983,9 @@ class MainWindow(QMainWindow):
     def perform_preflight_action(self) -> None:
         if not self.sn_field.text().strip():
             self.sn_field.setFocus(Qt.FocusReason.OtherFocusReason)
+            return
+        if not self.test_station_field.text().strip():
+            self.test_station_field.setFocus(Qt.FocusReason.OtherFocusReason)
             return
         if not self.output_dir_field.text().strip():
             self.browse_output_dir()
@@ -1801,6 +2010,51 @@ class MainWindow(QMainWindow):
             AutomaticTestState.IDLE,
             AutomaticTestState.COMPLETED,
         )
+
+    def _manual_power_action_context(self) -> bool:
+        return bool(
+            hasattr(self, "main_tabs")
+            and self.main_tabs.currentIndex() == self.manual_tab_index
+            and not self._automatic_workflow_is_active()
+        )
+
+    def _manual_output_is_energized(self) -> bool:
+        if self._selected_power_supply_kind() == "tdk":
+            return bool(
+                self._manual_i2c_connected()
+                and getattr(self.manual_ch341_controller, "output_enabled", False)
+            )
+        return float(self.active_output_current_a or 0.0) > 0.0
+
+    def _refresh_manual_power_tab_lock(self, manual_action: bool = False) -> None:
+        if not manual_action and not self.manual_power_tab_lock_active:
+            return
+        self.manual_power_tab_lock_active = self._manual_output_is_energized()
+        self._update_main_tab_access()
+
+    def _update_main_tab_access(self) -> None:
+        if not hasattr(self, "main_tabs"):
+            return
+        automatic_active = self._automatic_workflow_is_active()
+        manual_lock = self.manual_power_tab_lock_active and not automatic_active
+        locked_hint = "手动电源正在输出，请先将电流降至 0 A；TDK 电源还需关闭输出"
+        for index in (
+            self.automatic_tab_index,
+            self.records_tab_index,
+            self.pd_tab_index,
+        ):
+            self.main_tabs.setTabEnabled(index, not manual_lock and not automatic_active)
+            self.main_tabs.setTabToolTip(index, locked_hint if manual_lock else "")
+        self.main_tabs.setTabEnabled(
+            self.manual_tab_index,
+            manual_lock or not automatic_active or self.automatic_test_state == AutomaticTestState.PAUSED,
+        )
+        if manual_lock:
+            self.main_tabs.setCurrentIndex(self.manual_tab_index)
+            return
+        self.main_tabs.setTabEnabled(self.automatic_tab_index, True)
+        if automatic_active and self.automatic_test_state != AutomaticTestState.PAUSED:
+            self.main_tabs.setCurrentIndex(self.automatic_tab_index)
 
     def on_automatic_state_ui_changed(self, state: AutomaticTestState, detail: str = "") -> None:
         if state == AutomaticTestState.STARTING and self.automatic_run_started_monotonic_s is None:
@@ -1851,12 +2105,7 @@ class MainWindow(QMainWindow):
         }
         self.run_state_label.setText("测试已暂停" if state == AutomaticTestState.PAUSED else "当前测试点")
         self.run_stage_label.setText(state_names.get(state, "准备测试"))
-        active = state not in (AutomaticTestState.IDLE, AutomaticTestState.COMPLETED)
-        self.main_tabs.setTabEnabled(self.manual_tab_index, not active or state == AutomaticTestState.PAUSED)
-        self.main_tabs.setTabEnabled(self.pd_tab_index, not active)
-        self.main_tabs.setTabEnabled(self.records_tab_index, not active)
-        if active and state != AutomaticTestState.PAUSED:
-            self.main_tabs.setCurrentIndex(self.automatic_tab_index)
+        self._update_main_tab_access()
         self.set_power_meter_running_state(self.power_meter_reader is not None)
         self.set_spectrometer_running_state(self.spectrometer_reader is not None)
         self.pause_automatic_test_button.setText("暂停")
@@ -1935,6 +2184,7 @@ class MainWindow(QMainWindow):
             )
         self.result_completion_label.setText(completion_text)
         self.result_sn_label.setText(self.sn_field.text().strip() or "--")
+        self.result_station_label.setText(self.test_session_station or self.test_station_field.text().strip() or "--")
         self.result_points_label.setText(f"{saved_points} / {planned_points or saved_points}")
         self.result_time_label.setText(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         result_path = self.excel_workbook_path
@@ -2040,12 +2290,21 @@ class MainWindow(QMainWindow):
         self.start_power_meter()
         self.start_spectrometer()
 
-    def begin_test_session(self, reset_records: bool = True) -> Path:
+    def begin_test_session(
+        self,
+        reset_records: bool = True,
+        *,
+        require_station: bool = False,
+    ) -> Path:
         sn = sanitize_sn(self.sn_field.text())
+        test_station = self.test_station_field.text().strip()
+        if require_station and not test_station:
+            raise ValueError("测试站别不能为空")
         output_dir_text = self.output_dir_field.text().strip()
         if not output_dir_text:
             raise ValueError("Excel 输出文件夹不能为空")
         self.test_session_started_at = datetime.now()
+        self.test_session_station = test_station
         self.excel_workbook_path = self.record_store.begin_session(
             Path(output_dir_text),
             sn,
@@ -2182,6 +2441,7 @@ class MainWindow(QMainWindow):
         self._set_status_indicator(self.global_psu_status_indicator, psu_state)
         self._set_status_indicator(self.global_power_meter_status_indicator, power_state)
         self._set_status_indicator(self.global_spectrometer_status_indicator, spectrometer_state)
+        self._update_prepare_measurement_controls()
         self.stop_all_button.setEnabled(
             power_running or spectrometer_running or pd_running or automatic_active
         )
@@ -2214,31 +2474,36 @@ class MainWindow(QMainWindow):
 
     def on_power_supply_controller_changed(self) -> None:
         selected_kind = self._selected_power_supply_kind()
+        previous_kind = self.power_supply_controller_kind
         if self._manual_i2c_connected() and selected_kind != self.power_supply_controller_kind:
-            try:
-                if self.power_supply_controller_kind == "tdk":
-                    self.manual_ch341_controller.set_output_enabled(False)
-                self.manual_ch341_controller.disconnect_device()
-            except Exception as exc:
-                previous_index = self.power_supply_controller_combo.findData(self.power_supply_controller_kind)
-                self.power_supply_controller_combo.blockSignals(True)
-                self.power_supply_controller_combo.setCurrentIndex(previous_index)
-                self.power_supply_controller_combo.blockSignals(False)
-                QMessageBox.critical(
-                    self,
-                    "TDK 输出",
-                    f"关闭 TDK 输出失败，已保持当前连接。\n{user_facing_error_message(exc)}",
-                )
-                return
-            finally:
-                if not self._manual_i2c_connected():
-                    self.manual_ch341_controller = None
+            previous_index = self.power_supply_controller_combo.findData(
+                self.power_supply_controller_kind
+            )
+            for combo in (
+                self.power_supply_controller_combo,
+                getattr(self, "prepare_power_supply_combo", None),
+            ):
+                if combo is None:
+                    continue
+                blocked = combo.blockSignals(True)
+                try:
+                    combo.setCurrentIndex(previous_index)
+                finally:
+                    combo.blockSignals(blocked)
+            self.statusBar().showMessage("电源已加电，请先断开电源再切换控制器或串口")
+            self._update_prepare_power_controls()
+            return
+        if selected_kind != previous_kind and self.manual_ch341_controller is not None:
+            # A disconnected CH341 object cannot be reused as a TDK RS-232
+            # controller (or vice versa). Keeping it here sends the next
+            # connection attempt through the previous controller's protocol.
+            self.manual_ch341_controller = None
         self.power_supply_controller_kind = selected_kind
         is_tdk = selected_kind == "tdk"
-        self.power_supply_form.setRowVisible(self.tdk_resource_row, is_tdk)
-        self.power_supply_form.setRowVisible(self.tdk_voltage_row, is_tdk)
+        self.power_supply_details_form.setRowVisible(self.tdk_resource_row, is_tdk)
+        self.power_supply_details_form.setRowVisible(self.tdk_voltage_row, is_tdk)
         self.power_supply_form.setRowVisible(self.tdk_output_row, is_tdk)
-        self.power_supply_form.setRowVisible(self.power_supply_read_row, not is_tdk)
+        self.power_supply_details_form.setRowVisible(self.power_supply_read_row, not is_tdk)
         current_maximum = TDK_CURRENT_INPUT_MAX_A if is_tdk else LEGACY_CURRENT_LIMIT_A
         for current_widget in (
             self.set_current_spin,
@@ -2267,8 +2532,7 @@ class MainWindow(QMainWindow):
         self.read_temperature_button.setEnabled(not is_tdk)
         self.connect_i2c_button.setText("连接 TDK" if is_tdk else "连接 CH341")
         self.i2c_status_label.setText("未连接")
-        self.tdk_output_status_label.setText("输出关闭")
-        self.tdk_output_button.setText("开启输出")
+        self.sync_tdk_output_controls(False)
         if hasattr(self, "power_supply_group"):
             self._reserve_group_height(self.power_supply_group)
         self.update_global_status()
@@ -2315,8 +2579,8 @@ class MainWindow(QMainWindow):
                 self.manual_ch341_controller = None
             self.connect_i2c_button.setText(f"连接 {label}")
             self.i2c_status_label.setText("未连接")
-            self.tdk_output_status_label.setText("输出关闭")
-            self.tdk_output_button.setText("开启输出")
+            self.sync_tdk_output_controls(False)
+            self._refresh_manual_power_tab_lock()
             self.add_log(f"{label} 已断开")
             self.update_global_status()
             return
@@ -2330,8 +2594,7 @@ class MainWindow(QMainWindow):
             self.i2c_status_label.setText("已连接")
             if label == "TDK":
                 output_enabled = bool(getattr(controller, "output_enabled", False))
-                self.tdk_output_status_label.setText("输出开启" if output_enabled else "输出关闭")
-                self.tdk_output_button.setText("关闭输出" if output_enabled else "开启输出")
+                self.sync_tdk_output_controls(output_enabled)
                 maximum_voltage = getattr(controller, "maximum_voltage_v", None)
                 if maximum_voltage is not None:
                     self.tdk_voltage_spin.setMaximum(float(maximum_voltage))
@@ -2368,6 +2631,7 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "TDK 电压", user_facing_error_message(exc))
 
     def toggle_tdk_output(self) -> None:
+        manual_action = self._manual_power_action_context()
         controller = self._require_manual_i2c_controller()
         if controller is None:
             return
@@ -2380,13 +2644,35 @@ class MainWindow(QMainWindow):
             if power_supply is None:
                 raise RuntimeError("TDK 电源未连接")
             enabled = not power_supply.output_enabled
+            if enabled:
+                self._confirm_tdk_zero_current_before_output(power_supply)
             power_supply.set_output_enabled(enabled)
-            self.tdk_output_status_label.setText("输出开启" if enabled else "输出关闭")
-            self.tdk_output_button.setText("关闭输出" if enabled else "开启输出")
+            self.sync_tdk_output_controls(enabled)
+            self._refresh_manual_power_tab_lock(manual_action=manual_action)
             self.add_log(f"TDK 输出已{'开启' if enabled else '关闭'}")
             self.statusBar().showMessage(f"TDK 输出已{'开启' if enabled else '关闭'}")
+            self.update_global_status()
         except Exception as exc:
             QMessageBox.critical(self, "TDK 输出", user_facing_error_message(exc))
+
+    def _confirm_tdk_zero_current_before_output(self, power_supply: PowerSupply) -> None:
+        """Program and verify a safe zero-current state before enabling TDK output."""
+        power_supply.set_current(0.0)
+        self.cancel_auto_vout_read()
+        self.set_current_spin.setValue(0.0)
+        self.active_output_current_a = 0.0
+        self.pending_stable_point_current_a = None
+        self.pending_stable_point_generation = None
+        self.recorded_stable_point_current_a = None
+        self.recorded_stable_point_generation = None
+
+        measured_current_a = float(power_supply.read_output_current())
+        if not math.isfinite(measured_current_a) or abs(measured_current_a) > 0.01:
+            raise RuntimeError(
+                "开启输出已取消：TDK 电流未归零，"
+                f"当前实测 {measured_current_a:.3f} A"
+            )
+        self.add_log("TDK 开启输出前已确认电流为 0 A")
 
     def begin_power_supply_command(self, command_name: str) -> bool:
         """Reserve the power-supply bus so I2C commands remain safely spaced."""
@@ -2610,6 +2896,7 @@ class MainWindow(QMainWindow):
                 wavelength=[],
                 intensity=[],
                 smsr_db=math.nan,
+                test_station=self.test_session_station,
             ))
             self.save_excel_button.setEnabled(True)
             self.add_log(f"已加入无光谱测试点：{current_a:.3f} A")
@@ -2662,6 +2949,7 @@ class MainWindow(QMainWindow):
             wavelength=list(self.latest_spectrum_wavelength),
             intensity=list(self.latest_spectrum_intensity),
             smsr_db=smsr.smsr_db,
+            test_station=self.test_session_station,
         ))
         self.refresh_records_page()
         pending_count = len([current for current in self.pending_excel_records if current not in self.excel_recorded_currents])
@@ -2732,6 +3020,7 @@ class MainWindow(QMainWindow):
         self._continue_pending_close()
 
     def apply_output_current(self) -> None:
+        manual_action = self._manual_power_action_context()
         if self._require_manual_i2c_controller() is None:
             return
         if not self.begin_power_supply_command("设置输出电流"):
@@ -2751,6 +3040,7 @@ class MainWindow(QMainWindow):
             else:
                 self.pending_stable_point_generation = None
             self.update_stable_power_curve()
+            self._refresh_manual_power_tab_lock(manual_action=manual_action)
             self.add_log(f"输出电流已设为 {self.set_current_spin.value():.1f} A")
             self.statusBar().showMessage(f"输出电流已设为 {self.set_current_spin.value():.1f} A")
         except Exception as exc:
@@ -2949,8 +3239,6 @@ class MainWindow(QMainWindow):
             return
 
         self.reset_spectrum_curve()
-        self.copy_spectrum_button.setEnabled(False)
-        self.save_spectrum_button.setEnabled(False)
         self.add_log("正在启动光谱仪采集")
         self.spectrometer_reader = SpectrometerReaderThread(settings, self)
         self.spectrometer_reader.reading.connect(self.on_spectrometer_reading)
@@ -3113,8 +3401,6 @@ class MainWindow(QMainWindow):
         elif was_saturated and not saturation.saturated:
             self.statusBar().showMessage("光谱饱和状态已解除")
             self.add_log("光谱饱和状态已解除")
-        self.copy_spectrum_button.setEnabled(True)
-        self.save_spectrum_button.setEnabled(True)
         self.update_spectrum_curve(wavelength, intensity)
 
     def reset_curves(self) -> None:
@@ -3438,7 +3724,11 @@ class MainWindow(QMainWindow):
     def resizeEvent(self, event: Any) -> None:
         super().resizeEvent(event)
         if hasattr(self, "live_plots") and hasattr(self, "monitor_panel"):
-            available_width = max(self.monitor_panel.width(), self.width() - 64)
+            plot_parent = self.live_plots.group.parentWidget()
+            available_width = max(
+                plot_parent.width() if plot_parent is not None else 0,
+                self.width() - 64,
+            )
             self.live_plots.relayout(available_width)
 
     @staticmethod

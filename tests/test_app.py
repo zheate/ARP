@@ -243,6 +243,12 @@ class MainWindowTests(unittest.TestCase):
         window.sn_field.setText("ARP-20260714-001")
         window.refresh_preflight_checklist()
 
+        self.assertFalse(window.start_automatic_test_button.isEnabled())
+        self.assertIn("测试站别", window.preflight_blocker_label.text())
+
+        window.test_station_field.setText("老化站 1")
+        window.refresh_preflight_checklist()
+
         self.assertTrue(window.start_automatic_test_button.isEnabled())
         self.assertIn("配置已完成", window.preflight_blocker_label.text())
         self.assertIn("共 20 点", window.preflight_sequence_label.text())
@@ -333,6 +339,7 @@ class MainWindowTests(unittest.TestCase):
             window.power_meter_reader = ReaderStub()  # type: ignore[assignment]
             window.spectrometer_reader = ReaderStub()  # type: ignore[assignment]
             window.sn_field.setText("AUTO-001")
+            window.test_station_field.setText("老化站 1")
             window.output_dir_field.setText(temp_dir)
 
             window.start_automatic_test()
@@ -380,6 +387,7 @@ class MainWindowTests(unittest.TestCase):
             window.power_meter_reader = ReaderStub()  # type: ignore[assignment]
             window.auto_use_spectrometer_check.setChecked(False)
             window.sn_field.setText("AUTO-NO-SPECTRUM")
+            window.test_station_field.setText("老化站 1")
             window.output_dir_field.setText(temp_dir)
             spectrometer_starts: list[bool] = []
             window.start_spectrometer = lambda: spectrometer_starts.append(True)  # type: ignore[method-assign]
@@ -484,6 +492,7 @@ class MainWindowTests(unittest.TestCase):
             first_window.auto_ramp_down_step_spin.setValue(4.0)
             first_window.auto_ramp_down_interval_spin.setValue(1.5)
             first_window.sn_field.setText("SN-001")
+            first_window.test_station_field.setText("老化站 1")
             first_window.output_dir_field.setText(str(Path(temp_dir) / "records"))
             first_window.save_input_settings()
             first_window.close()
@@ -501,6 +510,7 @@ class MainWindowTests(unittest.TestCase):
             self.assertEqual(restored_window.auto_ramp_down_step_spin.value(), 4.0)
             self.assertEqual(restored_window.auto_ramp_down_interval_spin.value(), 1.5)
             self.assertEqual(restored_window.sn_field.text(), "SN-001")
+            self.assertEqual(restored_window.test_station_field.text(), "老化站 1")
             self.assertEqual(restored_window.output_dir_field.text(), str(Path(temp_dir) / "records"))
             restored_window.close()
 
@@ -509,10 +519,12 @@ class MainWindowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             window = MainWindow(QSettings(str(Path(temp_dir) / "inputs.ini"), QSettings.Format.IniFormat))
             window.excel_workbook_path = Path(temp_dir) / "SN001_2026_07_10_14_30_25.xlsx"
+            window.test_session_station = "老化站 1"
             window.latest_spectrum_wavelength = [974.0, 975.0, 976.0, 977.0, 978.0]
             window.latest_spectrum_intensity = [0.0, 5000.0, 10000.0, 5000.0, 0.0]
 
             window.queue_excel_test_point(3.0, 50.5, 33.0, 33.0 / 3.0 / 50.5)
+            self.assertEqual(window.pending_excel_records[3.0].test_station, "老化站 1")
             window.save_pending_excel_records()
             save_thread = window.excel_save_thread
             self.assertIsNotNone(save_thread)
@@ -1086,6 +1098,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window.automatic_stack.currentIndex(), window.automatic_prepare_index)
         self.assertTrue(hasattr(window, "prepare_scroll_area"))
         self.assertTrue(hasattr(window, "left_control_panel"))
+        self.assertTrue(hasattr(window, "manual_scroll_area"))
         self.assertTrue(hasattr(window, "monitor_panel"))
         window.close()
 
@@ -1104,6 +1117,31 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window.main_tabs.currentIndex(), window.automatic_tab_index)
         self.assertFalse(window.prepare_tdk_resource_combo.isHidden())
         self.assertNotEqual(window.prepare_power_meter_button.text(), "设置")
+        window.close()
+
+    def test_prepare_page_exposes_open_and_close_actions_for_measurement_devices(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        self.assertEqual(window.prepare_power_meter_open_button.text(), "打开")
+        self.assertEqual(window.prepare_power_meter_close_button.text(), "关闭")
+        self.assertEqual(window.prepare_spectrometer_open_button.text(), "打开")
+        self.assertEqual(window.prepare_spectrometer_close_button.text(), "关闭")
+        self.assertTrue(window.prepare_power_meter_open_button.isEnabled())
+        self.assertFalse(window.prepare_power_meter_close_button.isEnabled())
+        self.assertTrue(window.prepare_spectrometer_open_button.isEnabled())
+        self.assertFalse(window.prepare_spectrometer_close_button.isEnabled())
+
+        window.power_meter_reader = types.SimpleNamespace(is_ready=True)
+        window.spectrometer_reader = types.SimpleNamespace(is_ready=True)
+        window.update_global_status()
+
+        self.assertFalse(window.prepare_power_meter_open_button.isEnabled())
+        self.assertTrue(window.prepare_power_meter_close_button.isEnabled())
+        self.assertFalse(window.prepare_spectrometer_open_button.isEnabled())
+        self.assertTrue(window.prepare_spectrometer_close_button.isEnabled())
+        window.power_meter_reader = None
+        window.spectrometer_reader = None
         window.close()
 
     def test_prepare_workflow_follows_dependency_order(self) -> None:
@@ -1126,6 +1164,10 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window.power_prepare_group.title(), "3. 电源")
         self.assertEqual(window.measurement_prepare_group.title(), "4. 测量设备")
         self.assertEqual(window.preflight_group.title(), "5. 启动前检查")
+        self.assertFalse(hasattr(window, "test_plan_label"))
+        self.assertFalse(
+            any(label.text() == "976 nm 标准测试" for label in window.findChildren(QLabel))
+        )
         window.close()
 
     def test_main_window_integrates_metrics_into_their_related_plots(self) -> None:
@@ -1138,6 +1180,7 @@ class MainWindowTests(unittest.TestCase):
             "global_power_meter_status_indicator",
             "global_spectrometer_status_indicator",
             "sn_field",
+            "test_station_field",
             "output_dir_field",
             "save_excel_button",
             "curves_layout",
@@ -1258,6 +1301,15 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window.chart_tabs.indexOf(window.power_curve_canvas), 0)
         self.assertEqual(window.chart_tabs.indexOf(window.stable_power_canvas), 1)
         self.assertEqual(window.chart_tabs.indexOf(window.spectrum_curve_canvas), 2)
+
+        window.live_plots.relayout(1000)
+        self.assertTrue(window.chart_tabs.isHidden())
+        for canvas in (
+            window.power_curve_canvas,
+            window.stable_power_canvas,
+            window.spectrum_curve_canvas,
+        ):
+            self.assertFalse(canvas.isHidden())
         window.close()
 
     def test_common_1280_by_800_window_does_not_expand_vertically(self) -> None:
@@ -1279,6 +1331,7 @@ class MainWindowTests(unittest.TestCase):
 
         for widget in (
             window.sn_field,
+            window.test_station_field,
             window.output_dir_field,
         ):
             self._form_row_containing_widget(task_form, widget)
@@ -1359,21 +1412,125 @@ class MainWindowTests(unittest.TestCase):
         self.assertFalse(hasattr(window, "open_advanced_settings_button"))
         self.assertEqual(window.main_tabs.currentIndex(), window.automatic_tab_index)
 
-        power_supply_form = self._group(window, "电源").layout()
-        self.assertIsInstance(power_supply_form, QFormLayout)
+        power_supply_form = window.power_supply_details_form
         self.assertFalse(hasattr(window, "i2c_addr_field"))
         self.assertFalse(hasattr(window, "i2c_speed_combo"))
         self.assertEqual(combined_test_window.DEFAULT_I2C_ADDRESS, 0x41)
         self.assertEqual(combined_test_window.DEFAULT_I2C_SPEED, 0)
+        self._form_row_containing_widget(power_supply_form, window.power_supply_controller_combo)
 
-        power_meter_form = self._group(window, "功率计").layout()
-        self.assertIsInstance(power_meter_form, QFormLayout)
+        power_meter_form = window.power_meter_details_form
         self._form_row_containing_widget(power_meter_form, window.software_gain_spin)
         self._form_row_containing_widget(power_meter_form, window.power_meter_interval_spin)
 
-        spectrometer_form = self._group(window, "光谱仪").layout()
-        self.assertIsInstance(spectrometer_form, QFormLayout)
+        spectrometer_form = window.spectrometer_details_form
         self._form_row_containing_widget(spectrometer_form, window.interval_spin)
+        window.close()
+
+    def test_manual_device_details_are_independently_collapsible(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        self.assertFalse(hasattr(window, "power_supply_details_toggle"))
+        self.assertFalse(window.power_supply_details_content.isHidden())
+        self._form_row_containing_widget(
+            window.power_supply_details_form,
+            window.power_supply_controller_combo,
+        )
+        sections = (
+            (
+                window.power_meter_details_toggle,
+                window.power_meter_details_content,
+                window.power_meter_details_form,
+                window.software_gain_spin,
+            ),
+            (
+                window.spectrometer_details_toggle,
+                window.spectrometer_details_content,
+                window.spectrometer_details_form,
+                window.integration_spin,
+            ),
+        )
+        for toggle, content, form, setting in sections:
+            self.assertFalse(toggle.isChecked())
+            self.assertTrue(content.isHidden())
+            self.assertEqual(toggle.arrowType(), combined_test_window.Qt.ArrowType.RightArrow)
+            self._form_row_containing_widget(form, setting)
+
+            toggle.click()
+
+            self.assertTrue(toggle.isChecked())
+            self.assertFalse(content.isHidden())
+            self.assertEqual(toggle.arrowType(), combined_test_window.Qt.ArrowType.DownArrow)
+
+        window.power_meter_details_toggle.setChecked(False)
+        window.open_manual_settings("power_meter")
+        self.assertEqual(window.main_tabs.currentIndex(), window.manual_tab_index)
+        self.assertTrue(window.power_meter_details_toggle.isChecked())
+        self.assertFalse(window.power_meter_details_content.isHidden())
+        window.close()
+
+    def test_power_supply_controls_follow_the_safe_operating_order(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        form = window.power_supply_form
+
+        rows = {
+            "controller": self._form_row_containing_widget(form, window.power_supply_controller_combo),
+            "resource": self._form_row_containing_widget(form, window.tdk_resource_combo),
+            "connection": self._form_row_containing_widget(form, window.connect_i2c_button),
+            "voltage": self._form_row_containing_widget(form, window.tdk_voltage_spin),
+            "output": self._form_row_containing_widget(form, window.tdk_output_button),
+            "current": self._form_row_containing_widget(form, window.set_current_spin),
+            "read": self._form_row_containing_widget(form, window.read_output_current_button),
+        }
+        self.assertLess(rows["controller"], rows["connection"])
+        self.assertLess(rows["connection"], rows["current"])
+        self.assertLess(rows["current"], rows["read"])
+
+        window.power_supply_controller_combo.setCurrentIndex(
+            window.power_supply_controller_combo.findData("tdk")
+        )
+        self.assertEqual(
+            [
+                rows["controller"],
+                rows["resource"],
+                rows["connection"],
+                rows["voltage"],
+                rows["output"],
+                rows["current"],
+            ],
+            sorted(
+                [
+                    rows["controller"],
+                    rows["resource"],
+                    rows["connection"],
+                    rows["voltage"],
+                    rows["output"],
+                    rows["current"],
+                ]
+            ),
+        )
+        window.close()
+
+    def test_manual_page_uses_one_vertical_scroll_area_for_controls_curves_and_log(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.resize(1280, 800)
+        window.main_tabs.setCurrentIndex(window.manual_tab_index)
+        window.show()
+        for toggle in (
+            window.power_meter_details_toggle,
+            window.spectrometer_details_toggle,
+        ):
+            toggle.setChecked(True)
+        app.processEvents()
+
+        self.assertIs(window.manual_scroll_area.widget(), window.manual_scroll_content)
+        for widget in (window.left_control_content, window.manual_monitor_panel, window.log_text):
+            self.assertTrue(window.manual_scroll_content.isAncestorOf(widget))
+        self.assertEqual(window.manual_scroll_area.horizontalScrollBar().maximum(), 0)
+        self.assertGreater(window.manual_scroll_area.verticalScrollBar().maximum(), 0)
         window.close()
 
     def test_left_control_panel_does_not_need_horizontal_scrolling(self) -> None:
@@ -1405,6 +1562,27 @@ class MainWindowTests(unittest.TestCase):
         ):
             self.assertTrue(hasattr(window, attribute), attribute)
 
+        window.close()
+
+    def test_manual_page_shows_the_shared_realtime_curves_without_losing_data(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.update_power_curve(1.5, 2.25)
+
+        window.main_tabs.setCurrentIndex(window.manual_tab_index)
+        app.processEvents()
+
+        self.assertTrue(window.manual_page.isAncestorOf(window.live_plots.group))
+        self.assertEqual(window.manual_monitor_layout.indexOf(window.live_plots.group), 0)
+        self.assertEqual(list(window.power_curve_line.get_xdata()), [1.5])
+        self.assertEqual(list(window.power_curve_line.get_ydata()), [2.25])
+
+        window.main_tabs.setCurrentIndex(window.automatic_tab_index)
+        app.processEvents()
+
+        self.assertTrue(window.automatic_run_page.isAncestorOf(window.live_plots.group))
+        self.assertEqual(window.automatic_monitor_layout.indexOf(window.live_plots.group), 0)
+        self.assertEqual(list(window.power_curve_line.get_ydata()), [2.25])
         window.close()
 
     def test_realtime_curves_have_readable_initial_ranges(self) -> None:
@@ -2041,6 +2219,46 @@ class MainWindowTests(unittest.TestCase):
         self.assertIn("3.2 A", window.log_text.text())
         window.close()
 
+    def test_manual_nonzero_current_locks_other_tabs_until_current_returns_to_zero(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FakeController:
+            is_connected = True
+
+            def __init__(self) -> None:
+                self.writes: list[list[int]] = []
+
+            def i2c_write(self, _address: int, command: list[int]) -> tuple[bool, str]:
+                self.writes.append(command)
+                return True, "OK"
+
+        window = MainWindow()
+        window.manual_ch341_controller = FakeController()
+        window.main_tabs.setCurrentIndex(window.manual_tab_index)
+        window.set_current_spin.setValue(3.2)
+
+        window.apply_output_current()
+
+        self.assertTrue(window.manual_power_tab_lock_active)
+        self.assertEqual(window.main_tabs.currentIndex(), window.manual_tab_index)
+        self.assertTrue(window.main_tabs.isTabEnabled(window.manual_tab_index))
+        for index in (
+            window.automatic_tab_index,
+            window.records_tab_index,
+            window.pd_tab_index,
+        ):
+            self.assertFalse(window.main_tabs.isTabEnabled(index))
+            self.assertIn("0 A", window.main_tabs.tabToolTip(index))
+
+        window.last_power_supply_command_monotonic_s = None
+        window.set_current_spin.setValue(0.0)
+        window.apply_output_current()
+
+        self.assertFalse(window.manual_power_tab_lock_active)
+        for index in range(window.main_tabs.count()):
+            self.assertTrue(window.main_tabs.isTabEnabled(index))
+        window.close()
+
     def test_automatic_current_command_waits_for_guard_instead_of_pausing(self) -> None:
         app = QApplication.instance() or QApplication([])
 
@@ -2131,8 +2349,6 @@ class MainWindowTests(unittest.TestCase):
             "apply_current_button",
             "refresh_power_meter_button",
             "rel_zero_check",
-            "copy_spectrum_button",
-            "save_spectrum_button",
         ):
             self.assertTrue(hasattr(window, attribute), attribute)
 
@@ -2141,8 +2357,7 @@ class MainWindowTests(unittest.TestCase):
     def test_power_meter_common_action_buttons_stay_in_power_meter_group(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
-        form = self._group(window, "功率计").layout()
-        self.assertIsInstance(form, QFormLayout)
+        form = window.power_meter_details_form
 
         for widget in (
             window.refresh_power_meter_button,
@@ -2268,17 +2483,18 @@ class MainWindowTests(unittest.TestCase):
         self.assertAlmostEqual(window.collect_power_meter_settings().wavelength_nm, 976.5)
         window.close()
 
-    def test_spectrometer_start_stop_buttons_are_below_integration(self) -> None:
+    def test_spectrometer_start_stop_buttons_stay_outside_detailed_configuration(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
-        form = self._spectrometer_form(window)
+        primary_form = window.spectrometer_form
+        details_form = window.spectrometer_details_form
 
-        integration_row = self._form_row_containing_widget(form, window.integration_spin)
-        start_row = self._form_row_containing_widget(form, window.start_spectrometer_button)
-        stop_row = self._form_row_containing_widget(form, window.stop_spectrometer_button)
+        self._form_row_containing_widget(details_form, window.integration_spin)
+        start_row = self._form_row_containing_widget(primary_form, window.start_spectrometer_button)
+        stop_row = self._form_row_containing_widget(primary_form, window.stop_spectrometer_button)
 
-        self.assertGreater(start_row, integration_row)
         self.assertEqual(start_row, stop_row)
+        self.assertTrue(window.spectrometer_details_content.isHidden())
         window.close()
 
     def test_spectrometer_default_integration_time_is_10000_us(self) -> None:
@@ -2361,12 +2577,14 @@ class MainWindowTests(unittest.TestCase):
         window.automatic_test_currents = (20.0,)
         window.automatic_test_current_index = 0
         window.automatic_completion_record = record
+        window.test_session_station = "老化站 1"
         window.record_store.recorded_currents.add(20.0)
         window.complete_automatic_test()
 
         self.assertEqual(window.automatic_test_state, AutomaticTestState.COMPLETED)
         self.assertEqual(window.automatic_stack.currentIndex(), window.automatic_result_index)
         self.assertEqual(window.result_title_label.text(), "测试完整完成")
+        self.assertEqual(window.result_station_label.text(), "老化站 1")
         self.assertEqual(window.result_metric_labels["current"].text(), "20.0 A")
         self.assertEqual(window.result_metric_labels["power"].text(), "200.000 W")
         self.assertEqual(window.result_metric_labels["efficiency"].text(), "19.80 %")

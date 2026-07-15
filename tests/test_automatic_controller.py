@@ -268,6 +268,68 @@ class AutomaticTestControllerLifecycleTests(unittest.TestCase):
         self.assertFalse(self.window.automatic_controller.output_shutdown_unconfirmed)
         self.assertIn("完整完成", result_details[-1])
 
+    def test_automatic_tdk_shutdown_syncs_manual_and_prepare_output_buttons(self) -> None:
+        class ConnectedTdkController:
+            is_connected = True
+            output_enabled = True
+
+            def set_output_enabled(self, enabled: bool) -> None:
+                self.output_enabled = enabled
+
+        self.window.power_supply_controller_combo.setCurrentIndex(
+            self.window.power_supply_controller_combo.findData("tdk")
+        )
+        controller = ConnectedTdkController()
+        self.window.manual_ch341_controller = controller
+        self.window.power_supply_controller_kind = "tdk"
+        self.window.sync_tdk_output_controls(True)
+        self.window.automatic_test_state = AutomaticTestState.RAMPING_DOWN
+
+        self.window.complete_automatic_test()
+
+        self.assertFalse(controller.output_enabled)
+        self.assertEqual(self.window.tdk_output_status_label.text(), "输出关闭")
+        self.assertEqual(self.window.tdk_output_button.text(), "开启输出")
+        self.assertEqual(self.window.prepare_tdk_output_button.text(), "开启输出")
+
+    def test_completion_keeps_running_measurement_devices_open(self) -> None:
+        class ReaderStub:
+            is_ready = True
+
+            def __init__(self) -> None:
+                self.stop_calls = 0
+
+            def stop(self) -> None:
+                self.stop_calls += 1
+
+        power_meter = ReaderStub()
+        spectrometer = ReaderStub()
+        self.window.power_meter_reader = power_meter  # type: ignore[assignment]
+        self.window.spectrometer_reader = spectrometer  # type: ignore[assignment]
+        self.window.automatic_test_state = AutomaticTestState.RAMPING_DOWN
+
+        self.window.complete_automatic_test()
+
+        self.assertIs(self.window.power_meter_reader, power_meter)
+        self.assertIs(self.window.spectrometer_reader, spectrometer)
+        self.assertEqual(power_meter.stop_calls, 0)
+        self.assertEqual(spectrometer.stop_calls, 0)
+
+    def test_completion_leaves_unused_spectrometer_off(self) -> None:
+        self.window.auto_use_spectrometer_check.setChecked(False)
+        self.window.automatic_test_settings = self.window.collect_automatic_test_settings()
+        self.window.spectrometer_reader = None
+        spectrometer_starts: list[bool] = []
+        self.window.start_spectrometer = (  # type: ignore[method-assign]
+            lambda: spectrometer_starts.append(True)
+        )
+        self.window.automatic_test_state = AutomaticTestState.RAMPING_DOWN
+
+        self.window.complete_automatic_test()
+
+        self.assertIsNone(self.window.spectrometer_reader)
+        self.assertEqual(spectrometer_starts, [])
+
 
 if __name__ == "__main__":
     unittest.main()
