@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
@@ -16,8 +18,38 @@ DARK_DISABLED_TEXT = "#85888f"
 DARK_ACCENT = "#329ad6"
 
 
+@dataclass(frozen=True, slots=True)
+class SemanticColors:
+    """Theme-aware text colors for status and supporting copy."""
+
+    secondary_text: str
+    success_text: str
+    warning_text: str
+    error_text: str
+
+
+LIGHT_SEMANTIC_COLORS = SemanticColors(
+    secondary_text="#5f6368",
+    success_text="#16803c",
+    warning_text="#9a5a00",
+    error_text="#b42318",
+)
+DARK_SEMANTIC_COLORS = SemanticColors(
+    secondary_text="#b7bbc3",
+    success_text="#5fd07a",
+    warning_text="#f2b84b",
+    error_text="#ff7b72",
+)
+
+
 def is_dark_palette(palette: QPalette) -> bool:
     return palette.color(QPalette.ColorRole.Window).lightness() < 128
+
+
+def semantic_colors_for_palette(palette: QPalette) -> SemanticColors:
+    """Return reusable semantic text colors for the supplied Qt palette."""
+
+    return DARK_SEMANTIC_COLORS if is_dark_palette(palette) else LIGHT_SEMANTIC_COLORS
 
 
 def build_dark_palette() -> QPalette:
@@ -32,7 +64,7 @@ def build_dark_palette() -> QPalette:
         QPalette.ColorRole.Text: DARK_TEXT,
         QPalette.ColorRole.Button: DARK_BUTTON,
         QPalette.ColorRole.ButtonText: DARK_TEXT,
-        QPalette.ColorRole.BrightText: "#ff7b72",
+        QPalette.ColorRole.BrightText: DARK_SEMANTIC_COLORS.error_text,
         QPalette.ColorRole.Highlight: DARK_ACCENT,
         QPalette.ColorRole.HighlightedText: "#ffffff",
         QPalette.ColorRole.Link: "#66b7e8",
@@ -41,7 +73,7 @@ def build_dark_palette() -> QPalette:
         QPalette.ColorRole.Mid: DARK_BORDER,
         QPalette.ColorRole.Dark: "#18191c",
         QPalette.ColorRole.Shadow: "#101114",
-        QPalette.ColorRole.PlaceholderText: "#9a9da4",
+        QPalette.ColorRole.PlaceholderText: DARK_SEMANTIC_COLORS.secondary_text,
     }
     for role, color in colors.items():
         palette.setColor(role, QColor(color))

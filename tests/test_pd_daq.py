@@ -7,8 +7,11 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtWidgets import QApplication, QTabWidget
+from matplotlib.colors import to_hex
+from PySide6.QtGui import QPalette
+from PySide6.QtWidgets import QApplication, QFormLayout, QWidget
 
+from combined_test.theme import build_dark_palette
 from combined_test.window import MainWindow
 import tools.pd_daq_mvp as pd_daq_module
 from tools.pd_daq_mvp import (
@@ -16,6 +19,7 @@ from tools.pd_daq_mvp import (
     DaqDeviceInfo,
     MAX_PLOT_POINTS_PER_SECOND,
     PLOT_BUFFER_POINTS,
+    PdDaqPanel,
     PdDaqSettings,
     calibrate_voltage,
     channels_for_terminal_mode,
@@ -110,15 +114,98 @@ class PdDaqTests(unittest.TestCase):
         self.assertEqual(path, Path("records/PD_Dev4_ai0_2026_07_14_18_30_45.csv"))
 
 
+class PdDaqPanelUiTests(unittest.TestCase):
+    def test_editable_inputs_have_accessible_names_and_label_buddies(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        panel = PdDaqPanel(auto_refresh=False)
+
+        expected_names = {
+            panel.device_combo: "采集卡",
+            panel.channel_combo: "模拟输入通道",
+            panel.terminal_combo: "接线方式",
+            panel.range_combo: "输入量程",
+            panel.sample_rate_spin: "采样率",
+            panel.block_size_spin: "每批点数",
+            panel.scale_spin: "线性标定比例系数",
+            panel.offset_spin: "线性标定偏置",
+            panel.unit_edit: "显示单位",
+            panel.save_checkbox: "保存完整原始数据",
+            panel.output_dir_edit: "数据保存文件夹",
+        }
+        for widget, accessible_name in expected_names.items():
+            with self.subTest(accessible_name=accessible_name):
+                self.assertEqual(widget.accessibleName(), accessible_name)
+
+        expected_buddies = {
+            panel.device_field_label: panel.device_combo,
+            panel.channel_field_label: panel.channel_combo,
+            panel.terminal_field_label: panel.terminal_combo,
+            panel.range_field_label: panel.range_combo,
+            panel.sample_rate_field_label: panel.sample_rate_spin,
+            panel.block_size_field_label: panel.block_size_spin,
+            panel.scale_field_label: panel.scale_spin,
+            panel.offset_field_label: panel.offset_spin,
+            panel.unit_field_label: panel.unit_edit,
+            panel.data_save_field_label: panel.save_checkbox,
+            panel.output_dir_field_label: panel.output_dir_edit,
+        }
+        for label, buddy in expected_buddies.items():
+            with self.subTest(label=label.text()):
+                self.assertIs(label.buddy(), buddy)
+
+        self.assertEqual(
+            panel.settings_layout.rowWrapPolicy(),
+            QFormLayout.RowWrapPolicy.WrapLongRows,
+        )
+        panel.close()
+
+    def test_plot_colors_follow_dark_qt_palette(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        panel = PdDaqPanel(auto_refresh=False)
+        panel.setPalette(build_dark_palette())
+        app.processEvents()
+        palette = panel.palette()
+
+        self.assertEqual(
+            to_hex(panel.figure.get_facecolor()),
+            palette.color(QPalette.ColorRole.Window).name(),
+        )
+        self.assertEqual(
+            to_hex(panel.axis.get_facecolor()),
+            palette.color(QPalette.ColorRole.Base).name(),
+        )
+        self.assertEqual(
+            panel.axis.xaxis.label.get_color(),
+            palette.color(QPalette.ColorRole.Text).name(),
+        )
+        self.assertEqual(
+            panel.axis.yaxis.label.get_color(),
+            palette.color(QPalette.ColorRole.Text).name(),
+        )
+        self.assertEqual(
+            panel.line.get_color(),
+            palette.color(QPalette.ColorRole.Highlight).name(),
+        )
+        self.assertTrue(panel.axis.get_xgridlines())
+        self.assertEqual(
+            panel.axis.get_xgridlines()[0].get_color(),
+            palette.color(QPalette.ColorRole.Mid).name(),
+        )
+        self.assertEqual(panel.canvas.accessibleName(), "PD 实时趋势图")
+        panel.close()
+
+
 class MainWindowPdIntegrationTests(unittest.TestCase):
     def test_main_window_contains_lazy_pd_acquisition_tab(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
 
-        self.assertIsInstance(window.centralWidget(), QTabWidget)
+        self.assertIsInstance(window.centralWidget(), QWidget)
+        self.assertIs(window.centralWidget(), window.central_shell)
+        self.assertGreaterEqual(window.central_shell.layout().indexOf(window.main_tabs), 0)
         self.assertEqual(
             [window.main_tabs.tabText(index) for index in range(window.main_tabs.count())],
-            ["自动测试", "手动调试", "PD 采集", "测试记录"],
+            ["自动测试", "手动调试", "当前记录", "PD 采集"],
         )
         self.assertEqual(window.pd_panel.device_combo.count(), 0)
         window.close()

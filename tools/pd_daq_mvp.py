@@ -16,8 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Sequence
 
-from PySide6.QtCore import QThread, Qt, Signal
-from PySide6.QtGui import QCloseEvent
+from PySide6.QtCore import QEvent, QThread, Qt, Signal
+from PySide6.QtGui import QCloseEvent, QPalette
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -376,82 +376,138 @@ class PdDaqPanel(QWidget):
         root = QVBoxLayout(self)
 
         settings_group = QGroupBox("设备与采样", self)
-        settings_layout = QFormLayout(settings_group)
+        self.settings_layout = QFormLayout(settings_group)
+        self.settings_layout.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
+        )
+        self.settings_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
 
         device_row = QHBoxLayout()
         self.device_combo = QComboBox(self)
+        self.device_combo.setAccessibleName("采集卡")
         self.refresh_button = QPushButton("重新识别", self)
         self.refresh_button.clicked.connect(self.refresh_devices)
         self.device_combo.currentIndexChanged.connect(self._on_device_changed)
         device_row.addWidget(self.device_combo, 1)
         device_row.addWidget(self.refresh_button)
-        settings_layout.addRow("采集卡", device_row)
+        self.device_field_label = QLabel("采集卡", self)
+        self.device_field_label.setBuddy(self.device_combo)
+        self.settings_layout.addRow(self.device_field_label, device_row)
 
-        channel_row = QHBoxLayout()
+        channel_row = QGridLayout()
         self.channel_combo = QComboBox(self)
+        self.channel_combo.setAccessibleName("模拟输入通道")
         self.channel_combo.currentIndexChanged.connect(self._update_wiring_hint)
         self.terminal_combo = QComboBox(self)
+        self.terminal_combo.setAccessibleName("接线方式")
         self.terminal_combo.addItem("差分 DIFF（推荐，抗干扰更好）", "DIFF")
         self.terminal_combo.addItem("参考单端 RSE", "RSE")
         self.terminal_combo.currentIndexChanged.connect(self._refresh_channels)
-        channel_row.addWidget(self.channel_combo, 1)
-        channel_row.addWidget(self.terminal_combo, 2)
-        settings_layout.addRow("通道 / 接线", channel_row)
+        self.channel_field_label = QLabel("模拟输入通道", self)
+        self.channel_field_label.setBuddy(self.channel_combo)
+        self.terminal_field_label = QLabel("接线方式", self)
+        self.terminal_field_label.setBuddy(self.terminal_combo)
+        channel_row.addWidget(self.channel_field_label, 0, 0)
+        channel_row.addWidget(self.terminal_field_label, 0, 1)
+        channel_row.addWidget(self.channel_combo, 1, 0)
+        channel_row.addWidget(self.terminal_combo, 1, 1)
+        channel_row.setColumnStretch(0, 1)
+        channel_row.setColumnStretch(1, 2)
+        self.input_config_field_label = QLabel("通道 / 接线", self)
+        self.input_config_field_label.setBuddy(self.channel_combo)
+        self.settings_layout.addRow(self.input_config_field_label, channel_row)
 
         self.wiring_hint_label = QLabel(self)
         self.wiring_hint_label.setWordWrap(True)
-        settings_layout.addRow("接线提示", self.wiring_hint_label)
+        self.settings_layout.addRow("接线提示", self.wiring_hint_label)
 
-        sampling_row = QHBoxLayout()
+        sampling_row = QGridLayout()
         self.range_combo = QComboBox(self)
+        self.range_combo.setAccessibleName("输入量程")
         self.sample_rate_spin = QDoubleSpinBox(self)
+        self.sample_rate_spin.setAccessibleName("采样率")
         self.sample_rate_spin.setRange(0.1, 1_000_000.0)
         self.sample_rate_spin.setDecimals(1)
         self.sample_rate_spin.setValue(DEFAULT_SAMPLE_RATE_HZ)
         self.sample_rate_spin.setSuffix(" S/s")
         self.block_size_spin = QSpinBox(self)
+        self.block_size_spin.setAccessibleName("每批点数")
         self.block_size_spin.setRange(1, 1_000_000)
         self.block_size_spin.setValue(DEFAULT_BLOCK_SIZE)
         self.block_size_spin.setSuffix(" 点/批")
-        sampling_row.addWidget(QLabel("量程", self))
-        sampling_row.addWidget(self.range_combo)
-        sampling_row.addWidget(QLabel("采样率", self))
-        sampling_row.addWidget(self.sample_rate_spin)
-        sampling_row.addWidget(QLabel("读取批次", self))
-        sampling_row.addWidget(self.block_size_spin)
-        settings_layout.addRow("采样参数", sampling_row)
+        self.range_field_label = QLabel("输入量程", self)
+        self.range_field_label.setBuddy(self.range_combo)
+        self.sample_rate_field_label = QLabel("采样率", self)
+        self.sample_rate_field_label.setBuddy(self.sample_rate_spin)
+        self.block_size_field_label = QLabel("每批点数", self)
+        self.block_size_field_label.setBuddy(self.block_size_spin)
+        for column, (label, field) in enumerate(
+            (
+                (self.range_field_label, self.range_combo),
+                (self.sample_rate_field_label, self.sample_rate_spin),
+                (self.block_size_field_label, self.block_size_spin),
+            )
+        ):
+            sampling_row.addWidget(label, 0, column)
+            sampling_row.addWidget(field, 1, column)
+            sampling_row.setColumnStretch(column, 1)
+        self.sampling_field_label = QLabel("采样参数", self)
+        self.sampling_field_label.setBuddy(self.range_combo)
+        self.settings_layout.addRow(self.sampling_field_label, sampling_row)
 
-        calibration_row = QHBoxLayout()
+        calibration_row = QGridLayout()
         self.scale_spin = QDoubleSpinBox(self)
+        self.scale_spin.setAccessibleName("线性标定比例系数")
         self.scale_spin.setRange(-1e9, 1e9)
         self.scale_spin.setDecimals(9)
         self.scale_spin.setValue(1.0)
         self.offset_spin = QDoubleSpinBox(self)
+        self.offset_spin.setAccessibleName("线性标定偏置")
         self.offset_spin.setRange(-1e9, 1e9)
         self.offset_spin.setDecimals(9)
         self.unit_edit = QLineEdit("V", self)
+        self.unit_edit.setAccessibleName("显示单位")
         self.unit_edit.setMaximumWidth(100)
-        calibration_row.addWidget(QLabel("PD值 = | 电压 ×", self))
-        calibration_row.addWidget(self.scale_spin)
-        calibration_row.addWidget(QLabel("+", self))
-        calibration_row.addWidget(self.offset_spin)
-        calibration_row.addWidget(QLabel("|", self))
-        calibration_row.addWidget(QLabel("单位", self))
-        calibration_row.addWidget(self.unit_edit)
-        settings_layout.addRow("线性标定", calibration_row)
+        self.scale_field_label = QLabel("比例系数（电压 ×）", self)
+        self.scale_field_label.setBuddy(self.scale_spin)
+        self.offset_field_label = QLabel("偏置（+）", self)
+        self.offset_field_label.setBuddy(self.offset_spin)
+        self.unit_field_label = QLabel("显示单位", self)
+        self.unit_field_label.setBuddy(self.unit_edit)
+        for column, (label, field) in enumerate(
+            (
+                (self.scale_field_label, self.scale_spin),
+                (self.offset_field_label, self.offset_spin),
+                (self.unit_field_label, self.unit_edit),
+            )
+        ):
+            calibration_row.addWidget(label, 0, column)
+            calibration_row.addWidget(field, 1, column)
+            calibration_row.setColumnStretch(column, 0 if field is self.unit_edit else 1)
+        self.calibration_field_label = QLabel("线性标定", self)
+        self.calibration_field_label.setBuddy(self.scale_spin)
+        self.settings_layout.addRow(self.calibration_field_label, calibration_row)
 
-        save_row = QHBoxLayout()
+        save_row = QGridLayout()
         self.save_checkbox = QCheckBox("采集时保存完整原始数据", self)
+        self.save_checkbox.setAccessibleName("保存完整原始数据")
         self.save_checkbox.setChecked(True)
         self.output_dir_edit = QLineEdit(str(Path.cwd() / "pd_data"), self)
+        self.output_dir_edit.setAccessibleName("数据保存文件夹")
         self.browse_button = QPushButton("选择文件夹", self)
         self.browse_button.clicked.connect(self._choose_output_dir)
         self.save_checkbox.toggled.connect(self.output_dir_edit.setEnabled)
         self.save_checkbox.toggled.connect(self.browse_button.setEnabled)
-        save_row.addWidget(self.save_checkbox)
-        save_row.addWidget(self.output_dir_edit, 1)
-        save_row.addWidget(self.browse_button)
-        settings_layout.addRow("数据保存", save_row)
+        self.output_dir_field_label = QLabel("保存文件夹", self)
+        self.output_dir_field_label.setBuddy(self.output_dir_edit)
+        save_row.addWidget(self.save_checkbox, 0, 0, 1, 3)
+        save_row.addWidget(self.output_dir_field_label, 1, 0)
+        save_row.addWidget(self.output_dir_edit, 1, 1)
+        save_row.addWidget(self.browse_button, 1, 2)
+        save_row.setColumnStretch(1, 1)
+        self.data_save_field_label = QLabel("数据保存", self)
+        self.data_save_field_label.setBuddy(self.save_checkbox)
+        self.settings_layout.addRow(self.data_save_field_label, save_row)
 
         root.addWidget(settings_group)
 
@@ -476,6 +532,7 @@ class PdDaqPanel(QWidget):
 
         self.figure = Figure(figsize=(8, 4), dpi=100, layout="constrained")
         self.canvas = FigureCanvas(self.figure)
+        self.canvas.setAccessibleName("PD 实时趋势图")
         self.axis = self.figure.add_subplot(111)
         (self.line,) = self.axis.plot([], [], color="#2f79bd", linewidth=1.25)
         self.axis.set_xlabel("时间 (s)", fontproperties=PD_AXIS_FONT)
@@ -483,6 +540,7 @@ class PdDaqPanel(QWidget):
         self.axis.yaxis.set_major_locator(MaxNLocator(nbins=6, min_n_ticks=4))
         self.axis.yaxis.set_major_formatter(EngFormatter(unit="V", places=3, sep=" "))
         self.axis.grid(True, alpha=0.25)
+        self._sync_plot_theme()
         live_layout.addWidget(self.canvas, 1)
         root.addWidget(live_group, 1)
 
@@ -497,6 +555,34 @@ class PdDaqPanel(QWidget):
         controls.addWidget(self.start_button)
         controls.addWidget(self.stop_button)
         root.addLayout(controls)
+
+    def _sync_plot_theme(self) -> None:
+        """Keep the embedded Matplotlib surface readable in the active Qt palette."""
+        palette = self.palette()
+        window_color = palette.color(QPalette.ColorRole.Window).name()
+        base_color = palette.color(QPalette.ColorRole.Base).name()
+        text_color = palette.color(QPalette.ColorRole.Text).name()
+        grid_color = palette.color(QPalette.ColorRole.Mid).name()
+        accent_color = palette.color(QPalette.ColorRole.Highlight).name()
+
+        self.figure.set_facecolor(window_color)
+        self.axis.set_facecolor(base_color)
+        self.line.set_color(accent_color)
+        self.axis.title.set_color(text_color)
+        self.axis.xaxis.label.set_color(text_color)
+        self.axis.yaxis.label.set_color(text_color)
+        self.axis.xaxis.get_offset_text().set_color(text_color)
+        self.axis.yaxis.get_offset_text().set_color(text_color)
+        self.axis.tick_params(axis="both", colors=text_color)
+        for spine in self.axis.spines.values():
+            spine.set_color(grid_color)
+        self.axis.grid(True, color=grid_color, alpha=0.65)
+        self.canvas.draw_idle()
+
+    def changeEvent(self, event: QEvent) -> None:
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.PaletteChange and hasattr(self, "figure"):
+            self._sync_plot_theme()
 
     def refresh_devices(self) -> None:
         if self.reader is not None:

@@ -13,7 +13,7 @@ from statistics import median
 from typing import Any
 
 from PySide6.QtCore import QEvent, QSettings, QTimer, Qt, QUrl
-from PySide6.QtGui import QCloseEvent, QDesktopServices, QPalette
+from PySide6.QtGui import QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QAbstractSpinBox,
@@ -40,7 +40,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .automatic_controller import AutomaticTestController
+from .automatic_controller import AutomaticTestController, AutomaticTestTerminalOutcome
 from .automation import (
     AutomaticTestOrchestrator,
     AutomaticTestSettings,
@@ -101,7 +101,7 @@ from .tdk_power_supply import (
     compensate_tdk_output_voltage,
     list_tdk_serial_resources,
 )
-from .theme import apply_application_theme
+from .theme import apply_application_theme, semantic_colors_for_palette
 from tools.pd_daq_mvp import PdDaqPanel
 from tools.visa_session import visa_resource_manager
 
@@ -163,6 +163,8 @@ class MainWindow(QMainWindow):
         self.power_meter_detect_thread: PowerMeterDetectThread | None = None
         self.power_meter_reader: PowerMeter | None = None
         self.spectrometer_reader: SpectrumMeter | None = None
+        self._power_meter_fault_message = ""
+        self._spectrometer_fault_message = ""
         self.manual_ch341_controller: Any | None = None
         self.power_supply_controller_kind = "ch341"
         self.latest_spectrum_wavelength: Any | None = None
@@ -241,21 +243,28 @@ class MainWindow(QMainWindow):
         self.automatic_ramp_down_timer.timeout.connect(self.schedule_next_automatic_ramp_down_current)
         self.automatic_pause_safety_timer = QTimer(self)
         self.automatic_pause_safety_timer.setSingleShot(True)
+        self.automatic_pause_safety_timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.automatic_pause_safety_timer.timeout.connect(self.on_automatic_pause_safety_timeout)
         self.automatic_run_started_monotonic_s: float | None = None
         self.automatic_elapsed_timer = QTimer(self)
         self.automatic_elapsed_timer.setInterval(1000)
         self.automatic_elapsed_timer.timeout.connect(self.update_automatic_elapsed)
 
-        self.main_tabs = QTabWidget(self)
-        self.setCentralWidget(self.main_tabs)
+        self.central_shell = QWidget(self)
+        self.setCentralWidget(self.central_shell)
+        shell_layout = QVBoxLayout(self.central_shell)
+        shell_layout.setContentsMargins(16, 12, 16, 12)
+        shell_layout.setSpacing(8)
+        self._build_global_status_bar(shell_layout)
+
+        self.main_tabs = QTabWidget(self.central_shell)
+        shell_layout.addWidget(self.main_tabs, stretch=1)
 
         self.content_widget = QWidget(self.main_tabs)
         self.automatic_tab_index = self.main_tabs.addTab(self.content_widget, "自动测试")
         automatic_layout = QVBoxLayout(self.content_widget)
         automatic_layout.setContentsMargins(16, 14, 16, 12)
         automatic_layout.setSpacing(10)
-        self._build_global_status_bar(automatic_layout)
 
         self.automatic_stack = QStackedWidget(self.content_widget)
         automatic_layout.addWidget(self.automatic_stack, stretch=1)
@@ -276,11 +285,12 @@ class MainWindow(QMainWindow):
         self.prepare_content = QWidget(self.prepare_scroll_area)
         self.prepare_scroll_area.setWidget(self.prepare_content)
         prepare_left = QVBoxLayout(self.prepare_content)
+        self.prepare_left_layout = prepare_left
         prepare_left.setContentsMargins(0, 0, 0, 0)
         prepare_left.setSpacing(10)
         self._build_session_group(prepare_left)
-        self._build_device_prepare_group(prepare_left)
         self._build_automatic_test_group(prepare_left)
+        self._build_device_prepare_group(prepare_left)
         prepare_left.addStretch(1)
         prepare_layout.addWidget(self.prepare_scroll_area, stretch=1)
         self._build_preflight_panel(prepare_layout)
@@ -313,6 +323,7 @@ class MainWindow(QMainWindow):
         power_column.addStretch(1)
         self._build_power_meter_group(measurement_column)
         self._build_spectrometer_group(measurement_column)
+        self._wire_prepare_device_controls()
         measurement_column.addStretch(1)
         manual_columns.addWidget(power_column_widget, stretch=1)
         manual_columns.addWidget(measurement_column_widget, stretch=1)
@@ -333,11 +344,11 @@ class MainWindow(QMainWindow):
 
         self._build_automatic_result_page()
 
+        self.records_page = QWidget(self.main_tabs)
+        self.records_tab_index = self.main_tabs.addTab(self.records_page, "当前记录")
+        self._build_test_records_page()
         self.pd_panel = PdDaqPanel(self.main_tabs, auto_refresh=False)
         self.pd_tab_index = self.main_tabs.addTab(self.pd_panel, "PD 采集")
-        self.records_page = QWidget(self.main_tabs)
-        self.records_tab_index = self.main_tabs.addTab(self.records_page, "测试记录")
-        self._build_test_records_page()
         self.main_tabs.currentChanged.connect(self.on_main_tab_changed)
         self.pd_panel.running_changed.connect(lambda _running: self.update_global_status())
         self.pd_panel.acquisition_finished.connect(self._continue_pending_close)
@@ -596,29 +607,32 @@ class MainWindow(QMainWindow):
         row.setSpacing(8)
         title = QLabel("设备手动控制与诊断", self.manual_page)
         title.setStyleSheet("font-size: 17px; font-weight: 600;")
-        description = QLabel("用于连接设备、单独采集、手动设定和诊断读取", self.manual_page)
-        description.setStyleSheet("color: palette(mid);")
+        description = QLabel("按电源、功率计、光谱仪逐台连接和诊断", self.manual_page)
+        description.setStyleSheet(
+            f"color: {semantic_colors_for_palette(self.palette()).secondary_text};"
+        )
         row.addWidget(title)
         row.addWidget(description)
         row.addStretch(1)
-        self.start_all_button = QPushButton("启动测量设备", self.manual_page)
-        self.stop_all_button = QPushButton("停止测量设备", self.manual_page)
-        self.start_all_button.setMinimumSize(132, 32)
+        self.stop_all_button = QPushButton("停止全部设备", self.manual_page)
         self.stop_all_button.setMinimumSize(112, 32)
-        self.start_all_button.clicked.connect(self.start_all)
         self.stop_all_button.clicked.connect(self.stop_all)
-        row.addWidget(self.start_all_button)
         row.addWidget(self.stop_all_button)
         parent.addLayout(row)
 
-    @staticmethod
-    def _set_status_indicator(indicator: QLabel, connected: bool) -> None:
-        color = "#16a34a" if connected else "#dc2626"
-        state = "已连接" if connected else "未连接"
+    def _set_status_indicator(self, indicator: QLabel, state: str | bool) -> None:
+        semantic = semantic_colors_for_palette(self.palette())
+        normalized_state = ("ready" if state else "stopped") if isinstance(state, bool) else state
+        color, label = {
+            "ready": (semantic.success_text, "已就绪"),
+            "pending": (semantic.warning_text, "启动或检测中"),
+            "error": (semantic.error_text, "故障"),
+            "stopped": (semantic.secondary_text, "已停止"),
+        }.get(normalized_state, (semantic.secondary_text, str(normalized_state)))
         indicator.setStyleSheet(
             f"background-color: {color}; border: 1px solid {color}; border-radius: 6px;"
         )
-        indicator.setToolTip(state)
+        indicator.setToolTip(label)
 
     def _reserve_group_height(self, group: QGroupBox) -> None:
         group.setMinimumHeight(0)
@@ -641,16 +655,15 @@ class MainWindow(QMainWindow):
 
     def _configure_button_semantics(self) -> None:
         """Keep native controls and reserve color for destructive actions."""
-        self.start_all_button.setStyleSheet("font-weight: 600;")
         self.start_automatic_test_button.setStyleSheet("font-weight: 600;")
         self.apply_current_button.setStyleSheet("font-weight: 600;")
         self.save_excel_button.setStyleSheet("font-weight: 600;")
 
-        window_is_light = self.palette().color(QPalette.ColorRole.Window).lightness() >= 128
-        danger_color = "#b42318" if window_is_light else "#ff7b72"
+        semantic = semantic_colors_for_palette(self.palette())
+        danger_color = semantic.error_text
         destructive_style = (
             f"QPushButton {{ color: {danger_color}; font-weight: 600; }}"
-            "QPushButton:disabled { color: palette(mid); }"
+            f"QPushButton:disabled {{ color: {semantic.secondary_text}; }}"
         )
         for button in (
             self.stop_all_button,
@@ -667,19 +680,22 @@ class MainWindow(QMainWindow):
         form = QFormLayout(group)
         self._configure_left_form(form)
 
-        self.test_plan_combo = QComboBox(self)
-        self.test_plan_combo.addItem("976 nm 标准测试")
-        self.test_plan_combo.setEnabled(False)
-        self.test_plan_combo.setToolTip("第一版固定使用当前 976 nm 测试参数")
-        form.addRow("测试方案", self.test_plan_combo)
+        self.test_plan_label = QLabel("976 nm 标准测试", self)
+        self.test_plan_label.setAccessibleName("测试方案：976 nm 标准测试")
+        form.addRow("测试方案", self.test_plan_label)
 
         self.sn_field = QLineEdit(self)
         self.sn_field.setPlaceholderText("开始测试前必填")
-        form.addRow("SN", self.sn_field)
+        self.sn_field.setAccessibleName("产品 SN")
+        self.sn_field.setMaximumWidth(420)
+        sn_label = QLabel("SN", self)
+        sn_label.setBuddy(self.sn_field)
+        form.addRow(sn_label, self.sn_field)
 
         self.output_dir_field = QLineEdit(str(Path(DEFAULT_OUTPUT_DIR).resolve()), self)
         self.output_dir_field.setPlaceholderText("Excel 输出文件夹")
         self.output_dir_field.setToolTip(self.output_dir_field.text())
+        self.output_dir_field.setAccessibleName("结果输出文件夹")
         self.browse_button = QPushButton("浏览", self)
         self._configure_action_button(self.browse_button, 72)
         self.browse_button.clicked.connect(self.browse_output_dir)
@@ -687,49 +703,90 @@ class MainWindow(QMainWindow):
         path_row.setSpacing(6)
         path_row.addWidget(self.output_dir_field, stretch=1)
         path_row.addWidget(self.browse_button)
-        form.addRow("文件夹", path_row)
+        folder_label = QLabel("文件夹", self)
+        folder_label.setBuddy(self.output_dir_field)
+        form.addRow(folder_label, path_row)
 
         parent.addWidget(group)
         self._reserve_group_height(group)
 
     def _build_device_prepare_group(self, parent: QVBoxLayout) -> None:
-        group = QGroupBox("2. 设备准备", self)
-        self.device_prepare_group = group
-        grid = QGridLayout(group)
-        grid.setContentsMargins(10, 10, 10, 10)
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(8)
+        power_group = QGroupBox("3. 电源", self)
+        self.power_prepare_group = power_group
+        power_grid = QGridLayout(power_group)
+        power_grid.setContentsMargins(10, 10, 10, 10)
+        power_grid.setHorizontalSpacing(10)
+        power_grid.setVerticalSpacing(8)
 
-        self.prepare_psu_status_label = QLabel("未连接", self)
-        self.prepare_power_meter_status_label = QLabel("启动测试时自动确认", self)
-        self.prepare_spectrometer_status_label = QLabel("启动测试时自动确认", self)
+        self.prepare_power_supply_combo = QComboBox(self)
+        self.prepare_power_supply_combo.setAccessibleName("自动测试电源控制器")
+        self.prepare_power_supply_combo.setMaximumWidth(360)
+        self.prepare_power_supply_combo.addItem("CH341 I²C", "ch341")
+        self.prepare_power_supply_combo.addItem("TDK RS232", "tdk")
         self.prepare_psu_button = QPushButton("连接", self)
-        self.prepare_power_meter_button = QPushButton("设置", self)
-        self.prepare_spectrometer_button = QPushButton("设置", self)
         self.prepare_psu_button.clicked.connect(self.connect_i2c_device)
-        self.prepare_power_meter_button.clicked.connect(lambda: self.open_manual_settings("power_meter"))
-        self.prepare_spectrometer_button.clicked.connect(lambda: self.open_manual_settings("spectrometer"))
+        self._configure_action_button(self.prepare_psu_button, 84)
+        controller_label = QLabel("控制器", self)
+        controller_label.setBuddy(self.prepare_power_supply_combo)
+        power_grid.addWidget(controller_label, 0, 0)
+        power_grid.addWidget(self.prepare_power_supply_combo, 0, 1)
+        power_grid.addWidget(self.prepare_psu_button, 0, 2)
+
+        self.prepare_tdk_resource_label = QLabel("TDK 串口", self)
+        self.prepare_tdk_resource_combo = QComboBox(self)
+        self.prepare_tdk_resource_combo.setEditable(True)
+        self.prepare_tdk_resource_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.prepare_tdk_resource_combo.setPlaceholderText("ASRL3::INSTR")
+        self.prepare_tdk_resource_combo.setAccessibleName("自动测试 TDK 通信端口")
+        self.prepare_tdk_resource_combo.setMaximumWidth(360)
+        self.prepare_tdk_resource_label.setBuddy(self.prepare_tdk_resource_combo)
+        self.prepare_tdk_output_button = QPushButton("开启输出", self)
+        self.prepare_tdk_output_button.clicked.connect(self.toggle_tdk_output)
+        self._configure_action_button(self.prepare_tdk_output_button, 84)
+        power_grid.addWidget(self.prepare_tdk_resource_label, 1, 0)
+        power_grid.addWidget(self.prepare_tdk_resource_combo, 1, 1)
+        power_grid.addWidget(self.prepare_tdk_output_button, 1, 2)
+        power_grid.setColumnStretch(1, 1)
+        parent.addWidget(power_group)
+
+        measurement_group = QGroupBox("4. 测量设备", self)
+        self.measurement_prepare_group = measurement_group
+        # Compatibility alias for callers that referenced the former combined group.
+        self.device_prepare_group = measurement_group
+        measurement_grid = QGridLayout(measurement_group)
+        measurement_grid.setContentsMargins(10, 10, 10, 10)
+        measurement_grid.setHorizontalSpacing(10)
+        measurement_grid.setVerticalSpacing(8)
+        self.prepare_power_meter_combo = QComboBox(self)
+        self.prepare_power_meter_combo.setEditable(True)
+        self.prepare_power_meter_combo.setAccessibleName("自动测试功率计资源")
+        self.prepare_power_meter_combo.setMaximumWidth(360)
+        self.prepare_spectrometer_combo = QComboBox(self)
+        self.prepare_spectrometer_combo.setAccessibleName("自动测试光谱仪设备")
+        self.prepare_spectrometer_combo.setMaximumWidth(360)
+        self.prepare_power_meter_button = QPushButton("自动检测", self)
+        self.prepare_spectrometer_button = QPushButton("自动检测", self)
+        self.prepare_power_meter_button.clicked.connect(self.auto_detect_power_meters)
+        self.prepare_spectrometer_button.clicked.connect(self.auto_detect_spectrometers)
 
         rows = (
-            ("电源", self.prepare_psu_status_label, self.prepare_psu_button),
-            ("功率计", self.prepare_power_meter_status_label, self.prepare_power_meter_button),
-            ("光谱仪", self.prepare_spectrometer_status_label, self.prepare_spectrometer_button),
+            ("功率计", self.prepare_power_meter_combo, self.prepare_power_meter_button),
+            ("光谱仪", self.prepare_spectrometer_combo, self.prepare_spectrometer_button),
         )
-        for row, (name, status, button) in enumerate(rows):
+        for row, (name, combo, button) in enumerate(rows):
             name_label = QLabel(name, self)
-            name_label.setStyleSheet("font-weight: 600;")
-            status.setWordWrap(True)
-            button.setMinimumWidth(72)
-            grid.addWidget(name_label, row, 0)
-            grid.addWidget(status, row, 1)
-            grid.addWidget(button, row, 2)
-        grid.setColumnStretch(1, 1)
-        parent.addWidget(group)
+            name_label.setBuddy(combo)
+            self._configure_action_button(button, 84)
+            measurement_grid.addWidget(name_label, row, 0)
+            measurement_grid.addWidget(combo, row, 1)
+            measurement_grid.addWidget(button, row, 2)
+        measurement_grid.setColumnStretch(1, 1)
+        parent.addWidget(measurement_group)
 
     def _build_preflight_panel(self, parent: QHBoxLayout) -> None:
-        group = QGroupBox("启动前检查", self.automatic_prepare_page)
+        group = QGroupBox("5. 启动前检查", self.automatic_prepare_page)
+        self.preflight_group = group
         group.setMinimumWidth(PREPARE_CHECKLIST_MIN_WIDTH)
-        group.setMaximumWidth(380)
         layout = QVBoxLayout(group)
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(8)
@@ -762,13 +819,21 @@ class MainWindow(QMainWindow):
         self.start_automatic_test_button.setDefault(True)
         self.start_automatic_test_button.clicked.connect(self.start_automatic_test)
         layout.addWidget(self.start_automatic_test_button)
-        parent.addWidget(group)
+        self.preflight_scroll_area = QScrollArea(self.automatic_prepare_page)
+        self.preflight_scroll_area.setWidgetResizable(True)
+        self.preflight_scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.preflight_scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.preflight_scroll_area.setMinimumWidth(PREPARE_CHECKLIST_MIN_WIDTH + 16)
+        self.preflight_scroll_area.setMaximumWidth(400)
+        self.preflight_scroll_area.setWidget(group)
+        parent.addWidget(self.preflight_scroll_area)
 
     def _build_automatic_run_header(self, parent: QVBoxLayout) -> None:
         row = QHBoxLayout()
         row.setSpacing(12)
         self.run_state_label = QLabel("当前测试点", self.automatic_run_page)
         self.run_state_label.setStyleSheet("font-size: 18px; font-weight: 700;")
+        self.run_state_label.setAccessibleName("自动测试运行状态")
         self.run_progress_label = QLabel("0 / 0 点", self.automatic_run_page)
         self.run_current_label = QLabel("当前 -- A", self.automatic_run_page)
         self.run_elapsed_label = QLabel("已运行 00:00", self.automatic_run_page)
@@ -801,6 +866,7 @@ class MainWindow(QMainWindow):
         self.end_automatic_test_button.clicked.connect(self.end_automatic_test)
         self.pause_automatic_test_button.setEnabled(False)
         self.retry_automatic_test_button.setEnabled(False)
+        self.retry_automatic_test_button.hide()
         self.end_automatic_test_button.setEnabled(False)
         row.addWidget(self.pause_automatic_test_button)
         row.addWidget(self.retry_automatic_test_button)
@@ -813,8 +879,10 @@ class MainWindow(QMainWindow):
         layout.setSpacing(12)
         self.result_title_label = QLabel("测试完成", self.automatic_result_page)
         self.result_title_label.setStyleSheet("font-size: 26px; font-weight: 700;")
+        self.result_title_label.setAccessibleName("自动测试结果")
         self.result_completion_label = QLabel("测试流程完整完成", self.automatic_result_page)
         self.result_completion_label.setStyleSheet("font-size: 16px;")
+        self.result_completion_label.setWordWrap(True)
         layout.addWidget(self.result_title_label)
         layout.addWidget(self.result_completion_label)
 
@@ -852,30 +920,26 @@ class MainWindow(QMainWindow):
         actions = QHBoxLayout()
         self.open_result_button = QPushButton("打开结果文件", self.automatic_result_page)
         self.open_result_folder_button = QPushButton("打开所在文件夹", self.automatic_result_page)
-        self.repeat_test_button = QPushButton("使用相同方案重新测试", self.automatic_result_page)
-        self.return_to_prepare_button = QPushButton("返回修改设置", self.automatic_result_page)
+        self.return_to_prepare_button = QPushButton("返回准备页", self.automatic_result_page)
         self.open_result_button.clicked.connect(self.open_result_file)
         self.open_result_folder_button.clicked.connect(self.open_result_folder)
-        self.repeat_test_button.clicked.connect(self.return_to_automatic_prepare)
         self.return_to_prepare_button.clicked.connect(self.return_to_automatic_prepare)
-        for button in (
-            self.open_result_button,
-            self.open_result_folder_button,
-            self.repeat_test_button,
-            self.return_to_prepare_button,
-        ):
-            actions.addWidget(button)
+        actions.addWidget(self.open_result_button)
+        actions.addWidget(self.open_result_folder_button)
         actions.addStretch(1)
+        actions.addWidget(self.return_to_prepare_button)
         layout.addLayout(actions)
 
     def _build_test_records_page(self) -> None:
         layout = QVBoxLayout(self.records_page)
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(12)
-        title = QLabel("测试记录", self.records_page)
+        title = QLabel("当前记录", self.records_page)
         title.setStyleSheet("font-size: 20px; font-weight: 700;")
         description = QLabel("当前测试会话的保存状态和结果文件", self.records_page)
-        description.setStyleSheet("color: palette(mid);")
+        description.setStyleSheet(
+            f"color: {semantic_colors_for_palette(self.palette()).secondary_text};"
+        )
         layout.addWidget(title)
         layout.addWidget(description)
 
@@ -883,18 +947,50 @@ class MainWindow(QMainWindow):
         form = QFormLayout(group)
         self.save_status_label = QLabel("暂无可保存的测试点", group)
         self.save_status_label.setWordWrap(True)
+        self.records_points_label = QLabel("暂无测试点", group)
+        self.records_points_label.setWordWrap(True)
         self.records_file_label = QLabel("尚未创建结果文件", group)
         self.records_file_label.setWordWrap(True)
         self.records_file_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self.save_excel_button = QPushButton("保存 Excel", group)
+        self.records_open_button = QPushButton("打开结果文件", group)
+        self.records_open_folder_button = QPushButton("打开所在文件夹", group)
         self._configure_action_button(self.save_excel_button, 104)
+        self._configure_action_button(self.records_open_button, 112)
+        self._configure_action_button(self.records_open_folder_button, 120)
         self.save_excel_button.setEnabled(False)
+        self.records_open_button.setEnabled(False)
+        self.records_open_folder_button.setEnabled(False)
         self.save_excel_button.clicked.connect(self.save_pending_excel_records)
+        self.records_open_button.clicked.connect(self.open_result_file)
+        self.records_open_folder_button.clicked.connect(self.open_result_folder)
+        actions = QHBoxLayout()
+        actions.setSpacing(8)
+        actions.addWidget(self.save_excel_button)
+        actions.addWidget(self.records_open_button)
+        actions.addWidget(self.records_open_folder_button)
+        actions.addStretch(1)
         form.addRow("保存状态", self.save_status_label)
+        form.addRow("测试点", self.records_points_label)
         form.addRow("结果文件", self.records_file_label)
-        form.addRow("", self.save_excel_button)
+        form.addRow("", actions)
         layout.addWidget(group)
         layout.addStretch(1)
+
+    def refresh_records_page(self) -> None:
+        if not hasattr(self, "records_points_label"):
+            return
+        records = tuple(self.record_store.snapshot())
+        currents = sorted(float(record.current_a) for record in records)
+        if currents:
+            current_text = "、".join(f"{current:g} A" for current in currents)
+            self.records_points_label.setText(f"{len(currents)} 个：{current_text}")
+        else:
+            self.records_points_label.setText("暂无测试点")
+        result_path = self.excel_workbook_path
+        result_exists = bool(result_path is not None and result_path.is_file())
+        self.records_open_button.setEnabled(result_exists)
+        self.records_open_folder_button.setEnabled(result_exists)
 
     def _build_power_supply_group(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("电源", self)
@@ -903,6 +999,8 @@ class MainWindow(QMainWindow):
         self._configure_left_form(form)
 
         self.power_supply_controller_combo = QComboBox(self)
+        self.power_supply_controller_combo.setAccessibleName("电源控制器")
+        self.power_supply_controller_combo.setMaximumWidth(360)
         self.power_supply_controller_combo.addItem("CH341 I²C", "ch341")
         self.power_supply_controller_combo.addItem("TDK RS232", "tdk")
         self.power_supply_controller_combo.setSizeAdjustPolicy(
@@ -913,6 +1011,8 @@ class MainWindow(QMainWindow):
         form.addRow("控制器", self.power_supply_controller_combo)
 
         self.tdk_resource_combo = QComboBox(self)
+        self.tdk_resource_combo.setAccessibleName("TDK 通信端口")
+        self.tdk_resource_combo.setMaximumWidth(360)
         self.tdk_resource_combo.setEditable(True)
         self.tdk_resource_combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self.tdk_resource_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
@@ -1023,7 +1123,7 @@ class MainWindow(QMainWindow):
         self.automatic_test_toggle.setChecked(True)
         self.automatic_test_toggle.hide()
 
-        self.automatic_test_content = QGroupBox("3. 测试计划", self)
+        self.automatic_test_content = QGroupBox("2. 测试计划", self)
         form = QFormLayout(self.automatic_test_content)
         self._configure_left_form(form)
 
@@ -1096,6 +1196,7 @@ class MainWindow(QMainWindow):
 
         self.auto_use_spectrometer_check = QCheckBox("使用光谱仪（同时判断波长稳定）", self)
         self.auto_use_spectrometer_check.setChecked(True)
+        self.auto_use_spectrometer_check.setAccessibleName("光谱判稳")
         self.auto_use_spectrometer_check.setToolTip(
             "未连接光谱仪时取消勾选；自动测试将只等待功率稳定，并继续计算和保存效率"
         )
@@ -1107,7 +1208,7 @@ class MainWindow(QMainWindow):
         parameters = (
             ("初始电流", self.auto_initial_current_spin),
             ("目标电流", self.auto_target_current_spin),
-            ("电流间隔", self.auto_current_step_spin),
+            ("电流步长", self.auto_current_step_spin),
             ("稳定窗口", self.stable_window_spin),
         )
         for index, (label_text, spin_box) in enumerate(parameters):
@@ -1115,17 +1216,23 @@ class MainWindow(QMainWindow):
             column = (index % 2) * 2
             label = QLabel(label_text, self)
             label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            label.setBuddy(spin_box)
+            spin_box.setAccessibleName(label_text)
+            spin_box.setMinimumWidth(140)
+            spin_box.setMaximumWidth(180)
             parameter_grid.addWidget(label, row, column)
             parameter_grid.addWidget(spin_box, row, column + 1)
         form.addRow(parameter_grid)
-        form.addRow("自动判稳", self.auto_use_spectrometer_check)
+        form.addRow("测量策略", self.auto_use_spectrometer_check)
 
         self.stability_tolerance_label = QLabel(
             "当前功率峰峰值：判稳 ≤0.1000 W；稳定保持 ≤0.1500 W",
             self,
         )
         self.stability_tolerance_label.setWordWrap(True)
-        self.stability_tolerance_label.setStyleSheet("color: palette(mid);")
+        self.stability_tolerance_label.setStyleSheet(
+            f"color: {semantic_colors_for_palette(self.palette()).secondary_text};"
+        )
         form.addRow("判稳规则", self.stability_tolerance_label)
 
         self.advanced_settings_toggle = QToolButton(self)
@@ -1142,14 +1249,11 @@ class MainWindow(QMainWindow):
         advanced_layout.setContentsMargins(0, 0, 0, 0)
         advanced_layout.setSpacing(6)
         self.advanced_settings_summary_label = QLabel(
-            "功率计波长、软件增益、采样间隔、光谱积分时间和自动积分沿用设备设置。",
+            "功率计波长、软件增益、采样间隔、光谱积分时间和自动积分沿用当前设备设置。",
             self,
         )
         self.advanced_settings_summary_label.setWordWrap(True)
-        self.open_advanced_settings_button = QPushButton("打开采集参数设置", self)
-        self.open_advanced_settings_button.clicked.connect(lambda: self.open_manual_settings("power_meter"))
         advanced_layout.addWidget(self.advanced_settings_summary_label)
-        advanced_layout.addWidget(self.open_advanced_settings_button, alignment=Qt.AlignmentFlag.AlignLeft)
         self.advanced_settings_content.hide()
         form.addRow(self.advanced_settings_content)
 
@@ -1176,7 +1280,12 @@ class MainWindow(QMainWindow):
         for index, (label_text, spin_box) in enumerate(safety_parameters):
             row = index // 2
             column = (index % 2) * 2
-            safety_grid.addWidget(QLabel(label_text, self), row, column)
+            label = QLabel(label_text, self)
+            label.setBuddy(spin_box)
+            spin_box.setAccessibleName(label_text)
+            spin_box.setMinimumWidth(140)
+            spin_box.setMaximumWidth(180)
+            safety_grid.addWidget(label, row, column)
             safety_grid.addWidget(spin_box, row, column + 1)
             safety_grid.setColumnStretch(column + 1, 1)
         self.safety_settings_content.hide()
@@ -1184,7 +1293,9 @@ class MainWindow(QMainWindow):
 
         self.safety_summary_label = QLabel(self)
         self.safety_summary_label.setWordWrap(True)
-        self.safety_summary_label.setStyleSheet("color: palette(mid);")
+        self.safety_summary_label.setStyleSheet(
+            f"color: {semantic_colors_for_palette(self.palette()).secondary_text};"
+        )
         form.addRow("", self.safety_summary_label)
 
         self.automatic_test_status_label = QLabel("未开始", self)
@@ -1238,6 +1349,8 @@ class MainWindow(QMainWindow):
         self._configure_left_form(form)
 
         self.power_meter_combo = QComboBox(self)
+        self.power_meter_combo.setAccessibleName("功率计资源")
+        self.power_meter_combo.setMaximumWidth(360)
         self.power_meter_combo.setEditable(True)
         self.power_meter_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.power_meter_combo.setMinimumContentsLength(8)
@@ -1307,6 +1420,8 @@ class MainWindow(QMainWindow):
         self._configure_left_form(form)
 
         self.spectrometer_combo = QComboBox(self)
+        self.spectrometer_combo.setAccessibleName("光谱仪设备")
+        self.spectrometer_combo.setMaximumWidth(360)
         self.spectrometer_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.spectrometer_combo.setMinimumContentsLength(8)
         self.spectrometer_combo.addItem("自动选择第一台 Ocean Insight", None)
@@ -1370,6 +1485,88 @@ class MainWindow(QMainWindow):
         parent.addWidget(group)
         self._reserve_group_height(group)
 
+    @staticmethod
+    def _sync_combo_index(target: QComboBox, index: int) -> None:
+        if index < 0 or target.currentIndex() == index:
+            return
+        blocked = target.blockSignals(True)
+        try:
+            target.setCurrentIndex(index)
+        finally:
+            target.blockSignals(blocked)
+
+    @staticmethod
+    def _sync_combo_text(target: QComboBox, text: str) -> None:
+        if not target.isEditable() or target.currentText() == text:
+            return
+        blocked = target.blockSignals(True)
+        try:
+            target.setEditText(text)
+        finally:
+            target.blockSignals(blocked)
+
+    @staticmethod
+    def _apply_combo_index(target: QComboBox, index: int) -> None:
+        if index >= 0 and target.currentIndex() != index:
+            target.setCurrentIndex(index)
+
+    @staticmethod
+    def _apply_combo_text(target: QComboBox, text: str) -> None:
+        if target.isEditable() and target.currentText() != text:
+            target.setEditText(text)
+
+    def _bind_prepare_combo(self, source: QComboBox, prepare: QComboBox) -> None:
+        """Share device options while keeping one selection on both workflow pages."""
+        prepare.setModel(source.model())
+        prepare.setEditable(source.isEditable())
+        prepare.setInsertPolicy(source.insertPolicy())
+        prepare.setCurrentIndex(source.currentIndex())
+        if source.isEditable():
+            prepare.setEditText(source.currentText())
+
+        source.currentIndexChanged.connect(
+            lambda index, target=prepare: self._sync_combo_index(target, index)
+        )
+        prepare.currentIndexChanged.connect(
+            lambda index, target=source: self._apply_combo_index(target, index)
+        )
+        if source.isEditable():
+            source.currentTextChanged.connect(
+                lambda text, target=prepare: self._sync_combo_text(target, text)
+            )
+            prepare.currentTextChanged.connect(
+                lambda text, target=source: self._apply_combo_text(target, text)
+            )
+
+    def _wire_prepare_device_controls(self) -> None:
+        """Keep routine device selection inside the automatic preparation flow."""
+        self._bind_prepare_combo(
+            self.power_supply_controller_combo,
+            self.prepare_power_supply_combo,
+        )
+        self._bind_prepare_combo(self.tdk_resource_combo, self.prepare_tdk_resource_combo)
+        self._bind_prepare_combo(self.power_meter_combo, self.prepare_power_meter_combo)
+        self._bind_prepare_combo(self.spectrometer_combo, self.prepare_spectrometer_combo)
+        self._update_prepare_power_controls()
+
+    def _update_prepare_power_controls(self) -> None:
+        if not hasattr(self, "prepare_tdk_resource_combo"):
+            return
+        is_tdk = self._selected_power_supply_kind() == "tdk"
+        connected = self._manual_i2c_connected()
+        output_enabled = bool(
+            is_tdk
+            and connected
+            and getattr(self.manual_ch341_controller, "output_enabled", False)
+        )
+        self.prepare_tdk_resource_label.setVisible(is_tdk)
+        self.prepare_tdk_resource_combo.setVisible(is_tdk)
+        self.prepare_tdk_output_button.setVisible(is_tdk)
+        self.prepare_tdk_resource_combo.setEnabled(is_tdk and not connected)
+        self.prepare_psu_button.setText("断开" if connected else "连接")
+        self.prepare_tdk_output_button.setText("关闭输出" if output_enabled else "开启输出")
+        self.prepare_tdk_output_button.setEnabled(is_tdk and connected)
+
     def _build_curve_panel(self, parent: QVBoxLayout) -> None:
         self.live_plots = LivePlots(self)
         self.live_plots.expose_compatibility_attributes(self)
@@ -1385,12 +1582,16 @@ class MainWindow(QMainWindow):
     def open_manual_settings(self, section: str = "") -> None:
         self.main_tabs.setCurrentIndex(self.manual_tab_index)
         target = {
-            "power": getattr(self, "power_supply_group", None),
+            "power": getattr(self, "power_supply_controller_combo", None),
             "power_meter": getattr(self, "power_meter_combo", None),
             "spectrometer": getattr(self, "spectrometer_combo", None),
         }.get(section)
         if target is not None:
-            target.setFocus(Qt.FocusReason.OtherFocusReason)
+            QTimer.singleShot(0, lambda widget=target: self._focus_manual_setting(widget))
+
+    def _focus_manual_setting(self, target: QWidget) -> None:
+        self.left_control_panel.ensureWidgetVisible(target)
+        target.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _connect_preflight_updates(self) -> None:
         for line_edit in (self.sn_field, self.output_dir_field):
@@ -1425,17 +1626,17 @@ class MainWindow(QMainWindow):
         self.auto_use_spectrometer_check.toggled.connect(self.refresh_preflight_checklist)
         self._update_advanced_settings_summary()
 
-    @staticmethod
-    def _set_checklist_item(label: QLabel, ok: bool, text: str, *, pending: bool = False) -> None:
+    def _set_checklist_item(self, label: QLabel, ok: bool, text: str, *, pending: bool = False) -> None:
+        semantic = semantic_colors_for_palette(self.palette())
         if pending:
             label.setText(f"● {text}")
-            label.setStyleSheet("")
+            label.setStyleSheet(f"color: {semantic.warning_text};")
         elif ok:
             label.setText(f"✓ {text}")
-            label.setStyleSheet("color: #16803c;")
+            label.setStyleSheet(f"color: {semantic.success_text};")
         else:
             label.setText(f"! {text}")
-            label.setStyleSheet("color: #b54708;")
+            label.setStyleSheet(f"color: {semantic.warning_text};")
 
     @staticmethod
     def _output_directory_is_writable(path_text: str) -> bool:
@@ -1522,16 +1723,7 @@ class MainWindow(QMainWindow):
         )
         self._set_checklist_item(self.preflight_labels["settings"], settings_ok, settings_error)
 
-        self.prepare_psu_status_label.setText(
-            f"{'TDK' if is_tdk else 'CH341'} · {'已连接' if power_ok else '未连接'}"
-        )
-        self.prepare_psu_button.setText("断开" if power_ok else "连接")
-        self.prepare_power_meter_status_label.setText(
-            "已就绪" if power_ready else (self._selected_power_resource() or "未选择设备")
-        )
-        self.prepare_spectrometer_status_label.setText(
-            "不使用" if not use_spectrometer else ("已就绪" if spectrum_ready else self.spectrometer_combo.currentText())
-        )
+        self._update_prepare_power_controls()
 
         if settings_ok:
             self.preflight_sequence_label.setText(
@@ -1575,8 +1767,12 @@ class MainWindow(QMainWindow):
             self.preflight_action_button.setText(f"连接 {'TDK' if is_tdk else 'CH341'}")
         elif not tdk_ok:
             self.preflight_action_button.setText("开启 TDK 输出")
+        elif not power_resource_ok:
+            self.preflight_action_button.setText("选择功率计")
+        elif not settings_ok:
+            self.preflight_action_button.setText("检查测试计划")
         else:
-            self.preflight_action_button.setText("前往手动调试设置")
+            self.preflight_action_button.setText("检查准备项")
 
     def perform_preflight_action(self) -> None:
         if not self.sn_field.text().strip():
@@ -1595,7 +1791,10 @@ class MainWindow(QMainWindow):
             self.toggle_tdk_output()
             self.refresh_preflight_checklist()
             return
-        self.open_manual_settings()
+        if not self._selected_power_resource():
+            self.prepare_power_meter_combo.setFocus(Qt.FocusReason.OtherFocusReason)
+            return
+        self.auto_initial_current_spin.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _automatic_workflow_is_active(self) -> bool:
         return self.automatic_test_state not in (
@@ -1609,13 +1808,25 @@ class MainWindow(QMainWindow):
             self.automatic_elapsed_timer.start()
         elif state in (AutomaticTestState.IDLE, AutomaticTestState.COMPLETED):
             self.automatic_elapsed_timer.stop()
-        self.update_automatic_elapsed()
+        previous_page = self.automatic_stack.currentWidget()
         if state == AutomaticTestState.IDLE:
-            self.automatic_stack.setCurrentIndex(self.automatic_prepare_index)
+            target_page = self.automatic_prepare_page
         elif state == AutomaticTestState.COMPLETED:
-            self.automatic_stack.setCurrentIndex(self.automatic_result_index)
+            target_page = self.automatic_result_page
         else:
-            self.automatic_stack.setCurrentIndex(self.automatic_run_index)
+            target_page = self.automatic_run_page
+        self.automatic_stack.setCurrentWidget(target_page)
+        if previous_page is not target_page:
+            if target_page is self.automatic_prepare_page:
+                focus_target = self.sn_field
+            elif target_page is self.automatic_run_page:
+                focus_target = self.pause_automatic_test_button
+            else:
+                focus_target = self.return_to_prepare_button
+            QTimer.singleShot(
+                0,
+                lambda widget=focus_target: widget.setFocus(Qt.FocusReason.OtherFocusReason),
+            )
 
         point_count = len(self.automatic_test_currents)
         current_index = self.automatic_test_current_index
@@ -1648,7 +1859,10 @@ class MainWindow(QMainWindow):
             self.main_tabs.setCurrentIndex(self.automatic_tab_index)
         self.set_power_meter_running_state(self.power_meter_reader is not None)
         self.set_spectrometer_running_state(self.spectrometer_reader is not None)
-        self.pause_automatic_test_button.setText("继续" if state == AutomaticTestState.PAUSED else "暂停")
+        self.pause_automatic_test_button.setText("暂停")
+        self.pause_automatic_test_button.setVisible(state != AutomaticTestState.PAUSED)
+        self.retry_automatic_test_button.setText("修复后重试当前点")
+        self.retry_automatic_test_button.setVisible(state == AutomaticTestState.PAUSED)
         self.pause_automatic_test_button.setEnabled(
             state
             in (
@@ -1656,13 +1870,14 @@ class MainWindow(QMainWindow):
                 AutomaticTestState.SETTING_CURRENT,
                 AutomaticTestState.WAITING_STABLE,
                 AutomaticTestState.WAITING_VOLTAGE,
-                AutomaticTestState.SAVING_POINT,
-                AutomaticTestState.PAUSED,
             )
         )
         if detail:
             self.run_event_label.setText(detail)
         self.global_progress_label.setText(self.automatic_test_status_label.text() if detail else state_names.get(state, "准备测试"))
+        self.update_automatic_elapsed()
+        if state == AutomaticTestState.PAUSED:
+            QTimer.singleShot(0, self.update_automatic_elapsed)
         self.refresh_preflight_checklist()
 
     def update_automatic_elapsed(self) -> None:
@@ -1672,28 +1887,69 @@ class MainWindow(QMainWindow):
         hours, minutes = divmod(minutes, 60)
         elapsed_text = f"{hours:02d}:{minutes:02d}:{seconds:02d}" if hours else f"{minutes:02d}:{seconds:02d}"
         self.run_elapsed_label.setText(f"已运行 {elapsed_text}")
+        if self.automatic_test_state == AutomaticTestState.PAUSED:
+            current_a = max(0.0, float(self.active_output_current_a or 0.0))
+            self.run_current_label.setText(f"保持 {current_a:.1f} A")
+            remaining_ms = self.automatic_pause_safety_timer.remainingTime()
+            if remaining_ms >= 0:
+                remaining_s = math.ceil(remaining_ms / 1000.0)
+                countdown_minutes, countdown_seconds = divmod(remaining_s, 60)
+                self.run_remaining_label.setText(
+                    f"{countdown_minutes:02d}:{countdown_seconds:02d} 后自动安全下电"
+                )
+            else:
+                self.run_remaining_label.setText("保持当前电流，等待处理")
+        else:
+            self.run_remaining_label.setText("剩余时间由判稳速度决定")
 
     def toggle_automatic_pause(self) -> None:
-        if self.automatic_test_state == AutomaticTestState.PAUSED:
-            self.retry_automatic_test()
-        elif self.automatic_controller.automatic_measurement_is_active():
-            self.pause_automatic_test("操作者暂停")
+        if self.automatic_test_state == AutomaticTestState.SAVING_POINT:
+            return
+        if self.automatic_test_state in (
+            AutomaticTestState.STARTING,
+            AutomaticTestState.SETTING_CURRENT,
+            AutomaticTestState.WAITING_STABLE,
+            AutomaticTestState.WAITING_VOLTAGE,
+        ):
+            self.pause_automatic_test("操作者暂停", operator_requested=True)
 
     def show_automatic_result(self, record: ExcelTestRecord | None, detail: str) -> None:
         saved_points = len(self.record_store.recorded_currents)
         planned_points = len(self.automatic_test_currents)
-        self.result_title_label.setText("测试完成")
-        self.result_completion_label.setText(
-            f"测试流程完整完成，{saved_points} 个测试点均已保存" if saved_points else detail
-        )
+        outcome = self.automatic_controller.terminal_outcome
+        reason = self.automatic_controller.terminal_reason
+        if outcome == AutomaticTestTerminalOutcome.SUCCEEDED:
+            self.result_title_label.setText("测试完整完成")
+            completion_text = f"计划的 {planned_points or saved_points} 个测试点均已保存，并已安全下电"
+        elif outcome == AutomaticTestTerminalOutcome.ABORTED_SAFELY:
+            self.result_title_label.setText("测试异常中止")
+            reason_text = reason or detail or "测试过程中发生异常"
+            completion_text = (
+                f"{reason_text}；已保存 {saved_points}/{planned_points or saved_points} 个测试点，"
+                "设备已安全下电"
+            )
+        else:
+            self.result_title_label.setText("测试已提前结束")
+            completion_text = (
+                f"已保存 {saved_points}/{planned_points or saved_points} 个测试点，设备已安全下电"
+            )
+        self.result_completion_label.setText(completion_text)
         self.result_sn_label.setText(self.sn_field.text().strip() or "--")
         self.result_points_label.setText(f"{saved_points} / {planned_points or saved_points}")
         self.result_time_label.setText(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
         result_path = self.excel_workbook_path
-        self.result_file_label.setText(str(result_path) if result_path is not None else "--")
-        self.records_file_label.setText(str(result_path) if result_path is not None else "尚未创建结果文件")
-        self.open_result_button.setEnabled(result_path is not None)
-        self.open_result_folder_button.setEnabled(result_path is not None)
+        result_exists = bool(result_path is not None and result_path.is_file())
+        if result_path is None:
+            result_label = "尚未创建结果文件"
+        elif result_exists:
+            result_label = str(result_path)
+        else:
+            result_label = f"{result_path}（尚未生成）"
+        self.result_file_label.setText(result_label)
+        self.records_file_label.setText(result_label)
+        self.open_result_button.setEnabled(result_exists)
+        self.open_result_folder_button.setEnabled(result_exists)
+        self.refresh_records_page()
 
         values = {
             "current": "--",
@@ -1719,18 +1975,28 @@ class MainWindow(QMainWindow):
             self.result_metric_labels[key].setText(value)
         self.automatic_stack.setCurrentIndex(self.automatic_result_index)
         self.main_tabs.setCurrentIndex(self.automatic_tab_index)
+        focus_target = self.open_result_button if result_exists else self.return_to_prepare_button
+        QTimer.singleShot(
+            0,
+            lambda widget=focus_target: widget.setFocus(Qt.FocusReason.OtherFocusReason),
+        )
 
     def return_to_automatic_prepare(self) -> None:
         self.reset_automatic_test()
         self.main_tabs.setCurrentIndex(self.automatic_tab_index)
         self.refresh_preflight_checklist()
+        QTimer.singleShot(0, self._focus_automatic_sn)
+
+    def _focus_automatic_sn(self) -> None:
+        self.sn_field.setFocus(Qt.FocusReason.OtherFocusReason)
+        self.sn_field.selectAll()
 
     def open_result_file(self) -> None:
-        if self.excel_workbook_path is not None:
+        if self.excel_workbook_path is not None and self.excel_workbook_path.is_file():
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.excel_workbook_path)))
 
     def open_result_folder(self) -> None:
-        if self.excel_workbook_path is not None:
+        if self.excel_workbook_path is not None and self.excel_workbook_path.is_file():
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.excel_workbook_path.parent)))
 
     def _build_log_panel(self, parent: QVBoxLayout) -> None:
@@ -1791,6 +2057,7 @@ class MainWindow(QMainWindow):
             self.save_excel_button.setEnabled(False)
         if hasattr(self, "records_file_label"):
             self.records_file_label.setText(str(self.excel_workbook_path))
+            self.refresh_records_page()
         self.add_log(f"测试记录：{self.excel_workbook_path}")
         return self.excel_workbook_path
 
@@ -1820,6 +2087,26 @@ class MainWindow(QMainWindow):
         spectrometer_connected = spectrometer_running and bool(getattr(self.spectrometer_reader, "is_ready", False))
         power_detecting = self.power_meter_detect_thread is not None
         automatic_active = self._automatic_workflow_is_active()
+        is_tdk = self._selected_power_supply_kind() == "tdk"
+        tdk_output_enabled = bool(
+            is_tdk
+            and psu_connected
+            and getattr(self.manual_ch341_controller, "output_enabled", False)
+        )
+        last_output_current_a = max(0.0, float(self.active_output_current_a or 0.0))
+        shutdown_unconfirmed = bool(
+            getattr(self.automatic_controller, "output_shutdown_unconfirmed", False)
+        )
+        output_state_unknown = bool(
+            shutdown_unconfirmed
+            or (
+                not psu_connected
+                and automatic_active
+                and last_output_current_a > 0.0
+            )
+        )
+        power_fault = bool(self._power_meter_fault_message)
+        spectrometer_fault = bool(self._spectrometer_fault_message)
 
         if self.automatic_test_state == AutomaticTestState.PAUSED:
             self.global_status_label.setText("自动测试已暂停")
@@ -1831,23 +2118,90 @@ class MainWindow(QMainWindow):
             self.global_status_label.setText(
                 "测试运行中" if power_running or spectrometer_running or pd_running else "测试待机"
             )
-        self.global_psu_status_label.setText("电源：已连接" if psu_connected else "电源：未连接")
-        if power_detecting:
-            self.global_power_meter_status_label.setText("功率计：检测中")
+        if shutdown_unconfirmed:
+            current_detail = (
+                f" · 最近设定 {last_output_current_a:.1f} A"
+                if last_output_current_a > 0.0
+                else ""
+            )
+            self.global_psu_status_label.setText(
+                f"电源：故障 · 输出状态未确认{current_detail}"
+            )
+            psu_state = "error"
+        elif output_state_unknown:
+            self.global_psu_status_label.setText(
+                f"电源：连接异常 · 最近输出 {last_output_current_a:.1f} A"
+            )
+            psu_state = "error"
+        elif not psu_connected:
+            self.global_psu_status_label.setText("电源：已停止")
+            psu_state = "stopped"
+        elif is_tdk and not tdk_output_enabled:
+            self.global_psu_status_label.setText("电源：已连接 · 输出关闭")
+            psu_state = "pending"
         else:
-            self.global_power_meter_status_label.setText("功率计：运行中" if power_running else "功率计：已停止")
-        self.global_spectrometer_status_label.setText("光谱仪：运行中" if spectrometer_running else "光谱仪：已停止")
-        self._set_status_indicator(self.global_psu_status_indicator, psu_connected)
-        self._set_status_indicator(self.global_power_meter_status_indicator, power_connected)
-        self._set_status_indicator(self.global_spectrometer_status_indicator, spectrometer_connected)
+            output_text = " · 输出开启" if is_tdk else ""
+            self.global_psu_status_label.setText(f"电源：已就绪{output_text}")
+            psu_state = "ready"
+        if power_fault:
+            self.global_power_meter_status_label.setText("功率计：故障")
+            self.global_power_meter_status_label.setToolTip(self._power_meter_fault_message)
+            power_state = "error"
+        elif power_detecting:
+            self.global_power_meter_status_label.setText("功率计：检测中")
+            self.global_power_meter_status_label.setToolTip("")
+            power_state = "pending"
+        elif power_connected:
+            self.global_power_meter_status_label.setText("功率计：已就绪")
+            self.global_power_meter_status_label.setToolTip("")
+            power_state = "ready"
+        elif power_running:
+            self.global_power_meter_status_label.setText("功率计：启动中")
+            self.global_power_meter_status_label.setToolTip("")
+            power_state = "pending"
+        else:
+            self.global_power_meter_status_label.setText("功率计：已停止")
+            self.global_power_meter_status_label.setToolTip("")
+            power_state = "stopped"
+        if spectrometer_fault:
+            self.global_spectrometer_status_label.setText("光谱仪：故障")
+            self.global_spectrometer_status_label.setToolTip(self._spectrometer_fault_message)
+            spectrometer_state = "error"
+        elif spectrometer_connected:
+            self.global_spectrometer_status_label.setText("光谱仪：已就绪")
+            self.global_spectrometer_status_label.setToolTip("")
+            spectrometer_state = "ready"
+        elif spectrometer_running:
+            self.global_spectrometer_status_label.setText("光谱仪：启动中")
+            self.global_spectrometer_status_label.setToolTip("")
+            spectrometer_state = "pending"
+        else:
+            self.global_spectrometer_status_label.setText("光谱仪：已停止")
+            self.global_spectrometer_status_label.setToolTip("")
+            spectrometer_state = "stopped"
+        self._set_status_indicator(self.global_psu_status_indicator, psu_state)
+        self._set_status_indicator(self.global_power_meter_status_indicator, power_state)
+        self._set_status_indicator(self.global_spectrometer_status_indicator, spectrometer_state)
         self.stop_all_button.setEnabled(
             power_running or spectrometer_running or pd_running or automatic_active
         )
 
         if hasattr(self, "power_meter_status_label"):
-            self.power_meter_status_label.setText("检测中" if power_detecting else ("运行中" if power_running else "已停止"))
+            self.power_meter_status_label.setText(
+                "故障"
+                if power_fault
+                else (
+                    "检测中"
+                    if power_detecting
+                    else ("已就绪" if power_connected else ("启动中" if power_running else "已停止"))
+                )
+            )
         if hasattr(self, "spectrometer_status_label"):
-            self.spectrometer_status_label.setText("运行中" if spectrometer_running else "已停止")
+            self.spectrometer_status_label.setText(
+                "故障"
+                if spectrometer_fault
+                else ("已就绪" if spectrometer_connected else ("启动中" if spectrometer_running else "已停止"))
+            )
         if hasattr(self, "refresh_preflight_checklist"):
             self.refresh_preflight_checklist()
 
@@ -2309,6 +2663,7 @@ class MainWindow(QMainWindow):
             intensity=list(self.latest_spectrum_intensity),
             smsr_db=smsr.smsr_db,
         ))
+        self.refresh_records_page()
         pending_count = len([current for current in self.pending_excel_records if current not in self.excel_recorded_currents])
         self.save_excel_button.setEnabled(pending_count > 0)
         self.save_status_label.setText(f"{pending_count} 个测试点待保存")
@@ -2336,7 +2691,6 @@ class MainWindow(QMainWindow):
         self.excel_save_thread.finished.connect(self.on_excel_save_finished)
         self.save_excel_button.setEnabled(False)
         self.save_excel_button.setText("保存中…")
-        self.start_all_button.setEnabled(False)
         self.save_status_label.setText(f"正在保存 {len(records_snapshot)} 个测试点…")
         self.add_log(f"正在后台保存 {len(records_snapshot)} 个测试点")
         self.excel_save_thread.start()
@@ -2355,6 +2709,7 @@ class MainWindow(QMainWindow):
             self.save_status_label.setText(f"已在 {elapsed_s:.2f} 秒内保存：{thread.path.name}")
         self.statusBar().showMessage(f"Excel 已在 {elapsed_s:.2f} 秒内保存：{thread.path.name}")
         self.add_log(f"Excel 已在 {elapsed_s:.2f} 秒内保存：{thread.path}")
+        self.refresh_records_page()
         self.automatic_controller.on_record_saved()
 
     def on_excel_save_failed(self, message: str) -> None:
@@ -2372,7 +2727,6 @@ class MainWindow(QMainWindow):
             and any(current not in self.excel_recorded_currents for current in self.pending_excel_records)
         )
         self.save_excel_button.setText("保存 Excel")
-        self.start_all_button.setEnabled(automatic_idle)
         if thread is not None:
             thread.deleteLater()
         self._continue_pending_close()
@@ -2444,6 +2798,7 @@ class MainWindow(QMainWindow):
     def auto_detect_power_meters(self) -> None:
         if self.power_meter_detect_thread is not None:
             return
+        self._power_meter_fault_message = ""
         self.power_meter_detect_thread = PowerMeterDetectThread(self._selected_power_resource(), self)
         self.power_meter_detect_thread.detected.connect(self.on_power_meter_detected)
         self.power_meter_detect_thread.status.connect(self.on_status)
@@ -2454,6 +2809,7 @@ class MainWindow(QMainWindow):
         self.power_meter_detect_thread.start()
 
     def auto_detect_spectrometers(self) -> None:
+        self._spectrometer_fault_message = ""
         try:
             OceanSpectrometer, _calculate_stats = load_spectrometer_components(None)
 
@@ -2476,6 +2832,8 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"检测到 {len(device_ids)} 台光谱仪")
             self.add_log(f"检测到 {len(device_ids)} 台光谱仪")
         except Exception as exc:
+            self._spectrometer_fault_message = user_facing_error_message(exc)
+            self.update_global_status()
             QMessageBox.critical(self, "光谱仪自动检测", user_facing_error_message(exc))
 
     def collect_settings(self) -> CombinedTestSettings:
@@ -2544,6 +2902,7 @@ class MainWindow(QMainWindow):
     def start_power_meter(self) -> None:
         if self.power_meter_reader is not None:
             return
+        self._power_meter_fault_message = ""
         try:
             settings = self.collect_power_meter_settings()
         except Exception as exc:
@@ -2582,6 +2941,7 @@ class MainWindow(QMainWindow):
     def start_spectrometer(self) -> None:
         if self.spectrometer_reader is not None:
             return
+        self._spectrometer_fault_message = ""
         try:
             settings = self.collect_spectrometer_settings()
         except Exception as exc:
@@ -2950,6 +3310,7 @@ class MainWindow(QMainWindow):
         self.add_log(f"光谱 CSV 已保存：{path}")
 
     def on_power_meter_detected(self, options: list[PowerMeterOption]) -> None:
+        self._power_meter_fault_message = ""
         self.power_meter_combo.clear()
         if not options:
             self.power_meter_combo.addItem(DEFAULT_POWER_RESOURCE, None)
@@ -2964,7 +3325,9 @@ class MainWindow(QMainWindow):
         self.add_log(f"检测到 {len(options)} 台功率计")
 
     def on_power_meter_detect_failed(self, message: str) -> None:
+        self._power_meter_fault_message = user_facing_error_message(message)
         self.add_log(f"功率计自动检测错误：{message}")
+        self.update_global_status()
         QMessageBox.critical(self, "功率计自动检测", user_facing_error_message(message))
 
     def on_power_meter_detect_finished(self) -> None:
@@ -2980,15 +3343,19 @@ class MainWindow(QMainWindow):
         self.add_log(message)
 
     def on_power_meter_failed(self, message: str) -> None:
+        self._power_meter_fault_message = user_facing_error_message(message)
         self.add_log(f"功率计错误：{message}")
         display_message = user_facing_error_message(message)
         self.automatic_controller.on_acquisition_failed("功率计", message)
+        self.update_global_status()
         QMessageBox.critical(self, "功率计错误", display_message)
 
     def on_spectrometer_failed(self, message: str) -> None:
+        self._spectrometer_fault_message = user_facing_error_message(message)
         self.add_log(f"光谱仪错误：{message}")
         display_message = user_facing_error_message(message)
         self.automatic_controller.on_acquisition_failed("光谱仪", message)
+        self.update_global_status()
         QMessageBox.critical(self, "光谱仪错误", display_message)
 
     def on_power_meter_finished(self) -> None:
