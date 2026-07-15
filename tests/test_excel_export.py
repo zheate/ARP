@@ -9,7 +9,7 @@ from combined_test.excel_export import ExcelTestRecord, append_test_record, buil
 
 
 class ExcelExportTests(unittest.TestCase):
-    def _record(self, current_a: float) -> ExcelTestRecord:
+    def _record(self, current_a: float, test_station: str = "") -> ExcelTestRecord:
         return ExcelTestRecord(
             current_a=current_a,
             voltage_v=50.5,
@@ -22,6 +22,7 @@ class ExcelExportTests(unittest.TestCase):
             smsr_db=32.5,
             wavelength=[974.0, 976.0, 978.0],
             intensity=[10.0, 100.0, 20.0],
+            test_station=test_station,
         )
 
     def test_path_uses_sn_and_test_time(self) -> None:
@@ -80,6 +81,25 @@ class ExcelExportTests(unittest.TestCase):
             self.assertEqual([sheet.cell(row, 1).value for row in range(3, 6)], [2.0, 4.0, 8.0])
             self.assertEqual([sheet.cell(2, column).value for column in (10, 12, 14)], ["2.0A", "4.0A", "8.0A"])
             workbook.close()
+
+    def test_batch_save_writes_test_station_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "station.xlsx"
+
+            save_test_records(path, [self._record(2.0, "老化站 1"), self._record(4.0, "老化站 1")])
+
+            workbook = load_workbook(path, data_only=False)
+            sheet = workbook[workbook.sheetnames[0]]
+            self.assertEqual(sheet["B1"].value, "测试站别")
+            self.assertEqual(sheet["C1"].value, "老化站 1")
+            workbook.close()
+
+    def test_batch_save_rejects_mixed_test_stations(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "station.xlsx"
+
+            with self.assertRaisesRegex(ValueError, "测试站别必须一致"):
+                save_test_records(path, [self._record(2.0, "站别 A"), self._record(4.0, "站别 B")])
 
     def test_batch_save_accepts_liv_record_without_spectrum(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -337,6 +337,15 @@ class LivePlots:
             self.curves_layout.addWidget(self.power_curve_canvas, 0, 0)
             self.curves_layout.addWidget(self.stable_power_canvas, 0, 1)
             self.curves_layout.addWidget(self.spectrum_curve_canvas, 1, 0, 1, 2)
+            # QTabWidget keeps pages hidden after removeTab().  Adding those
+            # canvases to another layout does not clear that explicit hidden
+            # state, so a tabbed -> dashboard resize can leave this panel blank.
+            for canvas in (
+                self.power_curve_canvas,
+                self.stable_power_canvas,
+                self.spectrum_curve_canvas,
+            ):
+                canvas.show()
             self.curves_layout.setRowStretch(0, 3)
             self.curves_layout.setRowStretch(1, 2)
             self.curves_layout.setColumnStretch(0, 1)

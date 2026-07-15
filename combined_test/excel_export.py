@@ -42,6 +42,7 @@ class ExcelTestRecord:
     wavelength: Iterable[float]
     intensity: Iterable[float]
     smsr_db: float = math.nan
+    test_station: str = ""
 
 
 def sanitize_sn(sn: str) -> str:
@@ -93,6 +94,16 @@ def _create_workbook(path: Path) -> Workbook:
     return workbook
 
 
+def _write_test_station(sheet: Worksheet, test_station: str) -> None:
+    station = str(test_station).strip()
+    if not station:
+        return
+    sheet["B1"] = "测试站别"
+    sheet["B1"].font = Font(bold=True)
+    sheet["C1"] = station
+    sheet.column_dimensions["C"].width = max(sheet.column_dimensions["C"].width or 0, 16)
+
+
 def save_test_records(path: Path, records: Iterable[ExcelTestRecord]) -> None:
     """Write a complete, current-sorted test workbook with a single XLSX save."""
     records_by_current: dict[float, tuple[ExcelTestRecord, list[float], list[float]]] = {}
@@ -105,10 +116,21 @@ def save_test_records(path: Path, records: Iterable[ExcelTestRecord]) -> None:
     if not records_by_current:
         raise ValueError("至少需要一个测试记录")
 
+    test_stations = {
+        str(record.test_station).strip()
+        for record, _wavelength, _intensity in records_by_current.values()
+        if str(record.test_station).strip()
+    }
+    if len(test_stations) > 1:
+        raise ValueError("同一测试文件中的测试站别必须一致")
+
     target = Path(path).expanduser()
     target.parent.mkdir(parents=True, exist_ok=True)
     workbook = _create_workbook(target)
     sheet = workbook[workbook.sheetnames[0]]
+
+    if test_stations:
+        _write_test_station(sheet, next(iter(test_stations)))
 
     spectrum_index = 0
     for index, current in enumerate(sorted(records_by_current)):
@@ -169,6 +191,12 @@ def append_test_record(path: Path, record: ExcelTestRecord) -> None:
     workbook = load_workbook(target) if target.exists() else _create_workbook(target)
     sheet = workbook[workbook.sheetnames[0]]
     _ensure_result_headers(sheet)
+    existing_station = str(sheet["C1"].value or "").strip() if sheet["B1"].value == "测试站别" else ""
+    record_station = str(record.test_station).strip()
+    if existing_station and record_station and existing_station != record_station:
+        workbook.close()
+        raise ValueError("同一测试文件中的测试站别必须一致")
+    _write_test_station(sheet, record_station or existing_station)
 
     result_by_current: dict[float, tuple[float | None, ...]] = {}
     row = 3

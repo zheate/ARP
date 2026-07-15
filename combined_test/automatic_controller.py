@@ -292,7 +292,7 @@ class AutomaticTestController:
             return
         try:
             settings = self.collect_automatic_test_settings()
-            self.begin_test_session()
+            self.begin_test_session(require_station=True)
         except ValueError as exc:
             QMessageBox.warning(self._host, "自动测试", self._error_formatter(exc))
             return
@@ -825,6 +825,8 @@ class AutomaticTestController:
             self._mark_output_shutdown_confirmed()
         elif self.power_supply_controller_kind == "tdk":
             self._mark_output_shutdown_confirmed()
+        if self.power_supply_controller_kind == "tdk":
+            self.sync_tdk_output_controls(False)
         self.active_output_current_a = 0.0
         self.set_current_spin.setValue(0.0)
         self._confirm_terminal_outcome()
@@ -833,8 +835,9 @@ class AutomaticTestController:
         self.set_automatic_test_state(AutomaticTestState.COMPLETED, completed_message)
         self.statusBar().showMessage(completed_message)
         self.add_log(completed_message)
-        self.stop_power_meter()
-        self.stop_spectrometer()
+        # Keep measurement devices in their current state after a normal test.
+        # An optional spectrometer that was never started therefore stays off,
+        # while devices used by the test remain available for the next run.
         completion_record = self.automatic_completion_record
         self.automatic_completion_record = None
         if not self.close_after_automatic_ramp_down:
