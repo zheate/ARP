@@ -291,6 +291,7 @@ class PowerMeterReaderThread(QThread):
                 stable_tolerance_w = stability_tolerance_for_power(power_w)
                 detector.tolerance_w = stable_tolerance_w
                 stability = detector.add_sample(elapsed, power_w)
+                active_tolerance_w = detector.active_tolerance_w
                 self.reading.emit(
                     PowerMeterReading(
                         elapsed_s=elapsed,
@@ -299,7 +300,7 @@ class PowerMeterReaderThread(QThread):
                         stable_span_w=stability.span_w,
                         stable_window_s=stability.window_s,
                         stability_generation=generation,
-                        stable_tolerance_w=stable_tolerance_w,
+                        stable_tolerance_w=active_tolerance_w,
                     )
                 )
                 next_poll_at += poll_interval_s

@@ -1,3 +1,4 @@
+import math
 import tempfile
 import sys
 import os
@@ -386,24 +387,57 @@ class MainWindowTests(unittest.TestCase):
         window.power_meter_reader = None
         window.close()
 
-    def test_power_reading_selects_and_displays_automatic_allowed_span(self) -> None:
+    def test_power_reading_displays_continuous_entry_and_hysteresis_spans(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
 
         window.on_power_meter_reading(PowerMeterReading(1.0, 150.0, False, 0.2, 1.0))
 
         self.assertTrue(window.stable_tolerance_spin.isReadOnly())
-        self.assertEqual(window.stable_tolerance_spin.value(), 0.25)
-        self.assertIn("≤ 0.2500 W", window.live_plots.stability_detail_text.get_text())
+        self.assertEqual(window.stable_tolerance_spin.value(), 0.30)
+        self.assertIn("判稳 ≤0.3000 W", window.stability_tolerance_label.text())
+        self.assertIn("稳定保持 ≤0.4500 W", window.stability_tolerance_label.text())
+        self.assertIn("≤ 0.3000 W", window.live_plots.stability_detail_text.get_text())
 
-        window.on_power_meter_reading(PowerMeterReading(4.0, 150.1, True, 0.1, 3.0))
+        window.on_power_meter_reading(
+            PowerMeterReading(
+                4.0,
+                150.0,
+                True,
+                0.4,
+                3.0,
+                stable_tolerance_w=0.45,
+            )
+        )
 
         self.assertEqual(window.live_plots.stability_status_text.get_text(), "STABLE")
+        self.assertIn("≤ 0.4500 W", window.live_plots.stability_detail_text.get_text())
         self.assertIsNotNone(window.live_plots._stable_region_artist)
         self.assertEqual(
             window.live_plots.power_curve_line.get_color(),
             window.live_plots._stable_line_color,
         )
+        window.close()
+
+    def test_non_finite_centroid_resets_wavelength_hysteresis(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        detector = window.wavelength_stability_detector
+        for elapsed_s in (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.1):
+            result = detector.add_sample(elapsed_s, 976.0)
+        self.assertTrue(result.stable)
+        self.assertAlmostEqual(detector.active_tolerance_w, 0.3)
+
+        window.on_spectrometer_reading(
+            SpectrometerReading(
+                peak_wavelength_nm=math.nan,
+                centroid_nm=math.nan,
+                fwhm_nm=math.nan,
+            )
+        )
+
+        self.assertFalse(window.latest_wavelength_stable)
+        self.assertAlmostEqual(detector.active_tolerance_w, 0.2)
         window.close()
 
     def test_input_parameters_are_restored_in_next_window(self) -> None:

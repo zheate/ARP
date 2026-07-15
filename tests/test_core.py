@@ -15,12 +15,18 @@ from combined_test.core import (
 
 class PowerStabilityDetectorTests(unittest.TestCase):
     def test_selects_allowed_span_from_power_range(self) -> None:
-        self.assertEqual(stability_tolerance_for_power(0.0), 0.15)
-        self.assertEqual(stability_tolerance_for_power(99.999), 0.15)
-        self.assertEqual(stability_tolerance_for_power(100.0), 0.25)
-        self.assertEqual(stability_tolerance_for_power(199.999), 0.25)
-        self.assertEqual(stability_tolerance_for_power(200.0), 0.35)
-        self.assertEqual(stability_tolerance_for_power(500.0), 0.35)
+        self.assertEqual(stability_tolerance_for_power(0.0), 0.10)
+        self.assertEqual(stability_tolerance_for_power(10.0), 0.10)
+        self.assertEqual(stability_tolerance_for_power(50.0), 0.10)
+        self.assertEqual(stability_tolerance_for_power(75.0), 0.15)
+        self.assertEqual(stability_tolerance_for_power(100.0), 0.20)
+        self.assertEqual(stability_tolerance_for_power(200.0), 0.40)
+        self.assertEqual(stability_tolerance_for_power(500.0), 1.00)
+
+    def test_non_finite_power_uses_the_absolute_tolerance_floor(self) -> None:
+        self.assertEqual(stability_tolerance_for_power(math.nan), 0.10)
+        self.assertEqual(stability_tolerance_for_power(math.inf), 0.10)
+        self.assertEqual(stability_tolerance_for_power(-math.inf), 0.10)
 
     def test_requires_enough_time_before_reporting_stable(self) -> None:
         detector = PowerStabilityDetector(window_s=3.0, tolerance_w=0.05)
@@ -142,6 +148,53 @@ class PowerStabilityDetectorTests(unittest.TestCase):
 
         result = detector.add_sample(3.2, 10.10)
         self.assertFalse(result.stable)
+
+    def test_stable_state_uses_a_wider_exit_threshold(self) -> None:
+        detector = PowerStabilityDetector(window_s=3.0, tolerance_w=0.05)
+        for elapsed_s in (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.1):
+            result = detector.add_sample(elapsed_s, 10.00)
+        self.assertTrue(result.stable)
+
+        result = detector.add_sample(3.2, 10.06)
+
+        self.assertTrue(result.stable)
+        self.assertAlmostEqual(detector.active_tolerance_w, 0.075)
+
+    def test_entry_still_uses_the_strict_threshold(self) -> None:
+        detector = PowerStabilityDetector(window_s=3.0, tolerance_w=0.05)
+        for elapsed_s in (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0):
+            result = detector.add_sample(elapsed_s, 10.00)
+        self.assertFalse(result.stable)
+
+        result = detector.add_sample(3.1, 10.06)
+
+        self.assertFalse(result.stable)
+        self.assertAlmostEqual(detector.active_tolerance_w, 0.05)
+
+    def test_stable_state_exits_after_crossing_the_hysteresis_threshold(self) -> None:
+        detector = PowerStabilityDetector(window_s=3.0, tolerance_w=0.05)
+        for elapsed_s in (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.1):
+            result = detector.add_sample(elapsed_s, 10.00)
+        self.assertTrue(result.stable)
+
+        result = detector.add_sample(3.2, 10.08)
+
+        self.assertFalse(result.stable)
+        self.assertAlmostEqual(detector.active_tolerance_w, 0.05)
+
+    def test_wavelength_detector_uses_the_same_exit_hysteresis(self) -> None:
+        detector = WavelengthStabilityDetector(window_s=3.0, tolerance_w=0.2)
+        for elapsed_s in (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.1):
+            result = detector.add_sample(elapsed_s, 976.0)
+        self.assertTrue(result.stable)
+
+        result = detector.add_sample(3.2, 976.25)
+        self.assertTrue(result.stable)
+        self.assertAlmostEqual(detector.active_tolerance_w, 0.3)
+
+        result = detector.add_sample(3.3, 976.31)
+        self.assertFalse(result.stable)
+        self.assertAlmostEqual(detector.active_tolerance_w, 0.2)
 
     def test_non_finite_reading_never_reports_stable(self) -> None:
         detector = PowerStabilityDetector(window_s=3.0, tolerance_w=0.05)

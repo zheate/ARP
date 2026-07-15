@@ -51,6 +51,7 @@ from .automation import (
 )
 from .core import (
     CombinedMeasurement,
+    PowerStabilityDetector,
     WavelengthStabilityDetector,
     spectrum_curve_to_rows,
     stability_tolerance_for_power,
@@ -1120,7 +1121,7 @@ class MainWindow(QMainWindow):
         form.addRow("自动判稳", self.auto_use_spectrometer_check)
 
         self.stability_tolerance_label = QLabel(
-            "当前允许功率波动：±0.15 W（系统根据当前功率自动调整）",
+            "当前功率峰峰值：判稳 ≤0.1000 W；稳定保持 ≤0.1500 W",
             self,
         )
         self.stability_tolerance_label.setWordWrap(True)
@@ -2634,20 +2635,30 @@ class MainWindow(QMainWindow):
     def on_power_meter_reading(self, reading: PowerMeterReading) -> None:
         self.latest_power_meter_reading = reading
         self.live_plots.set_power_value(reading.power_w)
-        tolerance_w = (
+        entry_tolerance_w = stability_tolerance_for_power(reading.power_w)
+        active_tolerance_w = (
             reading.stable_tolerance_w
             if math.isfinite(reading.stable_tolerance_w)
-            else stability_tolerance_for_power(reading.power_w)
+            else entry_tolerance_w
         )
         signals_were_blocked = self.stable_tolerance_spin.blockSignals(True)
         try:
-            self.stable_tolerance_spin.setValue(tolerance_w)
+            self.stable_tolerance_spin.setValue(entry_tolerance_w)
         finally:
             self.stable_tolerance_spin.blockSignals(signals_were_blocked)
-        self.stability_tolerance_label.setText(
-            f"当前允许功率波动：±{tolerance_w:.2f} W（系统根据当前功率自动调整）"
+        exit_tolerance_w = (
+            entry_tolerance_w * PowerStabilityDetector.EXIT_TOLERANCE_MULTIPLIER
         )
-        self.update_stability_card(reading.stable, reading.stable_span_w, reading.stable_window_s, tolerance_w)
+        self.stability_tolerance_label.setText(
+            f"当前功率峰峰值：判稳 ≤{entry_tolerance_w:.4f} W；"
+            f"稳定保持 ≤{exit_tolerance_w:.4f} W"
+        )
+        self.update_stability_card(
+            reading.stable,
+            reading.stable_span_w,
+            reading.stable_window_s,
+            active_tolerance_w,
+        )
         self.update_power_curve(reading.elapsed_s, reading.power_w)
         self.capture_stable_power_point(reading)
 
@@ -2665,6 +2676,7 @@ class MainWindow(QMainWindow):
             ):
                 self.invalidate_automatic_stability("中心波长不再稳定")
         else:
+            self.wavelength_stability_detector.reset()
             self.latest_wavelength_stable = False
             self.latest_wavelength_span_nm = math.inf
         self.update_centroid_display(reading.centroid_nm)

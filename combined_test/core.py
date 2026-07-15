@@ -24,6 +24,9 @@ CSV_HEADER = [
     "spectrum_csv_path",
 ]
 
+POWER_STABILITY_ABSOLUTE_FLOOR_W = 0.10
+POWER_STABILITY_RELATIVE_FRACTION = 0.002
+
 
 @dataclass(frozen=True)
 class StabilityResult:
@@ -61,6 +64,7 @@ class PowerStabilityDetector:
     MAX_SAMPLE_GAP_FRACTION = 0.5
     MAX_CENTER_SHIFT_FRACTION = 0.5
     REQUIRED_CONFIRMATIONS = 2
+    EXIT_TOLERANCE_MULTIPLIER = 1.5
 
     def __init__(self, window_s: float, tolerance_w: float) -> None:
         if window_s <= 0:
@@ -71,25 +75,37 @@ class PowerStabilityDetector:
         self.tolerance_w = float(tolerance_w)
         self._samples: Deque[tuple[float, float]] = deque()
         self._stable_confirmations = 0
+        self._stable_latched = False
+
+    @property
+    def active_tolerance_w(self) -> float:
+        """Return the entry or wider exit threshold used for the next sample."""
+        multiplier = self.EXIT_TOLERANCE_MULTIPLIER if self._stable_latched else 1.0
+        return self.tolerance_w * multiplier
 
     def reset(self) -> None:
         self._samples.clear()
         self._stable_confirmations = 0
+        self._stable_latched = False
 
-    def _remove_isolated_spike(self, samples: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    def _remove_isolated_spike(
+        self,
+        samples: list[tuple[float, float]],
+        tolerance_w: float,
+    ) -> list[tuple[float, float]]:
         """Remove at most one clear, single-sample interior impulse."""
-        if len(samples) < self.MIN_SAMPLE_COUNT or self.tolerance_w <= 0.0:
+        if len(samples) < self.MIN_SAMPLE_COUNT or tolerance_w <= 0.0:
             return samples
 
         candidates: list[tuple[float, int]] = []
-        neighbor_limit = self.tolerance_w * self.MAX_CENTER_SHIFT_FRACTION
+        neighbor_limit = tolerance_w * self.MAX_CENTER_SHIFT_FRACTION
         for index in range(1, len(samples) - 1):
             previous_power = samples[index - 1][1]
             power = samples[index][1]
             next_power = samples[index + 1][1]
             neighbor_center = (previous_power + next_power) / 2.0
             deviation = abs(power - neighbor_center)
-            if abs(previous_power - next_power) <= neighbor_limit and deviation > self.tolerance_w:
+            if abs(previous_power - next_power) <= neighbor_limit and deviation > tolerance_w:
                 candidates.append((deviation, index))
 
         if not candidates:
@@ -99,6 +115,7 @@ class PowerStabilityDetector:
 
     def _unstable_result(self, span: float, covered_s: float) -> StabilityResult:
         self._stable_confirmations = 0
+        self._stable_latched = False
         return StabilityResult(False, span, covered_s, len(self._samples))
 
     def add_sample(self, elapsed_s: float, power_w: float) -> StabilityResult:
@@ -127,7 +144,8 @@ class PowerStabilityDetector:
             self._samples.popleft()
 
         samples = list(self._samples)
-        filtered_samples = self._remove_isolated_spike(samples)
+        active_tolerance_w = self.active_tolerance_w
+        filtered_samples = self._remove_isolated_spike(samples, active_tolerance_w)
         powers = [sample[1] for sample in filtered_samples]
         span = max(powers) - min(powers) if powers else math.inf
         covered_s = self._samples[-1][0] - self._samples[0][0] if len(self._samples) >= 2 else 0.0
@@ -145,18 +163,19 @@ class PowerStabilityDetector:
         beginning_center = median(sample[1] for sample in filtered_samples[:section_size])
         ending_center = median(sample[1] for sample in filtered_samples[-section_size:])
         center_shift = abs(ending_center - beginning_center)
-        comparison_margin = max(1e-12, self.tolerance_w * 1e-12)
+        comparison_margin = max(1e-12, active_tolerance_w * 1e-12)
         candidate_stable = (
-            span <= self.tolerance_w + comparison_margin
+            span <= active_tolerance_w + comparison_margin
             and center_shift
-            <= self.tolerance_w * self.MAX_CENTER_SHIFT_FRACTION + comparison_margin
+            <= active_tolerance_w * self.MAX_CENTER_SHIFT_FRACTION + comparison_margin
         )
         if not candidate_stable:
             return self._unstable_result(span, covered_s)
 
-        self._stable_confirmations += 1
-        stable = self._stable_confirmations >= self.REQUIRED_CONFIRMATIONS
-        return StabilityResult(stable, span, covered_s, len(self._samples))
+        if not self._stable_latched:
+            self._stable_confirmations += 1
+            self._stable_latched = self._stable_confirmations >= self.REQUIRED_CONFIRMATIONS
+        return StabilityResult(self._stable_latched, span, covered_s, len(self._samples))
 
 
 class WavelengthStabilityDetector(PowerStabilityDetector):
@@ -164,13 +183,15 @@ class WavelengthStabilityDetector(PowerStabilityDetector):
 
 
 def stability_tolerance_for_power(power_w: float) -> float:
-    """Return the allowed stability span for the current power range."""
+    """Return a continuous absolute-plus-relative entry span for power."""
     power = float(power_w)
-    if power < 100.0:
-        return 0.15
-    if power < 200.0:
-        return 0.25
-    return 0.35
+    if not math.isfinite(power):
+        return POWER_STABILITY_ABSOLUTE_FLOOR_W
+    power = max(0.0, power)
+    return max(
+        POWER_STABILITY_ABSOLUTE_FLOOR_W,
+        power * POWER_STABILITY_RELATIVE_FRACTION,
+    )
 
 
 def build_set_current_command(current_a: float) -> list[int]:
