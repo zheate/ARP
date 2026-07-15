@@ -115,6 +115,25 @@ class PdDaqTests(unittest.TestCase):
 
 
 class PdDaqPanelUiTests(unittest.TestCase):
+    def test_settings_are_grouped_into_four_operator_sections(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        panel = PdDaqPanel(auto_refresh=False)
+
+        self.assertEqual(
+            [
+                panel.device_settings_group.title(),
+                panel.sampling_settings_group.title(),
+                panel.calibration_settings_group.title(),
+                panel.storage_settings_group.title(),
+            ],
+            ["设备与接线", "采样参数", "线性标定", "数据保存"],
+        )
+        self.assertEqual(panel.settings_grid.getItemPosition(0)[:2], (0, 0))
+        self.assertEqual(panel.settings_grid.getItemPosition(1)[:2], (0, 1))
+        self.assertEqual(panel.settings_grid.getItemPosition(2)[:2], (1, 0))
+        self.assertEqual(panel.settings_grid.getItemPosition(3)[:2], (1, 1))
+        panel.close()
+
     def test_editable_inputs_have_accessible_names_and_label_buddies(self) -> None:
         app = QApplication.instance() or QApplication([])
         panel = PdDaqPanel(auto_refresh=False)

@@ -9,7 +9,7 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QSettings
+from PySide6.QtCore import QEvent, QSettings, Qt
 from PySide6.QtGui import QCloseEvent
 from PySide6.QtWidgets import QApplication, QDoubleSpinBox, QFormLayout, QGroupBox, QLabel, QMessageBox, QWidget
 
@@ -32,6 +32,7 @@ from combined_test.persistence import (
     build_spectrum_csv_path,
     save_spectrum_curve,
 )
+from combined_test.plots import PlotLayoutContext
 from combined_test.window import MainWindow, POWER_SUPPLY_COMMAND_MIN_INTERVAL_S
 from tools import power_meter_mvp
 
@@ -1210,6 +1211,23 @@ class MainWindowTests(unittest.TestCase):
         self.assertTrue(hasattr(window, "monitor_panel"))
         window.close()
 
+    def test_main_window_uses_left_navigation_while_retaining_internal_tabs(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        self.assertTrue(window.main_tabs.tabBar().isHidden())
+        self.assertEqual(window.navigation_panel.minimumWidth(), 148)
+        self.assertEqual(window.navigation_panel.maximumWidth(), 148)
+        self.assertEqual(
+            [button.text() for button in window.navigation_buttons.values()],
+            ["自动测试", "手动调试", "当前记录", "PD 采集"],
+        )
+
+        window.navigation_buttons[window.manual_tab_index].click()
+        self.assertEqual(window.main_tabs.currentIndex(), window.manual_tab_index)
+        self.assertEqual(window.page_title_label.text(), "手动调试")
+        window.close()
+
     def test_prepare_page_owns_routine_device_selection_without_tab_jump(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
@@ -1449,6 +1467,26 @@ class MainWindowTests(unittest.TestCase):
             self.assertFalse(canvas.isHidden())
         window.close()
 
+    def test_live_plots_use_dashboard_for_automatic_and_tabs_for_manual(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.show()
+        app.processEvents()
+
+        self.assertIs(window.live_plots.layout_context, PlotLayoutContext.AUTOMATIC)
+        self.assertTrue(window.chart_tabs.isHidden())
+
+        window.main_tabs.setCurrentIndex(window.manual_tab_index)
+        app.processEvents()
+
+        self.assertIs(window.live_plots.layout_context, PlotLayoutContext.MANUAL)
+        self.assertFalse(window.chart_tabs.isHidden())
+        self.assertEqual(
+            [window.chart_tabs.tabText(index) for index in range(window.chart_tabs.count())],
+            ["功率实时", "功率 / 效率", "光谱"],
+        )
+        window.close()
+
     def test_common_1280_by_800_window_does_not_expand_vertically(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
@@ -1458,6 +1496,136 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertLessEqual(window.height(), 800)
         self.assertFalse(hasattr(window, "kpi_layout"))
+        window.close()
+
+    def test_common_1100_by_700_window_has_no_horizontal_page_scrolling(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.resize(1100, 700)
+        window.show()
+        app.processEvents()
+
+        self.assertLessEqual(window.width(), 1100)
+        self.assertEqual(window.prepare_scroll_area.horizontalScrollBar().maximum(), 0)
+
+        window.main_tabs.setCurrentIndex(window.manual_tab_index)
+        app.processEvents()
+        self.assertEqual(window.manual_scroll_area.horizontalScrollBar().maximum(), 0)
+
+        pages_and_key_widgets = (
+            (
+                window.automatic_run_page,
+                (
+                    window.run_state_label,
+                    window.run_stage_label,
+                    window.pause_automatic_test_button,
+                    window.retry_automatic_test_button,
+                    window.end_automatic_test_button,
+                ),
+            ),
+            (
+                window.automatic_result_page,
+                (
+                    window.result_outcome_panel,
+                    window.open_result_button,
+                    window.open_result_folder_button,
+                    window.return_to_prepare_button,
+                ),
+            ),
+            (window.records_page, (window.records_empty_state,)),
+            (
+                window.pd_panel,
+                (
+                    window.pd_panel.device_settings_group,
+                    window.pd_panel.sampling_settings_group,
+                    window.pd_panel.calibration_settings_group,
+                    window.pd_panel.storage_settings_group,
+                    window.pd_panel.start_button,
+                    window.pd_panel.stop_button,
+                ),
+            ),
+        )
+        for page, widgets in pages_and_key_widgets:
+            if page in (window.automatic_run_page, window.automatic_result_page):
+                window.main_tabs.setCurrentIndex(window.automatic_tab_index)
+                window.automatic_stack.setCurrentWidget(page)
+            elif page is window.records_page:
+                window.main_tabs.setCurrentIndex(window.records_tab_index)
+            else:
+                window.main_tabs.setCurrentIndex(window.pd_tab_index)
+            app.processEvents()
+            for widget in widgets:
+                with self.subTest(page=page, widget=widget):
+                    mapped_rect = widget.rect()
+                    mapped_rect.moveTopLeft(widget.mapTo(page, widget.rect().topLeft()))
+                    self.assertTrue(page.rect().contains(mapped_rect), mapped_rect)
+
+        result_groups = (
+            window.result_sn_label.parentWidget(),
+            window.result_metric_labels["current"].parentWidget(),
+        )
+        self.assertFalse(result_groups[0].geometry().intersects(result_groups[1].geometry()))
+        pd_groups = (
+            window.pd_panel.device_settings_group,
+            window.pd_panel.sampling_settings_group,
+            window.pd_panel.calibration_settings_group,
+            window.pd_panel.storage_settings_group,
+        )
+        for index, group in enumerate(pd_groups):
+            for other_group in pd_groups[index + 1 :]:
+                self.assertFalse(group.geometry().intersects(other_group.geometry()))
+        window.close()
+
+    def test_prepare_page_keyboard_focus_follows_the_operator_workflow(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        expected_order = (
+            window.sn_field,
+            window.test_station_field,
+            window.output_dir_field,
+            window.browse_button,
+            window.auto_initial_current_spin,
+            window.auto_target_current_spin,
+            window.auto_current_step_spin,
+        )
+
+        def next_focusable(widget: QWidget) -> QWidget:
+            candidate = widget.nextInFocusChain()
+            while (
+                candidate.focusPolicy() == Qt.FocusPolicy.NoFocus
+                or widget.isAncestorOf(candidate)
+            ):
+                candidate = candidate.nextInFocusChain()
+            return candidate
+
+        for current, following in zip(expected_order, expected_order[1:]):
+            candidate = next_focusable(current)
+            self.assertTrue(candidate is following or following.isAncestorOf(candidate))
+        window.close()
+
+    def test_idle_header_does_not_repeat_a_standby_status(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.show()
+        app.processEvents()
+
+        self.assertEqual(window.global_status_label.text(), "")
+        self.assertTrue(window.global_status_label.isHidden())
+        visible_header_texts = {
+            label.text() for label in window.page_header.findChildren(QLabel) if label.isVisible()
+        }
+        self.assertNotIn("测试待机", visible_header_texts)
+        self.assertNotIn("准备测试", visible_header_texts)
+        window.close()
+
+    def test_records_page_exposes_a_clear_empty_state(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        self.assertEqual(window.records_empty_title.text(), "还没有测试记录")
+        self.assertFalse(window.records_empty_state.isHidden())
+        self.assertTrue(window.records_session_panel.isHidden())
         window.close()
 
     def test_task_and_record_controls_follow_their_workflow_modes(self) -> None:

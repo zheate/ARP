@@ -17,6 +17,7 @@ from PySide6.QtGui import QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QAbstractSpinBox,
+    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -87,7 +88,7 @@ from .persistence import (
     save_spectrum_curve,
 )
 from .record_store import RecordStore, SessionRecordStore
-from .plots import LivePlots
+from .plots import LivePlots, PlotLayoutContext
 from .spectrum import (
     SPECTRUM_CENTER_LOCK_HALF_RANGE_NM,
     SPECTRUM_CENTER_LOCK_REQUIRED_SAMPLES,
@@ -101,7 +102,7 @@ from .tdk_power_supply import (
     compensate_tdk_output_voltage,
     list_tdk_serial_resources,
 )
-from .theme import apply_application_theme, semantic_colors_for_palette
+from .theme import FontRole, apply_application_theme, font_for_role, semantic_colors_for_palette
 from tools.pd_daq_mvp import PdDaqPanel
 from tools.visa_session import visa_resource_manager
 
@@ -121,6 +122,7 @@ AUTOMATIC_DEVICE_START_TIMEOUT_S = 15.0
 BACKGROUND_STOP_TIMEOUT_S = 10.0
 SPECTRUM_UI_REFRESH_MS = 200
 PREPARE_CHECKLIST_MIN_WIDTH = 300
+NAVIGATION_WIDTH = 148
 MANUAL_COLUMN_MIN_WIDTH = 360
 LEGACY_CURRENT_LIMIT_A = 20.0
 TDK_CURRENT_INPUT_MAX_A = math.inf
@@ -161,7 +163,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.input_settings = input_settings or QSettings("Changguang Huaxin", "Pump Driver Integrated Test")
         self.setWindowTitle("电源 / 功率计 / 光谱 / PD 综合测试")
-        self.resize(1450, 980)
+        self.resize(1280, 800)
+        self.setMinimumSize(1100, 700)
         self.power_meter_detect_thread: PowerMeterDetectThread | None = None
         self._power_meter_detection_silent = False
         self.power_meter_reader: PowerMeter | None = None
@@ -260,13 +263,17 @@ class MainWindow(QMainWindow):
 
         self.central_shell = QWidget(self)
         self.setCentralWidget(self.central_shell)
-        shell_layout = QVBoxLayout(self.central_shell)
-        shell_layout.setContentsMargins(16, 12, 16, 12)
-        shell_layout.setSpacing(8)
-        self._build_global_status_bar(shell_layout)
+        application_layout = QGridLayout(self.central_shell)
+        application_layout.setContentsMargins(0, 0, 0, 0)
+        application_layout.setSpacing(0)
+        self._build_navigation_panel(application_layout)
+        self._build_global_status_bar(application_layout)
 
         self.main_tabs = QTabWidget(self.central_shell)
-        shell_layout.addWidget(self.main_tabs, stretch=1)
+        self.main_tabs.tabBar().hide()
+        application_layout.addWidget(self.main_tabs, 1, 1)
+        application_layout.setColumnStretch(1, 1)
+        application_layout.setRowStretch(1, 1)
 
         self.content_widget = QWidget(self.main_tabs)
         self.automatic_tab_index = self.main_tabs.addTab(self.content_widget, "自动测试")
@@ -370,6 +377,7 @@ class MainWindow(QMainWindow):
         self._build_test_records_page()
         self.pd_panel = PdDaqPanel(self.main_tabs, auto_refresh=False)
         self.pd_tab_index = self.main_tabs.addTab(self.pd_panel, "PD 采集")
+        self._build_navigation_buttons()
         self.main_tabs.currentChanged.connect(self.on_main_tab_changed)
         self.pd_panel.running_changed.connect(lambda _running: self.update_global_status())
         self.pd_panel.acquisition_finished.connect(self._continue_pending_close)
@@ -377,11 +385,84 @@ class MainWindow(QMainWindow):
         self._disable_wheel_input_changes()
         self._restore_input_settings()
         self._connect_preflight_updates()
+        self._configure_keyboard_focus_order()
 
         self.setStatusBar(QStatusBar(self))
         self.statusBar().showMessage("就绪")
         self.update_global_status()
         self.refresh_preflight_checklist()
+
+    def _build_navigation_panel(self, parent: QGridLayout) -> None:
+        self.navigation_panel = QWidget(self.central_shell)
+        self.navigation_panel.setObjectName("navigationPanel")
+        self.navigation_panel.setFixedWidth(NAVIGATION_WIDTH)
+        navigation_layout = QVBoxLayout(self.navigation_panel)
+        navigation_layout.setContentsMargins(12, 16, 12, 14)
+        navigation_layout.setSpacing(6)
+
+        navigation_title = QLabel("综合测试", self.navigation_panel)
+        navigation_title.setObjectName("navigationTitle")
+        navigation_title.setFont(font_for_role(FontRole.PAGE_TITLE))
+        navigation_layout.addWidget(navigation_title)
+        navigation_subtitle = QLabel("设备与数据采集", self.navigation_panel)
+        navigation_subtitle.setFont(font_for_role(FontRole.SECONDARY))
+        navigation_subtitle.setStyleSheet(
+            f"color: {semantic_colors_for_palette(self.palette()).secondary_text};"
+        )
+        navigation_layout.addWidget(navigation_subtitle)
+        navigation_layout.addSpacing(14)
+
+        self.navigation_button_group = QButtonGroup(self.navigation_panel)
+        self.navigation_button_group.setExclusive(True)
+        self.navigation_buttons_layout = navigation_layout
+        self.navigation_buttons: dict[int, QPushButton] = {}
+        parent.addWidget(self.navigation_panel, 0, 0, 2, 1)
+
+    def _build_navigation_buttons(self) -> None:
+        pages = (
+            (self.automatic_tab_index, "自动测试"),
+            (self.manual_tab_index, "手动调试"),
+            (self.records_tab_index, "当前记录"),
+            (self.pd_tab_index, "PD 采集"),
+        )
+        for index, title in pages:
+            button = QPushButton(title, self.navigation_panel)
+            button.setCheckable(True)
+            button.setProperty("navigation", True)
+            button.setAccessibleName(f"切换到{title}")
+            button.clicked.connect(lambda _checked=False, page_index=index: self._activate_navigation(page_index))
+            self.navigation_button_group.addButton(button, index)
+            self.navigation_buttons[index] = button
+            self.navigation_buttons_layout.addWidget(button)
+        self.navigation_buttons_layout.addStretch(1)
+        self._sync_navigation_state(self.main_tabs.currentIndex())
+
+    def _activate_navigation(self, index: int) -> None:
+        if self.main_tabs.isTabEnabled(index):
+            self.main_tabs.setCurrentIndex(index)
+        else:
+            self._sync_navigation_state(self.main_tabs.currentIndex())
+
+    def _sync_navigation_state(self, index: int) -> None:
+        if not hasattr(self, "navigation_buttons"):
+            return
+        for page_index, button in self.navigation_buttons.items():
+            button.setChecked(page_index == index)
+        titles = {
+            getattr(self, "automatic_tab_index", -1): "自动测试",
+            getattr(self, "manual_tab_index", -1): "手动调试",
+            getattr(self, "records_tab_index", -1): "当前记录",
+            getattr(self, "pd_tab_index", -1): "PD 采集",
+        }
+        if hasattr(self, "page_title_label"):
+            self.page_title_label.setText(titles.get(index, "综合测试"))
+
+    def _sync_navigation_access(self) -> None:
+        if not hasattr(self, "navigation_buttons"):
+            return
+        for index, button in self.navigation_buttons.items():
+            button.setEnabled(self.main_tabs.isTabEnabled(index))
+            button.setToolTip(self.main_tabs.tabToolTip(index))
 
     def _restore_input_settings(self) -> None:
         """Restore only operator-entered configuration, never live acquisition state."""
@@ -618,12 +699,23 @@ class MainWindow(QMainWindow):
         settings.setValue(prefix + "output_dir", self.output_dir_field.text().strip())
         settings.sync()
 
-    def _build_global_status_bar(self, parent: QVBoxLayout) -> None:
-        row = QHBoxLayout()
+    def _build_global_status_bar(self, parent: QGridLayout) -> None:
+        self.page_header = QWidget(self.central_shell)
+        self.page_header.setObjectName("pageHeader")
+        row = QHBoxLayout(self.page_header)
+        row.setContentsMargins(16, 10, 16, 8)
         row.setSpacing(10)
 
-        self.global_status_label = QLabel("测试待机", self)
-        self.global_status_label.setStyleSheet("font-size: 18px; font-weight: 700;")
+        self.page_title_label = QLabel("自动测试", self.page_header)
+        self.page_title_label.setFont(font_for_role(FontRole.PAGE_TITLE))
+        row.addWidget(self.page_title_label)
+
+        self.global_status_label = QLabel("", self)
+        self.global_status_label.setFont(font_for_role(FontRole.SECTION_TITLE))
+        self.global_status_label.setStyleSheet(
+            f"color: {semantic_colors_for_palette(self.palette()).secondary_text};"
+        )
+        self.global_status_label.hide()
         row.addWidget(self.global_status_label)
         row.addStretch(1)
 
@@ -652,15 +744,15 @@ class MainWindow(QMainWindow):
         self.global_progress_label = QLabel("准备测试", self)
         self.global_progress_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.global_progress_label.setMinimumWidth(180)
-        row.addWidget(self.global_progress_label)
+        self.global_progress_label.hide()
 
-        parent.addLayout(row)
+        parent.addWidget(self.page_header, 0, 1)
 
     def _build_manual_toolbar(self, parent: QVBoxLayout) -> None:
         row = QHBoxLayout()
         row.setSpacing(8)
         title = QLabel("设备手动控制与诊断", self.manual_page)
-        title.setStyleSheet("font-size: 17px; font-weight: 600;")
+        title.setFont(font_for_role(FontRole.SECTION_TITLE))
         description = QLabel("按电源、功率计、光谱仪逐台连接和诊断", self.manual_page)
         description.setStyleSheet(
             f"color: {semantic_colors_for_palette(self.palette()).secondary_text};"
@@ -758,21 +850,55 @@ class MainWindow(QMainWindow):
         button.setMinimumWidth(minimum_width)
         button.setMinimumHeight(28)
 
+    def _configure_keyboard_focus_order(self) -> None:
+        """Keep the preparation workflow predictable for keyboard operators."""
+
+        focus_order = (
+            self.sn_field,
+            self.test_station_field,
+            self.output_dir_field,
+            self.browse_button,
+            self.auto_initial_current_spin,
+            self.auto_target_current_spin,
+            self.auto_current_step_spin,
+            self.auto_point_timeout_spin,
+            self.auto_ramp_down_step_spin,
+            self.auto_ramp_down_interval_spin,
+            self.auto_pause_ramp_down_timeout_spin,
+            self.auto_use_spectrometer_check,
+            self.prepare_power_supply_combo,
+            self.prepare_psu_button,
+            self.prepare_power_meter_combo,
+            self.prepare_power_meter_button,
+            self.prepare_power_meter_open_button,
+            self.prepare_power_meter_close_button,
+            self.prepare_spectrometer_combo,
+            self.prepare_spectrometer_button,
+            self.prepare_spectrometer_open_button,
+            self.prepare_spectrometer_close_button,
+            self.preflight_action_button,
+            self.start_automatic_test_button,
+        )
+        for current, following in zip(focus_order, focus_order[1:]):
+            QWidget.setTabOrder(current, following)
+
     def _configure_button_semantics(self) -> None:
         """Keep native controls and reserve color for destructive actions."""
-        self.start_automatic_test_button.setStyleSheet("font-weight: 600;")
-        self.apply_current_button.setStyleSheet("font-weight: 600;")
-        self.save_excel_button.setStyleSheet("font-weight: 600;")
+        emphasized_font = font_for_role(FontRole.SECTION_TITLE)
+        self.start_automatic_test_button.setFont(emphasized_font)
+        self.apply_current_button.setFont(emphasized_font)
+        self.save_excel_button.setFont(emphasized_font)
 
         semantic = semantic_colors_for_palette(self.palette())
         danger_color = semantic.error_text
         destructive_style = (
-            f"QPushButton {{ color: {danger_color}; font-weight: 600; }}"
+            f"QPushButton {{ color: {danger_color}; }}"
             f"QPushButton:disabled {{ color: {semantic.secondary_text}; }}"
         )
+        self.emergency_stop_button.setFont(emphasized_font)
         self.emergency_stop_button.setStyleSheet(
             "QPushButton { background-color: #c62828; color: white; "
-            "font-weight: 700; border: none; border-radius: 4px; padding: 6px 14px; }"
+            "border: none; border-radius: 4px; padding: 6px 14px; }"
             "QPushButton:hover { background-color: #b71c1c; }"
             "QPushButton:pressed { background-color: #8e0000; }"
         )
@@ -785,6 +911,7 @@ class MainWindow(QMainWindow):
             self.pd_panel.stop_button,
             self.end_automatic_test_button,
         ):
+            button.setFont(emphasized_font)
             button.setStyleSheet(destructive_style)
 
     def _build_session_group(self, parent: QVBoxLayout) -> None:
@@ -914,7 +1041,7 @@ class MainWindow(QMainWindow):
             name_label = QLabel(name, self)
             name_label.setBuddy(combo)
             for button in (detect_button, open_button, close_button):
-                self._configure_action_button(button, 84)
+                self._configure_action_button(button, 70)
             measurement_grid.addWidget(name_label, row, 0)
             measurement_grid.addWidget(combo, row, 1)
             measurement_grid.addWidget(detect_button, row, 2)
@@ -942,7 +1069,7 @@ class MainWindow(QMainWindow):
 
         layout.addSpacing(8)
         sequence_title = QLabel("测试序列", group)
-        sequence_title.setStyleSheet("font-weight: 600;")
+        sequence_title.setFont(font_for_role(FontRole.SECTION_TITLE))
         self.preflight_sequence_label = QLabel("1.0 → 20.0 A\n间隔 1.0 A，共 20 点", group)
         self.preflight_sequence_label.setWordWrap(True)
         layout.addWidget(sequence_title)
@@ -974,14 +1101,14 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout()
         row.setSpacing(12)
         self.run_state_label = QLabel("当前测试点", self.automatic_run_page)
-        self.run_state_label.setStyleSheet("font-size: 18px; font-weight: 700;")
+        self.run_state_label.setFont(font_for_role(FontRole.PAGE_TITLE))
         self.run_state_label.setAccessibleName("自动测试运行状态")
         self.run_progress_label = QLabel("0 / 0 点", self.automatic_run_page)
         self.run_current_label = QLabel("当前 -- A", self.automatic_run_page)
         self.run_elapsed_label = QLabel("已运行 00:00", self.automatic_run_page)
         self.run_remaining_label = QLabel("剩余时间由判稳速度决定", self.automatic_run_page)
         self.run_stage_label = QLabel("正在启动设备", self.automatic_run_page)
-        self.run_stage_label.setStyleSheet("font-weight: 600;")
+        self.run_stage_label.setFont(font_for_role(FontRole.SECTION_TITLE))
         row.addWidget(self.run_state_label)
         row.addWidget(self.run_progress_label)
         row.addWidget(self.run_current_label)
@@ -995,7 +1122,7 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout()
         row.setSpacing(8)
         latest_title = QLabel("最新事件：", self.automatic_run_page)
-        latest_title.setStyleSheet("font-weight: 600;")
+        latest_title.setFont(font_for_role(FontRole.SECTION_TITLE))
         self.run_event_label = QLabel("等待开始", self.automatic_run_page)
         self.run_event_label.setMinimumWidth(0)
         row.addWidget(latest_title)
@@ -1017,16 +1144,25 @@ class MainWindow(QMainWindow):
 
     def _build_automatic_result_page(self) -> None:
         layout = QVBoxLayout(self.automatic_result_page)
-        layout.setContentsMargins(36, 28, 36, 28)
+        layout.setContentsMargins(28, 24, 28, 24)
         layout.setSpacing(12)
-        self.result_title_label = QLabel("测试完成", self.automatic_result_page)
-        self.result_title_label.setStyleSheet("font-size: 26px; font-weight: 700;")
+        self.result_outcome_panel = QWidget(self.automatic_result_page)
+        self.result_outcome_panel.setObjectName("resultOutcomePanel")
+        outcome_layout = QVBoxLayout(self.result_outcome_panel)
+        outcome_layout.setContentsMargins(18, 14, 18, 14)
+        outcome_layout.setSpacing(4)
+        self.result_title_label = QLabel("测试完成", self.result_outcome_panel)
+        self.result_title_label.setFont(font_for_role(FontRole.METRIC))
         self.result_title_label.setAccessibleName("自动测试结果")
-        self.result_completion_label = QLabel("测试流程完整完成", self.automatic_result_page)
-        self.result_completion_label.setStyleSheet("font-size: 16px;")
+        self.result_completion_label = QLabel("测试流程完整完成", self.result_outcome_panel)
+        self.result_completion_label.setFont(font_for_role(FontRole.SECTION_TITLE))
         self.result_completion_label.setWordWrap(True)
-        layout.addWidget(self.result_title_label)
-        layout.addWidget(self.result_completion_label)
+        outcome_layout.addWidget(self.result_title_label)
+        outcome_layout.addWidget(self.result_completion_label)
+        layout.addWidget(self.result_outcome_panel)
+
+        result_details = QHBoxLayout()
+        result_details.setSpacing(12)
 
         summary_group = QGroupBox("测试摘要", self.automatic_result_page)
         summary_form = QFormLayout(summary_group)
@@ -1042,7 +1178,7 @@ class MainWindow(QMainWindow):
         summary_form.addRow("测试点", self.result_points_label)
         summary_form.addRow("完成时间", self.result_time_label)
         summary_form.addRow("结果文件", self.result_file_label)
-        layout.addWidget(summary_group)
+        result_details.addWidget(summary_group, stretch=1)
 
         metrics_group = QGroupBox("最终测试点", self.automatic_result_page)
         metrics_form = QFormLayout(metrics_group)
@@ -1058,7 +1194,8 @@ class MainWindow(QMainWindow):
             label = QLabel("--", metrics_group)
             self.result_metric_labels[key] = label
             metrics_form.addRow(title, label)
-        layout.addWidget(metrics_group)
+        result_details.addWidget(metrics_group, stretch=1)
+        layout.addLayout(result_details)
         layout.addStretch(1)
 
         actions = QHBoxLayout()
@@ -1079,7 +1216,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(12)
         title = QLabel("当前记录", self.records_page)
-        title.setStyleSheet("font-size: 20px; font-weight: 700;")
+        title.setFont(font_for_role(FontRole.PAGE_TITLE))
         description = QLabel("当前测试会话的保存状态和结果文件", self.records_page)
         description.setStyleSheet(
             f"color: {semantic_colors_for_palette(self.palette()).secondary_text};"
@@ -1087,7 +1224,27 @@ class MainWindow(QMainWindow):
         layout.addWidget(title)
         layout.addWidget(description)
 
+        self.records_empty_state = QWidget(self.records_page)
+        self.records_empty_state.setObjectName("recordsEmptyState")
+        empty_layout = QVBoxLayout(self.records_empty_state)
+        empty_layout.setContentsMargins(24, 24, 24, 24)
+        empty_layout.setSpacing(6)
+        self.records_empty_title = QLabel("还没有测试记录", self.records_empty_state)
+        self.records_empty_title.setFont(font_for_role(FontRole.SECTION_TITLE))
+        self.records_empty_description = QLabel(
+            "完成自动测试或在当前会话保存测试点后，结果文件会显示在这里。",
+            self.records_empty_state,
+        )
+        self.records_empty_description.setWordWrap(True)
+        self.records_empty_description.setStyleSheet(
+            f"color: {semantic_colors_for_palette(self.palette()).secondary_text};"
+        )
+        empty_layout.addWidget(self.records_empty_title)
+        empty_layout.addWidget(self.records_empty_description)
+        layout.addWidget(self.records_empty_state)
+
         group = QGroupBox("当前会话", self.records_page)
+        self.records_session_panel = group
         form = QFormLayout(group)
         self.save_status_label = QLabel("暂无可保存的测试点", group)
         self.save_status_label.setWordWrap(True)
@@ -1119,6 +1276,7 @@ class MainWindow(QMainWindow):
         form.addRow("结果文件", self.records_file_label)
         form.addRow("", actions)
         layout.addWidget(group)
+        group.hide()
         layout.addStretch(1)
 
     def refresh_records_page(self) -> None:
@@ -1133,6 +1291,9 @@ class MainWindow(QMainWindow):
             self.records_points_label.setText("暂无测试点")
         result_path = self.excel_workbook_path
         result_exists = bool(result_path is not None and result_path.is_file())
+        has_session = bool(records) or result_path is not None
+        self.records_empty_state.setVisible(not has_session)
+        self.records_session_panel.setVisible(has_session)
         self.records_open_button.setEnabled(result_exists)
         self.records_open_folder_button.setEnabled(result_exists)
 
@@ -1791,7 +1952,9 @@ class MainWindow(QMainWindow):
         self.reset_curves()
 
     def on_main_tab_changed(self, index: int) -> None:
+        self._sync_navigation_state(index)
         self._place_live_plots_for_tab(index)
+        self.update_global_status()
         if index != self.pd_tab_index or self.pd_panel.reader is not None:
             return
         if self.pd_panel.device_combo.count() == 0:
@@ -1801,6 +1964,11 @@ class MainWindow(QMainWindow):
         """Keep one live plot history visible in both automatic and manual modes."""
         if not hasattr(self, "live_plots"):
             return
+        self.live_plots.set_layout_context(
+            PlotLayoutContext.MANUAL
+            if index == self.manual_tab_index
+            else PlotLayoutContext.AUTOMATIC
+        )
         target_layout = (
             self.manual_monitor_layout
             if index == self.manual_tab_index
@@ -2113,6 +2281,7 @@ class MainWindow(QMainWindow):
             self.manual_tab_index,
             manual_lock or not automatic_active or self.automatic_test_state == AutomaticTestState.PAUSED,
         )
+        self._sync_navigation_access()
         if manual_lock and not was_on_pd_tab:
             self.main_tabs.setCurrentIndex(self.manual_tab_index)
             return
@@ -2537,15 +2706,20 @@ class MainWindow(QMainWindow):
         spectrometer_fault = bool(self._spectrometer_fault_message)
 
         if self.automatic_test_state == AutomaticTestState.PAUSED:
-            self.global_status_label.setText("自动测试已暂停")
+            status_text = "自动测试已暂停"
         elif self.automatic_test_state == AutomaticTestState.RAMPING_DOWN:
-            self.global_status_label.setText("自动测试下电中")
+            status_text = "自动测试下电中"
         elif automatic_active:
-            self.global_status_label.setText("自动测试运行中")
+            status_text = "自动测试运行中"
+        elif (
+            self.automatic_test_state == AutomaticTestState.COMPLETED
+            and self.main_tabs.currentIndex() == self.automatic_tab_index
+        ):
+            status_text = "测试完成"
         else:
-            self.global_status_label.setText(
-                "测试运行中" if power_running or spectrometer_running or pd_running else "测试待机"
-            )
+            status_text = ""
+        self.global_status_label.setText(status_text)
+        self.global_status_label.setVisible(bool(status_text))
         if shutdown_unconfirmed:
             current_detail = (
                 f" · 最近设定 {last_output_current_a:.1f} A"

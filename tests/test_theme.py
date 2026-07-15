@@ -11,10 +11,14 @@ from combined_test.theme import (
     DARK_BASE,
     DARK_SEMANTIC_COLORS,
     DARK_WINDOW,
+    FontRole,
     LIGHT_SEMANTIC_COLORS,
     apply_application_theme,
     build_dark_palette,
+    build_light_palette,
+    font_for_role,
     semantic_colors_for_palette,
+    ui_font_families,
 )
 
 
@@ -35,6 +39,39 @@ def _contrast_ratio(foreground: str, background: str) -> float:
 
 
 class DarkThemeTests(unittest.TestCase):
+    def test_windows_ui_font_chain_and_roles_are_explicit(self) -> None:
+        self.assertEqual(
+            ui_font_families("win32"),
+            ("Microsoft YaHei UI", "Segoe UI", "Microsoft YaHei"),
+        )
+        self.assertEqual(font_for_role(FontRole.BODY, "win32").pointSizeF(), 10.0)
+        self.assertEqual(font_for_role(FontRole.SECONDARY, "win32").pointSizeF(), 9.0)
+        self.assertEqual(font_for_role(FontRole.PAGE_TITLE, "win32").pointSizeF(), 16.0)
+
+    def test_light_palette_has_clear_neutral_surface_roles(self) -> None:
+        palette = build_light_palette()
+
+        self.assertEqual(palette.color(QPalette.ColorRole.Window).name(), "#f3f5f7")
+        self.assertEqual(palette.color(QPalette.ColorRole.Base).name(), "#ffffff")
+        self.assertEqual(palette.color(QPalette.ColorRole.Highlight).name(), "#2563a6")
+        self.assertLess(
+            palette.color(QPalette.ColorRole.WindowText).lightness(),
+            palette.color(QPalette.ColorRole.Window).lightness(),
+        )
+
+    def test_light_palette_disabled_controls_remain_readable_and_distinct(self) -> None:
+        palette = build_light_palette()
+        disabled_text = palette.color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text)
+        disabled_base = palette.color(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Base)
+        active_text = palette.color(QPalette.ColorGroup.Active, QPalette.ColorRole.Text)
+
+        self.assertNotEqual(disabled_text, active_text)
+        self.assertGreaterEqual(_contrast_ratio(disabled_text.name(), disabled_base.name()), 3.0)
+        self.assertNotEqual(
+            disabled_base,
+            palette.color(QPalette.ColorGroup.Active, QPalette.ColorRole.Base),
+        )
+
     def test_semantic_colors_follow_light_and_dark_palettes(self) -> None:
         light_palette = QPalette()
         light_palette.setColor(QPalette.ColorRole.Window, QColor("#ffffff"))
@@ -109,6 +146,23 @@ class DarkThemeTests(unittest.TestCase):
             app.setStyle(old_style_name)
             app.setPalette(old_palette)
             app.setStyleSheet(old_stylesheet)
+
+    def test_application_theme_defaults_to_curated_light_palette_and_ui_font(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        old_style_name = app.style().objectName()
+        old_palette = QPalette(app.palette())
+        old_stylesheet = app.styleSheet()
+        old_font = app.font()
+        try:
+            self.assertFalse(apply_application_theme(app))
+            self.assertEqual(app.palette().color(QPalette.ColorRole.Window).name(), "#f3f5f7")
+            self.assertEqual(app.font().pointSizeF(), 10.0)
+            self.assertIn("#navigationPanel", app.styleSheet())
+        finally:
+            app.setStyle(old_style_name)
+            app.setPalette(old_palette)
+            app.setStyleSheet(old_stylesheet)
+            app.setFont(old_font)
 
 
 if __name__ == "__main__":

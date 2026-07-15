@@ -43,6 +43,8 @@ from matplotlib.figure import Figure
 from matplotlib.font_manager import FontProperties
 from matplotlib.ticker import EngFormatter, MaxNLocator
 
+from combined_test.theme import FontRole, font_for_role
+
 
 DEFAULT_SAMPLE_RATE_HZ = 1_000.0
 DEFAULT_BLOCK_SIZE = 100
@@ -374,13 +376,26 @@ class PdDaqPanel(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
+        root.setContentsMargins(14, 12, 14, 12)
+        root.setSpacing(10)
 
-        settings_group = QGroupBox("设备与采样", self)
-        self.settings_layout = QFormLayout(settings_group)
-        self.settings_layout.setFieldGrowthPolicy(
-            QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
-        )
-        self.settings_layout.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        settings_panel = QWidget(self)
+        self.settings_grid = QGridLayout(settings_panel)
+        self.settings_grid.setContentsMargins(0, 0, 0, 0)
+        self.settings_grid.setHorizontalSpacing(10)
+        self.settings_grid.setVerticalSpacing(10)
+
+        def configure_form(group: QGroupBox) -> QFormLayout:
+            form = QFormLayout(group)
+            form.setContentsMargins(10, 10, 10, 10)
+            form.setHorizontalSpacing(8)
+            form.setVerticalSpacing(6)
+            form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+            form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+            return form
+
+        self.device_settings_group = QGroupBox("设备与接线", settings_panel)
+        self.settings_layout = configure_form(self.device_settings_group)
 
         device_row = QHBoxLayout()
         self.device_combo = QComboBox(self)
@@ -421,7 +436,9 @@ class PdDaqPanel(QWidget):
         self.wiring_hint_label.setWordWrap(True)
         self.settings_layout.addRow("接线提示", self.wiring_hint_label)
 
-        sampling_row = QGridLayout()
+        self.sampling_settings_group = QGroupBox("采样参数", settings_panel)
+        sampling_form = configure_form(self.sampling_settings_group)
+
         self.range_combo = QComboBox(self)
         self.range_combo.setAccessibleName("输入量程")
         self.sample_rate_spin = QDoubleSpinBox(self)
@@ -441,21 +458,16 @@ class PdDaqPanel(QWidget):
         self.sample_rate_field_label.setBuddy(self.sample_rate_spin)
         self.block_size_field_label = QLabel("每批点数", self)
         self.block_size_field_label.setBuddy(self.block_size_spin)
-        for column, (label, field) in enumerate(
-            (
-                (self.range_field_label, self.range_combo),
-                (self.sample_rate_field_label, self.sample_rate_spin),
-                (self.block_size_field_label, self.block_size_spin),
-            )
-        ):
-            sampling_row.addWidget(label, 0, column)
-            sampling_row.addWidget(field, 1, column)
-            sampling_row.setColumnStretch(column, 1)
+        sampling_form.addRow(self.range_field_label, self.range_combo)
+        sampling_form.addRow(self.sample_rate_field_label, self.sample_rate_spin)
+        sampling_form.addRow(self.block_size_field_label, self.block_size_spin)
         self.sampling_field_label = QLabel("采样参数", self)
         self.sampling_field_label.setBuddy(self.range_combo)
-        self.settings_layout.addRow(self.sampling_field_label, sampling_row)
+        self.sampling_field_label.hide()
 
-        calibration_row = QGridLayout()
+        self.calibration_settings_group = QGroupBox("线性标定", settings_panel)
+        calibration_form = configure_form(self.calibration_settings_group)
+
         self.scale_spin = QDoubleSpinBox(self)
         self.scale_spin.setAccessibleName("线性标定比例系数")
         self.scale_spin.setRange(-1e9, 1e9)
@@ -474,21 +486,16 @@ class PdDaqPanel(QWidget):
         self.offset_field_label.setBuddy(self.offset_spin)
         self.unit_field_label = QLabel("显示单位", self)
         self.unit_field_label.setBuddy(self.unit_edit)
-        for column, (label, field) in enumerate(
-            (
-                (self.scale_field_label, self.scale_spin),
-                (self.offset_field_label, self.offset_spin),
-                (self.unit_field_label, self.unit_edit),
-            )
-        ):
-            calibration_row.addWidget(label, 0, column)
-            calibration_row.addWidget(field, 1, column)
-            calibration_row.setColumnStretch(column, 0 if field is self.unit_edit else 1)
+        calibration_form.addRow(self.scale_field_label, self.scale_spin)
+        calibration_form.addRow(self.offset_field_label, self.offset_spin)
+        calibration_form.addRow(self.unit_field_label, self.unit_edit)
         self.calibration_field_label = QLabel("线性标定", self)
         self.calibration_field_label.setBuddy(self.scale_spin)
-        self.settings_layout.addRow(self.calibration_field_label, calibration_row)
+        self.calibration_field_label.hide()
 
-        save_row = QGridLayout()
+        self.storage_settings_group = QGroupBox("数据保存", settings_panel)
+        storage_form = configure_form(self.storage_settings_group)
+
         self.save_checkbox = QCheckBox("采集时保存完整原始数据", self)
         self.save_checkbox.setAccessibleName("保存完整原始数据")
         self.save_checkbox.setChecked(True)
@@ -500,23 +507,28 @@ class PdDaqPanel(QWidget):
         self.save_checkbox.toggled.connect(self.browse_button.setEnabled)
         self.output_dir_field_label = QLabel("保存文件夹", self)
         self.output_dir_field_label.setBuddy(self.output_dir_edit)
-        save_row.addWidget(self.save_checkbox, 0, 0, 1, 3)
-        save_row.addWidget(self.output_dir_field_label, 1, 0)
-        save_row.addWidget(self.output_dir_edit, 1, 1)
-        save_row.addWidget(self.browse_button, 1, 2)
-        save_row.setColumnStretch(1, 1)
         self.data_save_field_label = QLabel("数据保存", self)
         self.data_save_field_label.setBuddy(self.save_checkbox)
-        self.settings_layout.addRow(self.data_save_field_label, save_row)
+        storage_form.addRow(self.data_save_field_label, self.save_checkbox)
+        output_row = QHBoxLayout()
+        output_row.addWidget(self.output_dir_edit, 1)
+        output_row.addWidget(self.browse_button)
+        storage_form.addRow(self.output_dir_field_label, output_row)
 
-        root.addWidget(settings_group)
+        self.settings_grid.addWidget(self.device_settings_group, 0, 0)
+        self.settings_grid.addWidget(self.sampling_settings_group, 0, 1)
+        self.settings_grid.addWidget(self.calibration_settings_group, 1, 0)
+        self.settings_grid.addWidget(self.storage_settings_group, 1, 1)
+        self.settings_grid.setColumnStretch(0, 1)
+        self.settings_grid.setColumnStretch(1, 1)
+        root.addWidget(settings_panel)
 
         live_group = QGroupBox("实时数据", self)
         live_layout = QVBoxLayout(live_group)
         values_layout = QGridLayout()
         self.current_value_label = QLabel("--", self)
         self.current_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.current_value_label.setStyleSheet("font-size: 38px; font-weight: 700;")
+        self.current_value_label.setFont(font_for_role(FontRole.METRIC))
         self.voltage_label = QLabel("电压：-- V", self)
         self.mean_label = QLabel("批次均值：--", self)
         self.std_label = QLabel("标准差：--", self)

@@ -7,6 +7,7 @@ import sys
 import time
 from collections import deque
 from collections.abc import Mapping
+from enum import Enum
 from typing import Any
 
 from PySide6.QtGui import QPalette
@@ -61,6 +62,13 @@ POWER_LINE_COLOR = "#2f79bd"
 STABLE_LINE_COLOR = "#2f8f46"
 EFFICIENCY_LINE_COLOR = "#d58a00"
 SPECTRUM_LINE_COLOR = "#6b8e23"
+
+
+class PlotLayoutContext(str, Enum):
+    """Supported placements for the shared realtime plot surface."""
+
+    AUTOMATIC = "automatic"
+    MANUAL = "manual"
 
 
 class OneDecimalScalarFormatter(ScalarFormatter):
@@ -137,6 +145,7 @@ class LivePlots:
         self._power_stable = False
         self._stable_window_target_s = 0.0
         self._stable_region_artist: Any | None = None
+        self.layout_context = PlotLayoutContext.AUTOMATIC
         self._layout_mode = ""
         self._build_charts()
         self.relayout(parent.width())
@@ -317,8 +326,21 @@ class LivePlots:
         formatter.set_useOffset(False)
         axis.yaxis.set_major_formatter(formatter)
 
+    def set_layout_context(self, context: PlotLayoutContext) -> None:
+        if not isinstance(context, PlotLayoutContext):
+            raise TypeError(f"Plot layout context must be PlotLayoutContext, got {context!r}")
+        if context == self.layout_context:
+            return
+        self.layout_context = context
+        self._layout_mode = ""
+        self.relayout(max(self.group.width(), 1))
+
     def relayout(self, available_width: int) -> None:
-        mode = "dashboard" if available_width >= DASHBOARD_LAYOUT_MIN_WIDTH else "tabbed"
+        mode = (
+            "tabbed"
+            if self.layout_context is PlotLayoutContext.MANUAL
+            else "dashboard" if available_width >= DASHBOARD_LAYOUT_MIN_WIDTH else "tabbed"
+        )
         if mode == self._layout_mode:
             return
         self._layout_mode = mode
