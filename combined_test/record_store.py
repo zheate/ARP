@@ -21,6 +21,7 @@ class RecordStore(Protocol):
         sn: str,
         started_at: datetime,
         *,
+        test_station: str = "",
         reset: bool = True,
     ) -> Path: ...
 
@@ -47,9 +48,16 @@ class SessionRecordStore:
         sn: str,
         started_at: datetime,
         *,
+        test_station: str = "",
         reset: bool = True,
     ) -> Path:
-        self.workbook_path = build_test_workbook_path(output_dir, sn, started_at)
+        self.workbook_path = build_test_workbook_path(
+            output_dir,
+            sn,
+            started_at,
+            test_station,
+        )
+        self.workbook_path.parent.mkdir(parents=True, exist_ok=True)
         if reset:
             self.pending_records.clear()
             self.recorded_currents.clear()

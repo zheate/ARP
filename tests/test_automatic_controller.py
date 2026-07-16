@@ -176,6 +176,62 @@ class AutomaticTestControllerLifecycleTests(unittest.TestCase):
         self.assertEqual(result_details, [])
         self.window.automatic_ramp_down_timer.stop()
 
+    def test_two_amp_single_point_retries_transient_second_i2c_write(self) -> None:
+        class FlakyLegacyController:
+            is_connected = True
+
+            def __init__(self) -> None:
+                self.writes: list[list[int]] = []
+                self.two_amp_attempts = 0
+
+            def i2c_write(self, _address: int, command: list[int]) -> tuple[bool, str]:
+                self.writes.append(command)
+                if command == [0xB4, 0xFF, 0x02, 0x00]:
+                    self.two_amp_attempts += 1
+                    if self.two_amp_attempts == 1:
+                        return False, "写入失败"
+                return True, "OK"
+
+        class ReaderStub:
+            def reset_stability_window(self) -> int:
+                return 1
+
+        controller = FlakyLegacyController()
+        self.window.manual_ch341_controller = controller
+        self.window.power_meter_reader = ReaderStub()  # type: ignore[assignment]
+        self.window.automatic_test_settings = self.window.collect_automatic_test_settings()
+        self.window.automatic_test_currents = (2.0,)
+        self.window.automatic_test_current_index = 0
+
+        self.window.begin_automatic_current_point()
+
+        self.assertEqual(controller.writes, [[0xB4, 0xFF, 0x01, 0x00]])
+        self.window.automatic_command_timer.stop()
+        self.window.last_power_supply_command_monotonic_s = time.monotonic() - 2.0
+        self.window.on_automatic_command_timer_timeout()
+
+        self.assertEqual(
+            controller.writes,
+            [[0xB4, 0xFF, 0x01, 0x00], [0xB4, 0xFF, 0x02, 0x00]],
+        )
+        self.assertEqual(self.window.automatic_test_state, AutomaticTestState.SETTING_CURRENT)
+        self.assertTrue(self.window.automatic_command_timer.isActive())
+
+        self.window.automatic_command_timer.stop()
+        self.window.last_power_supply_command_monotonic_s = time.monotonic() - 2.0
+        self.window.on_automatic_command_timer_timeout()
+
+        self.assertEqual(
+            controller.writes,
+            [
+                [0xB4, 0xFF, 0x01, 0x00],
+                [0xB4, 0xFF, 0x02, 0x00],
+                [0xB4, 0xFF, 0x02, 0x00],
+            ],
+        )
+        self.assertEqual(self.window.automatic_test_state, AutomaticTestState.WAITING_STABLE)
+        self.window.power_meter_reader = None
+
     def test_missing_tdk_controller_never_reports_safe_shutdown(self) -> None:
         result_details = self._prepare_zero_current_terminal_path(AutomaticTestState.RAMPING_DOWN)
         self.window.power_supply_controller_kind = "tdk"

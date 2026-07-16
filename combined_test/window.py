@@ -2563,6 +2563,7 @@ class MainWindow(QMainWindow):
             Path(output_dir_text),
             sn,
             self.test_session_started_at,
+            test_station=test_station,
             reset=reset_records,
         )
         if reset_records:

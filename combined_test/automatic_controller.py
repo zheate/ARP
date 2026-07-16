@@ -85,6 +85,8 @@ class AutomaticTestController:
         object.__setattr__(self, "_output_shutdown_unconfirmed", False)
         object.__setattr__(self, "_pause_was_operator_requested", False)
         object.__setattr__(self, "_save_completed_while_paused", False)
+        object.__setattr__(self, "_current_write_retry_key", None)
+        object.__setattr__(self, "_current_write_retry_count", 0)
 
     def bind_to_host(self) -> None:
         for name in AUTOMATIC_CONTROLLER_METHODS:
@@ -167,6 +169,28 @@ class AutomaticTestController:
 
     def _mark_output_shutdown_confirmed(self) -> None:
         object.__setattr__(self, "_output_shutdown_unconfirmed", False)
+
+    def _clear_current_write_retry(self) -> None:
+        object.__setattr__(self, "_current_write_retry_key", None)
+        object.__setattr__(self, "_current_write_retry_count", 0)
+
+    def _can_retry_legacy_current_write(self, current_a: float, kind: str) -> bool:
+        """Allow one delayed retry for an idempotent CH341 current command."""
+
+        if self.power_supply_controller_kind == "tdk" or kind == "ramp_down":
+            return False
+        retry_key = (round(float(current_a), 9), str(kind))
+        if self._current_write_retry_key != retry_key:
+            object.__setattr__(self, "_current_write_retry_key", retry_key)
+            object.__setattr__(self, "_current_write_retry_count", 0)
+        if self._current_write_retry_count >= 1:
+            return False
+        object.__setattr__(
+            self,
+            "_current_write_retry_count",
+            self._current_write_retry_count + 1,
+        )
+        return True
 
     def _completion_message(self) -> str:
         outcome = self.terminal_outcome
@@ -298,6 +322,7 @@ class AutomaticTestController:
             return
 
         self._clear_terminal_outcome()
+        self._clear_current_write_retry()
         self.reset_power_curve()
         self.reset_stable_power_curve()
         self.reset_spectrum_curve()
@@ -419,6 +444,17 @@ class AutomaticTestController:
             if raw_error and raw_error != display_error:
                 display_error = f"{display_error}（原始错误：{raw_error}）"
             self.add_log(f"设置 {current_a:.1f} A 原始错误：{raw_error or type(exc).__name__}")
+            if self._can_retry_legacy_current_write(current_a, kind):
+                self.add_log(
+                    f"设置 {current_a:.1f} A 首次失败，将在命令安全间隔后自动重试一次"
+                )
+                self.set_automatic_test_state(
+                    self.automatic_test_state,
+                    f"设置 {current_a:.1f} A 失败，正在自动重试",
+                )
+                self.schedule_automatic_current_command(current_a, kind)
+                return
+            self._clear_current_write_retry()
             if kind == "ramp_down" and self.power_supply_controller_kind == "tdk":
                 self.add_log("TDK 分段降流失败，正在尝试直接关闭输出")
                 try:
@@ -456,6 +492,7 @@ class AutomaticTestController:
             )
             return
 
+        self._clear_current_write_retry()
         if kind == "ramp_down":
             self.on_automatic_ramp_down_current_applied(current_a)
             return
@@ -584,6 +621,7 @@ class AutomaticTestController:
         self.automatic_ramp_down_timer.stop()
         self.automatic_pause_safety_timer.stop()
         self.automatic_ramp_up_currents.clear()
+        self._clear_current_write_retry()
         self.pending_automatic_current_a = None
         self.pending_automatic_command_kind = None
         self.cancel_auto_vout_read()
@@ -803,6 +841,7 @@ class AutomaticTestController:
         self.automatic_pause_safety_timer.stop()
         self.pending_automatic_current_a = None
         self.pending_automatic_command_kind = None
+        self._clear_current_write_retry()
         if self._pending_terminal_outcome is None and self.terminal_outcome is None:
             self._set_pending_terminal_outcome(
                 AutomaticTestTerminalOutcome.SUCCEEDED,
@@ -857,5 +896,6 @@ class AutomaticTestController:
         self.automatic_test_current_index = -1
         self.automatic_completion_record = None
         self.automatic_run_started_monotonic_s = None
+        self._clear_current_write_retry()
         self._clear_terminal_outcome()
         self.set_automatic_test_state(AutomaticTestState.IDLE, "准备测试")

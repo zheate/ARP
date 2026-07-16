@@ -25,24 +25,25 @@ class ExcelExportTests(unittest.TestCase):
             test_station=test_station,
         )
 
-    def test_path_uses_sn_and_test_time(self) -> None:
+    def test_path_uses_sn_station_and_minute_precision_test_time(self) -> None:
         path = build_test_workbook_path(
             Path("records"),
             "SN:001",
             datetime(2026, 7, 10, 14, 30, 25, 123456),
+            "老化站:1",
         )
 
-        self.assertEqual(path, Path("records/SN_001_2026_07_10_14_30_25_123456.xlsx"))
+        self.assertEqual(path, Path("records/SN_001/老化站_1/2026_07_10_14_30.xlsx"))
 
-    def test_paths_are_distinct_for_sessions_started_in_the_same_second(self) -> None:
+    def test_filename_ignores_seconds_and_subsecond_time(self) -> None:
         first = build_test_workbook_path(
-            Path("records"), "SN001", datetime(2026, 7, 10, 14, 30, 25, 1)
+            Path("records"), "SN001", datetime(2026, 7, 10, 14, 30, 25, 1), "老化站 1"
         )
         second = build_test_workbook_path(
-            Path("records"), "SN001", datetime(2026, 7, 10, 14, 30, 25, 2)
+            Path("records"), "SN001", datetime(2026, 7, 10, 14, 30, 59, 999999), "老化站 1"
         )
 
-        self.assertNotEqual(first, second)
+        self.assertEqual(first, second)
 
     def test_appends_liv_and_full_spectra_to_same_reference_layout_workbook(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

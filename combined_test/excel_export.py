@@ -52,11 +52,25 @@ def sanitize_sn(sn: str) -> str:
     return cleaned
 
 
-def build_test_workbook_path(output_dir: Path, sn: str, test_time: datetime) -> Path:
-    # Distinct sessions must never silently replace each other, even when two
-    # tests start during the same second.
-    filename = f"{sanitize_sn(sn)}_{test_time.strftime('%Y_%m_%d_%H_%M_%S_%f')}.xlsx"
-    return Path(output_dir).expanduser() / filename
+def sanitize_test_station(test_station: str) -> str:
+    cleaned = INVALID_FILENAME_CHARS.sub("_", test_station.strip()).rstrip(". ")
+    if not cleaned:
+        raise ValueError("测试站别不能为空")
+    return cleaned
+
+
+def build_test_workbook_path(
+    output_dir: Path,
+    sn: str,
+    test_time: datetime,
+    test_station: str = "",
+) -> Path:
+    """Build ``root/SN/station/YYYY_MM_DD_HH_MM.xlsx`` for a test session."""
+    session_dir = Path(output_dir).expanduser() / sanitize_sn(sn)
+    if test_station.strip():
+        session_dir /= sanitize_test_station(test_station)
+    filename = f"{test_time.strftime('%Y_%m_%d_%H_%M')}.xlsx"
+    return session_dir / filename
 
 
 def _finite_or_none(value: float) -> float | None:

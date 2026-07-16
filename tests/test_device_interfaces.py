@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
@@ -106,13 +107,25 @@ class DeviceInterfaceTests(unittest.TestCase):
     def test_session_record_store_owns_session_and_pending_record_state(self) -> None:
         store = SessionRecordStore()
         started_at = datetime(2026, 7, 12, 9, 30, 0)
-        path = store.begin_session(Path("records"), "SN-1", started_at)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir) / "records"
+            path = store.begin_session(
+                output_dir,
+                "SN-1",
+                started_at,
+                test_station="老化站 1",
+            )
+            self.assertEqual(
+                path,
+                output_dir / "SN-1" / "老化站 1" / "2026_07_12_09_30.xlsx",
+            )
+            self.assertTrue(path.parent.is_dir())
+
         record = ExcelTestRecord(1, 2, 3, 0.5, 976, 976, 1, 0.8, [975, 976], [1, 2])
 
         store.queue(record)
 
         self.assertIsInstance(store, RecordStore)
-        self.assertEqual(path, Path("records/SN-1_2026_07_12_09_30_00_000000.xlsx"))
         self.assertEqual(store.unsaved_records(), (record,))
         store.mark_saved((record,))
         self.assertEqual(store.unsaved_records(), ())

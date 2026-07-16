@@ -360,6 +360,13 @@ class MainWindowTests(unittest.TestCase):
             window.start_automatic_test()
 
             self.assertEqual(window.automatic_test_state, AutomaticTestState.STARTING)
+            self.assertIsNotNone(window.excel_workbook_path)
+            self.assertEqual(
+                window.excel_workbook_path.parent,
+                Path(temp_dir) / "AUTO-001" / "老化站 1",
+            )
+            self.assertRegex(window.excel_workbook_path.name, r"^\d{4}(?:_\d{2}){4}\.xlsx$")
+            self.assertTrue(window.excel_workbook_path.parent.is_dir())
             self.assertEqual(controller.writes, [])
             window.on_power_meter_ready()
             self.assertEqual(controller.writes, [])

@@ -28,3 +28,6 @@ assets/libs/ocean_direct/OceanDirect.dll
 
 .DS_Store
 Thumbs.db
+
+# Generated offline application bundles stay local.
+release/
