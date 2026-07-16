@@ -337,9 +337,10 @@ class LivePlots:
 
     def relayout(self, available_width: int) -> None:
         mode = (
-            "tabbed"
+            "dashboard"
             if self.layout_context is PlotLayoutContext.MANUAL
-            else "dashboard" if available_width >= DASHBOARD_LAYOUT_MIN_WIDTH else "tabbed"
+            or available_width >= DASHBOARD_LAYOUT_MIN_WIDTH
+            else "tabbed"
         )
         if mode == self._layout_mode:
             return

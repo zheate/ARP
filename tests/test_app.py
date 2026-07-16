@@ -1467,7 +1467,7 @@ class MainWindowTests(unittest.TestCase):
             self.assertFalse(canvas.isHidden())
         window.close()
 
-    def test_live_plots_use_dashboard_for_automatic_and_tabs_for_manual(self) -> None:
+    def test_live_plots_show_all_three_charts_on_the_manual_page(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
         window.show()
@@ -1477,14 +1477,29 @@ class MainWindowTests(unittest.TestCase):
         self.assertTrue(window.chart_tabs.isHidden())
 
         window.main_tabs.setCurrentIndex(window.manual_tab_index)
+        window.live_plots.relayout(700)
         app.processEvents()
 
         self.assertIs(window.live_plots.layout_context, PlotLayoutContext.MANUAL)
-        self.assertFalse(window.chart_tabs.isHidden())
         self.assertEqual(
-            [window.chart_tabs.tabText(index) for index in range(window.chart_tabs.count())],
-            ["功率实时", "功率 / 效率", "光谱"],
+            [
+                window.curves_layout.getItemPosition(window.curves_layout.indexOf(canvas))
+                for canvas in (
+                    window.power_curve_canvas,
+                    window.stable_power_canvas,
+                    window.spectrum_curve_canvas,
+                )
+            ],
+            [(0, 0, 1, 1), (0, 1, 1, 1), (1, 0, 1, 2)],
         )
+        self.assertTrue(window.chart_tabs.isHidden())
+        self.assertEqual(window.chart_tabs.count(), 0)
+        for canvas in (
+            window.power_curve_canvas,
+            window.stable_power_canvas,
+            window.spectrum_curve_canvas,
+        ):
+            self.assertFalse(canvas.isHidden())
         window.close()
 
     def test_common_1280_by_800_window_does_not_expand_vertically(self) -> None:
