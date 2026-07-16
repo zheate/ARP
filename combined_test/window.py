@@ -20,6 +20,8 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
@@ -32,6 +34,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QStackedWidget,
     QSpinBox,
     QStatusBar,
@@ -311,6 +314,7 @@ class MainWindow(QMainWindow):
         self._build_preflight_panel(prepare_layout)
 
         self.manual_page = QWidget(self.main_tabs)
+        self.manual_page.setFont(font_for_role(FontRole.BODY))
         self.manual_tab_index = self.main_tabs.addTab(self.manual_page, "手动调试")
         manual_layout = QVBoxLayout(self.manual_page)
         manual_layout.setContentsMargins(0, 0, 0, 0)
@@ -800,50 +804,57 @@ class MainWindow(QMainWindow):
         form.setHorizontalSpacing(8)
         form.setVerticalSpacing(6)
 
-    def _build_manual_details_section(
+    def _build_manual_details_dialog(
         self,
-        parent: QVBoxLayout,
         group: QGroupBox,
         accessible_name: str,
-    ) -> tuple[QToolButton, QWidget, QFormLayout]:
-        toggle = QToolButton(group)
-        toggle.setText("详细配置")
-        toggle.setAccessibleName(f"{accessible_name}详细配置")
-        toggle.setCheckable(True)
-        toggle.setChecked(False)
-        toggle.setArrowType(Qt.ArrowType.RightArrow)
-        toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        parent.addWidget(toggle)
+    ) -> tuple[QPushButton, QDialog, QWidget, QFormLayout]:
+        button = QPushButton("详细配置…", group)
+        button.setAccessibleName(f"打开{accessible_name}详细配置")
+        button.setFont(font_for_role(FontRole.SECONDARY))
+        button.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        self._configure_action_button(button, minimum_width=96)
 
-        content = QWidget(group)
+        dialog = QDialog(self)
+        dialog.setObjectName(f"{accessible_name}DetailsDialog")
+        dialog.setWindowTitle(f"{accessible_name}详细配置")
+        dialog.setWindowModality(Qt.WindowModality.NonModal)
+        dialog.setModal(False)
+        dialog.setMinimumWidth(480)
+        dialog.setFont(font_for_role(FontRole.BODY))
+        dialog_layout = QVBoxLayout(dialog)
+        dialog_layout.setContentsMargins(16, 16, 16, 12)
+        dialog_layout.setSpacing(12)
+
+        content = QWidget(dialog)
         form = QFormLayout(content)
         self._configure_left_form(form)
         form.setContentsMargins(0, 0, 0, 0)
-        content.hide()
-        parent.addWidget(content)
-        toggle.toggled.connect(
-            lambda expanded, button=toggle, panel=content, owner=group: self._set_manual_details_expanded(
-                button,
-                panel,
-                owner,
-                expanded,
-            )
-        )
-        return toggle, content, form
+        dialog_layout.addWidget(content)
 
-    def _set_manual_details_expanded(
-        self,
-        toggle: QToolButton,
-        content: QWidget,
-        group: QGroupBox,
-        expanded: bool,
-    ) -> None:
-        toggle.setArrowType(Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
-        content.setVisible(expanded)
-        group.setMinimumHeight(0)
-        group.updateGeometry()
-        if hasattr(self, "manual_scroll_content"):
-            self.manual_scroll_content.updateGeometry()
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close, dialog)
+        close_button = button_box.button(QDialogButtonBox.StandardButton.Close)
+        if close_button is not None:
+            close_button.setText("关闭")
+        button_box.rejected.connect(dialog.reject)
+        dialog_layout.addWidget(button_box)
+        button.clicked.connect(
+            lambda _checked=False, popup=dialog: self._show_manual_details_dialog(popup)
+        )
+        return button, dialog, content, form
+
+    @staticmethod
+    def _show_manual_details_dialog(dialog: QDialog) -> None:
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    @staticmethod
+    def _keep_manual_group_compact(group: QGroupBox) -> None:
+        group.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Maximum,
+        )
 
     @staticmethod
     def _configure_action_button(button: QPushButton, minimum_width: int = 88) -> None:
@@ -1300,6 +1311,7 @@ class MainWindow(QMainWindow):
     def _build_power_supply_group(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("电源", self)
         self.power_supply_group = group
+        self._keep_manual_group_compact(group)
         group_layout = QVBoxLayout(group)
         group_layout.setContentsMargins(8, 10, 8, 10)
         group_layout.setSpacing(6)
@@ -1661,6 +1673,7 @@ class MainWindow(QMainWindow):
 
     def _build_power_meter_group(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("功率计", self)
+        self._keep_manual_group_compact(group)
         group_layout = QVBoxLayout(group)
         group_layout.setContentsMargins(8, 10, 8, 10)
         group_layout.setSpacing(6)
@@ -1669,10 +1682,11 @@ class MainWindow(QMainWindow):
         form.setContentsMargins(0, 0, 0, 0)
         group_layout.addLayout(form)
         (
-            self.power_meter_details_toggle,
+            self.power_meter_details_button,
+            self.power_meter_details_dialog,
             self.power_meter_details_content,
             details_form,
-        ) = self._build_manual_details_section(group_layout, group, "功率计")
+        ) = self._build_manual_details_dialog(group, "功率计")
         self.power_meter_form = form
         self.power_meter_details_form = details_form
 
@@ -1735,6 +1749,7 @@ class MainWindow(QMainWindow):
         self.start_power_meter_button.clicked.connect(self.start_power_meter)
         self.stop_power_meter_button.clicked.connect(self.stop_power_meter)
         power_run_actions.addWidget(self.power_meter_status_label, stretch=1)
+        power_run_actions.addWidget(self.power_meter_details_button)
         power_run_actions.addWidget(self.start_power_meter_button)
         power_run_actions.addWidget(self.stop_power_meter_button)
         form.addRow("状态", power_run_actions)
@@ -1744,6 +1759,7 @@ class MainWindow(QMainWindow):
 
     def _build_spectrometer_group(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("光谱仪", self)
+        self._keep_manual_group_compact(group)
         group_layout = QVBoxLayout(group)
         group_layout.setContentsMargins(8, 10, 8, 10)
         group_layout.setSpacing(6)
@@ -1752,10 +1768,11 @@ class MainWindow(QMainWindow):
         form.setContentsMargins(0, 0, 0, 0)
         group_layout.addLayout(form)
         (
-            self.spectrometer_details_toggle,
+            self.spectrometer_details_button,
+            self.spectrometer_details_dialog,
             self.spectrometer_details_content,
             details_form,
-        ) = self._build_manual_details_section(group_layout, group, "光谱仪")
+        ) = self._build_manual_details_dialog(group, "光谱仪")
         self.spectrometer_form = form
         self.spectrometer_details_form = details_form
 
@@ -1804,6 +1821,7 @@ class MainWindow(QMainWindow):
         self.start_spectrometer_button.clicked.connect(self.start_spectrometer)
         self.stop_spectrometer_button.clicked.connect(self.stop_spectrometer)
         spectrometer_run_actions.addWidget(self.spectrometer_status_label, stretch=1)
+        spectrometer_run_actions.addWidget(self.spectrometer_details_button)
         spectrometer_run_actions.addWidget(self.start_spectrometer_button)
         spectrometer_run_actions.addWidget(self.stop_spectrometer_button)
         form.addRow("状态", spectrometer_run_actions)
@@ -1986,12 +2004,12 @@ class MainWindow(QMainWindow):
 
     def open_manual_settings(self, section: str = "") -> None:
         self.main_tabs.setCurrentIndex(self.manual_tab_index)
-        details_toggle = {
-            "power_meter": getattr(self, "power_meter_details_toggle", None),
-            "spectrometer": getattr(self, "spectrometer_details_toggle", None),
+        details_dialog = {
+            "power_meter": getattr(self, "power_meter_details_dialog", None),
+            "spectrometer": getattr(self, "spectrometer_details_dialog", None),
         }.get(section)
-        if details_toggle is not None:
-            details_toggle.setChecked(True)
+        if details_dialog is not None:
+            self._show_manual_details_dialog(details_dialog)
         target = {
             "power": getattr(self, "power_supply_controller_combo", None),
             "power_meter": getattr(self, "power_meter_combo", None),

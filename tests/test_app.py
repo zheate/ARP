@@ -11,7 +11,16 @@ from pathlib import Path
 
 from PySide6.QtCore import QEvent, QSettings, Qt
 from PySide6.QtGui import QCloseEvent
-from PySide6.QtWidgets import QApplication, QDoubleSpinBox, QFormLayout, QGroupBox, QLabel, QMessageBox, QWidget
+from PySide6.QtWidgets import (
+    QApplication,
+    QDoubleSpinBox,
+    QFormLayout,
+    QGroupBox,
+    QLabel,
+    QMessageBox,
+    QSizePolicy,
+    QWidget,
+)
 
 from combined_test import devices as combined_test_devices
 from combined_test import spectrum as combined_test_spectrum
@@ -1747,9 +1756,12 @@ class MainWindowTests(unittest.TestCase):
         self._form_row_containing_widget(spectrometer_form, window.interval_spin)
         window.close()
 
-    def test_manual_device_details_are_independently_collapsible(self) -> None:
+    def test_manual_device_details_open_in_font_consistent_dialogs(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
+        window.main_tabs.setCurrentIndex(window.manual_tab_index)
+        window.show()
+        app.processEvents()
 
         self.assertFalse(hasattr(window, "power_supply_details_toggle"))
         self.assertFalse(window.power_supply_details_content.isHidden())
@@ -1759,35 +1771,94 @@ class MainWindowTests(unittest.TestCase):
         )
         sections = (
             (
-                window.power_meter_details_toggle,
+                window.power_meter_details_button,
+                window.power_meter_details_dialog,
                 window.power_meter_details_content,
                 window.power_meter_details_form,
                 window.software_gain_spin,
+                self._group(window, "功率计"),
             ),
             (
-                window.spectrometer_details_toggle,
+                window.spectrometer_details_button,
+                window.spectrometer_details_dialog,
                 window.spectrometer_details_content,
                 window.spectrometer_details_form,
                 window.integration_spin,
+                self._group(window, "光谱仪"),
             ),
         )
-        for toggle, content, form, setting in sections:
-            self.assertFalse(toggle.isChecked())
-            self.assertTrue(content.isHidden())
-            self.assertEqual(toggle.arrowType(), combined_test_window.Qt.ArrowType.RightArrow)
+        for button, dialog, content, form, setting, group in sections:
+            self.assertFalse(button.isCheckable())
+            self.assertTrue(dialog.isHidden())
+            self.assertFalse(dialog.isModal())
+            self.assertFalse(window.manual_scroll_content.isAncestorOf(content))
+            self.assertTrue(dialog.isAncestorOf(content))
+            self.assertEqual(button.font().pointSizeF(), 9.0)
+            self.assertEqual(dialog.font().pointSizeF(), 10.0)
+            self.assertEqual(
+                group.sizePolicy().verticalPolicy(),
+                QSizePolicy.Policy.Maximum,
+            )
             self._form_row_containing_widget(form, setting)
+            page_height_before = window.left_control_content.sizeHint().height()
 
-            toggle.click()
+            button.click()
+            app.processEvents()
 
-            self.assertTrue(toggle.isChecked())
-            self.assertFalse(content.isHidden())
-            self.assertEqual(toggle.arrowType(), combined_test_window.Qt.ArrowType.DownArrow)
+            self.assertFalse(dialog.isHidden())
+            self.assertEqual(window.left_control_content.sizeHint().height(), page_height_before)
+            dialog.reject()
+            app.processEvents()
 
-        window.power_meter_details_toggle.setChecked(False)
         window.open_manual_settings("power_meter")
+        app.processEvents()
         self.assertEqual(window.main_tabs.currentIndex(), window.manual_tab_index)
-        self.assertTrue(window.power_meter_details_toggle.isChecked())
-        self.assertFalse(window.power_meter_details_content.isHidden())
+        self.assertFalse(window.power_meter_details_dialog.isHidden())
+        self.assertTrue(window.power_meter_combo.hasFocus())
+        window.close()
+
+    def test_manual_detail_buttons_share_the_primary_device_status_rows(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        for form, detail_button, start_button in (
+            (
+                window.power_meter_form,
+                window.power_meter_details_button,
+                window.start_power_meter_button,
+            ),
+            (
+                window.spectrometer_form,
+                window.spectrometer_details_button,
+                window.start_spectrometer_button,
+            ),
+        ):
+            self.assertEqual(
+                self._form_row_containing_widget(form, detail_button),
+                self._form_row_containing_widget(form, start_button),
+            )
+        window.close()
+
+    def test_manual_tdk_power_card_stays_compact_and_uses_body_font(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.main_tabs.setCurrentIndex(window.manual_tab_index)
+        window.power_supply_controller_combo.setCurrentIndex(
+            window.power_supply_controller_combo.findData("tdk")
+        )
+        window.resize(1280, 800)
+        window.show()
+        app.processEvents()
+
+        self.assertEqual(window.manual_page.font().pointSizeF(), 10.0)
+        self.assertEqual(
+            window.power_supply_group.sizePolicy().verticalPolicy(),
+            QSizePolicy.Policy.Maximum,
+        )
+        self.assertLessEqual(
+            window.power_supply_group.height(),
+            window.power_supply_group.sizeHint().height() + 2,
+        )
         window.close()
 
     def test_power_supply_controls_follow_the_safe_operating_order(self) -> None:
@@ -1839,11 +1910,6 @@ class MainWindowTests(unittest.TestCase):
         window.resize(1280, 800)
         window.main_tabs.setCurrentIndex(window.manual_tab_index)
         window.show()
-        for toggle in (
-            window.power_meter_details_toggle,
-            window.spectrometer_details_toggle,
-        ):
-            toggle.setChecked(True)
         app.processEvents()
 
         self.assertIs(window.manual_scroll_area.widget(), window.manual_scroll_content)
@@ -2817,7 +2883,8 @@ class MainWindowTests(unittest.TestCase):
         stop_row = self._form_row_containing_widget(primary_form, window.stop_spectrometer_button)
 
         self.assertEqual(start_row, stop_row)
-        self.assertTrue(window.spectrometer_details_content.isHidden())
+        self.assertTrue(window.spectrometer_details_dialog.isHidden())
+        self.assertFalse(window.manual_scroll_content.isAncestorOf(window.spectrometer_details_content))
         window.close()
 
     def test_spectrometer_default_integration_time_is_10000_us(self) -> None:
