@@ -17,7 +17,6 @@ from PySide6.QtGui import QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QAbstractSpinBox,
-    QButtonGroup,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -105,7 +104,7 @@ from .tdk_power_supply import (
     compensate_tdk_output_voltage,
     list_tdk_serial_resources,
 )
-from .theme import FontRole, apply_application_theme, font_for_role, semantic_colors_for_palette
+from .theme import semantic_colors_for_palette
 from tools.pd_daq_mvp import PdDaqPanel
 from tools.visa_session import visa_resource_manager
 
@@ -125,7 +124,6 @@ AUTOMATIC_DEVICE_START_TIMEOUT_S = 15.0
 BACKGROUND_STOP_TIMEOUT_S = 10.0
 SPECTRUM_UI_REFRESH_MS = 200
 PREPARE_CHECKLIST_MIN_WIDTH = 300
-NAVIGATION_WIDTH = 148
 MANUAL_COLUMN_MIN_WIDTH = 360
 LEGACY_CURRENT_LIMIT_A = 20.0
 TDK_CURRENT_INPUT_MAX_A = math.inf
@@ -266,17 +264,11 @@ class MainWindow(QMainWindow):
 
         self.central_shell = QWidget(self)
         self.setCentralWidget(self.central_shell)
-        application_layout = QGridLayout(self.central_shell)
-        application_layout.setContentsMargins(0, 0, 0, 0)
-        application_layout.setSpacing(0)
-        self._build_navigation_panel(application_layout)
+        application_layout = QVBoxLayout(self.central_shell)
         self._build_global_status_bar(application_layout)
 
         self.main_tabs = QTabWidget(self.central_shell)
-        self.main_tabs.tabBar().hide()
-        application_layout.addWidget(self.main_tabs, 1, 1)
-        application_layout.setColumnStretch(1, 1)
-        application_layout.setRowStretch(1, 1)
+        application_layout.addWidget(self.main_tabs, stretch=1)
 
         self.content_widget = QWidget(self.main_tabs)
         self.automatic_tab_index = self.main_tabs.addTab(self.content_widget, "自动测试")
@@ -314,7 +306,6 @@ class MainWindow(QMainWindow):
         self._build_preflight_panel(prepare_layout)
 
         self.manual_page = QWidget(self.main_tabs)
-        self.manual_page.setFont(font_for_role(FontRole.BODY))
         self.manual_tab_index = self.main_tabs.addTab(self.manual_page, "手动调试")
         manual_layout = QVBoxLayout(self.manual_page)
         manual_layout.setContentsMargins(0, 0, 0, 0)
@@ -381,11 +372,9 @@ class MainWindow(QMainWindow):
         self._build_test_records_page()
         self.pd_panel = PdDaqPanel(self.main_tabs, auto_refresh=False)
         self.pd_tab_index = self.main_tabs.addTab(self.pd_panel, "PD 采集")
-        self._build_navigation_buttons()
         self.main_tabs.currentChanged.connect(self.on_main_tab_changed)
         self.pd_panel.running_changed.connect(lambda _running: self.update_global_status())
         self.pd_panel.acquisition_finished.connect(self._continue_pending_close)
-        self._configure_button_semantics()
         self._disable_wheel_input_changes()
         self._restore_input_settings()
         self._connect_preflight_updates()
@@ -396,77 +385,13 @@ class MainWindow(QMainWindow):
         self.update_global_status()
         self.refresh_preflight_checklist()
 
-    def _build_navigation_panel(self, parent: QGridLayout) -> None:
-        self.navigation_panel = QWidget(self.central_shell)
-        self.navigation_panel.setObjectName("navigationPanel")
-        self.navigation_panel.setFixedWidth(NAVIGATION_WIDTH)
-        navigation_layout = QVBoxLayout(self.navigation_panel)
-        navigation_layout.setContentsMargins(12, 16, 12, 14)
-        navigation_layout.setSpacing(6)
-
-        navigation_title = QLabel("综合测试", self.navigation_panel)
-        navigation_title.setObjectName("navigationTitle")
-        navigation_title.setFont(font_for_role(FontRole.PAGE_TITLE))
-        navigation_layout.addWidget(navigation_title)
-        navigation_subtitle = QLabel("设备与数据采集", self.navigation_panel)
-        navigation_subtitle.setFont(font_for_role(FontRole.SECONDARY))
-        navigation_subtitle.setStyleSheet(
-            f"color: {semantic_colors_for_palette(self.palette()).secondary_text};"
-        )
-        navigation_layout.addWidget(navigation_subtitle)
-        navigation_layout.addSpacing(14)
-
-        self.navigation_button_group = QButtonGroup(self.navigation_panel)
-        self.navigation_button_group.setExclusive(True)
-        self.navigation_buttons_layout = navigation_layout
-        self.navigation_buttons: dict[int, QPushButton] = {}
-        parent.addWidget(self.navigation_panel, 0, 0, 2, 1)
-
-    def _build_navigation_buttons(self) -> None:
-        pages = (
-            (self.automatic_tab_index, "自动测试"),
-            (self.manual_tab_index, "手动调试"),
-            (self.records_tab_index, "当前记录"),
-            (self.pd_tab_index, "PD 采集"),
-        )
-        for index, title in pages:
-            button = QPushButton(title, self.navigation_panel)
-            button.setCheckable(True)
-            button.setProperty("navigation", True)
-            button.setAccessibleName(f"切换到{title}")
-            button.clicked.connect(lambda _checked=False, page_index=index: self._activate_navigation(page_index))
-            self.navigation_button_group.addButton(button, index)
-            self.navigation_buttons[index] = button
-            self.navigation_buttons_layout.addWidget(button)
-        self.navigation_buttons_layout.addStretch(1)
-        self._sync_navigation_state(self.main_tabs.currentIndex())
-
-    def _activate_navigation(self, index: int) -> None:
-        if self.main_tabs.isTabEnabled(index):
-            self.main_tabs.setCurrentIndex(index)
-        else:
-            self._sync_navigation_state(self.main_tabs.currentIndex())
-
     def _sync_navigation_state(self, index: int) -> None:
-        if not hasattr(self, "navigation_buttons"):
-            return
-        for page_index, button in self.navigation_buttons.items():
-            button.setChecked(page_index == index)
-        titles = {
-            getattr(self, "automatic_tab_index", -1): "自动测试",
-            getattr(self, "manual_tab_index", -1): "手动调试",
-            getattr(self, "records_tab_index", -1): "当前记录",
-            getattr(self, "pd_tab_index", -1): "PD 采集",
-        }
-        if hasattr(self, "page_title_label"):
-            self.page_title_label.setText(titles.get(index, "综合测试"))
+        """Compatibility hook retained for callers; QTabWidget owns navigation."""
+
+        del index
 
     def _sync_navigation_access(self) -> None:
-        if not hasattr(self, "navigation_buttons"):
-            return
-        for index, button in self.navigation_buttons.items():
-            button.setEnabled(self.main_tabs.isTabEnabled(index))
-            button.setToolTip(self.main_tabs.tabToolTip(index))
+        """QTabWidget reflects enabled states and tooltips directly."""
 
     def _restore_input_settings(self) -> None:
         """Restore only operator-entered configuration, never live acquisition state."""
@@ -703,23 +628,12 @@ class MainWindow(QMainWindow):
         settings.setValue(prefix + "output_dir", self.output_dir_field.text().strip())
         settings.sync()
 
-    def _build_global_status_bar(self, parent: QGridLayout) -> None:
+    def _build_global_status_bar(self, parent: QVBoxLayout) -> None:
         self.page_header = QWidget(self.central_shell)
-        self.page_header.setObjectName("pageHeader")
         row = QHBoxLayout(self.page_header)
-        row.setContentsMargins(16, 10, 16, 8)
-        row.setSpacing(10)
+        row.setContentsMargins(0, 0, 0, 0)
 
-        self.page_title_label = QLabel("自动测试", self.page_header)
-        self.page_title_label.setFont(font_for_role(FontRole.PAGE_TITLE))
-        row.addWidget(self.page_title_label)
-
-        self.global_status_label = QLabel("", self)
-        self.global_status_label.setFont(font_for_role(FontRole.SECTION_TITLE))
-        self.global_status_label.setStyleSheet(
-            f"color: {semantic_colors_for_palette(self.palette()).secondary_text};"
-        )
-        self.global_status_label.hide()
+        self.global_status_label = QLabel("测试待机", self)
         row.addWidget(self.global_status_label)
         row.addStretch(1)
 
@@ -734,7 +648,8 @@ class MainWindow(QMainWindow):
             (self.global_power_meter_status_indicator, self.global_power_meter_status_label),
             (self.global_spectrometer_status_indicator, self.global_spectrometer_status_label),
         ):
-            indicator.setFixedSize(12, 12)
+            indicator.setFixedWidth(16)
+            indicator.setAlignment(Qt.AlignmentFlag.AlignCenter)
             indicator.setAccessibleName(f"{label.text().split('：', 1)[0]}连接状态")
             status_widget = QWidget(self)
             status_layout = QHBoxLayout(status_widget)
@@ -750,17 +665,13 @@ class MainWindow(QMainWindow):
         self.global_progress_label.setMinimumWidth(180)
         self.global_progress_label.hide()
 
-        parent.addWidget(self.page_header, 0, 1)
+        parent.addWidget(self.page_header)
 
     def _build_manual_toolbar(self, parent: QVBoxLayout) -> None:
         row = QHBoxLayout()
         row.setSpacing(8)
         title = QLabel("设备手动控制与诊断", self.manual_page)
-        title.setFont(font_for_role(FontRole.SECTION_TITLE))
         description = QLabel("按电源、功率计、光谱仪逐台连接和诊断", self.manual_page)
-        description.setStyleSheet(
-            f"color: {semantic_colors_for_palette(self.palette()).secondary_text};"
-        )
         row.addWidget(title)
         row.addWidget(description)
         row.addStretch(1)
@@ -777,17 +688,16 @@ class MainWindow(QMainWindow):
         parent.addLayout(row)
 
     def _set_status_indicator(self, indicator: QLabel, state: str | bool) -> None:
-        semantic = semantic_colors_for_palette(self.palette())
         normalized_state = ("ready" if state else "stopped") if isinstance(state, bool) else state
-        color, label = {
-            "ready": (semantic.success_text, "已就绪"),
-            "pending": (semantic.warning_text, "启动或检测中"),
-            "error": (semantic.error_text, "故障"),
-            "stopped": (semantic.secondary_text, "已停止"),
-        }.get(normalized_state, (semantic.secondary_text, str(normalized_state)))
-        indicator.setStyleSheet(
-            f"background-color: {color}; border: 1px solid {color}; border-radius: 6px;"
-        )
+        symbol, label = {
+            "ready": ("√", "已就绪"),
+            "pending": ("…", "启动或检测中"),
+            "error": ("!", "故障"),
+            "stopped": ("○", "已停止"),
+        }.get(normalized_state, ("?", str(normalized_state)))
+        indicator.setText(symbol)
+        indicator.setMinimumWidth(16)
+        indicator.setAlignment(Qt.AlignmentFlag.AlignCenter)
         indicator.setToolTip(label)
 
     def _reserve_group_height(self, group: QGroupBox) -> None:
@@ -811,7 +721,6 @@ class MainWindow(QMainWindow):
     ) -> tuple[QPushButton, QDialog, QWidget, QFormLayout]:
         button = QPushButton("详细配置…", group)
         button.setAccessibleName(f"打开{accessible_name}详细配置")
-        button.setFont(font_for_role(FontRole.SECONDARY))
         button.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self._configure_action_button(button, minimum_width=96)
 
@@ -821,7 +730,6 @@ class MainWindow(QMainWindow):
         dialog.setWindowModality(Qt.WindowModality.NonModal)
         dialog.setModal(False)
         dialog.setMinimumWidth(480)
-        dialog.setFont(font_for_role(FontRole.BODY))
         dialog_layout = QVBoxLayout(dialog)
         dialog_layout.setContentsMargins(16, 16, 16, 12)
         dialog_layout.setSpacing(12)
@@ -861,6 +769,15 @@ class MainWindow(QMainWindow):
         button.setMinimumWidth(minimum_width)
         button.setMinimumHeight(28)
 
+    @staticmethod
+    def _configure_compact_tool_action(button: QToolButton, minimum_width: int = 44) -> None:
+        """Keep inline form actions quiet until the operator points at them."""
+        button.setAutoRaise(True)
+        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        button.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        button.setMinimumWidth(minimum_width)
+        button.setMinimumHeight(28)
+
     def _configure_keyboard_focus_order(self) -> None:
         """Keep the preparation workflow predictable for keyboard operators."""
 
@@ -892,38 +809,6 @@ class MainWindow(QMainWindow):
         )
         for current, following in zip(focus_order, focus_order[1:]):
             QWidget.setTabOrder(current, following)
-
-    def _configure_button_semantics(self) -> None:
-        """Keep native controls and reserve color for destructive actions."""
-        emphasized_font = font_for_role(FontRole.SECTION_TITLE)
-        self.start_automatic_test_button.setFont(emphasized_font)
-        self.apply_current_button.setFont(emphasized_font)
-        self.save_excel_button.setFont(emphasized_font)
-
-        semantic = semantic_colors_for_palette(self.palette())
-        danger_color = semantic.error_text
-        destructive_style = (
-            f"QPushButton {{ color: {danger_color}; }}"
-            f"QPushButton:disabled {{ color: {semantic.secondary_text}; }}"
-        )
-        self.emergency_stop_button.setFont(emphasized_font)
-        self.emergency_stop_button.setStyleSheet(
-            "QPushButton { background-color: #c62828; color: white; "
-            "border: none; border-radius: 4px; padding: 6px 14px; }"
-            "QPushButton:hover { background-color: #b71c1c; }"
-            "QPushButton:pressed { background-color: #8e0000; }"
-        )
-        for button in (
-            self.stop_all_button,
-            self.stop_power_meter_button,
-            self.stop_spectrometer_button,
-            self.prepare_power_meter_close_button,
-            self.prepare_spectrometer_close_button,
-            self.pd_panel.stop_button,
-            self.end_automatic_test_button,
-        ):
-            button.setFont(emphasized_font)
-            button.setStyleSheet(destructive_style)
 
     def _build_session_group(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("1. 测试任务", self)
@@ -1080,7 +965,6 @@ class MainWindow(QMainWindow):
 
         layout.addSpacing(8)
         sequence_title = QLabel("测试序列", group)
-        sequence_title.setFont(font_for_role(FontRole.SECTION_TITLE))
         self.preflight_sequence_label = QLabel("1.0 → 20.0 A\n间隔 1.0 A，共 20 点", group)
         self.preflight_sequence_label.setWordWrap(True)
         layout.addWidget(sequence_title)
@@ -1112,14 +996,12 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout()
         row.setSpacing(12)
         self.run_state_label = QLabel("当前测试点", self.automatic_run_page)
-        self.run_state_label.setFont(font_for_role(FontRole.PAGE_TITLE))
         self.run_state_label.setAccessibleName("自动测试运行状态")
         self.run_progress_label = QLabel("0 / 0 点", self.automatic_run_page)
         self.run_current_label = QLabel("当前 -- A", self.automatic_run_page)
         self.run_elapsed_label = QLabel("已运行 00:00", self.automatic_run_page)
         self.run_remaining_label = QLabel("剩余时间由判稳速度决定", self.automatic_run_page)
         self.run_stage_label = QLabel("正在启动设备", self.automatic_run_page)
-        self.run_stage_label.setFont(font_for_role(FontRole.SECTION_TITLE))
         row.addWidget(self.run_state_label)
         row.addWidget(self.run_progress_label)
         row.addWidget(self.run_current_label)
@@ -1133,7 +1015,6 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout()
         row.setSpacing(8)
         latest_title = QLabel("最新事件：", self.automatic_run_page)
-        latest_title.setFont(font_for_role(FontRole.SECTION_TITLE))
         self.run_event_label = QLabel("等待开始", self.automatic_run_page)
         self.run_event_label.setMinimumWidth(0)
         row.addWidget(latest_title)
@@ -1163,10 +1044,8 @@ class MainWindow(QMainWindow):
         outcome_layout.setContentsMargins(18, 14, 18, 14)
         outcome_layout.setSpacing(4)
         self.result_title_label = QLabel("测试完成", self.result_outcome_panel)
-        self.result_title_label.setFont(font_for_role(FontRole.METRIC))
         self.result_title_label.setAccessibleName("自动测试结果")
         self.result_completion_label = QLabel("测试流程完整完成", self.result_outcome_panel)
-        self.result_completion_label.setFont(font_for_role(FontRole.SECTION_TITLE))
         self.result_completion_label.setWordWrap(True)
         outcome_layout.addWidget(self.result_title_label)
         outcome_layout.addWidget(self.result_completion_label)
@@ -1227,11 +1106,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(24, 20, 24, 20)
         layout.setSpacing(12)
         title = QLabel("当前记录", self.records_page)
-        title.setFont(font_for_role(FontRole.PAGE_TITLE))
         description = QLabel("当前测试会话的保存状态和结果文件", self.records_page)
-        description.setStyleSheet(
-            f"color: {semantic_colors_for_palette(self.palette()).secondary_text};"
-        )
         layout.addWidget(title)
         layout.addWidget(description)
 
@@ -1241,15 +1116,11 @@ class MainWindow(QMainWindow):
         empty_layout.setContentsMargins(24, 24, 24, 24)
         empty_layout.setSpacing(6)
         self.records_empty_title = QLabel("还没有测试记录", self.records_empty_state)
-        self.records_empty_title.setFont(font_for_role(FontRole.SECTION_TITLE))
         self.records_empty_description = QLabel(
             "完成自动测试或在当前会话保存测试点后，结果文件会显示在这里。",
             self.records_empty_state,
         )
         self.records_empty_description.setWordWrap(True)
-        self.records_empty_description.setStyleSheet(
-            f"color: {semantic_colors_for_palette(self.palette()).secondary_text};"
-        )
         empty_layout.addWidget(self.records_empty_title)
         empty_layout.addWidget(self.records_empty_description)
         layout.addWidget(self.records_empty_state)
@@ -1322,6 +1193,7 @@ class MainWindow(QMainWindow):
         group_layout.addWidget(self.power_supply_details_content)
         self.power_supply_form = form
         self.power_supply_details_form = form
+        form.setVerticalSpacing(8)
 
         self.power_supply_controller_combo = QComboBox(self)
         self.power_supply_controller_combo.setAccessibleName("电源控制器")
@@ -1342,8 +1214,10 @@ class MainWindow(QMainWindow):
         self.tdk_resource_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.tdk_resource_combo.setMinimumContentsLength(8)
         self.tdk_resource_combo.setPlaceholderText("ASRL3::INSTR")
-        self.refresh_tdk_resources_button = QPushButton("刷新", self)
-        self._configure_action_button(self.refresh_tdk_resources_button, minimum_width=58)
+        self.refresh_tdk_resources_button = QToolButton(self)
+        self.refresh_tdk_resources_button.setText("刷新")
+        self._configure_compact_tool_action(self.refresh_tdk_resources_button)
+        self.refresh_tdk_resources_button.setToolTip("重新扫描可用的 TDK 串口")
         self.refresh_tdk_resources_button.clicked.connect(self.refresh_tdk_resources)
         tdk_resource_row = QHBoxLayout()
         tdk_resource_row.setSpacing(6)
@@ -1356,11 +1230,14 @@ class MainWindow(QMainWindow):
         self.tdk_voltage_spin.setDecimals(2)
         self.tdk_voltage_spin.setSingleStep(1.0)
         self.tdk_voltage_spin.setSuffix(" V")
-        self.apply_tdk_voltage_button = QPushButton("设置电压", self)
-        self._configure_action_button(self.apply_tdk_voltage_button)
+        self.apply_tdk_voltage_button = QToolButton(self)
+        self.apply_tdk_voltage_button.setText("应用")
+        self._configure_compact_tool_action(self.apply_tdk_voltage_button)
+        self.apply_tdk_voltage_button.setAccessibleName("设置 TDK 电压")
+        self.apply_tdk_voltage_button.setToolTip("将左侧电压值写入 TDK 电源")
         self.apply_tdk_voltage_button.clicked.connect(self.apply_tdk_output_voltage)
         tdk_voltage_row = QHBoxLayout()
-        tdk_voltage_row.setSpacing(6)
+        tdk_voltage_row.setSpacing(4)
         tdk_voltage_row.addWidget(self.tdk_voltage_spin, stretch=1)
         tdk_voltage_row.addWidget(self.apply_tdk_voltage_button)
         self.tdk_voltage_row = tdk_voltage_row
@@ -1371,30 +1248,46 @@ class MainWindow(QMainWindow):
         self.set_current_spin.setSingleStep(1.0)
         self.set_current_spin.setValue(1.0)
         self.set_current_spin.setSuffix(" A")
-        self.apply_current_button = QPushButton("设置电流", self)
-        self._configure_action_button(self.apply_current_button)
+        self.apply_current_button = QToolButton(self)
+        self.apply_current_button.setText("应用")
+        self._configure_compact_tool_action(self.apply_current_button)
+        self.apply_current_button.setAccessibleName("设置输出电流")
+        self.apply_current_button.setToolTip("将左侧电流值写入电源")
         self.apply_current_button.clicked.connect(self.apply_output_current)
         current_row = QHBoxLayout()
-        current_row.setSpacing(6)
+        current_row.setSpacing(4)
         current_row.addWidget(self.set_current_spin, stretch=1)
         current_row.addWidget(self.apply_current_button)
 
-        self.connect_i2c_button = QPushButton("连接 CH341", self)
-        self._configure_action_button(self.connect_i2c_button)
+        self.active_current_label = QLabel("未确认", self)
+        self.active_current_label.setAccessibleName("当前加电电流")
+
+        self.connect_i2c_button = QToolButton(self)
+        self.connect_i2c_button.setText("连接")
+        self._configure_compact_tool_action(self.connect_i2c_button, minimum_width=52)
+        self.connect_i2c_button.setAccessibleName("连接或断开电源控制器")
         self.connect_i2c_button.clicked.connect(self.connect_i2c_device)
         self.i2c_status_label = QLabel("未连接", self)
+        self.i2c_status_indicator = QLabel(self)
+        self._set_status_indicator(self.i2c_status_indicator, "stopped")
         connection_row = QHBoxLayout()
         connection_row.setSpacing(6)
+        connection_row.addWidget(self.i2c_status_indicator)
         connection_row.addWidget(self.i2c_status_label, stretch=1)
         connection_row.addWidget(self.connect_i2c_button)
         self.power_supply_connection_row = connection_row
 
-        self.tdk_output_button = QPushButton("开启输出", self)
-        self._configure_action_button(self.tdk_output_button)
+        self.tdk_output_button = QToolButton(self)
+        self.tdk_output_button.setText("开启")
+        self._configure_compact_tool_action(self.tdk_output_button, minimum_width=52)
+        self.tdk_output_button.setAccessibleName("开启或关闭 TDK 输出")
         self.tdk_output_button.clicked.connect(self.toggle_tdk_output)
         self.tdk_output_status_label = QLabel("输出关闭", self)
+        self.tdk_output_status_indicator = QLabel(self)
+        self._set_status_indicator(self.tdk_output_status_indicator, "stopped")
         output_row = QHBoxLayout()
         output_row.setSpacing(6)
+        output_row.addWidget(self.tdk_output_status_indicator)
         output_row.addWidget(self.tdk_output_status_label, stretch=1)
         output_row.addWidget(self.tdk_output_button)
         self.tdk_output_row = output_row
@@ -1420,6 +1313,9 @@ class MainWindow(QMainWindow):
         read_grid.addWidget(self.read_output_voltage_button, 0, 1)
         read_grid.addWidget(self.read_output_current_button, 1, 0)
         read_grid.addWidget(self.read_temperature_button, 1, 1)
+        self.manual_output_voltage_label = QLabel("输出电压：-- V", self)
+        self.manual_output_voltage_label.setAccessibleName("手动读取的输出电压")
+        read_grid.addWidget(self.manual_output_voltage_label, 2, 0, 1, 2)
         self.power_supply_read_row = read_grid
 
         # Follow the safe operating sequence shown to the operator. Enabling
@@ -1430,6 +1326,7 @@ class MainWindow(QMainWindow):
         form.addRow("TDK 电压", self.tdk_voltage_row)
         form.addRow("TDK 输出", self.tdk_output_row)
         form.addRow("设定电流", current_row)
+        form.addRow("当前加电电流", self.active_current_label)
         form.addRow("读取", self.power_supply_read_row)
 
         parent.addWidget(group)
@@ -1558,9 +1455,6 @@ class MainWindow(QMainWindow):
             self,
         )
         self.stability_tolerance_label.setWordWrap(True)
-        self.stability_tolerance_label.setStyleSheet(
-            f"color: {semantic_colors_for_palette(self.palette()).secondary_text};"
-        )
         form.addRow("判稳规则", self.stability_tolerance_label)
 
         self.advanced_settings_toggle = QToolButton(self)
@@ -1621,9 +1515,6 @@ class MainWindow(QMainWindow):
 
         self.safety_summary_label = QLabel(self)
         self.safety_summary_label.setWordWrap(True)
-        self.safety_summary_label.setStyleSheet(
-            f"color: {semantic_colors_for_palette(self.palette()).secondary_text};"
-        )
         form.addRow("", self.safety_summary_label)
 
         self.automatic_test_status_label = QLabel("未开始", self)
@@ -1958,9 +1849,12 @@ class MainWindow(QMainWindow):
         """Show one confirmed TDK output state on both workflow pages."""
         output_enabled = bool(enabled)
         self.tdk_output_status_label.setText("输出开启" if output_enabled else "输出关闭")
-        button_text = "关闭输出" if output_enabled else "开启输出"
-        self.tdk_output_button.setText(button_text)
-        self.prepare_tdk_output_button.setText(button_text)
+        self._set_status_indicator(
+            self.tdk_output_status_indicator,
+            "ready" if output_enabled else "stopped",
+        )
+        self.tdk_output_button.setText("关闭" if output_enabled else "开启")
+        self.prepare_tdk_output_button.setText("关闭输出" if output_enabled else "开启输出")
 
     def _build_curve_panel(self, parent: QVBoxLayout) -> None:
         self.live_plots = LivePlots(self)
@@ -2056,16 +1950,21 @@ class MainWindow(QMainWindow):
         self._update_advanced_settings_summary()
 
     def _set_checklist_item(self, label: QLabel, ok: bool, text: str, *, pending: bool = False) -> None:
-        semantic = semantic_colors_for_palette(self.palette())
+        semantic = semantic_colors_for_palette(label.palette())
         if pending:
             label.setText(f"● {text}")
-            label.setStyleSheet(f"color: {semantic.warning_text};")
+            state = "pending"
+            color = semantic.warning_text
         elif ok:
             label.setText(f"✓ {text}")
-            label.setStyleSheet(f"color: {semantic.success_text};")
+            state = "ready"
+            color = semantic.success_text
         else:
             label.setText(f"! {text}")
-            label.setStyleSheet(f"color: {semantic.warning_text};")
+            state = "error"
+            color = semantic.error_text
+        label.setProperty("checklistState", state)
+        label.setStyleSheet(f"color: {color};")
 
     @staticmethod
     def _output_directory_is_writable(path_text: str) -> bool:
@@ -2194,6 +2093,14 @@ class MainWindow(QMainWindow):
         )
         self.preflight_blocker_label.setText(
             ready_text if can_start else f"无法开始：{blockers[0] if blockers else '测试正在运行'}"
+        )
+        blocker_semantic = semantic_colors_for_palette(self.preflight_blocker_label.palette())
+        self.preflight_blocker_label.setProperty(
+            "checklistState",
+            "ready" if can_start else "error",
+        )
+        self.preflight_blocker_label.setStyleSheet(
+            f"color: {blocker_semantic.success_text if can_start else blocker_semantic.error_text};"
         )
         self.preflight_action_button.setVisible(bool(blockers))
         if not sn_ok:
@@ -2694,6 +2601,7 @@ class MainWindow(QMainWindow):
     def update_global_status(self) -> None:
         if not hasattr(self, "global_status_label"):
             return
+        self._refresh_active_current_display()
         psu_connected = self._manual_i2c_connected()
         power_running = self.power_meter_reader is not None
         spectrometer_running = self.spectrometer_reader is not None
@@ -2736,7 +2644,11 @@ class MainWindow(QMainWindow):
         ):
             status_text = "测试完成"
         else:
-            status_text = ""
+            status_text = (
+                "测试运行中"
+                if power_running or spectrometer_running or pd_running
+                else "测试待机"
+            )
         self.global_status_label.setText(status_text)
         self.global_status_label.setVisible(bool(status_text))
         if shutdown_unconfirmed:
@@ -2827,6 +2739,17 @@ class MainWindow(QMainWindow):
         if hasattr(self, "refresh_preflight_checklist"):
             self.refresh_preflight_checklist()
 
+    def _refresh_active_current_display(self) -> None:
+        if not hasattr(self, "active_current_label"):
+            return
+        current_a = self.active_output_current_a
+        if current_a is None or not math.isfinite(float(current_a)):
+            self.active_current_label.setText("未确认")
+            self.active_current_label.setToolTip("尚未成功设置或确认电源输出电流")
+            return
+        self.active_current_label.setText(f"{max(0.0, float(current_a)):.1f} A")
+        self.active_current_label.setToolTip("最近一次成功设置的电源输出电流")
+
     def _manual_i2c_connected(self) -> bool:
         power_supply = self.get_power_supply()
         return power_supply is not None and power_supply.connected
@@ -2892,8 +2815,10 @@ class MainWindow(QMainWindow):
             widget.setEnabled(is_tdk)
         self.read_input_voltage_button.setEnabled(not is_tdk)
         self.read_temperature_button.setEnabled(not is_tdk)
-        self.connect_i2c_button.setText("连接 TDK" if is_tdk else "连接 CH341")
+        self.connect_i2c_button.setText("连接")
+        self.connect_i2c_button.setToolTip(f"连接{'TDK 电源' if is_tdk else 'CH341 控制器'}")
         self.i2c_status_label.setText("未连接")
+        self._set_status_indicator(self.i2c_status_indicator, "stopped")
         self.sync_tdk_output_controls(False)
         if hasattr(self, "power_supply_group"):
             self._reserve_group_height(self.power_supply_group)
@@ -2939,8 +2864,11 @@ class MainWindow(QMainWindow):
                 return
             if label == "TDK":
                 self.manual_ch341_controller = None
-            self.connect_i2c_button.setText(f"连接 {label}")
+                self.active_output_current_a = 0.0
+            self.connect_i2c_button.setText("连接")
+            self.connect_i2c_button.setToolTip(f"连接{label}控制器")
             self.i2c_status_label.setText("未连接")
+            self._set_status_indicator(self.i2c_status_indicator, "stopped")
             self.sync_tdk_output_controls(False)
             self._refresh_manual_power_tab_lock()
             self.add_log(f"{label} 已断开")
@@ -2952,8 +2880,10 @@ class MainWindow(QMainWindow):
             connected, detail = controller.connect_device(0)
             if not connected:
                 raise RuntimeError(str(detail))
-            self.connect_i2c_button.setText(f"断开 {label}")
+            self.connect_i2c_button.setText("断开")
+            self.connect_i2c_button.setToolTip(f"断开{label}控制器")
             self.i2c_status_label.setText("已连接")
+            self._set_status_indicator(self.i2c_status_indicator, "ready")
             if label == "TDK":
                 output_enabled = bool(getattr(controller, "output_enabled", False))
                 self.sync_tdk_output_controls(output_enabled)
@@ -3010,6 +2940,8 @@ class MainWindow(QMainWindow):
                 self._confirm_tdk_zero_current_before_output(power_supply)
             power_supply.set_output_enabled(enabled)
             self.sync_tdk_output_controls(enabled)
+            if not enabled:
+                self.active_output_current_a = 0.0
             self._refresh_manual_power_tab_lock(manual_action=manual_action)
             self.add_log(f"TDK 输出已{'开启' if enabled else '关闭'}")
             self.statusBar().showMessage(f"TDK 输出已{'开启' if enabled else '关闭'}")
@@ -3037,7 +2969,9 @@ class MainWindow(QMainWindow):
         self.add_log("TDK 开启输出前已确认电流为 0 A")
 
     def begin_power_supply_command(self, command_name: str) -> bool:
-        """Reserve the power-supply bus so I2C commands remain safely spaced."""
+        """Reserve the legacy I2C bus so CH341 commands remain safely spaced."""
+        if self.power_supply_controller_kind == "tdk":
+            return True
         now = time.monotonic()
         remaining_s = self.power_supply_command_interval_remaining_s(now)
         if remaining_s > 0.0:
@@ -3049,6 +2983,8 @@ class MainWindow(QMainWindow):
         return True
 
     def power_supply_command_interval_remaining_s(self, now: float | None = None) -> float:
+        if self.power_supply_controller_kind == "tdk":
+            return 0.0
         if self.last_power_supply_command_monotonic_s is None:
             return 0.0
         current_time = time.monotonic() if now is None else float(now)
@@ -3071,7 +3007,10 @@ class MainWindow(QMainWindow):
         voltage_v = self.execute_i2c_read([0xB4, 0x8B, 0x00, 0x00], "输出电压", "V")
         if voltage_v is not None:
             self.last_vout_read_monotonic_s = time.monotonic()
-            self.record_efficiency_from_vout(voltage_v)
+            if automatic:
+                self.record_efficiency_from_vout(voltage_v)
+            else:
+                self.manual_output_voltage_label.setText(f"输出电压：{voltage_v:.2f} V")
         elif automatic and self.automatic_test_state == AutomaticTestState.WAITING_VOLTAGE:
             self.pause_automatic_test("输出电压读取失败")
 
@@ -3177,8 +3116,11 @@ class MainWindow(QMainWindow):
                 and not bool(getattr(controller, "is_connected", False))
             ):
                 self.i2c_status_label.setText("连接已失效")
-                self.connect_i2c_button.setText("重新连接 TDK")
+                self._set_status_indicator(self.i2c_status_indicator, "error")
+                self.connect_i2c_button.setText("重连")
+                self.connect_i2c_button.setToolTip("重新连接 TDK 电源")
                 self.tdk_output_status_label.setText("输出状态未知")
+                self._set_status_indicator(self.tdk_output_status_indicator, "pending")
                 self.update_global_status()
             QMessageBox.critical(self, name, user_facing_error_message(exc))
             return None
@@ -3403,6 +3345,7 @@ class MainWindow(QMainWindow):
                 self.pending_stable_point_generation = None
             self.update_stable_power_curve()
             self._refresh_manual_power_tab_lock(manual_action=manual_action)
+            self._refresh_active_current_display()
             self.add_log(f"输出电流已设为 {self.set_current_spin.value():.1f} A")
             self.statusBar().showMessage(f"输出电流已设为 {self.set_current_spin.value():.1f} A")
         except Exception as exc:
@@ -4364,7 +4307,6 @@ def main() -> int:
     if not instance_lock.tryLock(100):
         QMessageBox.warning(None, "程序已在运行", "检测到测试程序已经启动，请使用现有窗口。")
         return 0
-    apply_application_theme(app)
     window = MainWindow()
     window.show()
     QTimer.singleShot(0, window.auto_detect_selected_power_meter)

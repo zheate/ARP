@@ -258,7 +258,6 @@ class MainWindow(QMainWindow):
         self.fwhm_label = QLabel("FWHM: -- nm", self)
         self.lock_db_label = QLabel("Locked dB: -- nm / main -- / side -- / -- dB", self)
         for label in (self.peak_label, self.centroid_label, self.fwhm_label, self.lock_db_label):
-            label.setStyleSheet("font-size: 20px; font-weight: 600;")
             stats_row.addWidget(label)
         stats_row.addStretch(1)
 

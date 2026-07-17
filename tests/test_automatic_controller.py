@@ -345,7 +345,7 @@ class AutomaticTestControllerLifecycleTests(unittest.TestCase):
 
         self.assertFalse(controller.output_enabled)
         self.assertEqual(self.window.tdk_output_status_label.text(), "输出关闭")
-        self.assertEqual(self.window.tdk_output_button.text(), "开启输出")
+        self.assertEqual(self.window.tdk_output_button.text(), "开启")
         self.assertEqual(self.window.prepare_tdk_output_button.text(), "开启输出")
 
     def test_completion_keeps_running_measurement_devices_open(self) -> None:

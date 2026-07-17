@@ -432,7 +432,6 @@ class MainWindow(QMainWindow):
 
         self.power_label = QLabel("-- W", self)
         self.power_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.power_label.setStyleSheet("font-size: 42px; font-weight: 700;")
         power_row.addWidget(self.power_label, stretch=1)
 
         self.stats_label = QLabel("Samples: 0", self)

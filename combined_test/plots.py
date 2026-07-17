@@ -316,7 +316,6 @@ class LivePlots:
     def _configure_canvas(canvas: FigureCanvas) -> None:
         canvas.setMinimumHeight(CHART_MINIMUM_HEIGHT)
         canvas.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        canvas.setStyleSheet("border: none;")
 
     @staticmethod
     def _format_power_axis(axis: Any) -> None:
