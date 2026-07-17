@@ -245,6 +245,8 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertFalse(window.start_automatic_test_button.isEnabled())
         self.assertIn("SN", window.preflight_blocker_label.text())
+        self.assertEqual(window.preflight_labels["sn"].property("checklistState"), "error")
+        self.assertEqual(window.preflight_blocker_label.property("checklistState"), "error")
 
         class ConnectedController:
             is_connected = True
@@ -255,6 +257,8 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertFalse(window.start_automatic_test_button.isEnabled())
         self.assertIn("测试站别", window.preflight_blocker_label.text())
+        self.assertEqual(window.preflight_labels["sn"].property("checklistState"), "ready")
+        self.assertEqual(window.preflight_labels["station"].property("checklistState"), "error")
 
         window.test_station_field.setText("老化站 1")
         window.refresh_preflight_checklist()
@@ -262,6 +266,8 @@ class MainWindowTests(unittest.TestCase):
         self.assertTrue(window.start_automatic_test_button.isEnabled())
         self.assertIn("配置已完成", window.preflight_blocker_label.text())
         self.assertIn("共 20 点", window.preflight_sequence_label.text())
+        self.assertEqual(window.preflight_labels["station"].property("checklistState"), "ready")
+        self.assertEqual(window.preflight_blocker_label.property("checklistState"), "ready")
         window.manual_ch341_controller = None
         window.close()
 
@@ -1227,21 +1233,14 @@ class MainWindowTests(unittest.TestCase):
         self.assertTrue(hasattr(window, "monitor_panel"))
         window.close()
 
-    def test_main_window_uses_left_navigation_while_retaining_internal_tabs(self) -> None:
+    def test_main_window_uses_native_tab_navigation(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
 
-        self.assertTrue(window.main_tabs.tabBar().isHidden())
-        self.assertEqual(window.navigation_panel.minimumWidth(), 148)
-        self.assertEqual(window.navigation_panel.maximumWidth(), 148)
-        self.assertEqual(
-            [button.text() for button in window.navigation_buttons.values()],
-            ["自动测试", "手动调试", "当前记录", "PD 采集"],
-        )
-
-        window.navigation_buttons[window.manual_tab_index].click()
+        self.assertFalse(window.main_tabs.tabBar().isHidden())
+        window.main_tabs.setCurrentIndex(window.manual_tab_index)
         self.assertEqual(window.main_tabs.currentIndex(), window.manual_tab_index)
-        self.assertEqual(window.page_title_label.text(), "手动调试")
+        self.assertFalse(hasattr(window, "navigation_panel"))
         window.close()
 
     def test_prepare_page_owns_routine_device_selection_without_tab_jump(self) -> None:
@@ -1389,15 +1388,14 @@ class MainWindowTests(unittest.TestCase):
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
 
-        semantic = combined_test_window.semantic_colors_for_palette(window.palette())
-        self.assertIn(semantic.secondary_text, window.global_psu_status_indicator.styleSheet())
-        self.assertIn(semantic.secondary_text, window.global_power_meter_status_indicator.styleSheet())
-        self.assertIn(semantic.secondary_text, window.global_spectrometer_status_indicator.styleSheet())
+        self.assertEqual(window.global_psu_status_indicator.text(), "○")
+        self.assertEqual(window.global_power_meter_status_indicator.text(), "○")
+        self.assertEqual(window.global_spectrometer_status_indicator.text(), "○")
 
         window.automatic_test_state = AutomaticTestState.PAUSED
         window.active_output_current_a = 6.0
         window.update_global_status()
-        self.assertIn(semantic.error_text, window.global_psu_status_indicator.styleSheet())
+        self.assertEqual(window.global_psu_status_indicator.text(), "!")
         self.assertIn("最近输出 6.0 A", window.global_psu_status_label.text())
         window.automatic_test_state = AutomaticTestState.IDLE
         window.active_output_current_a = None
@@ -1413,24 +1411,42 @@ class MainWindowTests(unittest.TestCase):
         window.spectrometer_reader = ReadyReader()  # type: ignore[assignment]
         window.update_global_status()
 
-        self.assertIn(semantic.success_text, window.global_psu_status_indicator.styleSheet())
-        self.assertIn(semantic.success_text, window.global_power_meter_status_indicator.styleSheet())
-        self.assertIn(semantic.success_text, window.global_spectrometer_status_indicator.styleSheet())
+        self.assertEqual(window.global_psu_status_indicator.text(), "√")
+        self.assertEqual(window.global_power_meter_status_indicator.text(), "√")
+        self.assertEqual(window.global_spectrometer_status_indicator.text(), "√")
         object.__setattr__(window.automatic_controller, "_output_shutdown_unconfirmed", True)
         window.active_output_current_a = 0.0
         window.update_global_status()
-        self.assertIn(semantic.error_text, window.global_psu_status_indicator.styleSheet())
+        self.assertEqual(window.global_psu_status_indicator.text(), "!")
         self.assertIn("输出状态未确认", window.global_psu_status_label.text())
         object.__setattr__(window.automatic_controller, "_output_shutdown_unconfirmed", False)
         window._power_meter_fault_message = "VISA timeout"
         window._spectrometer_fault_message = "USB disconnected"
         window.update_global_status()
-        self.assertIn(semantic.error_text, window.global_power_meter_status_indicator.styleSheet())
-        self.assertIn(semantic.error_text, window.global_spectrometer_status_indicator.styleSheet())
+        self.assertEqual(window.global_power_meter_status_indicator.text(), "!")
+        self.assertEqual(window.global_spectrometer_status_indicator.text(), "!")
         self.assertEqual(window.global_power_meter_status_label.text(), "功率计：故障")
         self.assertEqual(window.global_spectrometer_status_label.text(), "光谱仪：故障")
         window.power_meter_reader = None
         window.spectrometer_reader = None
+        window.close()
+
+    def test_native_status_symbols_are_not_clipped(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.show()
+        app.processEvents()
+
+        for indicator in (
+            window.global_psu_status_indicator,
+            window.global_power_meter_status_indicator,
+            window.global_spectrometer_status_indicator,
+            window.i2c_status_indicator,
+            window.tdk_output_status_indicator,
+        ):
+            with self.subTest(indicator=indicator.accessibleName()):
+                self.assertGreaterEqual(indicator.width(), indicator.fontMetrics().horizontalAdvance(indicator.text()))
+                self.assertGreaterEqual(indicator.height(), indicator.fontMetrics().height())
         window.close()
 
     def test_log_shows_only_the_latest_line(self) -> None:
@@ -1635,18 +1651,18 @@ class MainWindowTests(unittest.TestCase):
             self.assertTrue(candidate is following or following.isAncestorOf(candidate))
         window.close()
 
-    def test_idle_header_does_not_repeat_a_standby_status(self) -> None:
+    def test_native_status_row_shows_the_idle_state_once(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
         window.show()
         app.processEvents()
 
-        self.assertEqual(window.global_status_label.text(), "")
-        self.assertTrue(window.global_status_label.isHidden())
+        self.assertEqual(window.global_status_label.text(), "测试待机")
+        self.assertFalse(window.global_status_label.isHidden())
         visible_header_texts = {
             label.text() for label in window.page_header.findChildren(QLabel) if label.isVisible()
         }
-        self.assertNotIn("测试待机", visible_header_texts)
+        self.assertIn("测试待机", visible_header_texts)
         self.assertNotIn("准备测试", visible_header_texts)
         window.close()
 
@@ -1678,15 +1694,25 @@ class MainWindowTests(unittest.TestCase):
         self.assertTrue(window.manual_page.isAncestorOf(self._group(window, "电源")))
         window.close()
 
-    def test_button_roles_use_native_default_and_one_destructive_color(self) -> None:
+    def test_buttons_keep_the_native_style(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
 
         self.assertTrue(window.start_automatic_test_button.isDefault())
         self.assertFalse(hasattr(window, "start_all_button"))
-        self.assertEqual(window.stop_all_button.styleSheet(), window.stop_power_meter_button.styleSheet())
-        self.assertEqual(window.stop_all_button.styleSheet(), window.stop_spectrometer_button.styleSheet())
-        self.assertIn("color:", window.stop_all_button.styleSheet())
+        for button in (
+            window.stop_all_button,
+            window.stop_power_meter_button,
+            window.stop_spectrometer_button,
+            window.apply_current_button,
+            window.connect_i2c_button,
+            window.detect_power_meter_button,
+            window.start_power_meter_button,
+            window.detect_spectrometer_button,
+            window.start_spectrometer_button,
+            window.save_excel_button,
+        ):
+            self.assertEqual(button.styleSheet(), "")
         for button in (
             window.apply_current_button,
             window.connect_i2c_button,
@@ -1800,8 +1826,8 @@ class MainWindowTests(unittest.TestCase):
             self.assertFalse(dialog.isModal())
             self.assertFalse(window.manual_scroll_content.isAncestorOf(content))
             self.assertTrue(dialog.isAncestorOf(content))
-            self.assertEqual(button.font().pointSizeF(), 9.0)
-            self.assertEqual(dialog.font().pointSizeF(), 10.0)
+            self.assertEqual(button.font().toString(), app.font().toString())
+            self.assertEqual(dialog.font().toString(), app.font().toString())
             self.assertEqual(
                 group.sizePolicy().verticalPolicy(),
                 QSizePolicy.Policy.Maximum,
@@ -1846,7 +1872,7 @@ class MainWindowTests(unittest.TestCase):
             )
         window.close()
 
-    def test_manual_tdk_power_card_stays_compact_and_uses_body_font(self) -> None:
+    def test_manual_tdk_power_card_stays_compact_and_uses_native_font(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
         window.main_tabs.setCurrentIndex(window.manual_tab_index)
@@ -1857,7 +1883,7 @@ class MainWindowTests(unittest.TestCase):
         window.show()
         app.processEvents()
 
-        self.assertEqual(window.manual_page.font().pointSizeF(), 10.0)
+        self.assertEqual(window.manual_page.font().toString(), app.font().toString())
         self.assertEqual(
             window.power_supply_group.sizePolicy().verticalPolicy(),
             QSizePolicy.Policy.Maximum,
@@ -2513,6 +2539,33 @@ class MainWindowTests(unittest.TestCase):
         window.automatic_test_state = AutomaticTestState.IDLE
         window.close()
 
+    def test_manual_output_voltage_read_displays_value_without_recording_efficiency(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        efficiency_values: list[float] = []
+        window.execute_i2c_read = lambda *_args: 29.656  # type: ignore[method-assign]
+        window.record_efficiency_from_vout = efficiency_values.append  # type: ignore[method-assign]
+
+        window.read_output_voltage_button.click()
+        app.processEvents()
+
+        self.assertEqual(window.manual_output_voltage_label.text(), "输出电压：29.66 V")
+        self.assertEqual(efficiency_values, [])
+        window.close()
+
+    def test_automatic_output_voltage_read_keeps_efficiency_flow_separate(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        efficiency_values: list[float] = []
+        window.execute_i2c_read = lambda *_args: 29.656  # type: ignore[method-assign]
+        window.record_efficiency_from_vout = efficiency_values.append  # type: ignore[method-assign]
+
+        window.read_output_voltage(automatic=True)
+
+        self.assertEqual(efficiency_values, [29.656])
+        self.assertEqual(window.manual_output_voltage_label.text(), "输出电压：-- V")
+        window.close()
+
     def test_tdk_voltage_read_uses_rs232_label_without_i2c_frame(self) -> None:
         app = QApplication.instance() or QApplication([])
 
@@ -2603,13 +2656,19 @@ class MainWindowTests(unittest.TestCase):
         window = MainWindow()
         controller = FakeController()
         window.manual_ch341_controller = controller
+        self.assertEqual(window.active_current_label.text(), "未确认")
         window.set_current_spin.setValue(3.2)
+        self.assertEqual(window.active_current_label.text(), "未确认")
 
         window.apply_output_current()
 
         self.assertEqual(controller.writes, [[0xB4, 0xFF, 3, 20]])
         self.assertEqual(window.active_output_current_a, 3.2)
+        self.assertEqual(window.active_current_label.text(), "3.2 A")
         self.assertIn("3.2 A", window.log_text.text())
+
+        window.set_current_spin.setValue(4.4)
+        self.assertEqual(window.active_current_label.text(), "3.2 A")
         window.close()
 
     def test_manual_nonzero_current_locks_other_tabs_until_current_returns_to_zero(self) -> None:

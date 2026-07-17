@@ -77,14 +77,21 @@ class TdkWindowTests(unittest.TestCase):
             controller = window.manual_ch341_controller
             self.assertIsInstance(controller, FakeTdkController)
             self.assertTrue(controller.is_connected)
-            self.assertEqual(window.connect_i2c_button.text(), "断开 TDK")
+            self.assertEqual(window.connect_i2c_button.text(), "断开")
             self.assertFalse(window.read_temperature_button.isEnabled())
+            self.assertEqual(window.connect_i2c_button.styleSheet(), "")
+            self.assertEqual(window.apply_tdk_voltage_button.styleSheet(), "")
+            self.assertEqual(window.apply_current_button.styleSheet(), "")
+            self.assertEqual(window.tdk_output_button.styleSheet(), "")
+            self.assertTrue(window.connect_i2c_button.autoRaise())
+            self.assertTrue(window.apply_tdk_voltage_button.autoRaise())
+            self.assertTrue(window.apply_current_button.autoRaise())
+            self.assertTrue(window.tdk_output_button.autoRaise())
 
             window.tdk_voltage_spin.setValue(24.5)
             window.apply_tdk_output_voltage()
             self.assertEqual(controller.voltages, [24.5])
 
-            window.last_power_supply_command_monotonic_s = None
             window.toggle_tdk_output()
             self.assertTrue(controller.output_enabled)
             self.assertEqual(controller.currents, [0.0])
@@ -95,8 +102,9 @@ class TdkWindowTests(unittest.TestCase):
             self.assertEqual(window.set_current_spin.value(), 0.0)
             self.assertEqual(window.active_output_current_a, 0.0)
             self.assertEqual(window.tdk_output_status_label.text(), "输出开启")
-            self.assertEqual(window.tdk_output_button.text(), "关闭输出")
+            self.assertEqual(window.tdk_output_button.text(), "关闭")
             self.assertEqual(window.prepare_tdk_output_button.text(), "关闭输出")
+            self.assertEqual(window.tdk_output_button.styleSheet(), "")
 
             window.close()
             self.assertFalse(controller.output_enabled)
@@ -116,7 +124,6 @@ class TdkWindowTests(unittest.TestCase):
             window.connect_i2c_device()
             window.main_tabs.setCurrentIndex(window.manual_tab_index)
 
-            window.last_power_supply_command_monotonic_s = None
             window.toggle_tdk_output()
 
             self.assertTrue(window.manual_power_tab_lock_active)
@@ -130,7 +137,6 @@ class TdkWindowTests(unittest.TestCase):
             window.main_tabs.setCurrentIndex(window.pd_tab_index)
             self.assertEqual(window.main_tabs.currentIndex(), window.pd_tab_index)
 
-            window.last_power_supply_command_monotonic_s = None
             window.toggle_tdk_output()
 
             self.assertFalse(window.manual_power_tab_lock_active)
@@ -159,7 +165,6 @@ class TdkWindowTests(unittest.TestCase):
             controller.measured_current_a = 0.2
             window.set_current_spin.setValue(5.0)
 
-            window.last_power_supply_command_monotonic_s = None
             window.toggle_tdk_output()
 
             self.assertFalse(controller.output_enabled)
@@ -172,6 +177,15 @@ class TdkWindowTests(unittest.TestCase):
         finally:
             window_module.QMessageBox.critical = old_critical  # type: ignore[method-assign]
             window_module.TdkLambdaPowerSupply = old_controller
+
+    def test_tdk_commands_ignore_legacy_command_interval(self) -> None:
+        window = self.make_window()
+        window.power_supply_controller_kind = "tdk"
+        window.last_power_supply_command_monotonic_s = window_module.time.monotonic()
+
+        self.assertEqual(window.power_supply_command_interval_remaining_s(), 0.0)
+        self.assertTrue(window.begin_power_supply_command("TDK test command"))
+        window.close()
 
     def test_controller_mode_shows_only_its_relevant_rows(self) -> None:
         window = self.make_window()

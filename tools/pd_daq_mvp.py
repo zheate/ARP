@@ -43,9 +43,6 @@ from matplotlib.figure import Figure
 from matplotlib.font_manager import FontProperties
 from matplotlib.ticker import EngFormatter, MaxNLocator
 
-from combined_test.theme import FontRole, font_for_role
-
-
 DEFAULT_SAMPLE_RATE_HZ = 1_000.0
 DEFAULT_BLOCK_SIZE = 100
 DEFAULT_HISTORY_S = 60.0
@@ -528,7 +525,6 @@ class PdDaqPanel(QWidget):
         values_layout = QGridLayout()
         self.current_value_label = QLabel("--", self)
         self.current_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.current_value_label.setFont(font_for_role(FontRole.METRIC))
         self.voltage_label = QLabel("电压：-- V", self)
         self.mean_label = QLabel("批次均值：--", self)
         self.std_label = QLabel("标准差：--", self)
