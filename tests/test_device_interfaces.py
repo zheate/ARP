@@ -115,20 +115,21 @@ class DeviceInterfaceTests(unittest.TestCase):
                 started_at,
                 test_station="老化站 1",
             )
-            self.assertEqual(
-                path,
-                output_dir / "SN-1" / "老化站 1" / "2026_07_12_09_30.xlsx",
-            )
+            self.assertEqual(path.name, "result.xlsx")
+            self.assertEqual(path.parent.parent.name, "2026-07-12")
+            self.assertEqual(path.parent.parent.parent.name, "老化站 1")
+            self.assertEqual(path.parent.parent.parent.parent.name, "SN-1")
             self.assertTrue(path.parent.is_dir())
+            self.assertTrue((output_dir / "index.sqlite3").is_file())
 
-        record = ExcelTestRecord(1, 2, 3, 0.5, 976, 976, 1, 0.8, [975, 976], [1, 2])
+            record = ExcelTestRecord(1, 2, 3, 0.5, 976, 976, 1, 0.8, [975, 976], [1, 2])
 
-        store.queue(record)
+            store.queue(record)
 
-        self.assertIsInstance(store, RecordStore)
-        self.assertEqual(store.unsaved_records(), (record,))
-        store.mark_saved((record,))
-        self.assertEqual(store.unsaved_records(), ())
+            self.assertIsInstance(store, RecordStore)
+            self.assertEqual(store.unsaved_records(), (record,))
+            store.mark_saved((record,))
+            self.assertEqual(store.unsaved_records(), ())
 
 
 if __name__ == "__main__":

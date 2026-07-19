@@ -18,15 +18,30 @@ class ExcelSaveThread(QThread):
     saved = Signal(float)
     failed = Signal(str)
 
-    def __init__(self, path: Path, records: list[ExcelTestRecord], parent: Any | None = None) -> None:
+    def __init__(
+        self,
+        path: Path,
+        records: list[ExcelTestRecord],
+        parent: Any | None = None,
+        *,
+        session: Any | None = None,
+        attempts: tuple[Any, ...] = (),
+    ) -> None:
         super().__init__(parent)
         self.path = Path(path)
         self.records = list(records)
+        self.session = session
+        self.attempts = tuple(attempts)
 
     def run(self) -> None:
         started = time.monotonic()
         try:
-            save_test_records(self.path, self.records)
+            save_test_records(
+                self.path,
+                self.records,
+                session=self.session,
+                attempts=self.attempts,
+            )
         except Exception as exc:
             self.failed.emit(str(exc))
             return

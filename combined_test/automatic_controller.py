@@ -22,6 +22,7 @@ from .automation import (
 )
 from .device_interfaces import PowerMeter, PowerSupply, SpectrumMeter
 from .record_store import RecordStore
+from .test_archive import AttemptValidity, EventSeverity, SessionStatus
 
 AUTO_VOUT_AFTER_STABLE_S = 5.0
 AUTOMATIC_DEVICE_START_TIMEOUT_S = 15.0
@@ -212,9 +213,10 @@ class AutomaticTestController:
         object.__setattr__(self, "_save_completed_while_paused", False)
         self.set_automatic_test_state(
             AutomaticTestState.SAVING_POINT,
-            f"正在保存 {current_a:.1f} A 测试点",
+            f"正在归档 {current_a:.1f} A 测试点",
         )
         self.save_pending_excel_records()
+        self.on_record_saved()
 
     def on_record_saved(self) -> None:
         paused_during_save = (
@@ -226,7 +228,7 @@ class AutomaticTestController:
         expected_current = self.automatic_test_currents[self.automatic_test_current_index]
         if expected_current not in self.record_store.recorded_currents:
             if not paused_during_save:
-                self.pause_automatic_test(f"{expected_current:.1f} A 测试点未确认写入 Excel")
+                self.pause_automatic_test(f"{expected_current:.1f} A 测试点未确认写入测试档案")
             return
         if paused_during_save:
             object.__setattr__(self, "_save_completed_while_paused", True)
@@ -249,8 +251,7 @@ class AutomaticTestController:
             )
 
     def on_record_save_failed(self, message: str) -> None:
-        if self.automatic_test_state == AutomaticTestState.SAVING_POINT:
-            self.pause_automatic_test(f"Excel 保存失败：{message}")
+        self.add_log(f"Excel 导出待重试：{message}")
 
     def on_stable_power_captured(self, current_a: float) -> None:
         if self.automatic_test_state == AutomaticTestState.WAITING_STABLE:
@@ -266,6 +267,16 @@ class AutomaticTestController:
         if device_label == "光谱仪" and not self.automatic_uses_spectrometer():
             return
         if self.automatic_measurement_is_active():
+            recorder = getattr(self.record_store, "record_invalid_attempt", None)
+            if callable(recorder):
+                try:
+                    recorder(
+                        float(self.active_output_current_a or 0.0),
+                        AttemptValidity.DEVICE_ERROR,
+                        f"{device_label}错误：{self._error_formatter(message)}",
+                    )
+                except Exception as exc:
+                    self.add_log(f"设备异常尝试归档失败：{self._error_formatter(exc)}")
             self.pause_automatic_test(f"{device_label}错误：{self._error_formatter(message)}")
 
     def on_acquisition_stopped(self, device_label: str) -> None:
@@ -316,8 +327,12 @@ class AutomaticTestController:
             return
         try:
             settings = self.collect_automatic_test_settings()
-            self.begin_test_session(require_station=True)
-        except ValueError as exc:
+            resume_session_id = str(getattr(self, "pending_resume_session_id", "")).strip()
+            if resume_session_id:
+                self.resume_test_session(resume_session_id)
+            else:
+                self.begin_test_session(require_station=True)
+        except Exception as exc:
             QMessageBox.warning(self._host, "自动测试", self._error_formatter(exc))
             return
 
@@ -337,6 +352,33 @@ class AutomaticTestController:
                 self.spectrometer_reader is not None and getattr(self.spectrometer_reader, "is_ready", False)
             ),
         )
+        configure_sequence = getattr(self.record_store, "configure_sequence", None)
+        if callable(configure_sequence):
+            configure_sequence(self.automatic_test_currents)
+        self.resume_all_points_complete = False
+        if resume_session_id:
+            completed_currents = tuple(getattr(self.record_store, "recorded_currents", ()))
+            missing_index = next(
+                (
+                    index
+                    for index, planned_current in enumerate(self.automatic_test_currents)
+                    if not any(
+                        math.isclose(planned_current, completed, rel_tol=0.0, abs_tol=1e-9)
+                        for completed in completed_currents
+                    )
+                ),
+                None,
+            )
+            if missing_index is None:
+                self.resume_all_points_complete = True
+            else:
+                self.automatic_test_current_index = missing_index
+                self.add_log(
+                    f"恢复测试：保留 {len(completed_currents)} 个已完成点，从 "
+                    f"{self.automatic_test_currents[missing_index]:.1f} A 继续"
+                )
+            self.pending_resume_session_id = ""
+            self.start_automatic_test_button.setText("开始自动测试")
         self.set_automatic_test_state(AutomaticTestState.STARTING, "正在启动并确认采集设备")
 
         if self.power_meter_reader is None:
@@ -364,6 +406,13 @@ class AutomaticTestController:
         if not self.automatic_orchestrator.acquisition_ready:
             return
         self.automatic_device_start_timer.stop()
+        if bool(getattr(self, "resume_all_points_complete", False)):
+            self.resume_all_points_complete = False
+            self.begin_automatic_ramp_down(
+                terminal_outcome=AutomaticTestTerminalOutcome.SUCCEEDED,
+                terminal_reason="恢复检查完成，所有计划测试点均已有有效档案",
+            )
+            return
         self.begin_automatic_current_point()
 
     def begin_automatic_current_point(self) -> None:
@@ -533,6 +582,17 @@ class AutomaticTestController:
 
     def set_automatic_test_state(self, state: AutomaticTestState, detail: str = "") -> None:
         self.automatic_orchestrator.set_state(state)
+        event_writer = getattr(self.record_store, "append_event", None)
+        if callable(event_writer):
+            try:
+                event_writer(
+                    f"state.{state.value}",
+                    EventSeverity.WARNING if state is AutomaticTestState.PAUSED else EventSeverity.INFO,
+                    detail or state.value,
+                    current_a=self.active_output_current_a,
+                )
+            except Exception as exc:
+                self.add_log(f"测试档案事件写入失败：{self._error_formatter(exc)}")
         active = state not in (AutomaticTestState.IDLE, AutomaticTestState.COMPLETED)
         paused = state == AutomaticTestState.PAUSED
         self.start_automatic_test_button.setEnabled(not active)
@@ -548,6 +608,8 @@ class AutomaticTestController:
             self.auto_pause_ramp_down_timeout_spin,
             self.auto_use_spectrometer_check,
             self.sn_field,
+            self.product_model_field,
+            self.batch_field,
             self.output_dir_field,
             self.browse_button,
             self.apply_current_button,
@@ -757,6 +819,12 @@ class AutomaticTestController:
     def on_automatic_point_timeout(self) -> None:
         if self.automatic_test_state in (AutomaticTestState.WAITING_STABLE, AutomaticTestState.WAITING_VOLTAGE):
             current_a = self.active_output_current_a or 0.0
+            recorder = getattr(self.record_store, "record_invalid_attempt", None)
+            if callable(recorder):
+                try:
+                    recorder(current_a, AttemptValidity.TIMEOUT, f"{current_a:.1f} A 单点测试超时")
+                except Exception as exc:
+                    self.add_log(f"超时尝试归档失败：{self._error_formatter(exc)}")
             self.pause_automatic_test(f"{current_a:.1f} A 单点测试超时")
 
     def on_automatic_ramp_down_current_applied(self, current_a: float) -> None:
@@ -871,6 +939,21 @@ class AutomaticTestController:
         self._confirm_terminal_outcome()
         self.automatic_orchestrator.complete()
         completed_message = completion_detail or self._completion_message()
+        archive_status = {
+            AutomaticTestTerminalOutcome.SUCCEEDED: SessionStatus.COMPLETED,
+            AutomaticTestTerminalOutcome.STOPPED_BY_OPERATOR: SessionStatus.STOPPED_BY_OPERATOR,
+            AutomaticTestTerminalOutcome.ABORTED_SAFELY: SessionStatus.ABORTED_SAFELY,
+        }.get(self.terminal_outcome, SessionStatus.ABORTED_SAFELY)
+        complete_session = getattr(self.record_store, "complete_session", None)
+        if callable(complete_session):
+            try:
+                complete_session(
+                    archive_status,
+                    self.terminal_reason or completed_message,
+                    shutdown_confirmed=not self.output_shutdown_unconfirmed,
+                )
+            except Exception as exc:
+                self.add_log(f"测试档案结束状态写入失败：{self._error_formatter(exc)}")
         self.set_automatic_test_state(AutomaticTestState.COMPLETED, completed_message)
         self.statusBar().showMessage(completed_message)
         self.add_log(completed_message)

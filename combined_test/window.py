@@ -7,7 +7,7 @@ import os
 import sys
 import time
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from statistics import median
 from typing import Any
@@ -17,6 +17,7 @@ from PySide6.QtGui import QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
     QAbstractSpinBox,
+    QAbstractItemView,
     QButtonGroup,
     QCheckBox,
     QComboBox,
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QGridLayout,
     QGroupBox,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -39,12 +41,15 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QStatusBar,
     QTabWidget,
+    QTableWidget,
+    QTableWidgetItem,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
 from .automatic_controller import AutomaticTestController, AutomaticTestTerminalOutcome
+from .analysis_views import HistoryAnalysisPlots
 from .automation import (
     AutomaticTestOrchestrator,
     AutomaticTestSettings,
@@ -104,6 +109,15 @@ from .tdk_power_supply import (
     TdkLambdaPowerSupply,
     compensate_tdk_output_voltage,
     list_tdk_serial_resources,
+)
+from .test_archive import (
+    AttemptValidity,
+    DeviceSnapshot,
+    EventSeverity,
+    ExportState,
+    SessionFilters,
+    SessionStatus,
+    TestSession,
 )
 from .theme import FontRole, apply_application_theme, font_for_role, semantic_colors_for_palette
 from tools.pd_daq_mvp import PdDaqPanel
@@ -211,7 +225,14 @@ class MainWindow(QMainWindow):
         self.test_session_started_at: datetime | None = None
         self.test_session_station = ""
         self.record_store: RecordStore = SessionRecordStore()
+        self.recoverable_sessions: tuple[TestSession, ...] = ()
+        self.last_raw_output_voltage_v = math.nan
+        self._power_trace_error_reported = False
         self.excel_save_thread: ExcelSaveThread | None = None
+        self._excel_export_retry_blocked = False
+        self.history_export_thread: ExcelSaveThread | None = None
+        self.pending_resume_session_id = ""
+        self.resume_all_points_complete = False
         self.automatic_orchestrator = AutomaticTestOrchestrator()
         self.automatic_controller = AutomaticTestController(
             self,
@@ -377,7 +398,7 @@ class MainWindow(QMainWindow):
         self._build_automatic_result_page()
 
         self.records_page = QWidget(self.main_tabs)
-        self.records_tab_index = self.main_tabs.addTab(self.records_page, "当前记录")
+        self.records_tab_index = self.main_tabs.addTab(self.records_page, "测试记录")
         self._build_test_records_page()
         self.pd_panel = PdDaqPanel(self.main_tabs, auto_refresh=False)
         self.pd_tab_index = self.main_tabs.addTab(self.pd_panel, "PD 采集")
@@ -388,6 +409,7 @@ class MainWindow(QMainWindow):
         self._configure_button_semantics()
         self._disable_wheel_input_changes()
         self._restore_input_settings()
+        self._initialize_test_archive()
         self._connect_preflight_updates()
         self._configure_keyboard_focus_order()
 
@@ -426,7 +448,7 @@ class MainWindow(QMainWindow):
         pages = (
             (self.automatic_tab_index, "自动测试"),
             (self.manual_tab_index, "手动调试"),
-            (self.records_tab_index, "当前记录"),
+            (self.records_tab_index, "测试记录"),
             (self.pd_tab_index, "PD 采集"),
         )
         for index, title in pages:
@@ -455,7 +477,7 @@ class MainWindow(QMainWindow):
         titles = {
             getattr(self, "automatic_tab_index", -1): "自动测试",
             getattr(self, "manual_tab_index", -1): "手动调试",
-            getattr(self, "records_tab_index", -1): "当前记录",
+            getattr(self, "records_tab_index", -1): "测试记录",
             getattr(self, "pd_tab_index", -1): "PD 采集",
         }
         if hasattr(self, "page_title_label"):
@@ -569,6 +591,10 @@ class MainWindow(QMainWindow):
             )
         )
         self.sn_field.setText(str(settings.value(prefix + "sn", self.sn_field.text())))
+        self.product_model_field.setText(
+            str(settings.value(prefix + "product_model", self.product_model_field.text()))
+        )
+        self.batch_field.setText(str(settings.value(prefix + "batch", self.batch_field.text())))
         self.test_station_field.setText(
             str(settings.value(prefix + "test_station", self.test_station_field.text()))
         )
@@ -581,6 +607,21 @@ class MainWindow(QMainWindow):
             saved_output_path = saved_output_path.parent
         self.output_dir_field.setText(str(saved_output_path))
         self.output_dir_field.setCursorPosition(0)
+
+    def _initialize_test_archive(self) -> None:
+        """Open an existing archive without creating a new result root on startup."""
+        output_text = self.output_dir_field.text().strip()
+        if not output_text:
+            return
+        root = Path(output_text).expanduser()
+        if not root.exists() or not (root / "index.sqlite3").exists():
+            return
+        try:
+            archive = self.record_store.open_archive(root)
+            self.recoverable_sessions = archive.mark_running_sessions_incomplete()
+        except Exception as exc:
+            self.recoverable_sessions = ()
+            self.statusBar().showMessage(f"测试档案不可用：{exc}") if self.statusBar() else None
 
     @property
     def excel_workbook_path(self) -> Path | None:
@@ -699,6 +740,8 @@ class MainWindow(QMainWindow):
         )
         settings.setValue(prefix + "auto_use_spectrometer", self.auto_use_spectrometer_check.isChecked())
         settings.setValue(prefix + "sn", self.sn_field.text().strip())
+        settings.setValue(prefix + "product_model", self.product_model_field.text().strip())
+        settings.setValue(prefix + "batch", self.batch_field.text().strip())
         settings.setValue(prefix + "test_station", self.test_station_field.text().strip())
         settings.setValue(prefix + "output_dir", self.output_dir_field.text().strip())
         settings.sync()
@@ -866,6 +909,8 @@ class MainWindow(QMainWindow):
 
         focus_order = (
             self.sn_field,
+            self.product_model_field,
+            self.batch_field,
             self.test_station_field,
             self.output_dir_field,
             self.browse_button,
@@ -938,6 +983,22 @@ class MainWindow(QMainWindow):
         sn_label = QLabel("SN", self)
         sn_label.setBuddy(self.sn_field)
         form.addRow(sn_label, self.sn_field)
+
+        self.product_model_field = QLineEdit(self)
+        self.product_model_field.setPlaceholderText("可选，用于历史分组")
+        self.product_model_field.setAccessibleName("产品型号")
+        self.product_model_field.setMaximumWidth(420)
+        model_label = QLabel("产品型号", self)
+        model_label.setBuddy(self.product_model_field)
+        form.addRow(model_label, self.product_model_field)
+
+        self.batch_field = QLineEdit(self)
+        self.batch_field.setPlaceholderText("可选，用于批次趋势")
+        self.batch_field.setAccessibleName("批次号")
+        self.batch_field.setMaximumWidth(420)
+        batch_label = QLabel("批次", self)
+        batch_label.setBuddy(self.batch_field)
+        form.addRow(batch_label, self.batch_field)
 
         self.test_station_field = QLineEdit(self)
         self.test_station_field.setPlaceholderText("开始测试前必填，如老化站 1")
@@ -1224,11 +1285,11 @@ class MainWindow(QMainWindow):
 
     def _build_test_records_page(self) -> None:
         layout = QVBoxLayout(self.records_page)
-        layout.setContentsMargins(24, 20, 24, 20)
-        layout.setSpacing(12)
-        title = QLabel("当前记录", self.records_page)
+        layout.setContentsMargins(16, 14, 16, 12)
+        layout.setSpacing(8)
+        title = QLabel("测试记录", self.records_page)
         title.setFont(font_for_role(FontRole.PAGE_TITLE))
-        description = QLabel("当前测试会话的保存状态和结果文件", self.records_page)
+        description = QLabel("查询测试档案、复测记录、异常事件和趋势分析", self.records_page)
         description.setStyleSheet(
             f"color: {semantic_colors_for_palette(self.palette()).secondary_text};"
         )
@@ -1252,7 +1313,17 @@ class MainWindow(QMainWindow):
         )
         empty_layout.addWidget(self.records_empty_title)
         empty_layout.addWidget(self.records_empty_description)
-        layout.addWidget(self.records_empty_state)
+        self.records_workspace_tabs = QTabWidget(self.records_page)
+        self.records_list_page = QWidget(self.records_workspace_tabs)
+        self.records_detail_page = QWidget(self.records_workspace_tabs)
+        self.records_workspace_tabs.addTab(self.records_list_page, "历史记录")
+        self.records_workspace_tabs.addTab(self.records_detail_page, "分析详情")
+        layout.addWidget(self.records_workspace_tabs, stretch=1)
+
+        list_layout = QVBoxLayout(self.records_list_page)
+        list_layout.setContentsMargins(0, 6, 0, 0)
+        list_layout.setSpacing(8)
+        list_layout.addWidget(self.records_empty_state)
 
         group = QGroupBox("当前会话", self.records_page)
         self.records_session_panel = group
@@ -1264,7 +1335,7 @@ class MainWindow(QMainWindow):
         self.records_file_label = QLabel("尚未创建结果文件", group)
         self.records_file_label.setWordWrap(True)
         self.records_file_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self.save_excel_button = QPushButton("保存 Excel", group)
+        self.save_excel_button = QPushButton("重新生成 Excel", group)
         self.records_open_button = QPushButton("打开结果文件", group)
         self.records_open_folder_button = QPushButton("打开所在文件夹", group)
         self._configure_action_button(self.save_excel_button, 104)
@@ -1286,9 +1357,135 @@ class MainWindow(QMainWindow):
         form.addRow("测试点", self.records_points_label)
         form.addRow("结果文件", self.records_file_label)
         form.addRow("", actions)
-        layout.addWidget(group)
+        list_layout.addWidget(group)
         group.hide()
-        layout.addStretch(1)
+
+        filters = QGroupBox("筛选", self.records_list_page)
+        filter_layout = QGridLayout(filters)
+        self.records_filter_sn = QLineEdit(filters)
+        self.records_filter_sn.setPlaceholderText("SN 包含")
+        self.records_filter_model = QLineEdit(filters)
+        self.records_filter_model.setPlaceholderText("产品型号")
+        self.records_filter_batch = QLineEdit(filters)
+        self.records_filter_batch.setPlaceholderText("批次")
+        self.records_filter_station = QLineEdit(filters)
+        self.records_filter_station.setPlaceholderText("测试站别")
+        self.records_filter_mode = QComboBox(filters)
+        self.records_filter_mode.addItems(("全部模式", "自动测试", "手动测试"))
+        self.records_filter_status = QComboBox(filters)
+        self.records_filter_status.addItems(("全部状态", "完整完成", "人工结束", "异常中止", "未完成"))
+        for column, widget in enumerate(
+            (
+                self.records_filter_sn,
+                self.records_filter_model,
+                self.records_filter_batch,
+                self.records_filter_station,
+                self.records_filter_mode,
+                self.records_filter_status,
+            )
+        ):
+            filter_layout.addWidget(widget, 0, column)
+            filter_layout.setColumnStretch(column, 1)
+        self.records_refresh_button = QPushButton("刷新", filters)
+        self.records_clear_filters_button = QPushButton("清除", filters)
+        filter_layout.addWidget(self.records_refresh_button, 0, 6)
+        filter_layout.addWidget(self.records_clear_filters_button, 0, 7)
+        self.records_filter_date_from = QLineEdit(filters)
+        self.records_filter_date_from.setPlaceholderText("开始日期 YYYY-MM-DD")
+        self.records_filter_date_to = QLineEdit(filters)
+        self.records_filter_date_to.setPlaceholderText("结束日期 YYYY-MM-DD")
+        filter_layout.addWidget(self.records_filter_date_from, 1, 0, 1, 2)
+        filter_layout.addWidget(self.records_filter_date_to, 1, 2, 1, 2)
+        self.records_refresh_button.clicked.connect(self.refresh_history_records)
+        self.records_clear_filters_button.clicked.connect(self.clear_history_filters)
+        for field in (
+            self.records_filter_sn,
+            self.records_filter_model,
+            self.records_filter_batch,
+            self.records_filter_station,
+            self.records_filter_date_from,
+            self.records_filter_date_to,
+        ):
+            field.returnPressed.connect(self.refresh_history_records)
+        self.records_filter_mode.currentIndexChanged.connect(self.refresh_history_records)
+        self.records_filter_status.currentIndexChanged.connect(self.refresh_history_records)
+        list_layout.addWidget(filters)
+
+        summary_row = QHBoxLayout()
+        self.records_summary_labels: dict[str, QLabel] = {}
+        for key, title in (
+            ("sessions", "会话"),
+            ("completion", "完成率"),
+            ("invalid", "无效尝试率"),
+            ("retest", "复测率"),
+            ("duration", "中位耗时"),
+        ):
+            label = QLabel(f"{title}：--", self.records_list_page)
+            label.setFont(font_for_role(FontRole.SECTION_TITLE))
+            self.records_summary_labels[key] = label
+            summary_row.addWidget(label)
+        summary_row.addStretch(1)
+        list_layout.addLayout(summary_row)
+
+        self.records_history_table = QTableWidget(0, 10, self.records_list_page)
+        self.records_history_table.setHorizontalHeaderLabels(
+            ("对比", "时间", "SN", "型号", "批次", "站别", "模式", "状态", "Excel", "会话编号")
+        )
+        self.records_history_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.records_history_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.records_history_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.records_history_table.verticalHeader().setVisible(False)
+        self.records_history_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.records_history_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.records_history_table.setColumnHidden(9, True)
+        self.records_history_table.itemSelectionChanged.connect(self.show_selected_history_session)
+        self.records_history_table.itemDoubleClicked.connect(
+            lambda _item: self.records_workspace_tabs.setCurrentWidget(self.records_detail_page)
+        )
+        list_layout.addWidget(self.records_history_table, stretch=1)
+
+        history_actions = QHBoxLayout()
+        self.records_view_button = QPushButton("查看分析", self.records_list_page)
+        self.records_compare_button = QPushButton("对比勾选记录", self.records_list_page)
+        self.records_resume_button = QPushButton("恢复未完成测试", self.records_list_page)
+        self.records_reexport_button = QPushButton("重新导出 Excel", self.records_list_page)
+        self.records_view_button.clicked.connect(
+            lambda: self.records_workspace_tabs.setCurrentWidget(self.records_detail_page)
+        )
+        self.records_compare_button.clicked.connect(self.compare_checked_sessions)
+        self.records_resume_button.clicked.connect(self.prepare_resume_selected_session)
+        self.records_reexport_button.clicked.connect(self.reexport_selected_history_session)
+        for button in (
+            self.records_view_button,
+            self.records_compare_button,
+            self.records_resume_button,
+            self.records_reexport_button,
+        ):
+            history_actions.addWidget(button)
+        history_actions.addStretch(1)
+        list_layout.addLayout(history_actions)
+
+        detail_layout = QVBoxLayout(self.records_detail_page)
+        detail_layout.setContentsMargins(0, 6, 0, 0)
+        detail_layout.setSpacing(8)
+        self.records_detail_summary = QLabel("请选择一轮测试", self.records_detail_page)
+        self.records_detail_summary.setWordWrap(True)
+        self.records_detail_summary.setFont(font_for_role(FontRole.SECTION_TITLE))
+        detail_layout.addWidget(self.records_detail_summary)
+        self.records_attempts_table = QTableWidget(0, 10, self.records_detail_page)
+        self.records_attempts_table.setHorizontalHeaderLabels(
+            ("点", "目标电流", "尝试", "数据状态", "原因", "电压", "功率", "效率", "中心波长", "FWHM")
+        )
+        self.records_attempts_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.records_attempts_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.records_attempts_table.verticalHeader().setVisible(False)
+        self.records_attempts_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.records_attempts_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        self.records_attempts_table.setMaximumHeight(170)
+        detail_layout.addWidget(self.records_attempts_table)
+        self.history_analysis_plots = HistoryAnalysisPlots(self.records_detail_page)
+        detail_layout.addWidget(self.history_analysis_plots, stretch=1)
+        self._selected_history_session_id = ""
 
     def refresh_records_page(self) -> None:
         if not hasattr(self, "records_points_label"):
@@ -1307,6 +1504,337 @@ class MainWindow(QMainWindow):
         self.records_session_panel.setVisible(has_session)
         self.records_open_button.setEnabled(result_exists)
         self.records_open_folder_button.setEnabled(result_exists)
+        self.refresh_history_records()
+
+    def clear_history_filters(self) -> None:
+        for field in (
+            self.records_filter_sn,
+            self.records_filter_model,
+            self.records_filter_batch,
+            self.records_filter_station,
+            self.records_filter_date_from,
+            self.records_filter_date_to,
+        ):
+            field.clear()
+        self.records_filter_mode.setCurrentIndex(0)
+        self.records_filter_status.setCurrentIndex(0)
+        self.refresh_history_records()
+
+    @staticmethod
+    def _history_filter_timestamp(text: str, *, end_of_day: bool) -> str:
+        value = text.strip()
+        if not value:
+            return ""
+        parsed = datetime.strptime(value, "%Y-%m-%d")
+        if end_of_day:
+            parsed = parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
+        return parsed.astimezone().astimezone(timezone.utc).isoformat()
+
+    def _history_filters(self) -> SessionFilters:
+        mode_values = ("", "automatic", "manual")
+        status_values = (
+            "",
+            SessionStatus.COMPLETED.value,
+            SessionStatus.STOPPED_BY_OPERATOR.value,
+            SessionStatus.ABORTED_SAFELY.value,
+            SessionStatus.INCOMPLETE.value,
+        )
+        try:
+            date_from = self._history_filter_timestamp(
+                self.records_filter_date_from.text(),
+                end_of_day=False,
+            )
+            date_to = self._history_filter_timestamp(
+                self.records_filter_date_to.text(),
+                end_of_day=True,
+            )
+        except ValueError:
+            self.statusBar().showMessage("日期格式应为 YYYY-MM-DD")
+            date_from = ""
+            date_to = ""
+        return SessionFilters(
+            sn=self.records_filter_sn.text().strip(),
+            product_model=self.records_filter_model.text().strip(),
+            batch=self.records_filter_batch.text().strip(),
+            station=self.records_filter_station.text().strip(),
+            mode=mode_values[self.records_filter_mode.currentIndex()],
+            status=status_values[self.records_filter_status.currentIndex()],
+            date_from=date_from,
+            date_to=date_to,
+            limit=1000,
+        )
+
+    def _archive_for_history(self) -> Any | None:
+        output_text = self.output_dir_field.text().strip()
+        if not output_text:
+            return None
+        root = Path(output_text).expanduser().resolve()
+        archive = self.record_store.archive
+        if archive is not None and archive.root == root:
+            return archive
+        if not (root / "index.sqlite3").is_file():
+            return None
+        try:
+            return self.record_store.open_archive(root)
+        except Exception as exc:
+            self.statusBar().showMessage(f"无法打开测试档案：{exc}")
+            return None
+
+    @staticmethod
+    def _local_session_time(value: str) -> str:
+        try:
+            return datetime.fromisoformat(value).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+        except (TypeError, ValueError):
+            return value or "--"
+
+    def refresh_history_records(self, *_args: Any) -> None:
+        if not hasattr(self, "records_history_table"):
+            return
+        archive = self._archive_for_history()
+        checked_ids = {
+            self.records_history_table.item(row, 9).text()
+            for row in range(self.records_history_table.rowCount())
+            if self.records_history_table.item(row, 0) is not None
+            and self.records_history_table.item(row, 0).checkState() == Qt.CheckState.Checked
+        }
+        sessions = () if archive is None else archive.list_sessions(self._history_filters())
+        status_labels = {
+            SessionStatus.RUNNING: "运行中",
+            SessionStatus.COMPLETED: "完整完成",
+            SessionStatus.STOPPED_BY_OPERATOR: "人工结束",
+            SessionStatus.ABORTED_SAFELY: "异常中止",
+            SessionStatus.INCOMPLETE: "未完成",
+        }
+        export_labels = {
+            ExportState.PENDING: "待导出",
+            ExportState.EXPORTED: "已导出",
+            ExportState.FAILED: "导出失败",
+        }
+        self.records_history_table.blockSignals(True)
+        try:
+            self.records_history_table.setRowCount(len(sessions))
+            for row, session in enumerate(sessions):
+                compare_item = QTableWidgetItem()
+                compare_item.setFlags(
+                    Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable
+                )
+                compare_item.setCheckState(
+                    Qt.CheckState.Checked
+                    if session.session_id in checked_ids
+                    else Qt.CheckState.Unchecked
+                )
+                values = (
+                    compare_item,
+                    QTableWidgetItem(self._local_session_time(session.started_at_utc)),
+                    QTableWidgetItem(session.sn),
+                    QTableWidgetItem(session.product_model or "未知"),
+                    QTableWidgetItem(session.batch or "未知"),
+                    QTableWidgetItem(session.station or "未知"),
+                    QTableWidgetItem("自动" if session.mode == "automatic" else "手动"),
+                    QTableWidgetItem(status_labels[session.status]),
+                    QTableWidgetItem(export_labels[session.export_state]),
+                    QTableWidgetItem(session.session_id),
+                )
+                for column, item in enumerate(values):
+                    self.records_history_table.setItem(row, column, item)
+        finally:
+            self.records_history_table.blockSignals(False)
+        self.records_empty_state.setVisible(not sessions and self.record_store.current_session is None)
+        if archive is None:
+            statistics = {
+                "sessions": 0.0,
+                "completion_rate": math.nan,
+                "invalid_attempt_rate": math.nan,
+                "retest_rate": math.nan,
+                "median_duration_s": math.nan,
+            }
+        else:
+            statistics = archive.session_statistics(self._history_filters())
+        self.records_summary_labels["sessions"].setText(
+            f"会话：{int(statistics['sessions'])}"
+        )
+        self.records_summary_labels["completion"].setText(
+            "完成率：--"
+            if not math.isfinite(statistics["completion_rate"])
+            else f"完成率：{statistics['completion_rate'] * 100.0:.1f}%"
+        )
+        self.records_summary_labels["invalid"].setText(
+            "无效尝试率：--"
+            if not math.isfinite(statistics["invalid_attempt_rate"])
+            else f"无效尝试率：{statistics['invalid_attempt_rate'] * 100.0:.1f}%"
+        )
+        self.records_summary_labels["retest"].setText(
+            "复测率：--"
+            if not math.isfinite(statistics["retest_rate"])
+            else f"复测率：{statistics['retest_rate'] * 100.0:.1f}%"
+        )
+        self.records_summary_labels["duration"].setText(
+            "中位耗时：--"
+            if not math.isfinite(statistics["median_duration_s"])
+            else f"中位耗时：{statistics['median_duration_s'] / 60.0:.1f} min"
+        )
+        if sessions and not self.records_history_table.selectedItems():
+            self.records_history_table.selectRow(0)
+
+    def _selected_history_session(self) -> TestSession | None:
+        archive = self._archive_for_history()
+        row = self.records_history_table.currentRow()
+        if archive is None or row < 0:
+            return None
+        session_item = self.records_history_table.item(row, 9)
+        if session_item is None:
+            return None
+        try:
+            return archive.get_session(session_item.text())
+        except KeyError:
+            return None
+
+    def show_selected_history_session(self) -> None:
+        session = self._selected_history_session()
+        archive = self._archive_for_history()
+        if session is None or archive is None:
+            self._selected_history_session_id = ""
+            self.records_detail_summary.setText("请选择一轮测试")
+            self.records_attempts_table.setRowCount(0)
+            self.history_analysis_plots.clear()
+            return
+        self._selected_history_session_id = session.session_id
+        attempts = archive.list_attempts(session.session_id)
+        valid_selected = sum(attempt.selected for attempt in attempts)
+        invalid = sum(attempt.validity is not AttemptValidity.VALID for attempt in attempts)
+        self.records_detail_summary.setText(
+            f"{session.sn} · {session.product_model or '型号未知'} · "
+            f"{session.batch or '批次未知'} · {session.station or '站别未知'} · "
+            f"有效点 {valid_selected} · 无效尝试 {invalid} · "
+            f"{self._local_session_time(session.started_at_utc)}"
+        )
+        validity_labels = {
+            AttemptValidity.VALID: "有效",
+            AttemptValidity.SATURATED: "光谱饱和",
+            AttemptValidity.WEAK_SIGNAL: "信号过弱",
+            AttemptValidity.MISSING: "缺失",
+            AttemptValidity.DEVICE_ERROR: "设备异常",
+            AttemptValidity.TIMEOUT: "超时",
+        }
+        self.records_attempts_table.setRowCount(len(attempts))
+        for row, attempt in enumerate(attempts):
+            values = (
+                str(attempt.sequence_index + 1),
+                f"{attempt.target_current_a:g} A",
+                f"{attempt.attempt_no}" + (" · 采用" if attempt.selected else ""),
+                validity_labels[attempt.validity],
+                attempt.invalid_reason,
+                self._format_optional(attempt.voltage_v),
+                self._format_optional(attempt.power_w),
+                "--" if not math.isfinite(attempt.efficiency) else f"{attempt.efficiency * 100.0:.2f}%",
+                self._format_optional(attempt.centroid_nm),
+                self._format_optional(attempt.fwhm_nm),
+            )
+            for column, value in enumerate(values):
+                self.records_attempts_table.setItem(row, column, QTableWidgetItem(value))
+        self.history_analysis_plots.show_session(session, attempts)
+        self.records_resume_button.setEnabled(
+            session.mode == "automatic" and session.status is SessionStatus.INCOMPLETE
+        )
+        self.records_reexport_button.setEnabled(bool(attempts))
+
+    def compare_checked_sessions(self) -> None:
+        archive = self._archive_for_history()
+        if archive is None:
+            return
+        session_ids = [
+            self.records_history_table.item(row, 9).text()
+            for row in range(self.records_history_table.rowCount())
+            if self.records_history_table.item(row, 0).checkState() == Qt.CheckState.Checked
+        ]
+        if not session_ids:
+            self.statusBar().showMessage("请先勾选需要对比的记录")
+            return
+        if len(session_ids) > HistoryAnalysisPlots.MAX_COMPARISON_SESSIONS:
+            self.statusBar().showMessage("最多同时对比五轮测试")
+            return
+        comparison = [
+            (archive.get_session(session_id), archive.list_attempts(session_id))
+            for session_id in session_ids
+        ]
+        self.history_analysis_plots.show_comparison(comparison)
+        self.records_workspace_tabs.setCurrentWidget(self.records_detail_page)
+        self.history_analysis_plots.tabs.setCurrentWidget(
+            self.history_analysis_plots.comparison_canvas
+        )
+
+    def prepare_resume_selected_session(self) -> None:
+        session = self._selected_history_session()
+        if session is None or session.mode != "automatic" or session.status is not SessionStatus.INCOMPLETE:
+            self.statusBar().showMessage("请选择一轮未完成的自动测试")
+            return
+        settings = dict(session.settings)
+        self.pending_resume_session_id = session.session_id
+        self.sn_field.setText(session.sn)
+        self.product_model_field.setText(session.product_model)
+        self.batch_field.setText(session.batch)
+        self.test_station_field.setText(session.station)
+        for widget, key in (
+            (self.auto_initial_current_spin, "initial_current_a"),
+            (self.auto_target_current_spin, "target_current_a"),
+            (self.auto_current_step_spin, "current_step_a"),
+            (self.auto_point_timeout_spin, "point_timeout_s"),
+            (self.auto_ramp_down_step_spin, "ramp_down_step_a"),
+            (self.auto_ramp_down_interval_spin, "ramp_down_interval_s"),
+            (self.auto_pause_ramp_down_timeout_spin, "pause_ramp_down_timeout_s"),
+        ):
+            if key in settings:
+                widget.setValue(float(settings[key]))
+        if "use_spectrometer" in settings:
+            self.auto_use_spectrometer_check.setChecked(bool(settings["use_spectrometer"]))
+        self.main_tabs.setCurrentIndex(self.automatic_tab_index)
+        self.automatic_stack.setCurrentWidget(self.automatic_prepare_page)
+        self.start_automatic_test_button.setText("继续未完成测试")
+        self.statusBar().showMessage("请重新完成设备检查；继续时将从 0 A 安全升流")
+
+    def reexport_selected_history_session(self) -> None:
+        if self.history_export_thread is not None:
+            return
+        session = self._selected_history_session()
+        archive = self._archive_for_history()
+        if session is None or archive is None:
+            return
+        records = list(self.record_store.records_for_session(session.session_id))
+        if not records:
+            self.statusBar().showMessage("这轮测试没有可导出的有效点")
+            return
+        attempts = archive.list_attempts(session.session_id)
+        archive.mark_export_state(session.session_id, ExportState.PENDING)
+        thread = ExcelSaveThread(
+            session.workbook_path,
+            records,
+            self,
+            session=session,
+            attempts=attempts,
+        )
+        self.history_export_thread = thread
+        thread.saved.connect(
+            lambda _elapsed, session_id=session.session_id: archive.mark_export_state(
+                session_id,
+                ExportState.EXPORTED,
+            )
+        )
+        thread.failed.connect(
+            lambda message, session_id=session.session_id: archive.mark_export_state(
+                session_id,
+                ExportState.FAILED,
+                message,
+            )
+        )
+        thread.finished.connect(self.on_history_export_finished)
+        thread.start()
+
+    def on_history_export_finished(self) -> None:
+        thread = self.history_export_thread
+        self.history_export_thread = None
+        if thread is not None:
+            thread.deleteLater()
+        self.refresh_history_records()
 
     def _build_power_supply_group(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("电源", self)
@@ -2023,7 +2551,13 @@ class MainWindow(QMainWindow):
         target.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _connect_preflight_updates(self) -> None:
-        for line_edit in (self.sn_field, self.test_station_field, self.output_dir_field):
+        for line_edit in (
+            self.sn_field,
+            self.product_model_field,
+            self.batch_field,
+            self.test_station_field,
+            self.output_dir_field,
+        ):
             line_edit.textChanged.connect(self.refresh_preflight_checklist)
         for spin_box in (
             self.auto_initial_current_spin,
@@ -2544,19 +3078,74 @@ class MainWindow(QMainWindow):
         self.start_power_meter()
         self.start_spectrometer()
 
+    def _test_settings_snapshot(self, mode: str) -> dict[str, Any]:
+        return {
+            "mode": mode,
+            "power_supply_controller": self._selected_power_supply_kind(),
+            "power_meter_resource": self._selected_power_resource(),
+            "power_meter_wavelength_nm": self.power_wavelength_spin.value(),
+            "software_gain": self.software_gain_spin.value(),
+            "power_meter_interval_ms": self.power_meter_interval_spin.value(),
+            "spectrometer_device_id": self._selected_spectrometer_device_id(),
+            "integration_time_us": self.integration_spin.value(),
+            "auto_integration_enabled": self.auto_integration_check.isChecked(),
+            "spectrometer_interval_ms": self.interval_spin.value(),
+            "stable_window_s": self.stable_window_spin.value(),
+            "initial_current_a": self.auto_initial_current_spin.value(),
+            "target_current_a": self.auto_target_current_spin.value(),
+            "current_step_a": self.auto_current_step_spin.value(),
+            "point_timeout_s": self.auto_point_timeout_spin.value(),
+            "ramp_down_step_a": self.auto_ramp_down_step_spin.value(),
+            "ramp_down_interval_s": self.auto_ramp_down_interval_spin.value(),
+            "pause_ramp_down_timeout_s": self.auto_pause_ramp_down_timeout_spin.value(),
+            "use_spectrometer": self.auto_use_spectrometer_check.isChecked(),
+        }
+
+    def _device_snapshots(self) -> tuple[DeviceSnapshot, ...]:
+        power_option = self.power_meter_combo.currentData()
+        spectrum_option = self.spectrometer_combo.currentData()
+        power_detail = power_option.detail if isinstance(power_option, PowerMeterOption) else ""
+        spectrum_detail = (
+            f"device id {spectrum_option.device_id}"
+            if isinstance(spectrum_option, SpectrometerOption)
+            else ""
+        )
+        return (
+            DeviceSnapshot(
+                role="电源",
+                kind=self._selected_power_supply_kind(),
+                resource=self.tdk_resource_combo.currentText().strip()
+                if self._selected_power_supply_kind() == "tdk"
+                else "CH341 I²C",
+            ),
+            DeviceSnapshot(
+                role="功率计",
+                kind=power_option.device_type if isinstance(power_option, PowerMeterOption) else "",
+                resource=self._selected_power_resource(),
+                detail=power_detail,
+            ),
+            DeviceSnapshot(
+                role="光谱仪",
+                kind="Ocean Insight" if spectrum_option is not None else "",
+                detail=spectrum_detail,
+            ),
+        )
+
     def begin_test_session(
         self,
         reset_records: bool = True,
         *,
         require_station: bool = False,
     ) -> Path:
-        sn = sanitize_sn(self.sn_field.text())
+        sn = self.sn_field.text().strip()
+        sanitize_sn(sn)
         test_station = self.test_station_field.text().strip()
         if require_station and not test_station:
             raise ValueError("测试站别不能为空")
         output_dir_text = self.output_dir_field.text().strip()
         if not output_dir_text:
             raise ValueError("Excel 输出文件夹不能为空")
+        mode = "automatic" if require_station else "manual"
         self.test_session_started_at = datetime.now()
         self.test_session_station = test_station
         self.excel_workbook_path = self.record_store.begin_session(
@@ -2565,7 +3154,14 @@ class MainWindow(QMainWindow):
             self.test_session_started_at,
             test_station=test_station,
             reset=reset_records,
+            mode=mode,
+            product_model=self.product_model_field.text().strip(),
+            batch=self.batch_field.text().strip(),
+            settings=self._test_settings_snapshot(mode),
+            devices=self._device_snapshots(),
         )
+        self.record_store.start_power_trace()
+        self._power_trace_error_reported = False
         if reset_records:
             self.save_status_label.setText("暂无可保存的测试点")
             self.save_excel_button.setEnabled(False)
@@ -2574,6 +3170,21 @@ class MainWindow(QMainWindow):
             self.refresh_records_page()
         self.add_log(f"测试记录：{self.excel_workbook_path}")
         return self.excel_workbook_path
+
+    def resume_test_session(self, session_id: str) -> TestSession:
+        session = self.record_store.resume_session(session_id)
+        self.test_session_station = session.station
+        try:
+            self.test_session_started_at = datetime.fromisoformat(
+                session.started_at_utc
+            ).astimezone().replace(tzinfo=None)
+        except ValueError:
+            self.test_session_started_at = datetime.now()
+        self.excel_workbook_path = session.workbook_path
+        self.records_file_label.setText(str(session.workbook_path))
+        self.refresh_records_page()
+        self.add_log(f"已恢复测试档案：{session.session_id}")
+        return session
 
     def stop_all(self) -> None:
         if self.automatic_test_state not in (
@@ -3226,12 +3837,39 @@ class MainWindow(QMainWindow):
             f"({current_a:.3f} A × {voltage_v:.3f} V) = {efficiency_percent:.2f}%"
         )
 
-        queued = self.queue_excel_test_point(current_a, voltage_v, power_w, efficiency_percent / 100.0)
+        queued = self.queue_excel_test_point(
+            current_a,
+            voltage_v,
+            power_w,
+            efficiency_percent / 100.0,
+            raw_voltage_v=raw_voltage_v,
+        )
         self.automatic_controller.on_voltage_record_ready(current_a, queued, self.last_point_record_error)
 
     def pause_automatic_point_if_waiting(self, reason: str) -> None:
         if self.automatic_test_state == AutomaticTestState.WAITING_VOLTAGE:
             self.pause_automatic_test(reason)
+
+    def _record_invalid_attempt(
+        self,
+        current_a: float,
+        validity: AttemptValidity,
+        reason: str,
+        **spectrum: Any,
+    ) -> bool:
+        try:
+            self.record_store.record_invalid_attempt(
+                current_a,
+                validity,
+                reason,
+                **spectrum,
+            )
+        except Exception as exc:
+            self.last_point_record_error = f"无效测量尝试归档失败：{exc}"
+            self.add_log(self.last_point_record_error)
+            self.statusBar().showMessage(self.last_point_record_error)
+            return False
+        return True
 
     def queue_excel_test_point(
         self,
@@ -3239,6 +3877,8 @@ class MainWindow(QMainWindow):
         voltage_v: float,
         power_w: float,
         efficiency: float,
+        *,
+        raw_voltage_v: float = math.nan,
     ) -> bool:
         self.last_point_record_error = ""
         spectrum_optional = (
@@ -3246,20 +3886,44 @@ class MainWindow(QMainWindow):
             and not self.automatic_controller.automatic_uses_spectrometer()
         )
         if spectrum_optional:
-            self.record_store.queue(ExcelTestRecord(
-                current_a=current_a,
-                voltage_v=voltage_v,
-                power_w=power_w,
-                efficiency=efficiency,
-                peak_wavelength_nm=math.nan,
-                centroid_nm=math.nan,
-                fwhm_nm=math.nan,
-                pib=math.nan,
-                wavelength=[],
-                intensity=[],
-                smsr_db=math.nan,
-                test_station=self.test_session_station,
-            ))
+            try:
+                self.record_store.queue(
+                    ExcelTestRecord(
+                        current_a=current_a,
+                        voltage_v=voltage_v,
+                        power_w=power_w,
+                        efficiency=efficiency,
+                        peak_wavelength_nm=math.nan,
+                        centroid_nm=math.nan,
+                        fwhm_nm=math.nan,
+                        pib=math.nan,
+                        wavelength=[],
+                        intensity=[],
+                        smsr_db=math.nan,
+                        test_station=self.test_session_station,
+                    ),
+                    actual_current_a=current_a,
+                    voltage_raw_v=raw_voltage_v,
+                    stable_span_w=(
+                        self.latest_power_meter_reading.stable_span_w
+                        if self.latest_power_meter_reading is not None
+                        else math.nan
+                    ),
+                    stable_window_s=(
+                        self.latest_power_meter_reading.stable_window_s
+                        if self.latest_power_meter_reading is not None
+                        else math.nan
+                    ),
+                    stable_tolerance_w=(
+                        self.latest_power_meter_reading.stable_tolerance_w
+                        if self.latest_power_meter_reading is not None
+                        else math.nan
+                    ),
+                )
+            except Exception as exc:
+                self.last_point_record_error = f"测试档案写入失败：{exc}"
+                self.add_log(self.last_point_record_error)
+                return False
             self.save_excel_button.setEnabled(True)
             self.add_log(f"已加入无光谱测试点：{current_a:.3f} A")
             return True
@@ -3280,6 +3944,14 @@ class MainWindow(QMainWindow):
             )
             self.statusBar().showMessage(self.last_point_record_error)
             self.add_log(self.last_point_record_error)
+            self._record_invalid_attempt(
+                current_a,
+                AttemptValidity.WEAK_SIGNAL,
+                self.last_point_record_error,
+                wavelength=self.latest_spectrum_wavelength,
+                intensity=self.latest_spectrum_intensity,
+                integration_time_us=self.integration_spin.value(),
+            )
             return False
         saturation = detect_spectrum_saturation(self.latest_spectrum_intensity)
         if saturation.saturated:
@@ -3296,25 +3968,59 @@ class MainWindow(QMainWindow):
             self.last_point_record_error = message
             self.statusBar().showMessage(message)
             self.add_log(message)
+            self._record_invalid_attempt(
+                current_a,
+                AttemptValidity.SATURATED,
+                message,
+                wavelength=self.latest_spectrum_wavelength,
+                intensity=self.latest_spectrum_intensity,
+                integration_time_us=self.integration_spin.value(),
+            )
             return False
         stats = calculate_stats(self.latest_spectrum_wavelength, self.latest_spectrum_intensity)
         smsr = calculate_smsr(self.latest_spectrum_wavelength, self.latest_spectrum_intensity)
-        self.record_store.queue(ExcelTestRecord(
-            current_a=current_a,
-            voltage_v=voltage_v,
-            power_w=power_w,
-            efficiency=efficiency,
-            peak_wavelength_nm=stats.peak_wavelength_nm,
-            centroid_nm=stats.centroid_nm,
-            fwhm_nm=stats.fwhm_nm,
-            pib=calculate_pib(self.latest_spectrum_wavelength, self.latest_spectrum_intensity),
-            wavelength=list(self.latest_spectrum_wavelength),
-            intensity=list(self.latest_spectrum_intensity),
-            smsr_db=smsr.smsr_db,
-            test_station=self.test_session_station,
-        ))
+        try:
+            self.record_store.queue(
+                ExcelTestRecord(
+                    current_a=current_a,
+                    voltage_v=voltage_v,
+                    power_w=power_w,
+                    efficiency=efficiency,
+                    peak_wavelength_nm=stats.peak_wavelength_nm,
+                    centroid_nm=stats.centroid_nm,
+                    fwhm_nm=stats.fwhm_nm,
+                    pib=calculate_pib(self.latest_spectrum_wavelength, self.latest_spectrum_intensity),
+                    wavelength=list(self.latest_spectrum_wavelength),
+                    intensity=list(self.latest_spectrum_intensity),
+                    smsr_db=smsr.smsr_db,
+                    test_station=self.test_session_station,
+                ),
+                actual_current_a=current_a,
+                voltage_raw_v=raw_voltage_v,
+                stable_span_w=(
+                    self.latest_power_meter_reading.stable_span_w
+                    if self.latest_power_meter_reading is not None
+                    else math.nan
+                ),
+                stable_window_s=(
+                    self.latest_power_meter_reading.stable_window_s
+                    if self.latest_power_meter_reading is not None
+                    else math.nan
+                ),
+                stable_tolerance_w=(
+                    self.latest_power_meter_reading.stable_tolerance_w
+                    if self.latest_power_meter_reading is not None
+                    else math.nan
+                ),
+                integration_time_us=self.integration_spin.value(),
+            )
+        except Exception as exc:
+            self.last_point_record_error = f"测试档案写入失败：{exc}"
+            self.add_log(self.last_point_record_error)
+            self.statusBar().showMessage(self.last_point_record_error)
+            return False
         self.refresh_records_page()
-        pending_count = len([current for current in self.pending_excel_records if current not in self.excel_recorded_currents])
+        pending_count = len(self.record_store.unsaved_records())
         self.save_excel_button.setEnabled(pending_count > 0)
         self.save_status_label.setText(f"{pending_count} 个测试点待保存")
         self.statusBar().showMessage(f"{current_a:.1f} A 测试点已就绪；请单击“保存 Excel”")
@@ -3335,7 +4041,20 @@ class MainWindow(QMainWindow):
                 return
 
         records_snapshot = list(self.record_store.snapshot())
-        self.excel_save_thread = ExcelSaveThread(self.excel_workbook_path, records_snapshot, self)
+        self._excel_export_retry_blocked = False
+        session = self.record_store.current_session
+        attempts = (
+            self.record_store.list_attempts(session.session_id)
+            if session is not None
+            else ()
+        )
+        self.excel_save_thread = ExcelSaveThread(
+            self.excel_workbook_path,
+            records_snapshot,
+            self,
+            session=session,
+            attempts=attempts,
+        )
         self.excel_save_thread.saved.connect(self.on_excel_save_succeeded)
         self.excel_save_thread.failed.connect(self.on_excel_save_failed)
         self.excel_save_thread.finished.connect(self.on_excel_save_finished)
@@ -3349,10 +4068,17 @@ class MainWindow(QMainWindow):
         thread = self.excel_save_thread
         if thread is None:
             return
-        self.record_store.mark_saved(tuple(thread.records))
-        remaining_count = len(
-            [current for current in self.pending_excel_records if current not in self.excel_recorded_currents]
-        )
+        try:
+            self.record_store.mark_saved(tuple(thread.records))
+        except Exception as exc:
+            message = f"Excel 已保存，但测试档案状态更新失败：{exc}"
+            self._excel_export_retry_blocked = True
+            self.save_status_label.setText("测试档案状态更新失败")
+            self.statusBar().showMessage(message)
+            self.add_log(message)
+            self.automatic_controller.on_record_save_failed(message)
+            return
+        remaining_count = len(self.record_store.unsaved_records())
         if remaining_count:
             self.save_status_label.setText(f"已在 {elapsed_s:.2f} 秒内保存；另有 {remaining_count} 个新测试点待保存")
         else:
@@ -3363,10 +4089,17 @@ class MainWindow(QMainWindow):
         self.automatic_controller.on_record_saved()
 
     def on_excel_save_failed(self, message: str) -> None:
-        self.save_status_label.setText("保存失败")
+        self._excel_export_retry_blocked = True
+        self.save_status_label.setText("Excel 待重新导出")
         self.add_log(f"Excel 保存失败：{message}")
+        self.record_store.mark_export_failed(message)
         self.automatic_controller.on_record_save_failed(message)
-        QMessageBox.critical(self, "保存 Excel", user_facing_error_message(message))
+        if not self.automatic_measurement_is_active():
+            QMessageBox.warning(
+                self,
+                "Excel 待重新导出",
+                f"测试数据已保存在本地档案中。\nExcel 导出失败：{message}",
+            )
 
     def on_excel_save_finished(self) -> None:
         thread = self.excel_save_thread
@@ -3374,11 +4107,17 @@ class MainWindow(QMainWindow):
         automatic_idle = self.automatic_test_state in (AutomaticTestState.IDLE, AutomaticTestState.COMPLETED)
         self.save_excel_button.setEnabled(
             automatic_idle
-            and any(current not in self.excel_recorded_currents for current in self.pending_excel_records)
+            and bool(self.record_store.unsaved_records())
         )
         self.save_excel_button.setText("保存 Excel")
         if thread is not None:
             thread.deleteLater()
+        if (
+            not self._excel_export_retry_blocked
+            and self.record_store.unsaved_records()
+            and self.excel_workbook_path is not None
+        ):
+            QTimer.singleShot(0, self.save_pending_excel_records)
         self._continue_pending_close()
 
     def apply_output_current(self) -> None:
@@ -3736,6 +4475,24 @@ class MainWindow(QMainWindow):
             active_tolerance_w,
         )
         self.update_power_curve(reading.elapsed_s, reading.power_w)
+        try:
+            self.record_store.append_power_trace(
+                elapsed_s=reading.elapsed_s,
+                state=self.automatic_test_state.value,
+                target_current_a=self.active_output_current_a,
+                actual_current_a=self.active_output_current_a,
+                power_w=reading.power_w,
+                stable=reading.stable,
+                stable_span_w=reading.stable_span_w,
+                stable_tolerance_w=active_tolerance_w,
+            )
+        except Exception as exc:
+            if not self._power_trace_error_reported:
+                self._power_trace_error_reported = True
+                message = f"功率原始曲线保存失败：{exc}"
+                self.add_log(message)
+                if self.automatic_measurement_is_active():
+                    self.pause_automatic_test(message)
         self.capture_stable_power_point(reading)
 
     def on_spectrometer_reading(self, reading: SpectrometerReading) -> None:

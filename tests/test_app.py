@@ -94,7 +94,7 @@ class MainWindowTests(unittest.TestCase):
         window.stable_power_points[10.0] = 80.0
         queued_points: list[tuple[float, float, float, float]] = []
         window.queue_excel_test_point = (  # type: ignore[method-assign]
-            lambda current, voltage, power, efficiency: queued_points.append(
+            lambda current, voltage, power, efficiency, **_kwargs: queued_points.append(
                 (current, voltage, power, efficiency)
             )
             or False
@@ -361,11 +361,16 @@ class MainWindowTests(unittest.TestCase):
 
             self.assertEqual(window.automatic_test_state, AutomaticTestState.STARTING)
             self.assertIsNotNone(window.excel_workbook_path)
+            self.assertIsNotNone(window.record_store.current_session)
             self.assertEqual(
                 window.excel_workbook_path.parent,
-                Path(temp_dir) / "AUTO-001" / "老化站 1",
+                window.record_store.current_session.session_dir,
             )
-            self.assertRegex(window.excel_workbook_path.name, r"^\d{4}(?:_\d{2}){4}\.xlsx$")
+            self.assertEqual(
+                window.record_store.current_session.session_dir.parent.parent,
+                Path(temp_dir).resolve() / "AUTO-001" / "老化站 1",
+            )
+            self.assertEqual(window.excel_workbook_path.name, "result.xlsx")
             self.assertTrue(window.excel_workbook_path.parent.is_dir())
             self.assertEqual(controller.writes, [])
             window.on_power_meter_ready()
@@ -540,8 +545,10 @@ class MainWindowTests(unittest.TestCase):
         app = QApplication.instance() or QApplication([])
         with tempfile.TemporaryDirectory() as temp_dir:
             window = MainWindow(QSettings(str(Path(temp_dir) / "inputs.ini"), QSettings.Format.IniFormat))
-            window.excel_workbook_path = Path(temp_dir) / "SN001_2026_07_10_14_30_25.xlsx"
-            window.test_session_station = "老化站 1"
+            window.sn_field.setText("SN001")
+            window.test_station_field.setText("老化站 1")
+            window.output_dir_field.setText(temp_dir)
+            window.begin_test_session()
             window.latest_spectrum_wavelength = [974.0, 975.0, 976.0, 977.0, 978.0]
             window.latest_spectrum_intensity = [0.0, 5000.0, 10000.0, 5000.0, 0.0]
 
@@ -562,9 +569,19 @@ class MainWindowTests(unittest.TestCase):
 
     def test_automatic_test_saves_each_complete_point_immediately(self) -> None:
         app = QApplication.instance() or QApplication([])
+
+        class FakeController:
+            is_connected = True
+
+            def i2c_write(self, _address: int, _command: list[int]) -> tuple[bool, str]:
+                return True, "OK"
+
         with tempfile.TemporaryDirectory() as temp_dir:
             window = MainWindow(QSettings(str(Path(temp_dir) / "inputs.ini"), QSettings.Format.IniFormat))
-            window.excel_workbook_path = Path(temp_dir) / "AUTO_2026_07_11_12_00_00.xlsx"
+            window.sn_field.setText("AUTO")
+            window.test_station_field.setText("老化站 1")
+            window.output_dir_field.setText(temp_dir)
+            window.begin_test_session(require_station=True)
             window.latest_spectrum_wavelength = [974.0, 975.0, 976.0, 977.0, 978.0]
             window.latest_spectrum_intensity = [0.0, 5000.0, 10000.0, 5000.0, 0.0]
             window.active_output_current_a = 3.0
@@ -572,10 +589,12 @@ class MainWindowTests(unittest.TestCase):
             window.automatic_test_state = AutomaticTestState.WAITING_VOLTAGE
             window.automatic_test_currents = (3.0, 4.0)
             window.automatic_test_current_index = 0
+            window.manual_ch341_controller = FakeController()
 
             window.record_efficiency_from_vout(50.5)
 
-            self.assertEqual(window.automatic_test_state, AutomaticTestState.SAVING_POINT)
+            self.assertEqual(window.automatic_test_state, AutomaticTestState.WAITING_STABLE)
+            self.assertIn(3.0, window.record_store.recorded_currents)
             self.assertIsNotNone(window.excel_save_thread)
             self.assertTrue(window.excel_save_thread.wait(5000))
             window.automatic_test_state = AutomaticTestState.IDLE
@@ -610,6 +629,7 @@ class MainWindowTests(unittest.TestCase):
         window.manual_ch341_controller = FakeController()
         window.power_meter_reader = ReaderStub()  # type: ignore[assignment]
         window.pending_excel_records[3.0] = record
+        window.excel_recorded_currents.add(3.0)
         window.excel_save_thread = types.SimpleNamespace(records=[record], path=Path("auto.xlsx"))  # type: ignore[assignment]
         window.automatic_test_state = AutomaticTestState.SAVING_POINT
         window.automatic_test_currents = (3.0, 4.0)
@@ -658,6 +678,7 @@ class MainWindowTests(unittest.TestCase):
         controller = FakeController()
         window.manual_ch341_controller = controller
         window.pending_excel_records[20.0] = record
+        window.excel_recorded_currents.add(20.0)
         window.excel_save_thread = types.SimpleNamespace(records=[record], path=Path("auto.xlsx"))  # type: ignore[assignment]
         window.automatic_test_state = AutomaticTestState.SAVING_POINT
         window.automatic_test_currents = (20.0,)
@@ -1085,7 +1106,7 @@ class MainWindowTests(unittest.TestCase):
         window.power_meter_reader = None
         window.close()
 
-    def test_excel_save_failure_pauses_automatic_test_at_current_output(self) -> None:
+    def test_excel_export_failure_keeps_archived_automatic_test_running(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
         window.active_output_current_a = 8.0
@@ -1098,10 +1119,10 @@ class MainWindowTests(unittest.TestCase):
         finally:
             QMessageBox.critical = old_critical  # type: ignore[method-assign]
 
-        self.assertEqual(window.automatic_test_state, AutomaticTestState.PAUSED)
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.SAVING_POINT)
         self.assertEqual(window.active_output_current_a, 8.0)
-        self.assertTrue(window.retry_automatic_test_button.isEnabled())
-        self.assertTrue(window.end_automatic_test_button.isEnabled())
+        self.assertFalse(window.automatic_pause_safety_timer.isActive())
+        self.assertIn("待重新导出", window.save_status_label.text())
         window.automatic_test_state = AutomaticTestState.IDLE
         window.close()
 
@@ -1216,7 +1237,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertGreaterEqual(window.central_shell.layout().indexOf(window.main_tabs), 0)
         self.assertEqual(
             [window.main_tabs.tabText(index) for index in range(window.main_tabs.count())],
-            ["自动测试", "手动调试", "当前记录", "PD 采集"],
+            ["自动测试", "手动调试", "测试记录", "PD 采集"],
         )
         self.assertEqual(window.main_tabs.currentIndex(), window.automatic_tab_index)
         self.assertEqual(window.automatic_stack.count(), 3)
@@ -1236,7 +1257,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window.navigation_panel.maximumWidth(), 148)
         self.assertEqual(
             [button.text() for button in window.navigation_buttons.values()],
-            ["自动测试", "手动调试", "当前记录", "PD 采集"],
+            ["自动测试", "手动调试", "测试记录", "PD 采集"],
         )
 
         window.navigation_buttons[window.manual_tab_index].click()
@@ -1613,6 +1634,8 @@ class MainWindowTests(unittest.TestCase):
 
         expected_order = (
             window.sn_field,
+            window.product_model_field,
+            window.batch_field,
             window.test_station_field,
             window.output_dir_field,
             window.browse_button,
@@ -2391,6 +2414,10 @@ class MainWindowTests(unittest.TestCase):
                 QSettings(str(Path(temp_dir) / "inputs.ini"), QSettings.Format.IniFormat)
             )
             window.auto_use_spectrometer_check.setChecked(False)
+            window.sn_field.setText("LIV-ONLY")
+            window.test_station_field.setText("老化站 1")
+            window.output_dir_field.setText(temp_dir)
+            window.begin_test_session(require_station=True)
             window.automatic_test_settings = window.collect_automatic_test_settings()
             window.automatic_test_state = AutomaticTestState.WAITING_STABLE
             window.active_output_current_a = 3.0

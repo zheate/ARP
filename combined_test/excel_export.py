@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font
@@ -118,7 +118,117 @@ def _write_test_station(sheet: Worksheet, test_station: str) -> None:
     sheet.column_dimensions["C"].width = max(sheet.column_dimensions["C"].width or 0, 16)
 
 
-def save_test_records(path: Path, records: Iterable[ExcelTestRecord]) -> None:
+def _write_session_information(workbook: Workbook, session: Any) -> None:
+    sheet = workbook.create_sheet("会话信息")
+    rows = (
+        ("会话编号", getattr(session, "session_id", "")),
+        ("SN", getattr(session, "sn", "")),
+        ("产品型号", getattr(session, "product_model", "")),
+        ("批次", getattr(session, "batch", "")),
+        ("测试站别", getattr(session, "station", "")),
+        ("测试模式", getattr(session, "mode", "")),
+        ("开始时间 UTC", getattr(session, "started_at_utc", "")),
+        ("结束时间 UTC", getattr(session, "ended_at_utc", "") or ""),
+        ("流程状态", getattr(getattr(session, "status", ""), "value", getattr(session, "status", ""))),
+        ("结束原因", getattr(session, "termination_reason", "")),
+        ("安全下电确认", getattr(session, "shutdown_confirmed", "")),
+        ("软件版本", getattr(session, "software_version", "")),
+        ("算法版本", getattr(session, "calculation_version", "")),
+    )
+    for row_index, (label, value) in enumerate(rows, start=1):
+        sheet.cell(row=row_index, column=1, value=label).font = Font(bold=True)
+        sheet.cell(row=row_index, column=2, value=str(value))
+    row_index = len(rows) + 2
+    sheet.cell(row=row_index, column=1, value="测试参数").font = Font(bold=True)
+    for key, value in sorted(dict(getattr(session, "settings", {}) or {}).items()):
+        row_index += 1
+        sheet.cell(row=row_index, column=1, value=str(key))
+        sheet.cell(row=row_index, column=2, value=str(value))
+    row_index += 2
+    sheet.cell(row=row_index, column=1, value="设备快照").font = Font(bold=True)
+    for device in tuple(getattr(session, "devices", ()) or ()):
+        row_index += 1
+        if isinstance(device, dict):
+            label = device.get("role", "设备")
+            value = " | ".join(
+                str(device.get(key, ""))
+                for key in ("kind", "resource", "detail")
+                if str(device.get(key, "")).strip()
+            )
+        else:
+            label = getattr(device, "role", "设备")
+            value = str(device)
+        sheet.cell(row=row_index, column=1, value=str(label))
+        sheet.cell(row=row_index, column=2, value=value)
+    sheet.column_dimensions["A"].width = 24
+    sheet.column_dimensions["B"].width = 72
+
+
+def _write_measurement_attempts(workbook: Workbook, attempts: Iterable[Any]) -> None:
+    sheet = workbook.create_sheet("测量尝试")
+    headers = (
+        "点序号",
+        "目标电流(A)",
+        "尝试次数",
+        "时间 UTC",
+        "数据状态",
+        "原因",
+        "采用",
+        "电压(V)",
+        "功率(W)",
+        "效率",
+        "中心波长(nm)",
+        "FWHM(nm)",
+        "PIB",
+        "SMSR(dB)",
+        "判稳波动(W)",
+        "判稳窗口(s)",
+        "积分时间(us)",
+        "光谱文件",
+    )
+    for column, header in enumerate(headers, start=1):
+        cell = sheet.cell(row=1, column=column, value=header)
+        cell.font = Font(bold=True)
+        cell.alignment = Alignment(horizontal="center")
+    for row_index, attempt in enumerate(attempts, start=2):
+        validity = getattr(attempt, "validity", "")
+        values = (
+            int(getattr(attempt, "sequence_index", 0)) + 1,
+            _finite_or_none(getattr(attempt, "target_current_a", math.nan)),
+            int(getattr(attempt, "attempt_no", 1)),
+            getattr(attempt, "created_at_utc", ""),
+            getattr(validity, "value", validity),
+            getattr(attempt, "invalid_reason", ""),
+            "是" if bool(getattr(attempt, "selected", False)) else "否",
+            _finite_or_none(getattr(attempt, "voltage_v", math.nan)),
+            _finite_or_none(getattr(attempt, "power_w", math.nan)),
+            _finite_or_none(getattr(attempt, "efficiency", math.nan)),
+            _finite_or_none(getattr(attempt, "centroid_nm", math.nan)),
+            _finite_or_none(getattr(attempt, "fwhm_nm", math.nan)),
+            _finite_or_none(getattr(attempt, "pib", math.nan)),
+            _finite_or_none(getattr(attempt, "smsr_db", math.nan)),
+            _finite_or_none(getattr(attempt, "stable_span_w", math.nan)),
+            _finite_or_none(getattr(attempt, "stable_window_s", math.nan)),
+            getattr(attempt, "integration_time_us", None),
+            getattr(attempt, "spectrum_path", ""),
+        )
+        for column, value in enumerate(values, start=1):
+            sheet.cell(row=row_index, column=column, value=value)
+    sheet.freeze_panes = "A2"
+    for column in range(1, len(headers) + 1):
+        sheet.column_dimensions[sheet.cell(row=1, column=column).column_letter].width = 16
+    sheet.column_dimensions["D"].width = 28
+    sheet.column_dimensions["F"].width = 42
+    sheet.column_dimensions["R"].width = 42
+
+
+def save_test_records(
+    path: Path,
+    records: Iterable[ExcelTestRecord],
+    *,
+    session: Any | None = None,
+    attempts: Iterable[Any] = (),
+) -> None:
     """Write a complete, current-sorted test workbook with a single XLSX save."""
     records_by_current: dict[float, tuple[ExcelTestRecord, list[float], list[float]]] = {}
     for record in records:
@@ -142,6 +252,12 @@ def save_test_records(path: Path, records: Iterable[ExcelTestRecord]) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     workbook = _create_workbook(target)
     sheet = workbook[workbook.sheetnames[0]]
+
+    if session is not None:
+        _write_session_information(workbook, session)
+    attempt_values = tuple(attempts)
+    if attempt_values:
+        _write_measurement_attempts(workbook, attempt_values)
 
     if test_stations:
         _write_test_station(sheet, next(iter(test_stations)))
