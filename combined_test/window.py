@@ -179,7 +179,7 @@ class MainWindow(QMainWindow):
     def __init__(self, input_settings: QSettings | None = None) -> None:
         super().__init__()
         self.input_settings = input_settings or QSettings("Changguang Huaxin", "Pump Driver Integrated Test")
-        self.setWindowTitle("电源 / 功率计 / 光谱 / PD 综合测试")
+        self.setWindowTitle("Power Test")
         self.resize(1280, 800)
         self.setMinimumSize(1100, 700)
         self.power_meter_detect_thread: PowerMeterDetectThread | None = None
@@ -2957,18 +2957,22 @@ class MainWindow(QMainWindow):
         reason = self.automatic_controller.terminal_reason
         if outcome == AutomaticTestTerminalOutcome.SUCCEEDED:
             self.result_title_label.setText("测试完整完成")
-            completion_text = f"计划的 {planned_points or saved_points} 个测试点均已保存，并已安全下电"
+            completion_text = (
+                f"计划的 {planned_points or saved_points} 个测试点已完成，"
+                "Excel 将自动保存，并已安全下电"
+            )
         elif outcome == AutomaticTestTerminalOutcome.ABORTED_SAFELY:
             self.result_title_label.setText("测试异常中止")
             reason_text = reason or detail or "测试过程中发生异常"
             completion_text = (
-                f"{reason_text}；已保存 {saved_points}/{planned_points or saved_points} 个测试点，"
-                "设备已安全下电"
+                f"{reason_text}；已采集 {saved_points}/{planned_points or saved_points} 个测试点，"
+                "本轮未保存到 Excel 或数据库，设备已安全下电"
             )
         else:
             self.result_title_label.setText("测试已提前结束")
             completion_text = (
-                f"已保存 {saved_points}/{planned_points or saved_points} 个测试点，设备已安全下电"
+                f"已采集 {saved_points}/{planned_points or saved_points} 个测试点，"
+                "本轮未保存到 Excel 或数据库，设备已安全下电"
             )
         self.result_completion_label.setText(completion_text)
         self.result_sn_label.setText(self.sn_field.text().strip() or "--")
@@ -4063,6 +4067,22 @@ class MainWindow(QMainWindow):
         self.save_status_label.setText(f"正在保存 {len(records_snapshot)} 个测试点…")
         self.add_log(f"正在后台保存 {len(records_snapshot)} 个测试点")
         self.excel_save_thread.start()
+
+    def save_pending_database_records(self) -> None:
+        pending_count = self.record_store.pending_database_count()
+        if pending_count <= 0:
+            self.statusBar().showMessage("没有待录入数据库的测试数据")
+            return
+        try:
+            valid_count = self.record_store.commit_pending_records()
+        except Exception as exc:
+            message = f"测试数据录入数据库失败：{exc}"
+            self.add_log(message)
+            self.statusBar().showMessage(message)
+            return
+        self.refresh_records_page()
+        self.statusBar().showMessage(f"已将 {valid_count} 个有效测试点录入数据库")
+        self.add_log(f"已将 {valid_count} 个有效测试点录入数据库")
 
     def on_excel_save_succeeded(self, elapsed_s: float) -> None:
         thread = self.excel_save_thread

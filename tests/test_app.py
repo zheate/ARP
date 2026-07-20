@@ -567,7 +567,7 @@ class MainWindowTests(unittest.TestCase):
             self.assertEqual(window.save_excel_button.text(), "保存 Excel")
             window.close()
 
-    def test_automatic_test_saves_each_complete_point_immediately(self) -> None:
+    def test_automatic_test_keeps_points_until_the_full_run_finishes(self) -> None:
         app = QApplication.instance() or QApplication([])
 
         class FakeController:
@@ -595,8 +595,8 @@ class MainWindowTests(unittest.TestCase):
 
             self.assertEqual(window.automatic_test_state, AutomaticTestState.WAITING_STABLE)
             self.assertIn(3.0, window.record_store.recorded_currents)
-            self.assertIsNotNone(window.excel_save_thread)
-            self.assertTrue(window.excel_save_thread.wait(5000))
+            self.assertIsNone(window.excel_save_thread)
+            self.assertEqual(window.record_store.pending_database_count(), 0)
             window.automatic_test_state = AutomaticTestState.IDLE
             window.close()
 

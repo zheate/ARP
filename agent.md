@@ -25,6 +25,25 @@
 - `tools/` contains standalone device diagnostics and the legacy CH341 controller.
 - `tests/` contains the full test suite.
 
+## UI Card Alignment Requirements
+
+- UI cards must be strictly aligned on a shared layout grid. Cards in the same row must share the same top edge, and cards intended to form a row or column must have consistent widths, heights, gaps, and outer margins.
+- Card content must use consistent internal padding. Headings, labels, inputs, dropdowns, buttons, status rows, and chart areas must align to the same left and right content columns; do not use arbitrary offsets or one-off spacing to compensate for misalignment.
+- Keep equivalent controls in equivalent positions across device cards. When a card contains a selector and an action button, use the same order, alignment, and spacing everywhere.
+- Alignment must remain correct when cards resize, when text or status messages change, and at the supported window sizes and display scaling factors. No card may clip, overlap, or create unintended horizontal overflow.
+- Before considering a UI change complete, verify the rendered/live interface visually at the relevant window sizes and check the card edges and control baselines, not only the code or automated tests.
+
+## Tauri Device Settings Dialog Interaction
+
+- The three automatic-test device cards open separate settings dialogs: power supply, power meter, and spectrometer. Keep each dialog tied to the existing shared configuration and Python-owned device commands.
+- Locking page scroll while a dialog is open must not change the surrounding layout. Use a stable scrollbar gutter and preserve/restore the body's original overflow and padding; verify that the card and dialog positions are unchanged before and after opening.
+- Device resource selectors inside these dialogs must be clickable in the Tauri/WebView runtime. Prefer a local in-dialog dropdown layer anchored to the trigger over a portal-based selector that only receives focus without opening in the target runtime. The dropdown must not change the dialog height when it opens.
+- Escape should close an open dropdown first, then close the dialog. Clicking an option must update the shared configuration and close the dropdown without closing the dialog.
+- Buttons must not visibly jump when clicked. Do not add a generic active-state translate/press offset such as `translate-y-px`; retain color and focus feedback instead. In particular, the `识别`/device-refresh controls must keep a stable position and width while the refresh command is pending.
+- Dialog footer buttons must keep fixed widths and must not reuse the global device-command pending state as a save-progress label or disabled visual state. Only a locally initiated save may change `保存设置` to `保存中…`; clicking `识别` must not change the footer labels, colors, dimensions, or positions. Block concurrent saves in the handler and with accessibility state without visually restyling the footer during an unrelated device command.
+- Device commands inside a settings dialog must use an internal command lock to prevent duplicate or concurrent requests without toggling every visible control into a disabled color state. Clicking `识别` must not make the acquisition, zeroing, save, or close controls flash between enabled and disabled styles.
+- After changing these interactions, verify all three dialog selectors and at least one `识别` action in the live preview/runtime, including layout stability and Escape/close behavior.
+
 The local spectrometer wrapper is loaded lazily and cached after its first successful import. Device detection and acquisition therefore share one loaded wrapper instead of re-executing the GUI-heavy `spectrometer_mvp.py` module.
 
 Run standalone diagnostics from the repository root with `python -m tools.power_meter_mvp` or `python -m tools.spectrometer_mvp`.

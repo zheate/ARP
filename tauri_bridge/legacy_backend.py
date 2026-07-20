@@ -13,6 +13,9 @@ from pathlib import Path
 from enum import Enum
 from typing import Any, Callable
 
+from combined_test.spectrum_math import calculate_smsr
+from combined_test.spectrum import find_spectrum_peak_annotations
+
 
 def _enum_value(value: Any) -> Any:
     return value.value if isinstance(value, Enum) else value
@@ -112,6 +115,7 @@ class LegacyWindowBackend:
             "automatic.end": lambda _p: self.window.end_automatic_test(),
             "automatic.reset": lambda _p: self.window.reset_automatic_test(),
             "records.exportCurrent": lambda _p: self.window.save_pending_excel_records(),
+            "records.commitCurrent": lambda _p: self.window.save_pending_database_records(),
             "records.resume": self._resume_session,
             "records.reexport": self._reexport_session,
             "records.select": self._select_session,
@@ -191,6 +195,12 @@ class LegacyWindowBackend:
             self._set_combo_text(window.tdk_resource_combo, params["tdkResource"])
         if "powerMeterResource" in params:
             self._set_combo_text(window.power_meter_combo, params["powerMeterResource"])
+        if "spectrometerResource" in params:
+            spectrometer_resource = str(params["spectrometerResource"]).strip()
+            if spectrometer_resource:
+                self._set_combo_text(window.spectrometer_combo, spectrometer_resource)
+            elif window.spectrometer_combo.count():
+                window.spectrometer_combo.setCurrentIndex(0)
         if "spectrometerDeviceId" in params:
             self._set_combo_data(window.spectrometer_combo, int(params["spectrometerDeviceId"]))
         if "useSpectrometer" in params:
@@ -515,6 +525,37 @@ class LegacyWindowBackend:
         plots = window.live_plots
         wavelength = _series(window.latest_spectrum_wavelength, limit=2400)
         intensity = _series(window.latest_spectrum_intensity, limit=2400)
+        spectrum_saturated = bool(window.latest_spectrum_saturated)
+        spectrum_smsr_db: float | None = None
+        spectrum_peaks: list[dict[str, Any]] = []
+        if (
+            not spectrum_saturated
+            and window.latest_spectrum_wavelength is not None
+            and window.latest_spectrum_intensity is not None
+        ):
+            try:
+                spectrum_smsr_db = _number(
+                    calculate_smsr(
+                        window.latest_spectrum_wavelength,
+                        window.latest_spectrum_intensity,
+                    ).smsr_db
+                )
+            except (TypeError, ValueError):
+                # Keep the snapshot usable while the first/invalid spectrum
+                # frame is being replaced by a complete acquisition.
+                spectrum_smsr_db = None
+            try:
+                spectrum_peaks = [
+                    {
+                        "label": annotation.label,
+                        "centroidNm": _number(annotation.centroid_nm),
+                        "peakWavelengthNm": _number(annotation.peak_wavelength_nm),
+                        "peakIntensity": _number(annotation.peak_intensity),
+                    }
+                    for annotation in find_spectrum_peak_annotations(zip(wavelength, intensity))
+                ]
+            except (TypeError, ValueError):
+                spectrum_peaks = []
         power_points = [
             {"elapsedS": x, "powerW": y}
             for x, y in zip(_series(plots.power_curve_times), _series(plots.power_curve_values))
@@ -570,6 +611,11 @@ class LegacyWindowBackend:
                 "powerMeterWavelengthNm": window.power_wavelength_spin.value(),
                 "softwareGain": window.software_gain_spin.value(),
                 "powerMeterIntervalMs": window.power_meter_interval_spin.value(),
+                "spectrometerResource": (
+                    window.spectrometer_combo.currentText()
+                    if window._selected_spectrometer_device_id() is not None
+                    else ""
+                ),
                 "integrationTimeUs": window.integration_spin.value(),
                 "autoIntegration": window.auto_integration_check.isChecked(),
                 "spectrometerIntervalMs": window.interval_spin.value(),
@@ -610,10 +656,11 @@ class LegacyWindowBackend:
                     "detail": window._spectrometer_fault_message or ("采集中" if spectrum_running else "已停止"),
                     "running": spectrum_running,
                     "ready": bool(spectrum_running and getattr(window.spectrometer_reader, "is_ready", False)),
-                    "peakWavelengthNm": _number(getattr(spectrum_reading, "peak_wavelength_nm", None)),
-                    "centroidNm": _number(getattr(spectrum_reading, "centroid_nm", None)),
-                    "fwhmNm": _number(getattr(spectrum_reading, "fwhm_nm", None)),
-                    "saturated": bool(window.latest_spectrum_saturated),
+                    "peakWavelengthNm": None if spectrum_saturated else _number(getattr(spectrum_reading, "peak_wavelength_nm", None)),
+                    "centroidNm": None if spectrum_saturated else _number(getattr(spectrum_reading, "centroid_nm", None)),
+                    "fwhmNm": None if spectrum_saturated else _number(getattr(spectrum_reading, "fwhm_nm", None)),
+                    "smsrDb": spectrum_smsr_db,
+                    "saturated": spectrum_saturated,
                     "resources": [window.spectrometer_combo.itemText(i) for i in range(window.spectrometer_combo.count())],
                 },
             },
@@ -637,10 +684,12 @@ class LegacyWindowBackend:
                 "power": power_points,
                 "stable": stable_points,
                 "spectrum": spectrum_points,
+                "spectrumPeaks": spectrum_peaks,
             },
             "records": {
                 "current": records,
                 "unsavedCount": len(window.record_store.unsaved_records()),
+                "pendingDatabaseCount": window.record_store.pending_database_count(),
                 "workbookPath": str(window.excel_workbook_path) if window.excel_workbook_path else "",
                 "sessionId": session.session_id if session else "",
                 "history": history,

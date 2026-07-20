@@ -24,6 +24,7 @@ export interface DeviceSnapshot {
   peakWavelengthNm?: number | null
   centroidNm?: number | null
   fwhmNm?: number | null
+  smsrDb?: number | null
   saturated?: boolean
 }
 
@@ -41,6 +42,7 @@ export interface AppConfiguration {
   powerMeterWavelengthNm: number
   softwareGain: number
   powerMeterIntervalMs: number
+  spectrometerResource: string
   integrationTimeUs: number
   autoIntegration: boolean
   spectrometerIntervalMs: number
@@ -128,10 +130,12 @@ export interface BackendSnapshot {
     power: Array<{ elapsedS: number; powerW: number }>
     stable: Array<{ currentA: number; powerW: number | null; efficiencyPercent: number | null }>
     spectrum: Array<{ wavelengthNm: number; intensity: number }>
+    spectrumPeaks: Array<{ label: string; centroidNm: number; peakWavelengthNm: number; peakIntensity: number }>
   }
   records?: {
     current: Array<Record<string, number | null>>
     unsavedCount: number
+    pendingDatabaseCount: number
     workbookPath: string
     sessionId: string
     history: HistorySession[]

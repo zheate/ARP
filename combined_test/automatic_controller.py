@@ -215,7 +215,6 @@ class AutomaticTestController:
             AutomaticTestState.SAVING_POINT,
             f"正在归档 {current_a:.1f} A 测试点",
         )
-        self.save_pending_excel_records()
         self.on_record_saved()
 
     def on_record_saved(self) -> None:
@@ -955,6 +954,11 @@ class AutomaticTestController:
             except Exception as exc:
                 self.add_log(f"测试档案结束状态写入失败：{self._error_formatter(exc)}")
         self.set_automatic_test_state(AutomaticTestState.COMPLETED, completed_message)
+        if (
+            self.terminal_outcome is AutomaticTestTerminalOutcome.SUCCEEDED
+            and self.record_store.unsaved_records()
+        ):
+            self.save_pending_excel_records()
         self.statusBar().showMessage(completed_message)
         self.add_log(completed_message)
         # Keep measurement devices in their current state after a normal test.

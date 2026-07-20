@@ -392,9 +392,10 @@ class TestArchive:
         integration_time_us: int | None = None,
         wavelength: Iterable[float] = (),
         intensity: Iterable[float] = (),
+        allow_closed: bool = False,
     ) -> MeasurementAttempt:
         session = self.get_session(session_id)
-        if session.status not in (SessionStatus.RUNNING, SessionStatus.INCOMPLETE):
+        if not allow_closed and session.status not in (SessionStatus.RUNNING, SessionStatus.INCOMPLETE):
             raise ValueError("只能向运行中或待恢复的会话写入测试点")
         point_id = f"{session_id}:{int(sequence_index)}"
         spectrum_path = ""

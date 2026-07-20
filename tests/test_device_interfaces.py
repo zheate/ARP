@@ -131,6 +131,25 @@ class DeviceInterfaceTests(unittest.TestCase):
             store.mark_saved((record,))
             self.assertEqual(store.unsaved_records(), ())
 
+    def test_session_record_store_waits_for_explicit_database_commit(self) -> None:
+        store = SessionRecordStore()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store.begin_session(
+                Path(temp_dir) / "records",
+                "SN-DB",
+                datetime(2026, 7, 12, 9, 30, 0),
+                test_station="老化站 1",
+            )
+            record = ExcelTestRecord(1, 2, 3, 0.5, 976, 976, 1, 0.8, [975, 976], [1, 2])
+            store.queue(record)
+            session_id = store.current_session.session_id  # type: ignore[union-attr]
+
+            self.assertEqual(store.pending_database_count(), 1)
+            self.assertEqual(store.archive.list_attempts(session_id), ())  # type: ignore[union-attr]
+            self.assertEqual(store.commit_pending_records(), 1)
+            self.assertEqual(store.pending_database_count(), 0)
+            self.assertEqual(len(store.archive.list_attempts(session_id)), 1)  # type: ignore[union-attr]
+
 
 if __name__ == "__main__":
     unittest.main()
