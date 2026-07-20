@@ -1,5 +1,6 @@
 {
   "bundle": {
+    "targets": "msi",
     "externalBin": [
       "binaries/arp-python"
     ]

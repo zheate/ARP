@@ -213,9 +213,9 @@ class AutomaticTestController:
         object.__setattr__(self, "_save_completed_while_paused", False)
         self.set_automatic_test_state(
             AutomaticTestState.SAVING_POINT,
-            f"正在归档 {current_a:.1f} A 测试点",
+            f"正在保存 {current_a:.1f} A 测试点",
         )
-        self.on_record_saved()
+        self.save_pending_excel_records()
 
     def on_record_saved(self) -> None:
         paused_during_save = (
@@ -227,7 +227,7 @@ class AutomaticTestController:
         expected_current = self.automatic_test_currents[self.automatic_test_current_index]
         if expected_current not in self.record_store.recorded_currents:
             if not paused_during_save:
-                self.pause_automatic_test(f"{expected_current:.1f} A 测试点未确认写入测试档案")
+                self.pause_automatic_test(f"{expected_current:.1f} A 测试点未确认写入 Excel")
             return
         if paused_during_save:
             object.__setattr__(self, "_save_completed_while_paused", True)
@@ -250,7 +250,8 @@ class AutomaticTestController:
             )
 
     def on_record_save_failed(self, message: str) -> None:
-        self.add_log(f"Excel 导出待重试：{message}")
+        if self.automatic_test_state == AutomaticTestState.SAVING_POINT:
+            self.pause_automatic_test(f"Excel 保存失败：{message}")
 
     def on_stable_power_captured(self, current_a: float) -> None:
         if self.automatic_test_state == AutomaticTestState.WAITING_STABLE:
@@ -954,11 +955,6 @@ class AutomaticTestController:
             except Exception as exc:
                 self.add_log(f"测试档案结束状态写入失败：{self._error_formatter(exc)}")
         self.set_automatic_test_state(AutomaticTestState.COMPLETED, completed_message)
-        if (
-            self.terminal_outcome is AutomaticTestTerminalOutcome.SUCCEEDED
-            and self.record_store.unsaved_records()
-        ):
-            self.save_pending_excel_records()
         self.statusBar().showMessage(completed_message)
         self.add_log(completed_message)
         # Keep measurement devices in their current state after a normal test.

@@ -115,10 +115,10 @@ class DeviceInterfaceTests(unittest.TestCase):
                 started_at,
                 test_station="老化站 1",
             )
-            self.assertEqual(path.name, "result.xlsx")
-            self.assertEqual(path.parent.parent.name, "2026-07-12")
-            self.assertEqual(path.parent.parent.parent.name, "老化站 1")
-            self.assertEqual(path.parent.parent.parent.parent.name, "SN-1")
+            self.assertEqual(
+                path,
+                output_dir / "SN-1" / "老化站 1" / "2026_07_12_09_30.xlsx",
+            )
             self.assertTrue(path.parent.is_dir())
             self.assertTrue((output_dir / "index.sqlite3").is_file())
 

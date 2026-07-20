@@ -363,14 +363,14 @@ class MainWindowTests(unittest.TestCase):
             self.assertIsNotNone(window.excel_workbook_path)
             self.assertIsNotNone(window.record_store.current_session)
             self.assertEqual(
-                window.excel_workbook_path.parent,
-                window.record_store.current_session.session_dir,
+                window.excel_workbook_path,
+                window.record_store.current_session.workbook_path,
             )
             self.assertEqual(
-                window.record_store.current_session.session_dir.parent.parent,
-                Path(temp_dir).resolve() / "AUTO-001" / "老化站 1",
+                window.excel_workbook_path.parent,
+                Path(temp_dir) / "AUTO-001" / "老化站 1",
             )
-            self.assertEqual(window.excel_workbook_path.name, "result.xlsx")
+            self.assertRegex(window.excel_workbook_path.name, r"^\d{4}(?:_\d{2}){4}\.xlsx$")
             self.assertTrue(window.excel_workbook_path.parent.is_dir())
             self.assertEqual(controller.writes, [])
             window.on_power_meter_ready()
@@ -567,15 +567,8 @@ class MainWindowTests(unittest.TestCase):
             self.assertEqual(window.save_excel_button.text(), "保存 Excel")
             window.close()
 
-    def test_automatic_test_keeps_points_until_the_full_run_finishes(self) -> None:
+    def test_automatic_test_saves_each_complete_point_immediately(self) -> None:
         app = QApplication.instance() or QApplication([])
-
-        class FakeController:
-            is_connected = True
-
-            def i2c_write(self, _address: int, _command: list[int]) -> tuple[bool, str]:
-                return True, "OK"
-
         with tempfile.TemporaryDirectory() as temp_dir:
             window = MainWindow(QSettings(str(Path(temp_dir) / "inputs.ini"), QSettings.Format.IniFormat))
             window.sn_field.setText("AUTO")
@@ -589,13 +582,12 @@ class MainWindowTests(unittest.TestCase):
             window.automatic_test_state = AutomaticTestState.WAITING_VOLTAGE
             window.automatic_test_currents = (3.0, 4.0)
             window.automatic_test_current_index = 0
-            window.manual_ch341_controller = FakeController()
 
             window.record_efficiency_from_vout(50.5)
 
-            self.assertEqual(window.automatic_test_state, AutomaticTestState.WAITING_STABLE)
-            self.assertIn(3.0, window.record_store.recorded_currents)
-            self.assertIsNone(window.excel_save_thread)
+            self.assertEqual(window.automatic_test_state, AutomaticTestState.SAVING_POINT)
+            self.assertIsNotNone(window.excel_save_thread)
+            self.assertTrue(window.excel_save_thread.wait(5000))
             self.assertEqual(window.record_store.pending_database_count(), 0)
             window.automatic_test_state = AutomaticTestState.IDLE
             window.close()
@@ -1106,7 +1098,7 @@ class MainWindowTests(unittest.TestCase):
         window.power_meter_reader = None
         window.close()
 
-    def test_excel_export_failure_keeps_archived_automatic_test_running(self) -> None:
+    def test_excel_save_failure_pauses_automatic_test_at_current_output(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
         window.active_output_current_a = 8.0
@@ -1119,10 +1111,10 @@ class MainWindowTests(unittest.TestCase):
         finally:
             QMessageBox.critical = old_critical  # type: ignore[method-assign]
 
-        self.assertEqual(window.automatic_test_state, AutomaticTestState.SAVING_POINT)
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.PAUSED)
         self.assertEqual(window.active_output_current_a, 8.0)
-        self.assertFalse(window.automatic_pause_safety_timer.isActive())
-        self.assertIn("待重新导出", window.save_status_label.text())
+        self.assertTrue(window.retry_automatic_test_button.isEnabled())
+        self.assertTrue(window.end_automatic_test_button.isEnabled())
         window.automatic_test_state = AutomaticTestState.IDLE
         window.close()
 
@@ -2538,6 +2530,30 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window.automatic_test_state, AutomaticTestState.PAUSED)
         self.assertEqual(window.active_output_current_a, 5.0)
         window.automatic_test_state = AutomaticTestState.IDLE
+        window.close()
+
+    def test_manual_output_voltage_read_does_not_record_efficiency(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        efficiency_values: list[float] = []
+        window.execute_i2c_read = lambda *_args: 29.656  # type: ignore[method-assign]
+        window.record_efficiency_from_vout = efficiency_values.append  # type: ignore[method-assign]
+
+        window.read_output_voltage()
+
+        self.assertEqual(efficiency_values, [])
+        window.close()
+
+    def test_automatic_output_voltage_read_records_efficiency(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        efficiency_values: list[float] = []
+        window.execute_i2c_read = lambda *_args: 29.656  # type: ignore[method-assign]
+        window.record_efficiency_from_vout = efficiency_values.append  # type: ignore[method-assign]
+
+        window.read_output_voltage(automatic=True)
+
+        self.assertEqual(efficiency_values, [29.656])
         window.close()
 
     def test_tdk_voltage_read_uses_rs232_label_without_i2c_frame(self) -> None:

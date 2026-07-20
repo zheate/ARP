@@ -5,7 +5,7 @@
 Tauri launches one persistent local Python process. Requests and responses are UTF-8 JSON objects separated by newlines. Standard output is reserved for protocol responses; diagnostics use standard error. The request version remains `1`.
 
 ```json
-{"v":1,"id":"tauri-1","method":"app.snapshot","params":{}}
+{"v":1,"id":"tauri-1","method":"app.snapshot","params":{"view":"automatic"}}
 ```
 
 The Rust layer exposes `bridge_snapshot` and a generic `bridge_request(method, params)` command. Production packaging can replace the Python interpreter with a sidecar without changing this contract.
@@ -29,7 +29,9 @@ The bridge being connected never means a physical device is connected. Every dev
 - PD: `pd.refresh`, `pd.configure`, `pd.start`, `pd.stop`
 - Charts: `charts.reset`
 
-Every successful mutation returns a fresh full snapshot. The frontend polls `app.snapshot` once per second for live readings and state transitions.
+Every successful mutation returns a fresh full snapshot. Routine polling passes the active `view` (`automatic`, `manual`, `records`, or `pd`) so large chart, history, and PD point arrays are only serialized for their consumer. Live views refresh at most four times per second, the records view once per second, and polling pauses while the WebView is hidden. The acquisition threads continue at their configured hardware sampling rates.
+
+Routine snapshots only expose the current status message. The potentially unbounded operator log is intentionally not copied into every WebView response.
 
 ## Safety invariants
 

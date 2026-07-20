@@ -1,10 +1,16 @@
 use serde_json::{json, Value};
 use std::env;
 use std::io::{BufRead, BufReader, BufWriter, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use tauri::State;
+
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 struct PythonBridge {
     child: Child,
@@ -14,9 +20,28 @@ struct PythonBridge {
 }
 
 impl PythonBridge {
-    fn python_executable() -> PathBuf {
+    fn push_python_candidate(candidates: &mut Vec<PathBuf>, candidate: PathBuf) {
+        if !candidates.iter().any(|existing| existing == &candidate) {
+            candidates.push(candidate);
+        }
+    }
+
+    fn conda_environment_python(conda_root: &Path) -> PathBuf {
+        conda_root
+            .join("envs")
+            .join("sth_eb314")
+            .join(if cfg!(target_os = "windows") {
+                "python.exe"
+            } else {
+                "bin/python"
+            })
+    }
+
+    fn python_executables() -> Vec<PathBuf> {
+        let mut candidates = Vec::new();
+
         if let Ok(configured) = env::var("ARP_PYTHON_EXECUTABLE") {
-            return PathBuf::from(configured);
+            Self::push_python_candidate(&mut candidates, PathBuf::from(configured));
         }
 
         if let Ok(current_exe) = env::current_exe() {
@@ -27,7 +52,7 @@ impl PythonBridge {
                     "arp-python"
                 });
                 if bundled.is_file() {
-                    return bundled;
+                    Self::push_python_candidate(&mut candidates, bundled);
                 }
             }
         }
@@ -39,7 +64,17 @@ impl PythonBridge {
                 "bin/python"
             });
             if candidate.is_file() {
-                return candidate;
+                Self::push_python_candidate(&mut candidates, candidate);
+            }
+        }
+
+        if let Ok(conda_exe) = env::var("CONDA_EXE") {
+            let conda_exe = PathBuf::from(conda_exe);
+            if let Some(conda_root) = conda_exe.parent().and_then(Path::parent) {
+                let candidate = Self::conda_environment_python(conda_root);
+                if candidate.is_file() {
+                    Self::push_python_candidate(&mut candidates, candidate);
+                }
             }
         }
 
@@ -49,7 +84,7 @@ impl PythonBridge {
             "HOME"
         };
         if let Ok(home) = env::var(home_key) {
-            let candidate = PathBuf::from(home)
+            let candidate = PathBuf::from(&home)
                 .join("miniconda3")
                 .join("envs")
                 .join("sth_eb314")
@@ -59,19 +94,35 @@ impl PythonBridge {
                     "bin/python"
                 });
             if candidate.is_file() {
-                return candidate;
+                Self::push_python_candidate(&mut candidates, candidate);
+            }
+
+            let candidate = PathBuf::from(&home)
+                .join("anaconda3")
+                .join("envs")
+                .join("sth_eb314")
+                .join(if cfg!(target_os = "windows") {
+                    "python.exe"
+                } else {
+                    "bin/python"
+                });
+            if candidate.is_file() {
+                Self::push_python_candidate(&mut candidates, candidate);
             }
         }
 
-        PathBuf::from(if cfg!(target_os = "windows") {
-            "python"
-        } else {
-            "python3"
-        })
+        Self::push_python_candidate(
+            &mut candidates,
+            PathBuf::from(if cfg!(target_os = "windows") {
+                "python"
+            } else {
+                "python3"
+            }),
+        );
+        candidates
     }
 
-    fn spawn() -> Result<Self, String> {
-        let python = Self::python_executable();
+    fn spawn_with(python: &Path) -> Result<(Self, String), String> {
         let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
         let is_bundled_sidecar = python
             .file_stem()
@@ -81,11 +132,14 @@ impl PythonBridge {
         if !is_bundled_sidecar {
             command.args(["-u", "-m", "tauri_bridge"]);
         }
+        #[cfg(target_os = "windows")]
+        command.creation_flags(CREATE_NO_WINDOW);
         if repo_root.is_dir() {
             command.current_dir(&repo_root);
         }
         let mut child = command
             .env("PYTHONUNBUFFERED", "1")
+            .env("PYTHONIOENCODING", "utf-8")
             .env("QT_QPA_PLATFORM", "offscreen")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -107,8 +161,43 @@ impl PythonBridge {
             stdout: BufReader::new(stdout),
             next_request_id: 1,
         };
-        bridge.request("system.ping", json!({}))?;
-        Ok(bridge)
+        let ping = bridge.request("system.ping", json!({}))?;
+        let mode = ping
+            .get("mode")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+        Ok((bridge, mode))
+    }
+
+    fn spawn() -> Result<Self, String> {
+        let mut errors = Vec::new();
+        let mut read_only_fallback = None;
+        for python in Self::python_executables() {
+            match Self::spawn_with(&python) {
+                Ok((bridge, mode)) if mode == "active" => return Ok(bridge),
+                Ok((bridge, mode)) if mode == "read_only" => {
+                    errors.push(format!("Python 后端仅支持只读模式（{}）", python.display()));
+                    if read_only_fallback.is_none() {
+                        read_only_fallback = Some(bridge);
+                    }
+                }
+                Ok((_bridge, mode)) => errors.push(format!(
+                    "Python 后端返回未知模式 {mode}（{}）",
+                    python.display()
+                )),
+                Err(error) => errors.push(error),
+            }
+        }
+
+        if let Some(bridge) = read_only_fallback {
+            return Ok(bridge);
+        }
+
+        Err(format!(
+            "未找到可用的控制模式 Python 后端：{}",
+            errors.join("；")
+        ))
     }
 
     fn request(&mut self, method: &str, params: Value) -> Result<Value, String> {

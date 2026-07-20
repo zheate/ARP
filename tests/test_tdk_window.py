@@ -81,10 +81,11 @@ class TdkWindowTests(unittest.TestCase):
             self.assertFalse(window.read_temperature_button.isEnabled())
 
             window.tdk_voltage_spin.setValue(24.5)
+            window.last_power_supply_command_monotonic_s = window_module.time.monotonic()
             window.apply_tdk_output_voltage()
             self.assertEqual(controller.voltages, [24.5])
+            self.assertEqual(window.power_supply_command_interval_remaining_s(), 0.0)
 
-            window.last_power_supply_command_monotonic_s = None
             window.toggle_tdk_output()
             self.assertTrue(controller.output_enabled)
             self.assertEqual(controller.currents, [0.0])
@@ -97,6 +98,15 @@ class TdkWindowTests(unittest.TestCase):
             self.assertEqual(window.tdk_output_status_label.text(), "输出开启")
             self.assertEqual(window.tdk_output_button.text(), "关闭输出")
             self.assertEqual(window.prepare_tdk_output_button.text(), "关闭输出")
+
+            window.active_output_current_a = 5.0
+            window.toggle_tdk_output()
+            self.assertFalse(controller.output_enabled)
+            self.assertEqual(window.active_output_current_a, 0.0)
+
+            window.active_output_current_a = 5.0
+            window.connect_i2c_device()
+            self.assertEqual(window.active_output_current_a, 0.0)
 
             window.close()
             self.assertFalse(controller.output_enabled)

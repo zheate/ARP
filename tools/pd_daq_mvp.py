@@ -711,7 +711,7 @@ class PdDaqPanel(QWidget):
         self.canvas.draw_idle()
         self.current_value_label.setText("--")
         self.count_label.setText("已采样：0 点")
-        self.axis.set_ylabel("PD 值")
+        self.axis.set_ylabel("PD 值", fontproperties=PD_AXIS_FONT)
         self.axis.yaxis.set_major_formatter(
             EngFormatter(unit=settings.unit, places=3, sep=" ")
         )
@@ -815,6 +815,10 @@ class PdDaqPanel(QWidget):
                 QMessageBox.warning(self, "正在停止", "采集任务仍在安全停止，请稍后再关闭。")
                 event.ignore()
                 return
+        # Matplotlib implements draw_idle() with a zero-delay Qt callback. A
+        # panel can be closed before that callback runs, so clear the pending
+        # flag before Qt deletes the underlying canvas object.
+        self.canvas._draw_pending = False
         super().closeEvent(event)
 
 

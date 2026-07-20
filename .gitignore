@@ -31,3 +31,4 @@ Thumbs.db
 
 # Generated offline application bundles stay local.
 release/
+build/

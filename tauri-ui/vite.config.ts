@@ -14,6 +14,17 @@ export default defineConfig(async () => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Keep large, slow-changing dependencies cacheable across app updates.
+        manualChunks: {
+          "chart-vendor": ["recharts"],
+          "tauri-vendor": ["@tauri-apps/api/core", "@tauri-apps/plugin-opener"],
+        },
+      },
+    },
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

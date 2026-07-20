@@ -52,8 +52,11 @@ class BridgeService:
                 },
             )
         if method == "app.snapshot":
+            params = request.get("params", {})
+            if not isinstance(params, dict):
+                return error_response(request_id, "invalid_params", "params 必须是 JSON 对象")
             if self.backend is not None:
-                return success_response(request_id, self.backend.snapshot())
+                return success_response(request_id, self.backend.snapshot(params))
             return success_response(request_id, self.build_snapshot())
 
         if self.backend is not None:

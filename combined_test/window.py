@@ -1080,6 +1080,14 @@ class MainWindow(QMainWindow):
         self.prepare_spectrometer_combo = QComboBox(self)
         self.prepare_spectrometer_combo.setAccessibleName("自动测试光谱仪设备")
         self.prepare_spectrometer_combo.setMaximumWidth(360)
+        for combo in (self.prepare_power_meter_combo, self.prepare_spectrometer_combo):
+            # Resource labels can be very long; let the field shrink and show
+            # the complete value in its dropdown instead of widening the page.
+            combo.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            )
+            combo.setMinimumContentsLength(12)
+            combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self.prepare_power_meter_button = QPushButton("自动检测", self)
         self.prepare_spectrometer_button = QPushButton("自动检测", self)
         self.prepare_power_meter_open_button = QPushButton("打开", self)
@@ -2738,8 +2746,6 @@ class MainWindow(QMainWindow):
             self.preflight_action_button.setText("选择输出目录")
         elif not power_ok:
             self.preflight_action_button.setText(f"连接 {'TDK' if is_tdk else 'CH341'}")
-        elif not tdk_ok:
-            self.preflight_action_button.setText("开启 TDK 输出")
         elif not power_resource_ok:
             self.preflight_action_button.setText("选择功率计")
         elif not settings_ok:
@@ -2759,13 +2765,6 @@ class MainWindow(QMainWindow):
             return
         if not self._manual_i2c_connected():
             self.connect_i2c_device()
-            return
-        if (
-            self._selected_power_supply_kind() == "tdk"
-            and not bool(getattr(self.manual_ch341_controller, "output_enabled", False))
-        ):
-            self.toggle_tdk_output()
-            self.refresh_preflight_checklist()
             return
         if not self._selected_power_resource():
             self.prepare_power_meter_combo.setFocus(Qt.FocusReason.OtherFocusReason)
@@ -3554,6 +3553,7 @@ class MainWindow(QMainWindow):
                 return
             if label == "TDK":
                 self.manual_ch341_controller = None
+                self.active_output_current_a = 0.0
             self.connect_i2c_button.setText(f"连接 {label}")
             self.i2c_status_label.setText("未连接")
             self.sync_tdk_output_controls(False)
@@ -3625,6 +3625,8 @@ class MainWindow(QMainWindow):
                 self._confirm_tdk_zero_current_before_output(power_supply)
             power_supply.set_output_enabled(enabled)
             self.sync_tdk_output_controls(enabled)
+            if not enabled:
+                self.active_output_current_a = 0.0
             self._refresh_manual_power_tab_lock(manual_action=manual_action)
             self.add_log(f"TDK 输出已{'开启' if enabled else '关闭'}")
             self.statusBar().showMessage(f"TDK 输出已{'开启' if enabled else '关闭'}")
@@ -3652,7 +3654,9 @@ class MainWindow(QMainWindow):
         self.add_log("TDK 开启输出前已确认电流为 0 A")
 
     def begin_power_supply_command(self, command_name: str) -> bool:
-        """Reserve the power-supply bus so I2C commands remain safely spaced."""
+        """Reserve the CH341 bus so its I2C commands remain safely spaced."""
+        if self.power_supply_controller_kind == "tdk":
+            return True
         now = time.monotonic()
         remaining_s = self.power_supply_command_interval_remaining_s(now)
         if remaining_s > 0.0:
@@ -3664,6 +3668,8 @@ class MainWindow(QMainWindow):
         return True
 
     def power_supply_command_interval_remaining_s(self, now: float | None = None) -> float:
+        if self.power_supply_controller_kind == "tdk":
+            return 0.0
         if self.last_power_supply_command_monotonic_s is None:
             return 0.0
         current_time = time.monotonic() if now is None else float(now)
@@ -3686,7 +3692,8 @@ class MainWindow(QMainWindow):
         voltage_v = self.execute_i2c_read([0xB4, 0x8B, 0x00, 0x00], "输出电压", "V")
         if voltage_v is not None:
             self.last_vout_read_monotonic_s = time.monotonic()
-            self.record_efficiency_from_vout(voltage_v)
+            if automatic:
+                self.record_efficiency_from_vout(voltage_v)
         elif automatic and self.automatic_test_state == AutomaticTestState.WAITING_VOLTAGE:
             self.pause_automatic_test("输出电压读取失败")
 
@@ -4110,16 +4117,14 @@ class MainWindow(QMainWindow):
 
     def on_excel_save_failed(self, message: str) -> None:
         self._excel_export_retry_blocked = True
-        self.save_status_label.setText("Excel 待重新导出")
+        self.save_status_label.setText("保存失败")
         self.add_log(f"Excel 保存失败：{message}")
-        self.record_store.mark_export_failed(message)
+        try:
+            self.record_store.mark_export_failed(message)
+        except Exception as exc:
+            self.add_log(f"测试档案导出状态更新失败：{exc}")
         self.automatic_controller.on_record_save_failed(message)
-        if not self.automatic_measurement_is_active():
-            QMessageBox.warning(
-                self,
-                "Excel 待重新导出",
-                f"测试数据已保存在本地档案中。\nExcel 导出失败：{message}",
-            )
+        QMessageBox.critical(self, "保存 Excel", user_facing_error_message(message))
 
     def on_excel_save_finished(self) -> None:
         thread = self.excel_save_thread
@@ -4132,12 +4137,6 @@ class MainWindow(QMainWindow):
         self.save_excel_button.setText("保存 Excel")
         if thread is not None:
             thread.deleteLater()
-        if (
-            not self._excel_export_retry_blocked
-            and self.record_store.unsaved_records()
-            and self.excel_workbook_path is not None
-        ):
-            QTimer.singleShot(0, self.save_pending_excel_records)
         self._continue_pending_close()
 
     def apply_output_current(self) -> None:
@@ -5128,6 +5127,10 @@ class MainWindow(QMainWindow):
                     self.manual_ch341_controller.disconnect_device()
                 except Exception:
                     pass
+        try:
+            self.record_store.stop_power_trace()
+        except Exception as exc:
+            self.add_log(f"退出时停止功率原始曲线记录失败：{user_facing_error_message(exc)}")
         super().closeEvent(event)
 
 

@@ -4,14 +4,21 @@ from __future__ import annotations
 
 import csv
 import math
+import sys
 from pathlib import Path
 from typing import Iterable
 
 from PySide6.QtWidgets import QTabWidget, QVBoxLayout, QWidget
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
+from matplotlib.font_manager import FontProperties
 
 from .test_archive import AttemptValidity, MeasurementAttempt, TestSession
+
+
+CJK_FONT = FontProperties(
+    family="Microsoft YaHei" if sys.platform == "win32" else "PingFang SC",
+)
 
 
 class HistoryAnalysisPlots(QWidget):
@@ -73,7 +80,15 @@ class HistoryAnalysisPlots(QWidget):
         ):
             figure.clear()
             axis = figure.add_subplot(111)
-            axis.text(0.5, 0.5, message, ha="center", va="center", transform=axis.transAxes)
+            axis.text(
+                0.5,
+                0.5,
+                message,
+                ha="center",
+                va="center",
+                transform=axis.transAxes,
+                fontproperties=CJK_FONT,
+            )
             axis.set_axis_off()
             canvas.draw_idle()
 
@@ -193,7 +208,14 @@ class HistoryAnalysisPlots(QWidget):
                 "Normalized intensity" if normalize else "Intensity (counts)",
             )
         else:
-            axis.text(0.5, 0.5, "本轮测试没有可显示的光谱", ha="center", va="center")
+            axis.text(
+                0.5,
+                0.5,
+                "本轮测试没有可显示的光谱",
+                ha="center",
+                va="center",
+                fontproperties=CJK_FONT,
+            )
             axis.set_axis_off()
         figure.tight_layout()
         self.spectrum_canvas.draw_idle()
@@ -217,7 +239,14 @@ class HistoryAnalysisPlots(QWidget):
             axis.plot(elapsed, power, linewidth=1.0, color="#2f79bd")
             self._style(axis, "Full-session power", "Time (s)", "Power (W)")
         else:
-            axis.text(0.5, 0.5, "本轮测试没有功率原始曲线", ha="center", va="center")
+            axis.text(
+                0.5,
+                0.5,
+                "本轮测试没有功率原始曲线",
+                ha="center",
+                va="center",
+                fontproperties=CJK_FONT,
+            )
             axis.set_axis_off()
         figure.tight_layout()
         self.power_canvas.draw_idle()

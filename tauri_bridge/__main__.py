@@ -6,19 +6,37 @@ import json
 import os
 import sys
 import threading
+from collections.abc import Iterator
 
 from .service import BridgeService
 
 
+def _read_request_lines() -> Iterator[str]:
+    """Decode the Rust bridge pipe as UTF-8, independent of Windows locale."""
+    input_buffer = getattr(sys.stdin, "buffer", None)
+    if input_buffer is not None:
+        for raw_line in input_buffer:
+            yield raw_line.decode("utf-8")
+        return
+    for line in sys.stdin:
+        yield line
+
+
 def _write_response(response: dict[str, object]) -> None:
-    sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")
+    payload = (json.dumps(response, ensure_ascii=False) + "\n").encode("utf-8")
+    output = getattr(sys.stdout, "buffer", None)
+    if output is not None:
+        output.write(payload)
+        output.flush()
+        return
+    sys.stdout.write(payload.decode("utf-8"))
     sys.stdout.flush()
 
 
 def _run_read_only() -> int:
     service = BridgeService()
     try:
-        for line in sys.stdin:
+        for line in _read_request_lines():
             if line.strip():
                 _write_response(service.handle_line(line))
     except KeyboardInterrupt:
@@ -57,7 +75,7 @@ def _run_qt_backend() -> int:
 
     def read_requests() -> None:
         try:
-            for line in sys.stdin:
+            for line in _read_request_lines():
                 if line.strip():
                     dispatcher.request_received.emit(line)
         finally:

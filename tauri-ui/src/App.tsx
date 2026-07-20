@@ -1,4 +1,4 @@
-import { Children, isValidElement, useEffect, useRef, useState, type ReactElement, type ReactNode } from "react"
+import { Children, isValidElement, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react"
 import {
   Archive,
   BarChart3,
@@ -43,6 +43,10 @@ import type { AppConfiguration, BackendSnapshot, DeviceSnapshot } from "@/lib/ba
 
 type Page = "automatic" | "manual" | "records" | "pd"
 
+const CH341_CURRENT_LIMIT_A = 20
+const POWER_PLOT_HISTORY_S = 60
+const POWER_TIME_TICK_INTERVAL_S = 10
+
 const navigation = [
   { id: "automatic" as const, label: "自动测试", icon: CircleGauge },
   { id: "manual" as const, label: "详细配置", icon: SlidersHorizontal },
@@ -78,6 +82,12 @@ const emptyConfig: AppConfiguration = {
   rampDownIntervalS: 1.1,
   pauseRampDownTimeoutS: 30,
   useSpectrometer: true,
+}
+
+const configurationKeys = Object.keys(emptyConfig) as Array<keyof AppConfiguration>
+
+function configurationsEqual(left: AppConfiguration, right: AppConfiguration): boolean {
+  return configurationKeys.every((key) => left[key] === right[key])
 }
 
 function asNumber(value: string): number {
@@ -219,10 +229,10 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
   const psu = snapshot?.devices.powerSupply
   return (
     <div className="space-y-3">
-      <Field label="控制器"><NativeSelect value={config.powerSupplyKind} onChange={(v) => update("powerSupplyKind", v as "ch341" | "tdk")}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
+      <Field label="控制器"><NativeSelect value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as "ch341" | "tdk")}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
       {config.powerSupplyKind === "tdk" && <Field label="TDK 串口"><Input value={config.tdkResource} onChange={(e) => update("tdkResource", e.target.value)} /></Field>}
       {config.powerSupplyKind === "tdk" && <NumberField label="输出电压 (V)" value={config.tdkVoltageV} onChange={(v) => update("tdkVoltageV", v)} step="0.1" />}
-      <NumberField label="设定电流 (A)" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} step="0.1" />
+      <NumberField label="设定电流 (A)" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
       {config.powerSupplyKind === "tdk" ? <div className="grid grid-cols-2 gap-2">
         <Button disabled={!active || pending} onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接 TDK"}</Button>
         <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setVoltage", { voltageV: config.tdkVoltageV }, true)} variant="outline">设置电压</Button>
@@ -365,7 +375,7 @@ function DeviceSettingsDialog({ kind, open, onClose, onSave, snapshot, config, u
   )
 }
 
-function ChartPanel({ title, data, xKey, lines, empty = "暂无实时数据", heightClassName, headerRight, overlays, stretch = false }: {
+function ChartPanel({ title, data, xKey, lines, empty = "暂无实时数据", heightClassName, headerRight, overlays, stretch = false, xDomain, xTicks }: {
   title: string
   data: Array<Record<string, number | null>>
   xKey: string
@@ -375,6 +385,8 @@ function ChartPanel({ title, data, xKey, lines, empty = "暂无实时数据", he
   headerRight?: ReactNode
   overlays?: ReactNode
   stretch?: boolean
+  xDomain?: [number, number]
+  xTicks?: number[]
 }) {
   return (
     <Card className={`shadow-none ${stretch ? "h-full min-h-0" : ""}`}>
@@ -386,7 +398,7 @@ function ChartPanel({ title, data, xKey, lines, empty = "暂无实时数据", he
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={data} margin={{ top: 8, right: 16, left: -12, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis axisLine={{ stroke: "var(--border)" }} dataKey={xKey} domain={["auto", "auto"]} tick={{ fill: "var(--muted-foreground)", fontSize: 10 }} tickLine={{ stroke: "var(--border)" }} type="number" />
+              <XAxis allowDataOverflow={xDomain !== undefined} axisLine={{ stroke: "var(--border)" }} dataKey={xKey} domain={xDomain ?? ["auto", "auto"]} tick={{ fill: "var(--muted-foreground)", fontSize: 10 }} tickFormatter={xTicks ? (value: number) => value.toFixed(0) : undefined} tickLine={{ stroke: "var(--border)" }} ticks={xTicks} type="number" />
               <YAxis axisLine={{ stroke: "var(--border)" }} yAxisId="left" tick={{ fill: "var(--muted-foreground)", fontSize: 10 }} tickLine={{ stroke: "var(--border)" }} />
               {lines.some((line) => line.yAxisId === "right") && <YAxis axisLine={{ stroke: "var(--border)" }} yAxisId="right" orientation="right" tick={{ fill: "var(--muted-foreground)", fontSize: 10 }} tickLine={{ stroke: "var(--border)" }} />}
               <Tooltip contentStyle={{ background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 8, color: "var(--popover-foreground)", fontSize: 12 }} />
@@ -416,6 +428,15 @@ function ChartPanel({ title, data, xKey, lines, empty = "暂无实时数据", he
 function PowerRealtimeChart({ snapshot, stretch = false }: { snapshot: BackendSnapshot | null; stretch?: boolean }) {
   const powerData = (snapshot?.measurements?.power ?? []) as Array<Record<string, number | null>>
   const latestPowerW = powerData[powerData.length - 1]?.powerW
+  const latestElapsedS = powerData[powerData.length - 1]?.elapsedS
+  const powerTimeDomain: [number, number] = typeof latestElapsedS === "number"
+    ? [Math.max(0, latestElapsedS - POWER_PLOT_HISTORY_S), Math.max(10, latestElapsedS)]
+    : [0, 10]
+  const firstPowerTickS = Math.ceil(powerTimeDomain[0] / POWER_TIME_TICK_INTERVAL_S) * POWER_TIME_TICK_INTERVAL_S
+  const powerTimeTicks = Array.from(
+    { length: Math.floor((powerTimeDomain[1] - firstPowerTickS) / POWER_TIME_TICK_INTERVAL_S) + 1 },
+    (_, index) => firstPowerTickS + index * POWER_TIME_TICK_INTERVAL_S,
+  )
   const powerMeter = snapshot?.devices.powerMeter
   const powerStable = powerMeter?.running === true && powerMeter.stable === true
   const powerStabilityLabel = powerMeter?.running ? (powerStable ? "已稳定" : "稳定中") : "未采集"
@@ -428,6 +449,8 @@ function PowerRealtimeChart({ snapshot, stretch = false }: { snapshot: BackendSn
       xKey="elapsedS"
       lines={[{ key: "powerW", label: "功率 (W)", color: powerStabilityColor }]}
       stretch={stretch}
+      xDomain={powerTimeDomain}
+      xTicks={powerTimeTicks}
       headerRight={<div className="flex items-center gap-3"><div className={`flex items-center gap-1.5 text-sm font-medium ${powerStable ? "text-emerald-400" : powerMeter?.running ? "text-blue-300" : "text-muted-foreground"}`}><span className={`size-2 rounded-full ${powerStable ? "bg-emerald-400" : powerMeter?.running ? "bg-blue-400" : "bg-zinc-600"}`} />{powerStabilityLabel}</div><p className="text-lg font-semibold tabular-nums">{formatNumber(latestPowerW, " W")}</p></div>}
     />
   )
@@ -485,16 +508,17 @@ function SpectrumRealtimeChart({ snapshot, stretch = false }: { snapshot: Backen
 }
 
 function App() {
-  const { snapshot, error, loading, commandPending, refresh, command } = useBackendSnapshot()
   const [page, setPage] = useState<Page>("automatic")
+  const { snapshot, error, loading, commandPending, refresh, command } = useBackendSnapshot(page)
   const [config, setConfig] = useState<AppConfiguration>(emptyConfig)
   const [dirty, setDirty] = useState(false)
   const [selectedSession, setSelectedSession] = useState("")
   const active = snapshot?.backend.mode === "active"
 
   useEffect(() => {
-    if (snapshot?.configuration && !dirty) setConfig(snapshot.configuration)
-  }, [snapshot?.capturedAt, snapshot?.configuration, dirty])
+    if (!snapshot?.configuration || dirty) return
+    setConfig((current) => configurationsEqual(current, snapshot.configuration!) ? current : snapshot.configuration!)
+  }, [snapshot?.configuration, dirty])
 
   const update = <K extends keyof AppConfiguration>(key: K, value: AppConfiguration[K]) => {
     setConfig((current) => ({ ...current, [key]: value }))
@@ -589,6 +613,23 @@ function App() {
 type UpdateConfig = <K extends keyof AppConfiguration>(key: K, value: AppConfiguration[K]) => void
 type RunCommand = (method: string, params?: Record<string, unknown>, sync?: boolean) => Promise<void>
 
+function currentInputMaximum(config: AppConfiguration, snapshot: BackendSnapshot | null): number | undefined {
+  const connectedKind = snapshot?.devices.powerSupply.connected
+    ? snapshot.configuration?.powerSupplyKind ?? config.powerSupplyKind
+    : config.powerSupplyKind
+  return connectedKind === "ch341" ? CH341_CURRENT_LIMIT_A : undefined
+}
+
+function updatePowerSupplyKind(config: AppConfiguration, update: UpdateConfig, kind: "ch341" | "tdk") {
+  update("powerSupplyKind", kind)
+  if (kind !== "ch341") return
+  update("setCurrentA", Math.min(config.setCurrentA, CH341_CURRENT_LIMIT_A))
+  update("initialCurrentA", Math.min(config.initialCurrentA, CH341_CURRENT_LIMIT_A))
+  update("targetCurrentA", Math.min(config.targetCurrentA, CH341_CURRENT_LIMIT_A))
+  update("currentStepA", Math.min(config.currentStepA, CH341_CURRENT_LIMIT_A))
+  update("rampDownStepA", Math.min(config.rampDownStepA, CH341_CURRENT_LIMIT_A))
+}
+
 function AutomaticPage({ snapshot, config, update, active, pending, readyCount, readyTotal, progress, run, saveConfiguration }: {
   snapshot: BackendSnapshot | null; config: AppConfiguration; update: UpdateConfig; active: boolean; pending: boolean; readyCount: number; readyTotal: number; progress: number; run: RunCommand; saveConfiguration: () => Promise<void>
 }) {
@@ -612,11 +653,11 @@ function AutomaticPage({ snapshot, config, update, active, pending, readyCount, 
             <Field label="壳体 SN"><Input value={config.sn} onChange={(e) => update("sn", e.target.value)} /></Field>
             <Field label="测试站别"><Input value={config.station} onChange={(e) => update("station", e.target.value)} /></Field>
             <Separator className="col-span-2 my-2" />
-            <NumberField label="起始电流 (A)" value={config.initialCurrentA} onChange={(v) => update("initialCurrentA", v)} />
-            <NumberField label="目标电流 (A)" value={config.targetCurrentA} onChange={(v) => update("targetCurrentA", v)} />
-            <NumberField label="电流间隔 (A)" value={config.currentStepA} onChange={(v) => update("currentStepA", v)} />
+            <NumberField label="起始电流 (A)" value={config.initialCurrentA} onChange={(v) => update("initialCurrentA", v)} max={currentInputMaximum(config, snapshot)} />
+            <NumberField label="目标电流 (A)" value={config.targetCurrentA} onChange={(v) => update("targetCurrentA", v)} max={currentInputMaximum(config, snapshot)} />
+            <NumberField label="电流间隔 (A)" value={config.currentStepA} onChange={(v) => update("currentStepA", v)} max={currentInputMaximum(config, snapshot)} />
             <NumberField label="单点超时 (s)" value={config.pointTimeoutS} onChange={(v) => update("pointTimeoutS", v)} />
-            <NumberField label="下电步长 (A)" value={config.rampDownStepA} onChange={(v) => update("rampDownStepA", v)} />
+            <NumberField label="下电步长 (A)" value={config.rampDownStepA} onChange={(v) => update("rampDownStepA", v)} max={currentInputMaximum(config, snapshot)} />
             <NumberField label="下电间隔 (s)" value={config.rampDownIntervalS} onChange={(v) => update("rampDownIntervalS", v)} step="0.1" />
             <label className="col-span-2 flex items-center gap-3 py-1 text-sm"><input checked={config.useSpectrometer} onChange={(e) => update("useSpectrometer", e.target.checked)} type="checkbox" />同时采集光谱并判断波长稳定</label>
             <div className="col-span-2 rounded-lg border border-border bg-[#080808] p-4">
@@ -646,8 +687,14 @@ function AutomaticPage({ snapshot, config, update, active, pending, readyCount, 
   )
 }
 
-function NumberField({ label, value, onChange, step = "1" }: { label: string; value: number; onChange: (value: number) => void; step?: string }) {
-  return <Field label={label}><Input type="number" step={step} value={value} onChange={(e) => onChange(asNumber(e.target.value))} /></Field>
+function NumberField({ label, value, onChange, min, max, step = "1" }: { label: string; value: number; onChange: (value: number) => void; min?: number; max?: number; step?: string }) {
+  const handleChange = (rawValue: string) => {
+    let nextValue = asNumber(rawValue)
+    if (min !== undefined) nextValue = Math.max(min, nextValue)
+    if (max !== undefined) nextValue = Math.min(max, nextValue)
+    onChange(nextValue)
+  }
+  return <Field label={label}><Input type="number" min={min} max={max} step={step} value={value} onChange={(e) => handleChange(e.target.value)} /></Field>
 }
 
 function ManualPage({ snapshot, config, update, active, pending, run }: {
@@ -662,10 +709,10 @@ function ManualPage({ snapshot, config, update, active, pending, run }: {
     <>
       <section className="grid grid-cols-3 gap-4">
         <Card className="shadow-none"><CardHeader><CardTitle className="text-base">电源控制</CardTitle></CardHeader><CardContent className="space-y-3">
-          <Field label="控制器"><NativeSelect value={config.powerSupplyKind} onChange={(v) => update("powerSupplyKind", v as "ch341" | "tdk")}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
+          <Field label="控制器"><NativeSelect value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as "ch341" | "tdk")}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
           {config.powerSupplyKind === "tdk" && <Field label="TDK 串口"><Input value={config.tdkResource} onChange={(e) => update("tdkResource", e.target.value)} /></Field>}
           {config.powerSupplyKind === "tdk" && <NumberField label="输出电压 (V)" value={config.tdkVoltageV} onChange={(v) => update("tdkVoltageV", v)} step="0.1" />}
-          <NumberField label="设定电流 (A)" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} step="0.1" />
+          <NumberField label="设定电流 (A)" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
           {config.powerSupplyKind === "tdk" ? <div className="grid grid-cols-2 gap-2">
             <Button disabled={!active || pending} onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接 TDK"}</Button>
             <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setVoltage", { voltageV: config.tdkVoltageV }, true)} variant="outline">设置电压</Button>
@@ -785,15 +832,17 @@ function ComparisonPanel({ comparisons }: { comparisons: NonNullable<BackendSnap
 }
 
 function useMemoComparison(comparisons: NonNullable<BackendSnapshot["records"]>["comparison"]) {
-  const byCurrent = new Map<number, Record<string, number | null>>()
-  comparisons.forEach((comparison, index) => comparison.points.forEach((point) => {
-    if (point.currentA == null) return
-    const row = byCurrent.get(point.currentA) ?? { currentA: point.currentA }
-    row[`session${index}`] = point.powerW
-    byCurrent.set(point.currentA, row)
-  }))
-  const colors = ["#2563eb", "#16a34a", "#f59e0b", "#9333ea", "#e11d48"]
-  return { rows: [...byCurrent.values()].sort((a, b) => Number(a.currentA) - Number(b.currentA)), lines: comparisons.map((comparison, index) => ({ key: `session${index}`, label: comparison.label, color: colors[index] })) }
+  return useMemo(() => {
+    const byCurrent = new Map<number, Record<string, number | null>>()
+    comparisons.forEach((comparison, index) => comparison.points.forEach((point) => {
+      if (point.currentA == null) return
+      const row = byCurrent.get(point.currentA) ?? { currentA: point.currentA }
+      row[`session${index}`] = point.powerW
+      byCurrent.set(point.currentA, row)
+    }))
+    const colors = ["#2563eb", "#16a34a", "#f59e0b", "#9333ea", "#e11d48"]
+    return { rows: [...byCurrent.values()].sort((a, b) => Number(a.currentA) - Number(b.currentA)), lines: comparisons.map((comparison, index) => ({ key: `session${index}`, label: comparison.label, color: colors[index] })) }
+  }, [comparisons])
 }
 
 function DataTable({ rows }: { rows: Array<Record<string, number | null>> }) {

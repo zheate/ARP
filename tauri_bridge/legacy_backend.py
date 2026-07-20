@@ -29,15 +29,52 @@ def _number(value: Any) -> float | None:
     return result if math.isfinite(result) else None
 
 
-def _series(values: Any, *, limit: int = 1200) -> list[float]:
+def _series(values: Any, *, limit: int | None = 1200) -> list[float]:
     if values is None:
         return []
     output: list[float] = []
-    for value in list(values)[-limit:]:
+    source = list(values)
+    if limit is not None:
+        source = source[-limit:]
+    for value in source:
         number = _number(value)
         if number is not None:
             output.append(number)
     return output
+
+
+def _downsample_spectrum(
+    wavelength: list[float], intensity: list[float], *, limit: int = 800
+) -> tuple[list[float], list[float]]:
+    """Bound chart payload size while retaining narrow local extrema."""
+
+    point_count = min(len(wavelength), len(intensity))
+    if point_count <= limit:
+        return wavelength[:point_count], intensity[:point_count]
+    if limit < 4:
+        indexes = [0, point_count - 1][:limit]
+        return [wavelength[index] for index in indexes], [intensity[index] for index in indexes]
+
+    bucket_count = max(1, (limit - 2) // 2)
+    bucket_size = math.ceil((point_count - 2) / bucket_count)
+    selected_indexes = [0]
+    for start in range(1, point_count - 1, bucket_size):
+        stop = min(point_count - 1, start + bucket_size)
+        low_index = high_index = start
+        for index in range(start + 1, stop):
+            if intensity[index] < intensity[low_index]:
+                low_index = index
+            if intensity[index] > intensity[high_index]:
+                high_index = index
+        selected_indexes.extend(
+            (low_index,) if low_index == high_index else sorted((low_index, high_index))
+        )
+    selected_indexes.append(point_count - 1)
+    selected_indexes = selected_indexes[:limit]
+    return (
+        [wavelength[index] for index in selected_indexes],
+        [intensity[index] for index in selected_indexes],
+    )
 
 
 class LegacyWindowBackend:
@@ -53,7 +90,62 @@ class LegacyWindowBackend:
         self.selected_history_session_id = ""
         self.comparison_session_ids: list[str] = []
         self.history_filters: dict[str, str] = {}
+        self._spectrum_cache_source: tuple[Any, Any, bool] | None = None
+        self._spectrum_cache_payload: tuple[
+            list[float], list[float], float | None, list[dict[str, Any]]
+        ] = ([], [], None, [])
+        self._history_cache_key: tuple[Any, ...] | None = None
+        self._history_cache_payload: tuple[
+            list[dict[str, Any]],
+            dict[str, Any],
+            dict[str, Any] | None,
+            list[dict[str, Any]],
+            list[dict[str, Any]],
+        ] = ([], {}, None, [], [])
         self._install_nonblocking_dialogs()
+
+    def _spectrum_snapshot(
+        self, wavelength_values: Any, intensity_values: Any, saturated: bool
+    ) -> tuple[list[float], list[float], float | None, list[dict[str, Any]]]:
+        """Analyze a spectrum once per acquired frame, not once per UI poll."""
+
+        cached_source = self._spectrum_cache_source
+        if (
+            cached_source is not None
+            and cached_source[0] is wavelength_values
+            and cached_source[1] is intensity_values
+            and cached_source[2] == saturated
+        ):
+            return self._spectrum_cache_payload
+
+        full_wavelength = _series(wavelength_values, limit=None)
+        full_intensity = _series(intensity_values, limit=None)
+        wavelength, intensity = _downsample_spectrum(full_wavelength, full_intensity)
+        smsr_db: float | None = None
+        peaks: list[dict[str, Any]] = []
+        if not saturated and wavelength_values is not None and intensity_values is not None:
+            try:
+                smsr_db = _number(calculate_smsr(wavelength_values, intensity_values).smsr_db)
+            except (TypeError, ValueError):
+                pass
+            try:
+                peaks = [
+                    {
+                        "label": annotation.label,
+                        "centroidNm": _number(annotation.centroid_nm),
+                        "peakWavelengthNm": _number(annotation.peak_wavelength_nm),
+                        "peakIntensity": _number(annotation.peak_intensity),
+                    }
+                    for annotation in find_spectrum_peak_annotations(
+                        zip(full_wavelength, full_intensity)
+                    )
+                ]
+            except (TypeError, ValueError):
+                pass
+
+        self._spectrum_cache_source = (wavelength_values, intensity_values, saturated)
+        self._spectrum_cache_payload = (wavelength, intensity, smsr_db, peaks)
+        return self._spectrum_cache_payload
 
     def _install_nonblocking_dialogs(self) -> None:
         """Prevent the hidden compatibility window from opening modal dialogs."""
@@ -167,6 +259,11 @@ class LegacyWindowBackend:
             if key in params:
                 widget.setText(str(params[key]))
 
+        # Select the controller before applying current values so that the Qt
+        # widgets enforce the CH341 20 A limit without constraining TDK values.
+        if "powerSupplyKind" in params:
+            self._set_combo_data(window.power_supply_controller_combo, params["powerSupplyKind"])
+
         values = {
             "initialCurrentA": window.auto_initial_current_spin,
             "targetCurrentA": window.auto_target_current_spin,
@@ -189,8 +286,6 @@ class LegacyWindowBackend:
             if key in params:
                 widget.setValue(float(params[key]))
 
-        if "powerSupplyKind" in params:
-            self._set_combo_data(window.power_supply_controller_combo, params["powerSupplyKind"])
         if "tdkResource" in params:
             self._set_combo_text(window.tdk_resource_combo, params["tdkResource"])
         if "powerMeterResource" in params:
@@ -223,7 +318,12 @@ class LegacyWindowBackend:
             self.window.connect_i2c_device()
 
     def _set_current(self, params: dict[str, Any]) -> None:
-        self.window.set_current_spin.setValue(float(params["currentA"]))
+        current_a = float(params["currentA"])
+        if not math.isfinite(current_a) or current_a < 0:
+            raise ValueError("电流必须是大于或等于 0 A 的有限数值")
+        if self.window._selected_power_supply_kind() == "ch341" and current_a > 20.0:
+            raise ValueError("CH341 最大电流不能超过 20 A")
+        self.window.set_current_spin.setValue(current_a)
         self.window.apply_output_current()
 
     def _set_voltage(self, params: dict[str, Any]) -> None:
@@ -492,8 +592,50 @@ class LegacyWindowBackend:
             output.append({"sessionId": session_id, "label": f"{session.sn} · {session.started_at_utc}", "points": points})
         return output
 
-    def snapshot(self) -> dict[str, Any]:
+    def _history_snapshot(
+        self,
+    ) -> tuple[
+        list[dict[str, Any]],
+        dict[str, Any],
+        dict[str, Any] | None,
+        list[dict[str, Any]],
+        list[dict[str, Any]],
+    ]:
+        """Reuse persisted history until the SQLite archive actually changes."""
+
+        archive = self.window._archive_for_history()
+        revision: tuple[str, int, int] | None = None
+        if archive is not None:
+            try:
+                database_path = Path(archive.database_path)
+                stat = database_path.stat()
+                revision = (str(database_path), stat.st_mtime_ns, stat.st_size)
+            except (AttributeError, OSError):
+                pass
+        cache_key = (
+            revision,
+            tuple(sorted(self.history_filters.items())),
+            self.selected_history_session_id,
+            tuple(self.comparison_session_ids),
+        )
+        if revision is not None and cache_key == self._history_cache_key:
+            return self._history_cache_payload
+
+        history, summary = self._history()
+        detail, attempts = self._history_detail()
+        payload = (history, summary, detail, attempts, self._comparison())
+        if revision is not None:
+            self._history_cache_key = cache_key
+            self._history_cache_payload = payload
+        return payload
+
+    def snapshot(self, params: dict[str, Any] | None = None) -> dict[str, Any]:
         window = self.window
+        requested_view = str((params or {}).get("view", "full"))
+        view = requested_view if requested_view in {"automatic", "manual", "records", "pd"} else "full"
+        include_live_charts = view in {"automatic", "manual", "full"}
+        include_record_history = view in {"records", "full"}
+        include_pd_points = view in {"pd", "full"}
         power_supply = window.get_power_supply()
         power_connected = bool(power_supply is not None and power_supply.connected)
         power_meter_running = window.power_meter_reader is not None
@@ -503,87 +645,94 @@ class LegacyWindowBackend:
         automatic = window.automatic_orchestrator
         currents = list(automatic.currents)
         current_index = int(automatic.current_index)
-        history, history_summary = self._history()
-        history_detail, history_attempts = self._history_detail()
+        if include_record_history:
+            (
+                history,
+                history_summary,
+                history_detail,
+                history_attempts,
+                comparison,
+            ) = self._history_snapshot()
+        else:
+            history = []
+            history_summary = {
+                "sessions": 0,
+                "completionRate": None,
+                "invalidAttemptRate": None,
+                "retestRate": None,
+                "medianDurationS": None,
+            }
+            history_detail, history_attempts = None, []
+            comparison = []
 
         records = []
-        for record in window.record_store.snapshot():
-            records.append(
-                {
-                    "currentA": _number(record.current_a),
-                    "voltageV": _number(record.voltage_v),
-                    "powerW": _number(record.power_w),
-                    "efficiency": _number(record.efficiency),
-                    "peakWavelengthNm": _number(record.peak_wavelength_nm),
-                    "centroidNm": _number(record.centroid_nm),
-                    "fwhmNm": _number(record.fwhm_nm),
-                    "pib": _number(record.pib),
-                    "smsrDb": _number(record.smsr_db),
-                }
-            )
+        if include_record_history:
+            for record in window.record_store.snapshot():
+                records.append(
+                    {
+                        "currentA": _number(record.current_a),
+                        "voltageV": _number(record.voltage_v),
+                        "powerW": _number(record.power_w),
+                        "efficiency": _number(record.efficiency),
+                        "peakWavelengthNm": _number(record.peak_wavelength_nm),
+                        "centroidNm": _number(record.centroid_nm),
+                        "fwhmNm": _number(record.fwhm_nm),
+                        "pib": _number(record.pib),
+                        "smsrDb": _number(record.smsr_db),
+                    }
+                )
 
         plots = window.live_plots
-        wavelength = _series(window.latest_spectrum_wavelength, limit=2400)
-        intensity = _series(window.latest_spectrum_intensity, limit=2400)
         spectrum_saturated = bool(window.latest_spectrum_saturated)
-        spectrum_smsr_db: float | None = None
-        spectrum_peaks: list[dict[str, Any]] = []
-        if (
-            not spectrum_saturated
-            and window.latest_spectrum_wavelength is not None
-            and window.latest_spectrum_intensity is not None
-        ):
-            try:
-                spectrum_smsr_db = _number(
-                    calculate_smsr(
-                        window.latest_spectrum_wavelength,
-                        window.latest_spectrum_intensity,
-                    ).smsr_db
-                )
-            except (TypeError, ValueError):
-                # Keep the snapshot usable while the first/invalid spectrum
-                # frame is being replaced by a complete acquisition.
-                spectrum_smsr_db = None
-            try:
-                spectrum_peaks = [
-                    {
-                        "label": annotation.label,
-                        "centroidNm": _number(annotation.centroid_nm),
-                        "peakWavelengthNm": _number(annotation.peak_wavelength_nm),
-                        "peakIntensity": _number(annotation.peak_intensity),
-                    }
-                    for annotation in find_spectrum_peak_annotations(zip(wavelength, intensity))
-                ]
-            except (TypeError, ValueError):
-                spectrum_peaks = []
-        power_points = [
-            {"elapsedS": x, "powerW": y}
-            for x, y in zip(_series(plots.power_curve_times), _series(plots.power_curve_values))
-        ]
+        if include_live_charts:
+            wavelength, intensity, spectrum_smsr_db, spectrum_peaks = self._spectrum_snapshot(
+                window.latest_spectrum_wavelength,
+                window.latest_spectrum_intensity,
+                spectrum_saturated,
+            )
+        else:
+            wavelength, intensity, spectrum_smsr_db, spectrum_peaks = [], [], None, []
+        power_points = (
+            [
+                {"elapsedS": x, "powerW": y}
+                for x, y in zip(_series(plots.power_curve_times), _series(plots.power_curve_values))
+            ]
+            if include_live_charts
+            else []
+        )
         spectrum_points = [
             {"wavelengthNm": x, "intensity": y}
             for x, y in zip(wavelength, intensity)
         ]
-        stable_points = [
-            {
-                "currentA": float(current),
-                "powerW": _number(power),
-                "efficiencyPercent": _number(window.efficiency_points.get(current)),
-            }
-            for current, power in sorted(window.stable_power_points.items())
-        ]
+        stable_points = (
+            [
+                {
+                    "currentA": float(current),
+                    "powerW": _number(power),
+                    "efficiencyPercent": _number(window.efficiency_points.get(current)),
+                }
+                for current, power in sorted(window.stable_power_points.items())
+            ]
+            if include_live_charts
+            else []
+        )
 
         panel = window.pd_panel
-        pd_points = [
-            {"elapsedS": x, "value": y}
-            for x, y in zip(_series(panel.plot_times), _series(panel.plot_values))
-        ]
+        pd_points = (
+            [
+                {"elapsedS": x, "value": y}
+                for x, y in zip(_series(panel.plot_times), _series(panel.plot_values))
+            ]
+            if include_pd_points
+            else []
+        )
         session = window.record_store.current_session
         settings_error = ""
-        try:
-            window.collect_automatic_test_settings()
-        except Exception as exc:
-            settings_error = str(exc)
+        if view in {"automatic", "full"}:
+            try:
+                window.collect_automatic_test_settings()
+            except Exception as exc:
+                settings_error = str(exc)
 
         progress = 0.0
         if currents:
@@ -696,7 +845,7 @@ class LegacyWindowBackend:
                 "summary": history_summary,
                 "detail": history_detail,
                 "attempts": history_attempts,
-                "comparison": self._comparison(),
+                "comparison": comparison,
                 "filters": dict(self.history_filters),
             },
             "pd": {
@@ -737,6 +886,5 @@ class LegacyWindowBackend:
             },
             "status": {
                 "message": window.statusBar().currentMessage(),
-                "log": window.log_text.text(),
             },
         }

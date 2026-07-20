@@ -1,8 +1,16 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
-import { fetchBackendSnapshot, sendBackendCommand, type BackendSnapshot } from "@/lib/backend"
+import { fetchBackendSnapshot, sendBackendCommand, type BackendSnapshot, type SnapshotView } from "@/lib/backend"
 
-const REFRESH_INTERVAL_MS = 1000
+// The acquisition threads keep sampling at their configured rates. The UI only
+// needs enough frames for smooth feedback; rebuilding SVG charts at 10 Hz turns
+// the full snapshot stream into sustained WebView2 allocation pressure.
+const REFRESH_INTERVAL_MS: Record<SnapshotView, number> = {
+  automatic: 250,
+  manual: 250,
+  records: 1000,
+  pd: 250,
+}
 const DEMO_PREVIEW_ENABLED = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("demo") === "1"
 
 const DEMO_SPECTRUM = [
@@ -102,30 +110,44 @@ const DEMO_SNAPSHOT: BackendSnapshot = {
   safety: { hardwareAccess: false, commandMode: "controller_owned", detail: "示例数据模式" },
 }
 
-export function useBackendSnapshot() {
+export function useBackendSnapshot(view: SnapshotView) {
   const [snapshot, setSnapshot] = useState<BackendSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [commandPending, setCommandPending] = useState(false)
+  const mountedRef = useRef(true)
+  const latestViewRef = useRef(view)
+  latestViewRef.current = view
 
-  const refresh = useCallback(async () => {
-    setLoading(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
+
+  const loadSnapshot = useCallback(async (showLoading: boolean, requestedView: SnapshotView) => {
+    if (showLoading) setLoading(true)
     try {
       if (DEMO_PREVIEW_ENABLED) {
-        setSnapshot(DEMO_SNAPSHOT)
-        setError(null)
+        if (mountedRef.current && latestViewRef.current === requestedView) {
+          setSnapshot(DEMO_SNAPSHOT)
+          setError(null)
+        }
         return
       }
-      const nextSnapshot = await fetchBackendSnapshot()
+      const nextSnapshot = await fetchBackendSnapshot(requestedView)
+      if (!mountedRef.current || latestViewRef.current !== requestedView) return
       setSnapshot(nextSnapshot)
       setError(null)
     } catch (reason) {
-      setSnapshot(null)
+      if (!mountedRef.current || latestViewRef.current !== requestedView) return
+      if (showLoading) setSnapshot(null)
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
-      setLoading(false)
+      if (showLoading && mountedRef.current && latestViewRef.current === requestedView) setLoading(false)
     }
   }, [])
+
+  const refresh = useCallback(() => loadSnapshot(true, view), [loadSnapshot, view])
 
   const command = useCallback(async (method: string, params: Record<string, unknown> = {}) => {
     setCommandPending(true)
@@ -135,24 +157,48 @@ export function useBackendSnapshot() {
         setError(null)
         return DEMO_SNAPSHOT
       }
+      const requestedView = view
       const nextSnapshot = await sendBackendCommand(method, params)
-      setSnapshot(nextSnapshot)
-      setError(null)
+      if (mountedRef.current && latestViewRef.current === requestedView) {
+        setSnapshot(nextSnapshot)
+        setError(null)
+      }
       return nextSnapshot
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : String(reason)
-      setError(message)
+      if (mountedRef.current) setError(message)
       throw reason
     } finally {
-      setCommandPending(false)
+      if (mountedRef.current) setCommandPending(false)
     }
-  }, [])
+  }, [view])
 
   useEffect(() => {
-    void refresh()
-    const interval = window.setInterval(() => void refresh(), REFRESH_INTERVAL_MS)
-    return () => window.clearInterval(interval)
-  }, [refresh])
+    let cancelled = false
+    let timer: number | undefined
+
+    const poll = async (showLoading = false) => {
+      if (cancelled || document.visibilityState === "hidden") return
+      await loadSnapshot(showLoading, view)
+      if (!cancelled && !DEMO_PREVIEW_ENABLED) {
+        timer = window.setTimeout(() => void poll(), REFRESH_INTERVAL_MS[view])
+      }
+    }
+
+    const handleVisibilityChange = () => {
+      if (timer !== undefined) window.clearTimeout(timer)
+      timer = undefined
+      if (document.visibilityState === "visible") void poll()
+    }
+
+    document.addEventListener("visibilitychange", handleVisibilityChange)
+    void poll(true)
+    return () => {
+      cancelled = true
+      if (timer !== undefined) window.clearTimeout(timer)
+      document.removeEventListener("visibilitychange", handleVisibilityChange)
+    }
+  }, [loadSnapshot, view])
 
   return { snapshot, error, loading, commandPending, refresh, command }
 }

@@ -12,11 +12,12 @@ import sqlite3
 import threading
 import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Iterator, Mapping
 
 
 ARCHIVE_SCHEMA_VERSION = 1
@@ -168,12 +169,17 @@ class TestArchive:
         self.database_path = self.root / "index.sqlite3"
         self._initialize_schema()
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self.database_path, timeout=5.0)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA busy_timeout = 5000")
-        return connection
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
     def _initialize_schema(self) -> None:
         with self._connect() as connection:
@@ -282,6 +288,7 @@ class TestArchive:
         batch: str = "",
         settings: Mapping[str, Any] | None = None,
         devices: Iterable[DeviceSnapshot] = (),
+        workbook_path: Path | None = None,
     ) -> TestSession:
         local_started = started_at or datetime.now()
         session_id = str(uuid.uuid4())
@@ -294,7 +301,7 @@ class TestArchive:
             / f"{local_started.strftime('%H%M%S')}_{short_id}"
         )
         session_dir.mkdir(parents=True, exist_ok=False)
-        workbook_path = session_dir / "result.xlsx"
+        workbook_path = session_dir / "result.xlsx" if workbook_path is None else Path(workbook_path)
         started_at_utc = (
             local_started.astimezone(timezone.utc).isoformat(timespec="milliseconds")
             if local_started.tzinfo is not None

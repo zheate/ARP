@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core"
 
 export type BackendMode = "read_only" | "active"
 export type DeviceConnectionState = "disconnected" | "connecting" | "connected" | "error"
+export type SnapshotView = "automatic" | "manual" | "records" | "pd"
 
 export interface Notice {
   level: "info" | "warning" | "error"
@@ -184,7 +185,7 @@ export interface BackendSnapshot {
     detail: string
     outputShutdownUnconfirmed?: boolean
   }
-  status?: { message: string; log: string }
+  status?: { message: string }
 }
 
 function ensureTauri(): void {
@@ -193,9 +194,12 @@ function ensureTauri(): void {
   }
 }
 
-export async function fetchBackendSnapshot(): Promise<BackendSnapshot> {
+export async function fetchBackendSnapshot(view: SnapshotView): Promise<BackendSnapshot> {
   ensureTauri()
-  return invoke<BackendSnapshot>("bridge_snapshot")
+  return invoke<BackendSnapshot>("bridge_request", {
+    method: "app.snapshot",
+    params: { view },
+  })
 }
 
 export async function sendBackendCommand(

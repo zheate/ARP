@@ -58,7 +58,10 @@ class TestArchiveTests(unittest.TestCase):
                 AttemptValidity.WEAK_SIGNAL,
                 AttemptValidity.VALID,
             ])
-            self.assertEqual(archive.list_attempts(session.session_id, selected_only=True), (selected,))
+            selected_attempts = archive.list_attempts(session.session_id, selected_only=True)
+            self.assertEqual(len(selected_attempts), 1)
+            self.assertEqual(selected_attempts[0].attempt_id, selected.attempt_id)
+            self.assertTrue(selected_attempts[0].selected)
             self.assertTrue((session.session_dir / selected.spectrum_path).is_file())
 
     def test_reopen_filters_and_recovers_only_automatic_session(self) -> None:

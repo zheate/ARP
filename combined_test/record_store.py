@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Protocol, runtime_checkable
 
-from .excel_export import ExcelTestRecord
+from .excel_export import ExcelTestRecord, build_test_workbook_path
 from .test_archive import (
     AttemptValidity,
     DeviceSnapshot,
@@ -135,6 +135,12 @@ class SessionRecordStore:
         if not reset and self.current_session is not None:
             return self.current_session.workbook_path
         self.archive = TestArchive(Path(output_dir))
+        workbook_path = build_test_workbook_path(
+            output_dir,
+            sn,
+            started_at,
+            test_station,
+        )
         self.current_session = self.archive.begin_session(
             sn=sn,
             station=test_station,
@@ -144,11 +150,14 @@ class SessionRecordStore:
             batch=batch,
             settings=settings,
             devices=devices,
+            workbook_path=workbook_path,
         )
         self.workbook_path = self.current_session.workbook_path
         self.workbook_path.parent.mkdir(parents=True, exist_ok=True)
         self.database_commit_allowed = mode != "automatic"
-        self.excel_export_allowed = mode != "automatic"
+        # Excel persistence follows the main workflow: every valid automatic
+        # point is exported before the controller advances to the next point.
+        self.excel_export_allowed = True
         if reset:
             self.pending_records.clear()
             self.recorded_currents.clear()
@@ -224,7 +233,6 @@ class SessionRecordStore:
             raise ValueError("波长和强度数据长度必须一致")
         self._pending_attempts.append(attempt)
         self.pending_records[current] = record
-        self.recorded_currents.add(current)
         self.exported_currents.discard(current)
         self.database_saved_currents.discard(current)
 
@@ -355,7 +363,9 @@ class SessionRecordStore:
         for saved_record in records:
             current_record = self.pending_records.get(float(saved_record.current_a))
             if current_record == saved_record:
-                self.exported_currents.add(float(saved_record.current_a))
+                current = float(saved_record.current_a)
+                self.exported_currents.add(current)
+                self.recorded_currents.add(current)
         if self.archive is not None and self.current_session is not None:
             self.archive.mark_export_state(self.current_session.session_id, ExportState.EXPORTED)
 

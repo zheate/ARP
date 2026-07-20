@@ -73,14 +73,18 @@ class AutomaticTestControllerLifecycleTests(unittest.TestCase):
         )
         self.assertIn("完整完成", result_details[-1])
 
-    def test_excel_export_failure_does_not_invalidate_archived_point(self) -> None:
+    def test_save_failure_can_still_pause_for_retry(self) -> None:
         self._prepare_zero_current_terminal_path(AutomaticTestState.SAVING_POINT)
 
         self.window.automatic_controller.on_record_save_failed("文件被占用")
 
-        self.assertEqual(self.window.automatic_test_state, AutomaticTestState.SAVING_POINT)
-        self.assertFalse(self.window.automatic_pause_safety_timer.isActive())
-        self.assertIn("Excel 导出待重试", self.window.log_text.text())
+        self.assertEqual(self.window.automatic_test_state, AutomaticTestState.PAUSED)
+        self.assertEqual(
+            self.window.automatic_paused_from_state,
+            AutomaticTestState.SAVING_POINT,
+        )
+        self.assertTrue(self.window.automatic_pause_safety_timer.isActive())
+        self.assertIn("Excel 保存失败", self.window.automatic_pause_reason)
 
     def test_acquisition_fault_during_save_retries_from_the_next_point_after_save(self) -> None:
         self._prepare_zero_current_terminal_path(AutomaticTestState.SAVING_POINT)
