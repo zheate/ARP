@@ -1,14 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
-import { fetchBackendSnapshot, sendBackendCommand, type BackendSnapshot, type SnapshotView } from "@/lib/backend"
+import { fetchBackendSnapshot, mergeBackendSnapshot, sendBackendCommand, type BackendSnapshot, type SeriesRevisions, type SnapshotView } from "@/lib/backend"
 
 // The acquisition threads keep sampling at their configured rates. The UI only
-// needs enough frames for smooth feedback; rebuilding SVG charts at 10 Hz turns
-// the full snapshot stream into sustained WebView2 allocation pressure.
+// needs enough frames for smooth feedback. Series revisions keep unchanged chart
+// arrays out of the snapshot stream and preserve their references in React.
 const REFRESH_INTERVAL_MS: Record<SnapshotView, number> = {
   automatic: 250,
   manual: 250,
-  records: 1000,
   pd: 250,
 }
 const DEMO_PREVIEW_ENABLED = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("demo") === "1"
@@ -77,10 +76,10 @@ const DEMO_SNAPSHOT: BackendSnapshot = {
   automaticTest: {
     state: "running",
     detail: "示例数据预览",
-    controlsEnabled: true,
+    controlsEnabled: false,
     canStart: false,
     canRetry: false,
-    canEnd: false,
+    canEnd: true,
     currents: [2, 4, 6, 8, 10, 12],
     currentIndex: 3,
     currentA: 8,
@@ -115,8 +114,12 @@ export function useBackendSnapshot(view: SnapshotView) {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [commandPending, setCommandPending] = useState(false)
+  const [pendingCommand, setPendingCommand] = useState<string | null>(null)
   const mountedRef = useRef(true)
+  const commandPendingRef = useRef(false)
   const latestViewRef = useRef(view)
+  const snapshotRef = useRef<BackendSnapshot | null>(null)
+  const revisionsRef = useRef<SeriesRevisions | null>(null)
   latestViewRef.current = view
 
   useEffect(() => {
@@ -125,17 +128,39 @@ export function useBackendSnapshot(view: SnapshotView) {
   }, [])
 
   const loadSnapshot = useCallback(async (showLoading: boolean, requestedView: SnapshotView) => {
-    if (showLoading) setLoading(true)
+    if (showLoading) {
+      snapshotRef.current = null
+      revisionsRef.current = null
+      setLoading(true)
+    }
     try {
       if (DEMO_PREVIEW_ENABLED) {
         if (mountedRef.current && latestViewRef.current === requestedView) {
+          snapshotRef.current = DEMO_SNAPSHOT
+          revisionsRef.current = DEMO_SNAPSHOT.seriesRevisions ?? null
           setSnapshot(DEMO_SNAPSHOT)
           setError(null)
         }
         return
       }
-      const nextSnapshot = await fetchBackendSnapshot(requestedView)
+      const previousSnapshot = showLoading ? null : snapshotRef.current
+      const previousPower = previousSnapshot?.measurements?.power
+      const previousPd = previousSnapshot?.pd?.points
+      const powerCursor = previousPower?.[previousPower.length - 1]?.elapsedS
+      const pdCursor = previousPd?.[previousPd.length - 1]?.elapsedS
+      const cursors = powerCursor === undefined && pdCursor === undefined ? undefined : {
+        ...(powerCursor === undefined ? {} : { power: powerCursor }),
+        ...(pdCursor === undefined ? {} : { pd: pdCursor }),
+      }
+      const patch = await fetchBackendSnapshot(
+        requestedView,
+        showLoading ? undefined : revisionsRef.current ?? undefined,
+        cursors,
+      )
       if (!mountedRef.current || latestViewRef.current !== requestedView) return
+      const nextSnapshot = mergeBackendSnapshot(previousSnapshot, patch)
+      snapshotRef.current = nextSnapshot
+      revisionsRef.current = nextSnapshot.seriesRevisions ?? null
       setSnapshot(nextSnapshot)
       setError(null)
     } catch (reason) {
@@ -150,7 +175,13 @@ export function useBackendSnapshot(view: SnapshotView) {
   const refresh = useCallback(() => loadSnapshot(true, view), [loadSnapshot, view])
 
   const command = useCallback(async (method: string, params: Record<string, unknown> = {}) => {
+    if (commandPendingRef.current) {
+      if (snapshotRef.current) return snapshotRef.current
+      throw new Error("上一项操作仍在处理中")
+    }
+    commandPendingRef.current = true
     setCommandPending(true)
+    setPendingCommand(method)
     try {
       if (DEMO_PREVIEW_ENABLED) {
         setSnapshot(DEMO_SNAPSHOT)
@@ -160,6 +191,8 @@ export function useBackendSnapshot(view: SnapshotView) {
       const requestedView = view
       const nextSnapshot = await sendBackendCommand(method, params)
       if (mountedRef.current && latestViewRef.current === requestedView) {
+        snapshotRef.current = nextSnapshot
+        revisionsRef.current = nextSnapshot.seriesRevisions ?? null
         setSnapshot(nextSnapshot)
         setError(null)
       }
@@ -169,7 +202,11 @@ export function useBackendSnapshot(view: SnapshotView) {
       if (mountedRef.current) setError(message)
       throw reason
     } finally {
-      if (mountedRef.current) setCommandPending(false)
+      commandPendingRef.current = false
+      if (mountedRef.current) {
+        setCommandPending(false)
+        setPendingCommand(null)
+      }
     }
   }, [view])
 
@@ -200,5 +237,5 @@ export function useBackendSnapshot(view: SnapshotView) {
     }
   }, [loadSnapshot, view])
 
-  return { snapshot, error, loading, commandPending, refresh, command }
+  return { snapshot, error, loading, commandPending, pendingCommand, refresh, command }
 }

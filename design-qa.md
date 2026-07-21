@@ -1,72 +1,55 @@
-# Design QA
+# Design QA — 功率 / 效率点线图
 
-- Source visual truth: `/var/folders/pj/_thskkm14c333y_j9nd_dk8h0000gn/T/codex-clipboard-9f70f579-bb7a-49fb-beb5-c774c819a77f.png`
-- Implementation screenshot: `/Users/zh/.codex/visualizations/2026/07/19/019f7a17-c8bc-7c52-968b-b0b10952da4b/arp-charts-aligned-after.png`
-- Viewport: 1280 × 720 CSS pixels
-- State: 详细配置页面，浏览器预览模式，后端为空状态
+- source visual truth path: `/var/folders/pj/_thskkm14c333y_j9nd_dk8h0000gn/T/codex-clipboard-30e98a1b-d153-4ff3-a234-81cdf65da84a.png`
+- implementation screenshot path: `/Users/zh/.codex/visualizations/2026/07/20/019f7f3f-4eec-7263-a043-bfb0916f966d/arp-power-efficiency-hollow-points.png`
+- full-view implementation screenshot: `/Users/zh/.codex/visualizations/2026/07/20/019f7f3f-4eec-7263-a043-bfb0916f966d/arp-automatic-no-spectrum-full.png`
+- side-by-side comparison: `/Users/zh/.codex/visualizations/2026/07/20/019f7f3f-4eec-7263-a043-bfb0916f966d/power-curve-side-by-side.png`
+- viewport: `1280 × 720`, device pixel ratio `2`
+- state: 自动测试示例数据；“同时采集光谱并判断波长稳定”未勾选；功率 / 效率图可见
+- primary interaction tested: 取消光谱采集后，右侧图表由光谱切换为功率 / 效率
+- console errors checked: 无 error / warning
 
-## Comparison
+## Full-view comparison evidence
 
-The source screenshot shows the two side-by-side chart cards with matching outer bounds but different inner plot vertical positions. The implementation gives the shared `ChartPanel` header a consistent minimum height, so both chart areas now start and end on the same horizontal baselines.
+自动测试页面保留原有两列布局、标题层级、卡片间距和双坐标轴；取消光谱后，右侧卡片按既有布局显示功率 / 效率图，没有溢出或遮挡。
 
-Measured post-fix evidence: both chart cards are `top=486`, `bottom=732`; both inner plot regions are `top=555`, `bottom=703`, `height=148`.
+## Focused region comparison evidence
 
-Fonts, spacing/layout rhythm, colors/tokens, image/assets, and copy were checked. No image assets are involved in this change.
+已将参考截图的“功率趋势”区域与 ARP 功率 / 效率区域放入同一张对比图。两者的关键点线处理一致：实线连接、圆形标记、圆心为图表底色、外圈使用曲线同色描边。ARP 同时显示两条数据，因此保留功率绿色和效率橙色以及双坐标轴，这是既有产品约束，不属于设计漂移。
 
-## Findings
+## Required fidelity surfaces
 
-No actionable P0, P1, or P2 findings.
+- Fonts and typography: 本次未改字体、字号、字重或标签文案；沿用 ARP 现有设计系统。
+- Spacing and layout rhythm: 卡片、图表内边距与自动测试两列布局保持不变；无可见溢出。
+- Colors and visual tokens: 点中心使用 ARP 的 `--card` 底色，描边使用各曲线颜色，避免硬编码参考项目的卡片灰色。
+- Image quality and asset fidelity: 图表继续使用高分屏 Canvas 矢量绘制；未新增或替换产品图片资产。
+- Copy and content: “功率 / 效率”、图例与单位文案保持不变。
 
 ## Comparison history
 
-- Initial comparison: the left 功率实时 plot started 8px lower than the right 功率 / 效率 plot because its header contained status and value content.
-- Fix: set the shared `ChartPanel` header to `min-h-9` so headers with and without a right-side metric block occupy the same height.
-- Post-fix evidence: both plot regions measure the same top, bottom, and height in the rendered page.
+1. Earlier finding: `[P1]` 效率使用三角形且点为实心，与参考截图单曲线空心圆风格不一致。
+   - Fix: 两条曲线统一为 `8px` 圆形标记；圆心使用卡片底色；使用 `2px` 曲线同色描边；连线保持 `1.7px` 实线。
+   - Post-fix evidence: `power-curve-side-by-side.png` 显示功率和效率均为同样的空心圆点线样式。
+2. Final comparison: 未发现可执行的 P0 / P1 / P2 差异。
+
+## Findings
+
+- 无 P0 / P1 / P2 问题。
+
+## Open Questions
+
+- 无。
 
 ## Implementation Checklist
 
-- [x] Aligned the two chart card headers.
-- [x] Aligned the inner plot top edges.
-- [x] Aligned the inner plot bottom edges.
-- [x] Preserved chart data and header content.
-- [x] TypeScript and production build pass.
+- [x] 功率曲线使用空心圆点。
+- [x] 效率曲线使用空心圆点，不再使用三角形。
+- [x] 点描边与曲线同色，圆心跟随卡片底色。
+- [x] 自动测试取消光谱后显示功率 / 效率图。
+- [x] 生产构建通过，浏览器控制台无错误。
 
 ## Follow-up Polish
 
-None required for this scoped change.
-
-final result: passed
-
-## Device settings dialog QA
-
-- Source visual truth: `/var/folders/pj/_thskkm14c333y_j9nd_dk8h0000gn/T/codex-clipboard-9f38c507-06d8-4c91-b49e-dc50fedb6603.png`
-- Implementation screenshot: `/Users/zh/Documents/test/ARP/.codex/device-settings-cards.png`
-- Focused dialog screenshot: `/Users/zh/Documents/test/ARP/.codex/power-settings-dialog.png`
-- Viewport: 1280 × 720 CSS pixels
-- State: 自动测试页，示例数据模式；卡片截图为无弹窗状态，弹窗截图为电源设置打开状态
-
-### Comparison
-
-参考图中的三张深色设备卡片在实现中保持了三列排列、图标容器、标题、状态说明、边框和状态点；本次新增的可点击/键盘入口不改变卡片的主要视觉结构。弹窗截图确认了居中的深色设置面板、设备专属标题、滚动内容区和底部保存/关闭操作。
-
-### Findings
-
-No actionable P0, P1, or P2 findings.
-
-### Interaction evidence
-
-- 电源卡片打开 `电源设置`，包含控制器、TDK 串口、电压、电流和电源控制操作。
-- 功率计卡片打开 `功率计设置`，包含串口资源、校准波长、软件增益、采集和相对调零操作。
-- 光谱仪卡片打开 `光谱仪设置`，包含 Ocean Insight 设备资源、积分时间、刷新间隔、自动积分和光谱操作。
-- 三个弹窗均可通过关闭按钮、遮罩点击和 Escape 关闭；弹窗使用现有配置保存命令。
-- 构建通过；浏览器控制台未发现本次代码产生的错误，仅有图表首次布局测量时的既有尺寸警告。
-
-### Fidelity surfaces
-
-- Fonts and typography: 复用现有 Geist / 中文回退字体与现有字号层级。
-- Spacing and layout rhythm: 复用现有卡片间距、圆角和深色工作台节奏；弹窗在 1280 × 720 下保持居中并可滚动。
-- Colors and visual tokens: 复用现有背景、边框、输入框、蓝色主操作和状态点 token。
-- Image quality and asset fidelity: 无新增位图资产；设备图标使用现有 lucide-react 图标库。
-- Copy and content: 三个弹窗标题及字段按设备角色区分，保留现有中文操作文案。
+- 无阻塞项。
 
 final result: passed

@@ -41,7 +41,6 @@ $pyInstallerArgs = @(
     "--add-data", "$qtFontSource;PySide6/lib/fonts",
     "--hidden-import", "combined_test.window",
     "--hidden-import", "combined_test.persistence",
-    "--hidden-import", "combined_test.test_archive",
     "--hidden-import", "combined_test.ocean_direct_adapter",
     "--hidden-import", "tools.pd_daq_mvp",
     "--add-data", "$(Join-Path $projectRoot 'tools\spectrometer_mvp.py');tools",

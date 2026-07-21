@@ -120,7 +120,7 @@ class DeviceInterfaceTests(unittest.TestCase):
                 output_dir / "SN-1" / "老化站 1" / "2026_07_12_09_30.xlsx",
             )
             self.assertTrue(path.parent.is_dir())
-            self.assertTrue((output_dir / "index.sqlite3").is_file())
+            self.assertFalse((output_dir / "index.sqlite3").exists())
 
             record = ExcelTestRecord(1, 2, 3, 0.5, 976, 976, 1, 0.8, [975, 976], [1, 2])
 
@@ -131,11 +131,12 @@ class DeviceInterfaceTests(unittest.TestCase):
             store.mark_saved((record,))
             self.assertEqual(store.unsaved_records(), ())
 
-    def test_session_record_store_waits_for_explicit_database_commit(self) -> None:
+    def test_session_record_store_keeps_attempts_in_memory_without_a_database(self) -> None:
         store = SessionRecordStore()
         with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir) / "records"
             store.begin_session(
-                Path(temp_dir) / "records",
+                output_dir,
                 "SN-DB",
                 datetime(2026, 7, 12, 9, 30, 0),
                 test_station="老化站 1",
@@ -144,11 +145,9 @@ class DeviceInterfaceTests(unittest.TestCase):
             store.queue(record)
             session_id = store.current_session.session_id  # type: ignore[union-attr]
 
-            self.assertEqual(store.pending_database_count(), 1)
-            self.assertEqual(store.archive.list_attempts(session_id), ())  # type: ignore[union-attr]
-            self.assertEqual(store.commit_pending_records(), 1)
-            self.assertEqual(store.pending_database_count(), 0)
-            self.assertEqual(len(store.archive.list_attempts(session_id)), 1)  # type: ignore[union-attr]
+            self.assertEqual(len(store.list_attempts(session_id)), 1)
+            self.assertFalse(hasattr(store, "archive"))
+            self.assertFalse((output_dir / "index.sqlite3").exists())
 
 
 if __name__ == "__main__":

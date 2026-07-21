@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import subprocess
 import sys
-import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -73,34 +73,88 @@ class SpectrumPayloadTests(unittest.TestCase):
         calculate.assert_called_once()
         find_peaks.assert_called_once()
 
+    def test_headless_window_smsr_is_not_recalculated_by_bridge(self) -> None:
+        backend = object.__new__(LegacyWindowBackend)
+        backend.window = SimpleNamespace(latest_spectrum_smsr_db=31.5)
+        backend._spectrum_cache_source = None
+        backend._spectrum_cache_payload = ([], [], None, [])
+        wavelength = [975.0, 976.0, 977.0]
+        intensity = [10.0, 100.0, 12.0]
 
-class HistoryPayloadCacheTests(unittest.TestCase):
-    def test_unchanged_archive_reuses_history_queries(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            database_path = Path(temp_dir) / "index.sqlite3"
-            database_path.touch()
-            backend = object.__new__(LegacyWindowBackend)
-            backend.window = SimpleNamespace(
-                _archive_for_history=lambda: SimpleNamespace(database_path=database_path)
-            )
-            backend.history_filters = {}
-            backend.selected_history_session_id = ""
-            backend.comparison_session_ids = []
-            backend._history_cache_key = None
-            backend._history_cache_payload = ([], {}, None, [], [])
+        with (
+            patch("tauri_bridge.legacy_backend.calculate_smsr") as calculate,
+            patch("tauri_bridge.legacy_backend.find_spectrum_peak_annotations", return_value=[]),
+        ):
+            result = backend._spectrum_snapshot(wavelength, intensity, False)
 
-            with (
-                patch.object(backend, "_history", return_value=([{"sessionId": "1"}], {"sessions": 1})) as history,
-                patch.object(backend, "_history_detail", return_value=(None, [])) as detail,
-                patch.object(backend, "_comparison", return_value=[]) as comparison,
-            ):
-                first = backend._history_snapshot()
-                second = backend._history_snapshot()
+        self.assertEqual(result[2], 31.5)
+        calculate.assert_not_called()
 
-            self.assertIs(first, second)
-            history.assert_called_once()
-            detail.assert_called_once()
-            comparison.assert_called_once()
+
+class HeadlessWindowTests(unittest.TestCase):
+    def test_headless_window_does_not_load_matplotlib(self) -> None:
+        script = """
+import json
+import sys
+from PySide6.QtWidgets import QApplication
+from combined_test.window import MainWindow
+from tauri_bridge.legacy_backend import LegacyWindowBackend
+
+app = QApplication.instance() or QApplication([])
+window = MainWindow(headless=True)
+backend = LegacyWindowBackend(window)
+window.live_plots.update_power(0.0, 0.1)
+snapshot = backend.snapshot({"view": "automatic"})
+window.live_plots.update_power(0.1, 0.2)
+incremental = backend.snapshot({
+    "view": "automatic",
+    "since": snapshot["seriesRevisions"],
+    "cursors": {"power": snapshot["measurements"]["power"][-1]["elapsedS"]},
+})
+unchanged = backend.snapshot({
+    "view": "automatic",
+    "since": incremental["seriesRevisions"],
+    "cursors": {"power": incremental["seriesPatches"]["power"]["points"][-1]["elapsedS"]},
+})
+print(json.dumps({
+    "headless": window.headless,
+    "plots": type(window.live_plots).__name__,
+    "backendMode": snapshot["backend"]["mode"],
+    "measurementKeys": sorted(snapshot["measurements"]),
+    "incrementalMeasurementKeys": sorted(incremental["measurements"]),
+    "powerPatchPoints": incremental["seriesPatches"]["power"]["points"],
+    "unchangedMeasurementKeys": sorted(unchanged["measurements"]),
+    "unchangedHasPatches": "seriesPatches" in unchanged,
+    "matplotlibLoaded": any(name.startswith("matplotlib") for name in sys.modules),
+}))
+window.close()
+"""
+        environment = dict(os.environ)
+        environment["QT_QPA_PLATFORM"] = "offscreen"
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=REPO_ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        )
+
+        result = json.loads(completed.stdout.strip())
+        self.assertTrue(result["headless"])
+        self.assertEqual(result["plots"], "NullLivePlots")
+        self.assertEqual(result["backendMode"], "active")
+        self.assertEqual(
+            result["measurementKeys"],
+            ["power", "spectrum", "spectrumPeaks", "stable"],
+        )
+        self.assertNotIn("power", result["incrementalMeasurementKeys"])
+        self.assertEqual(len(result["powerPatchPoints"]), 1)
+        self.assertEqual(result["powerPatchPoints"][0]["elapsedS"], 0.1)
+        self.assertEqual(result["unchangedMeasurementKeys"], [])
+        self.assertFalse(result["unchangedHasPatches"])
+        self.assertFalse(result["matplotlibLoaded"])
 
 
 class TauriBridgeServiceTests(unittest.TestCase):
@@ -219,14 +273,14 @@ class TauriBridgeServiceTests(unittest.TestCase):
                     "v": PROTOCOL_VERSION,
                     "id": "snapshot-view-1",
                     "method": "app.snapshot",
-                    "params": {"view": "records"},
+                    "params": {"view": "manual"},
                 }
             )
         )
 
         self.assertTrue(response["ok"])
-        self.assertEqual(response["result"], {"view": "records"})
-        self.assertEqual(backend.params, {"view": "records"})
+        self.assertEqual(response["result"], {"view": "manual"})
+        self.assertEqual(backend.params, {"view": "manual"})
 
     def test_snapshot_rejects_non_object_params(self) -> None:
         response = self.service.handle_line(

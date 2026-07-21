@@ -2,7 +2,9 @@ import { invoke } from "@tauri-apps/api/core"
 
 export type BackendMode = "read_only" | "active"
 export type DeviceConnectionState = "disconnected" | "connecting" | "connected" | "error"
-export type SnapshotView = "automatic" | "manual" | "records" | "pd"
+export type SnapshotView = "automatic" | "manual" | "pd"
+export type SeriesRevisions = { power: number; stable: number; spectrum: number; pd: number }
+export type SeriesCursors = { power?: number; pd?: number }
 
 export interface Notice {
   level: "info" | "warning" | "error"
@@ -59,45 +61,9 @@ export interface AppConfiguration {
   useSpectrometer: boolean
 }
 
-export interface HistorySession {
-  sessionId: string
-  sn: string
-  productModel: string
-  batch: string
-  station: string
-  mode: string
-  startedAt: string
-  endedAt: string | null
-  status: string
-  terminationReason: string
-  shutdownConfirmed: boolean | null
-  workbookPath: string
-  exportState: string
-  exportError: string
-}
-
-export interface HistoryAttempt {
-  attemptId: string
-  sequenceIndex: number
-  targetCurrentA: number | null
-  attemptNo: number
-  createdAt: string
-  validity: string
-  invalidReason: string
-  selected: boolean
-  currentA: number | null
-  voltageV: number | null
-  powerW: number | null
-  efficiency: number | null
-  peakWavelengthNm: number | null
-  centroidNm: number | null
-  fwhmNm: number | null
-  pib: number | null
-  smsrDb: number | null
-}
-
 export interface BackendSnapshot {
   capturedAt: string
+  seriesRevisions?: SeriesRevisions
   backend: {
     connected: boolean
     mode: BackendMode
@@ -132,25 +98,6 @@ export interface BackendSnapshot {
     stable: Array<{ currentA: number; powerW: number | null; efficiencyPercent: number | null }>
     spectrum: Array<{ wavelengthNm: number; intensity: number }>
     spectrumPeaks: Array<{ label: string; centroidNm: number; peakWavelengthNm: number; peakIntensity: number }>
-  }
-  records?: {
-    current: Array<Record<string, number | null>>
-    unsavedCount: number
-    pendingDatabaseCount: number
-    workbookPath: string
-    sessionId: string
-    history: HistorySession[]
-    detail: Record<string, unknown> | null
-    attempts: HistoryAttempt[]
-    comparison: Array<{ sessionId: string; label: string; points: HistoryAttempt[] }>
-    filters: Record<string, string>
-    summary: {
-      sessions: number
-      completionRate: number | null
-      invalidAttemptRate: number | null
-      retestRate: number | null
-      medianDurationS: number | null
-    }
   }
   pd?: {
     state: "idle" | "running"
@@ -188,17 +135,62 @@ export interface BackendSnapshot {
   status?: { message: string }
 }
 
+export type BackendSnapshotPatch = Omit<BackendSnapshot, "measurements" | "pd"> & {
+  measurements?: Partial<NonNullable<BackendSnapshot["measurements"]>>
+  pd?: Omit<NonNullable<BackendSnapshot["pd"]>, "points"> & {
+    points?: NonNullable<BackendSnapshot["pd"]>["points"]
+  }
+  seriesPatches?: {
+    power?: { startX: number; points: NonNullable<BackendSnapshot["measurements"]>["power"] }
+    pd?: { startX: number; points: NonNullable<BackendSnapshot["pd"]>["points"] }
+  }
+}
+
+function mergeAppendSeries<T>(
+  previous: T[] | undefined,
+  patch: { startX: number; points: T[] } | undefined,
+  getX: (point: T) => number,
+): T[] | undefined {
+  if (!patch) return previous
+  return [...(previous ?? []).filter((point) => getX(point) >= patch.startX), ...patch.points]
+}
+
+export function mergeBackendSnapshot(previous: BackendSnapshot | null, patch: BackendSnapshotPatch): BackendSnapshot {
+  const { measurements: patchMeasurements, pd: patchPd, seriesPatches, ...base } = patch
+  const previousMeasurements = previous?.measurements
+  const hasMeasurements = patchMeasurements !== undefined || previousMeasurements !== undefined || seriesPatches?.power !== undefined
+  const measurements = hasMeasurements ? {
+    power: patchMeasurements?.power
+      ?? mergeAppendSeries(previousMeasurements?.power, seriesPatches?.power, (point) => point.elapsedS)
+      ?? [],
+    stable: patchMeasurements?.stable ?? previousMeasurements?.stable ?? [],
+    spectrum: patchMeasurements?.spectrum ?? previousMeasurements?.spectrum ?? [],
+    spectrumPeaks: patchMeasurements?.spectrumPeaks ?? previousMeasurements?.spectrumPeaks ?? [],
+  } : undefined
+  const pd = patchPd ? {
+    ...patchPd,
+    points: patchPd.points
+      ?? mergeAppendSeries(previous?.pd?.points, seriesPatches?.pd, (point) => point.elapsedS)
+      ?? [],
+  } : undefined
+  return {
+    ...base,
+    ...(measurements ? { measurements } : {}),
+    ...(pd ? { pd } : {}),
+  }
+}
+
 function ensureTauri(): void {
   if (typeof window !== "undefined" && !("__TAURI_INTERNALS__" in window)) {
     throw new Error("浏览器预览模式不会启动 Python 后端")
   }
 }
 
-export async function fetchBackendSnapshot(view: SnapshotView): Promise<BackendSnapshot> {
+export async function fetchBackendSnapshot(view: SnapshotView, since?: SeriesRevisions, cursors?: SeriesCursors): Promise<BackendSnapshotPatch> {
   ensureTauri()
-  return invoke<BackendSnapshot>("bridge_request", {
+  return invoke<BackendSnapshotPatch>("bridge_request", {
     method: "app.snapshot",
-    params: { view },
+    params: { view, ...(since ? { since } : {}), ...(cursors ? { cursors } : {}) },
   })
 }
 

@@ -53,7 +53,9 @@ def _run_qt_backend() -> int:
 
     app = QApplication.instance() or QApplication(sys.argv[:1])
     app.setQuitOnLastWindowClosed(False)
-    window = MainWindow()
+    # The Tauri frontend owns all visible charts.  The hidden Qt compatibility
+    # window only needs the controller's widget-backed state model.
+    window = MainWindow(headless=True)
     window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
     backend = LegacyWindowBackend(window)
     service = BridgeService(backend)

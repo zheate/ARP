@@ -12,7 +12,7 @@ The Rust layer exposes `bridge_snapshot` and a generic `bridge_request(method, p
 
 ## Backend modes
 
-- `active`: PySide6 and the project runtime loaded successfully. A hidden compatibility window owns the existing device threads, automatic controller, archive, export, plots, and PD acquisition.
+- `active`: PySide6 and the project runtime loaded successfully. A hidden compatibility window owns the existing device threads, automatic controller, Excel export, plots, and PD acquisition.
 - `read_only`: the active runtime was unavailable. No hardware is probed or controlled and all write controls remain disabled.
 
 The bridge being connected never means a physical device is connected. Every device reports its own state.
@@ -25,11 +25,25 @@ The bridge being connected never means a physical device is connected. Every dev
 - Power meter: `powerMeter.start`, `powerMeter.stop`, `powerMeter.setRelativeZero`
 - Spectrometer: `spectrometer.start`, `spectrometer.stop`, `spectrometer.saveCsv`
 - Automatic test: `automatic.start`, `automatic.retry`, `automatic.end`, `automatic.reset`
-- Records: `records.exportCurrent`, `records.setFilters`, `records.select`, `records.resume`, `records.reexport`, `records.compare`
 - PD: `pd.refresh`, `pd.configure`, `pd.start`, `pd.stop`
 - Charts: `charts.reset`
 
-Every successful mutation returns a fresh full snapshot. Routine polling passes the active `view` (`automatic`, `manual`, `records`, or `pd`) so large chart, history, and PD point arrays are only serialized for their consumer. Live views refresh at most four times per second, the records view once per second, and polling pauses while the WebView is hidden. The acquisition threads continue at their configured hardware sampling rates.
+Every successful mutation returns a fresh full snapshot. Routine polling passes the active `view` (`automatic`, `manual`, or `pd`) so large chart and PD point arrays are only serialized for their consumer. Live views refresh at most four times per second, and polling pauses while the WebView is hidden. The acquisition threads continue at their configured hardware sampling rates.
+
+After the first full response, the frontend returns `seriesRevisions` as `params.since`. Unchanged power, stable-point, spectrum, and PD arrays are omitted and the frontend retains the previous arrays. Power and PD additionally send their last displayed `elapsedS` values in `params.cursors`; when the bounded history is continuous, the response uses `seriesPatches` to append only newer points and supplies `startX` so the frontend can discard points that left the display window. A missing cursor, reset curve, page change, or explicit refresh falls back to a complete array.
+
+```json
+{
+  "v": 1,
+  "id": "tauri-2",
+  "method": "app.snapshot",
+  "params": {
+    "view": "automatic",
+    "since": {"power": 18, "stable": 2, "spectrum": 7, "pd": 0},
+    "cursors": {"power": 12.5}
+  }
+}
+```
 
 Routine snapshots only expose the current status message. The potentially unbounded operator log is intentionally not copied into every WebView response.
 
@@ -41,4 +55,4 @@ Routine snapshots only expose the current status message. The potentially unboun
 - TDK output enable still requires a programmed and measured zero-current state.
 - End, emergency stop, disconnect, bridge shutdown, and process disposal use the existing zero-current/output-off boundary.
 - An unconfirmed TDK output-off state is surfaced as `safety.outputShutdownUnconfirmed` and must never be presented as a successful terminal result.
-- SQLite/session archive remains the source of truth. Excel is an export artifact.
+- Test points remain in memory until the existing Excel export workflow saves them.

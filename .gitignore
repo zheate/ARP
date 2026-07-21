@@ -32,3 +32,9 @@ Thumbs.db
 # Generated offline application bundles stay local.
 release/
 build/
+
+# Local pixel2motion workbench environments and rendered frame outputs.
+# Keep the source/working files available without making Git rescan thousands
+# of generated image and virtual-environment files on every workspace update.
+pixel2motion_arp_icon/.venv/
+pixel2motion_arp_icon/outputs/

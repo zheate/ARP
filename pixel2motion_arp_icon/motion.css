@@ -1,0 +1,117 @@
+:root {
+  --p2m-duration: 1500ms;
+  --p2m-ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --p2m-ease-settle: cubic-bezier(0.4, 0, 0.2, 1);
+  --p2m-ease-narrative: cubic-bezier(0.34, 0, 0.14, 1);
+  --p2m-squash: 0;
+  --p2m-overshoot: 1;
+}
+
+#logo {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+#background,
+#mark,
+#outer-mark,
+#stem,
+#crossbars,
+#target-ring,
+#dot {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+#outer-mark-path,
+#crossbar-left,
+#crossbar-right,
+#ring-top,
+#ring-bottom {
+  stroke-dasharray: 1 1;
+  stroke-dashoffset: 0;
+}
+
+#background {
+  animation: p2m-background var(--p2m-duration) cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+#outer-mark {
+  animation: p2m-outer var(--p2m-duration) cubic-bezier(0.34, 0, 0.14, 1) both;
+}
+
+#outer-mark-path {
+  animation: p2m-draw var(--p2m-duration) cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+#stem {
+  animation: p2m-stem var(--p2m-duration) cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+#crossbars {
+  animation: p2m-crossbars var(--p2m-duration) cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+#crossbar-left,
+#crossbar-right {
+  animation: p2m-draw var(--p2m-duration) cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+#target-ring {
+  animation: p2m-ring var(--p2m-duration) cubic-bezier(0.34, 0, 0.14, 1) both;
+}
+
+#ring-top,
+#ring-bottom {
+  animation: p2m-draw var(--p2m-duration) cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+#dot {
+  animation: p2m-dot var(--p2m-duration) cubic-bezier(0.34, 0, 0.14, 1) both;
+}
+
+@keyframes p2m-background {
+  0% { opacity: 0; transform: scale(0.965); }
+  16% { opacity: 1; transform: scale(0.985); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes p2m-outer {
+  0% { opacity: 0; transform: translateY(10px) scale(0.975); }
+  18% { opacity: 0; transform: translateY(7px) scale(0.975); }
+  32% { opacity: 1; transform: translateY(0) scale(1); }
+  72% { opacity: 1; transform: translateY(-1px) scale(1.005); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes p2m-draw {
+  0%, 27% { stroke-dashoffset: 1; }
+  66% { stroke-dashoffset: 0; }
+  100% { stroke-dashoffset: 0; }
+}
+
+@keyframes p2m-stem {
+  0%, 22% { opacity: 0; transform: translateY(10px) scaleY(0.94); }
+  45% { opacity: 1; transform: translateY(0) scaleY(1); }
+  74% { opacity: 1; transform: translateY(-1px) scaleY(1.005); }
+  100% { opacity: 1; transform: translateY(0) scaleY(1); }
+}
+
+@keyframes p2m-crossbars {
+  0%, 39% { opacity: 0; transform: scaleX(0.9); }
+  58% { opacity: 1; transform: scaleX(1.015); }
+  100% { opacity: 1; transform: scaleX(1); }
+}
+
+@keyframes p2m-ring {
+  0%, 47% { opacity: 0; transform: scale(0.95); }
+  72% { opacity: 1; transform: scale(1.012); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@keyframes p2m-dot {
+  0%, 60% { opacity: 0; transform: translateY(5px) scale(0.78); }
+  76% { opacity: 1; transform: translateY(-2px) scale(1.045); }
+  88% { opacity: 1; transform: translateY(0) scale(0.985); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}

@@ -224,7 +224,7 @@ class MainWindowPdIntegrationTests(unittest.TestCase):
         self.assertGreaterEqual(window.central_shell.layout().indexOf(window.main_tabs), 0)
         self.assertEqual(
             [window.main_tabs.tabText(index) for index in range(window.main_tabs.count())],
-            ["自动测试", "手动调试", "测试记录", "PD 采集"],
+            ["自动测试", "手动调试", "PD 采集"],
         )
         self.assertEqual(window.pd_panel.device_combo.count(), 0)
         window.close()

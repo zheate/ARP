@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">ARP instrument icon</title>
+  <desc id="desc">A cream A-shaped instrument mark with a target and orange center dot on a dark rounded square.</desc>
+  <defs>
+    <linearGradient id="bg-gradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3f4247"/>
+      <stop offset="1" stop-color="#5b5e64"/>
+    </linearGradient>
+    <radialGradient id="dot-gradient" cx="35%" cy="28%" r="75%">
+      <stop offset="0" stop-color="#ffc45c"/>
+      <stop offset="0.62" stop-color="#f6a82d"/>
+      <stop offset="1" stop-color="#d98118"/>
+    </radialGradient>
+    <filter id="soft-shadow" x="-20%" y="-20%" width="140%" height="150%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="5" stdDeviation="4" flood-color="#11151a" flood-opacity="0.36"/>
+    </filter>
+    <filter id="dot-shadow" x="-40%" y="-40%" width="180%" height="200%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="4" stdDeviation="3" flood-color="#11151a" flood-opacity="0.52"/>
+    </filter>
+    <clipPath id="icon-clip">
+      <rect x="8" y="8" width="496" height="496" rx="70"/>
+    </clipPath>
+  </defs>
+
+  <g id="logo">
+    <g id="background">
+      <rect id="background-field" x="8" y="8" width="496" height="496" rx="70" fill="url(#bg-gradient)"/>
+      <rect id="background-edge" x="9" y="9" width="494" height="494" rx="69" fill="none" stroke="#ece8e0" stroke-opacity="0.72" stroke-width="2"/>
+    </g>
+
+    <g id="mark" fill="none" stroke="#f3ede3" stroke-linecap="round" stroke-linejoin="round" filter="url(#soft-shadow)">
+      <g id="outer-mark">
+        <path id="outer-mark-path" pathLength="1" d="M116 375 L215 125 C223 104 238 91 256 91 C274 91 289 104 297 125 L396 375" stroke-width="45"/>
+      </g>
+
+      <g id="stem">
+        <path id="stem-top" d="M256 176 V228" stroke-width="24" stroke-linecap="butt"/>
+        <path id="stem-bottom" d="M256 328 V393" stroke-width="24" stroke-linecap="butt"/>
+        <rect id="base" x="191" y="385" width="130" height="29" rx="14.5" fill="#f3ede3" stroke="none"/>
+      </g>
+
+      <g id="crossbars">
+        <path id="crossbar-left" pathLength="1" d="M151 276 H204" stroke-width="22"/>
+        <path id="crossbar-right" pathLength="1" d="M308 276 H361" stroke-width="22"/>
+      </g>
+
+      <g id="target-ring">
+        <path id="ring-top" pathLength="1" d="M201 276 C201 244 225 220 256 220 C287 220 311 244 311 276" stroke-width="21"/>
+        <path id="ring-bottom" pathLength="1" d="M311 290 C311 322 287 346 256 346 C225 346 201 322 201 290" stroke-width="21"/>
+      </g>
+    </g>
+
+    <g id="dot" filter="url(#dot-shadow)">
+      <circle id="dot-shadow-core" cx="256" cy="283" r="22" fill="#11151a" fill-opacity="0.24" transform="translate(0 3)"/>
+      <circle id="dot-core" cx="256" cy="283" r="21" fill="url(#dot-gradient)"/>
+      <circle id="dot-highlight" cx="249" cy="276" r="6" fill="#fff1bd" fill-opacity="0.28"/>
+    </g>
+  </g>
+</svg>

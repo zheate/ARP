@@ -7,7 +7,6 @@ import sys
 import time
 from collections import deque
 from collections.abc import Mapping
-from enum import Enum
 from typing import Any
 
 from PySide6.QtGui import QPalette
@@ -19,6 +18,7 @@ from matplotlib.figure import Figure
 from matplotlib.ticker import MaxNLocator, MultipleLocator, ScalarFormatter
 
 from .models import SpectrumPeakAnnotation
+from .plot_types import PlotLayoutContext
 from .spectrum import SPECTRUM_CENTER_LOCK_HALF_RANGE_NM, find_spectrum_peak_annotations
 
 
@@ -62,13 +62,6 @@ POWER_LINE_COLOR = "#2f79bd"
 STABLE_LINE_COLOR = "#2f8f46"
 EFFICIENCY_LINE_COLOR = "#d58a00"
 SPECTRUM_LINE_COLOR = "#6b8e23"
-
-
-class PlotLayoutContext(str, Enum):
-    """Supported placements for the shared realtime plot surface."""
-
-    AUTOMATIC = "automatic"
-    MANUAL = "manual"
 
 
 class OneDecimalScalarFormatter(ScalarFormatter):
@@ -142,6 +135,7 @@ class LivePlots:
         self._last_power_draw_s = -math.inf
         self._last_stable_draw_s = -math.inf
         self._last_spectrum_draw_s = -math.inf
+        self._power_revision = 0
         self._power_stable = False
         self._stable_window_target_s = 0.0
         self._stable_region_artist: Any | None = None
@@ -500,6 +494,7 @@ class LivePlots:
         self.power_curve_times.clear()
         self.power_curve_values.clear()
         self._power_display_samples.clear()
+        self._power_revision += 1
         self.set_power_value(None)
         self._power_stable = False
         self.power_curve_line.set_color(self._power_line_color)
@@ -536,6 +531,7 @@ class LivePlots:
 
         self.power_curve_times.append(elapsed)
         self.power_curve_values.append(display_power)
+        self._power_revision += 1
         cutoff = max(0.0, elapsed - POWER_PLOT_HISTORY_S)
         while self.power_curve_times and self.power_curve_times[0] < cutoff:
             self.power_curve_times.popleft()

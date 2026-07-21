@@ -19,7 +19,6 @@ export default defineConfig(async () => ({
       output: {
         // Keep large, slow-changing dependencies cacheable across app updates.
         manualChunks: {
-          "chart-vendor": ["recharts"],
           "tauri-vendor": ["@tauri-apps/api/core", "@tauri-apps/plugin-opener"],
         },
       },

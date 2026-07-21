@@ -588,7 +588,7 @@ class MainWindowTests(unittest.TestCase):
             self.assertEqual(window.automatic_test_state, AutomaticTestState.SAVING_POINT)
             self.assertIsNotNone(window.excel_save_thread)
             self.assertTrue(window.excel_save_thread.wait(5000))
-            self.assertEqual(window.record_store.pending_database_count(), 0)
+            self.assertFalse((Path(temp_dir) / "index.sqlite3").exists())
             window.automatic_test_state = AutomaticTestState.IDLE
             window.close()
 
@@ -1229,7 +1229,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertGreaterEqual(window.central_shell.layout().indexOf(window.main_tabs), 0)
         self.assertEqual(
             [window.main_tabs.tabText(index) for index in range(window.main_tabs.count())],
-            ["自动测试", "手动调试", "测试记录", "PD 采集"],
+            ["自动测试", "手动调试", "PD 采集"],
         )
         self.assertEqual(window.main_tabs.currentIndex(), window.automatic_tab_index)
         self.assertEqual(window.automatic_stack.count(), 3)
@@ -1249,7 +1249,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window.navigation_panel.maximumWidth(), 148)
         self.assertEqual(
             [button.text() for button in window.navigation_buttons.values()],
-            ["自动测试", "手动调试", "测试记录", "PD 采集"],
+            ["自动测试", "手动调试", "PD 采集"],
         )
 
         window.navigation_buttons[window.manual_tab_index].click()
@@ -1576,7 +1576,6 @@ class MainWindowTests(unittest.TestCase):
                     window.return_to_prepare_button,
                 ),
             ),
-            (window.records_page, (window.records_empty_state,)),
             (
                 window.pd_panel,
                 (
@@ -1593,8 +1592,6 @@ class MainWindowTests(unittest.TestCase):
             if page in (window.automatic_run_page, window.automatic_result_page):
                 window.main_tabs.setCurrentIndex(window.automatic_tab_index)
                 window.automatic_stack.setCurrentWidget(page)
-            elif page is window.records_page:
-                window.main_tabs.setCurrentIndex(window.records_tab_index)
             else:
                 window.main_tabs.setCurrentIndex(window.pd_tab_index)
             app.processEvents()
@@ -1665,16 +1662,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertNotIn("准备测试", visible_header_texts)
         window.close()
 
-    def test_records_page_exposes_a_clear_empty_state(self) -> None:
-        app = QApplication.instance() or QApplication([])
-        window = MainWindow()
-
-        self.assertEqual(window.records_empty_title.text(), "还没有测试记录")
-        self.assertFalse(window.records_empty_state.isHidden())
-        self.assertTrue(window.records_session_panel.isHidden())
-        window.close()
-
-    def test_task_and_record_controls_follow_their_workflow_modes(self) -> None:
+    def test_task_controls_follow_their_workflow_modes(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
         task_form = self._group(window, "1. 测试任务").layout()
@@ -1687,9 +1675,8 @@ class MainWindowTests(unittest.TestCase):
         ):
             self._form_row_containing_widget(task_form, widget)
 
-        self.assertTrue(window.records_page.isAncestorOf(window.save_excel_button))
-        self.assertTrue(window.records_page.isAncestorOf(window.records_open_button))
-        self.assertLess(window.records_tab_index, window.pd_tab_index)
+        self.assertFalse(hasattr(window, "records_page"))
+        self.assertTrue(window.save_excel_button.isHidden())
         self.assertTrue(window.manual_page.isAncestorOf(self._group(window, "电源")))
         window.close()
 
@@ -1709,7 +1696,6 @@ class MainWindowTests(unittest.TestCase):
             window.start_power_meter_button,
             window.detect_spectrometer_button,
             window.start_spectrometer_button,
-            window.save_excel_button,
         ):
             self.assertGreaterEqual(button.minimumHeight(), 28)
         window.close()
@@ -2678,12 +2664,8 @@ class MainWindowTests(unittest.TestCase):
         self.assertTrue(window.manual_power_tab_lock_active)
         self.assertEqual(window.main_tabs.currentIndex(), window.manual_tab_index)
         self.assertTrue(window.main_tabs.isTabEnabled(window.manual_tab_index))
-        for index in (
-            window.automatic_tab_index,
-            window.records_tab_index,
-        ):
-            self.assertFalse(window.main_tabs.isTabEnabled(index))
-            self.assertIn("0 A", window.main_tabs.tabToolTip(index))
+        self.assertFalse(window.main_tabs.isTabEnabled(window.automatic_tab_index))
+        self.assertIn("0 A", window.main_tabs.tabToolTip(window.automatic_tab_index))
         self.assertTrue(window.main_tabs.isTabEnabled(window.pd_tab_index))
         self.assertIn("加电期间", window.main_tabs.tabToolTip(window.pd_tab_index))
         window.main_tabs.setCurrentIndex(window.pd_tab_index)
