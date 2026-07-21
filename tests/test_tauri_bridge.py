@@ -11,7 +11,11 @@ from unittest.mock import patch
 from pathlib import Path
 
 from tauri_bridge.protocol import PROTOCOL_VERSION
-from tauri_bridge.legacy_backend import LegacyWindowBackend, _downsample_spectrum
+from tauri_bridge.legacy_backend import (
+    LegacyWindowBackend,
+    _downsample_pd_history,
+    _downsample_spectrum,
+)
 from tauri_bridge.__main__ import _read_request_lines, _write_response
 from tauri_bridge.service import BridgeService
 
@@ -89,6 +93,39 @@ class SpectrumPayloadTests(unittest.TestCase):
 
         self.assertEqual(result[2], 31.5)
         calculate.assert_not_called()
+
+
+class PdPayloadTests(unittest.TestCase):
+    def test_downsampling_keeps_the_complete_pd_time_window_and_narrow_spike(self) -> None:
+        times = [index / 200.0 for index in range(2400)]
+        values = [0.01 for _index in range(2400)]
+        values[1234] = 0.5
+
+        points = _downsample_pd_history(times, values)
+
+        self.assertLessEqual(len(points), 4 * 120)
+        self.assertEqual(points[0], {"elapsedS": 0.0, "value": 0.01})
+        self.assertEqual(points[-1], {"elapsedS": 11.995, "value": 0.01})
+        self.assertIn({"elapsedS": 6.17, "value": 0.5}, points)
+
+    def test_snapshot_reuses_the_compacted_pd_history(self) -> None:
+        backend = object.__new__(LegacyWindowBackend)
+        backend._pd_cache_key = None
+        backend._pd_cache_payload = []
+        backend._series_revisions = {"power": 0, "stable": 0, "spectrum": 0, "pd": 0}
+        panel = SimpleNamespace(
+            plot_times=[index / 200.0 for index in range(2400)],
+            plot_values=[float(index) for index in range(2400)],
+            _plot_revision=1,
+        )
+
+        points = backend._pd_snapshot(panel)
+        cached_points = backend._pd_snapshot(panel)
+
+        self.assertIs(cached_points, points)
+        self.assertLessEqual(len(points), 4 * 120)
+        self.assertEqual(points[0], {"elapsedS": 0.0, "value": 0.0})
+        self.assertEqual(points[-1], {"elapsedS": 11.995, "value": 2399.0})
 
 
 class HeadlessWindowTests(unittest.TestCase):

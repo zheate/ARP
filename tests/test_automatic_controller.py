@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 
 from combined_test.automatic_controller import AutomaticTestTerminalOutcome
 from combined_test.automation import AutomaticTestState
+from combined_test.models import PowerMeterReading
 from combined_test.window import MainWindow
 
 
@@ -25,6 +26,10 @@ class AutomaticTestControllerLifecycleTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         settings_path = Path(self.temp_dir.name) / "controller.ini"
         self.window = MainWindow(QSettings(str(settings_path), QSettings.Format.IniFormat))
+        self.power_protection_alerts: list[str] = []
+        self.window.show_power_protection_alert = (  # type: ignore[method-assign]
+            lambda reason: self.power_protection_alerts.append(reason)
+        )
 
     def tearDown(self) -> None:
         self.window.automatic_pause_safety_timer.stop()
@@ -137,6 +142,113 @@ class AutomaticTestControllerLifecycleTests(unittest.TestCase):
         )
         self.assertIn("操作者提前结束", self.window.automatic_controller.terminal_reason)
         self.assertIn("安全下电", result_details[-1])
+
+    def test_power_drop_over_five_seconds_trips_legacy_supply(self) -> None:
+        class ConnectedLegacyController:
+            is_connected = True
+
+            def __init__(self) -> None:
+                self.writes: list[list[int]] = []
+
+            def i2c_write(self, _address: int, command: list[int]) -> tuple[bool, str]:
+                self.writes.append(command)
+                return True, "OK"
+
+        result_details = self._prepare_zero_current_terminal_path(
+            AutomaticTestState.SETTING_CURRENT
+        )
+        controller = ConnectedLegacyController()
+        self.window.manual_ch341_controller = controller
+        self.window.active_output_current_a = 8.0
+        self.window.set_current_spin.setValue(8.0)
+
+        self.window.on_power_meter_reading(
+            PowerMeterReading(1.0, 100.0, False, 5.0, 0.1)
+        )
+        self.window.on_power_meter_reading(
+            PowerMeterReading(6.0, 69.0, False, 31.0, 5.0)
+        )
+
+        self.assertEqual(controller.writes, [[0xB4, 0xFF, 0x00, 0x00]])
+        self.assertEqual(self.window.active_output_current_a, 0.0)
+        self.assertEqual(self.window.automatic_test_state, AutomaticTestState.COMPLETED)
+        self.assertEqual(
+            self.window.automatic_controller.terminal_outcome,
+            AutomaticTestTerminalOutcome.ABORTED_SAFELY,
+        )
+        self.assertIn("5 秒前 100.000 W", self.window.automatic_controller.terminal_reason)
+        self.assertIn("功率保护已触发", result_details[-1])
+        self.assertEqual(len(self.power_protection_alerts), 1)
+        self.assertIn("当前 69.000 W", self.power_protection_alerts[0])
+        self.window.manual_ch341_controller = None
+
+    def test_power_drop_immediately_sets_zero_and_disables_tdk_output(self) -> None:
+        class ConnectedTdkController:
+            is_connected = True
+            output_enabled = True
+
+            def __init__(self) -> None:
+                self.commands: list[str] = []
+
+            def set_output_current(self, current_a: float) -> None:
+                self.commands.append(f"current:{current_a:g}")
+
+            def set_output_enabled(self, enabled: bool) -> None:
+                self.commands.append(f"output:{int(enabled)}")
+                self.output_enabled = enabled
+
+        self._prepare_zero_current_terminal_path(AutomaticTestState.WAITING_VOLTAGE)
+        controller = ConnectedTdkController()
+        self.window.manual_ch341_controller = controller
+        self.window.power_supply_controller_kind = "tdk"
+        self.window.active_output_current_a = 5.0
+        self.window.set_current_spin.setValue(5.0)
+
+        self.window.on_power_meter_reading(
+            PowerMeterReading(1.0, 50.0, False, 5.0, 0.1)
+        )
+        self.window.on_power_meter_reading(
+            PowerMeterReading(6.0, 34.0, False, 16.0, 5.0)
+        )
+
+        self.assertEqual(controller.commands, ["current:0", "output:0"])
+        self.assertFalse(controller.output_enabled)
+        self.assertEqual(self.window.active_output_current_a, 0.0)
+        self.assertEqual(
+            self.window.automatic_controller.terminal_outcome,
+            AutomaticTestTerminalOutcome.ABORTED_SAFELY,
+        )
+        self.assertEqual(len(self.power_protection_alerts), 1)
+        self.assertIn("当前 34.000 W", self.power_protection_alerts[0])
+        self.window.manual_ch341_controller = None
+
+    def test_power_drop_protection_is_inactive_during_normal_ramp_down(self) -> None:
+        class ConnectedLegacyController:
+            is_connected = True
+
+            def __init__(self) -> None:
+                self.writes: list[list[int]] = []
+
+            def i2c_write(self, _address: int, command: list[int]) -> tuple[bool, str]:
+                self.writes.append(command)
+                return True, "OK"
+
+        controller = ConnectedLegacyController()
+        self.window.manual_ch341_controller = controller
+        self.window.active_output_current_a = 8.0
+        self.window.automatic_test_state = AutomaticTestState.WAITING_STABLE
+        self.assertFalse(
+            self.window.automatic_controller.on_automatic_power_sample(100.0)
+        )
+
+        self.window.automatic_test_state = AutomaticTestState.RAMPING_DOWN
+        self.assertFalse(
+            self.window.automatic_controller.on_automatic_power_sample(0.0)
+        )
+
+        self.assertEqual(controller.writes, [])
+        self.assertEqual(self.window.active_output_current_a, 8.0)
+        self.window.manual_ch341_controller = None
 
     def test_fault_pause_timeout_reports_aborted_safely(self) -> None:
         result_details = self._prepare_zero_current_terminal_path(AutomaticTestState.WAITING_STABLE)

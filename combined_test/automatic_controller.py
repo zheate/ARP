@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QMessageBox
 from .automation import (
     AutomaticTestSettings,
     AutomaticTestState,
+    PowerDropProtectionDetector,
     build_ramp_up_currents,
     validate_automatic_test_settings,
 )
@@ -87,6 +88,7 @@ class AutomaticTestController:
         object.__setattr__(self, "_save_completed_while_paused", False)
         object.__setattr__(self, "_current_write_retry_key", None)
         object.__setattr__(self, "_current_write_retry_count", 0)
+        object.__setattr__(self, "_power_drop_protection", PowerDropProtectionDetector())
 
     def bind_to_host(self) -> None:
         for name in AUTOMATIC_CONTROLLER_METHODS:
@@ -284,6 +286,48 @@ class AutomaticTestController:
         if self.automatic_measurement_is_active():
             self.pause_automatic_test(f"{device_label}采集已停止")
 
+    def on_automatic_power_sample(
+        self,
+        power_w: float,
+        elapsed_s: float | None = None,
+    ) -> bool:
+        """Check the rolling five-second power change and trip shutdown."""
+
+        if self.automatic_test_state not in (
+            AutomaticTestState.SETTING_CURRENT,
+            AutomaticTestState.WAITING_STABLE,
+            AutomaticTestState.WAITING_VOLTAGE,
+            AutomaticTestState.SAVING_POINT,
+        ):
+            return False
+        if float(self.active_output_current_a or 0.0) <= 0.0:
+            return False
+
+        result = self._power_drop_protection.observe(power_w, elapsed_s)
+        if not result.triggered or result.reference_power_w is None:
+            return False
+
+        drop_percent = result.drop_w / result.reference_power_w * 100.0
+        reason = (
+            "功率异常下降："
+            f"5 秒前 {result.reference_power_w:.3f} W，当前 {result.observed_power_w:.3f} W，"
+            f"下降 {result.drop_w:.3f} W（{drop_percent:.1f}%），"
+            "超过 30% 保护阈值"
+        )
+        recorder = getattr(self.record_store, "record_invalid_attempt", None)
+        if callable(recorder):
+            try:
+                recorder(
+                    float(self.active_output_current_a or 0.0),
+                    AttemptValidity.DEVICE_ERROR,
+                    reason,
+                )
+            except Exception as exc:
+                self.add_log(f"功率保护触发记录失败：{self._error_formatter(exc)}")
+        self.add_log(f"功率保护触发，正在立即断电：{reason}")
+        self._host.emergency_stop_for_power_protection(reason)
+        return True
+
     def automatic_uses_spectrometer(self) -> bool:
         settings = self.automatic_test_settings
         return settings is None or settings.use_spectrometer
@@ -333,6 +377,7 @@ class AutomaticTestController:
 
         self._clear_terminal_outcome()
         self._clear_current_write_retry()
+        self._power_drop_protection.reset()
         self.reset_power_curve()
         self.reset_stable_power_curve()
         self.reset_spectrum_curve()
@@ -934,4 +979,5 @@ class AutomaticTestController:
         self.automatic_run_started_monotonic_s = None
         self._clear_current_write_retry()
         self._clear_terminal_outcome()
+        self._power_drop_protection.reset()
         self.set_automatic_test_state(AutomaticTestState.IDLE, "准备测试")

@@ -33,6 +33,8 @@ type Page = "automatic" | "manual" | "pd"
 const CH341_CURRENT_LIMIT_A = 20
 const POWER_PLOT_HISTORY_S = 60
 const POWER_TIME_TICK_INTERVAL_S = 10
+const PD_PLOT_HISTORY_S = 60
+const PD_TIME_TICK_INTERVAL_S = 10
 const PLM_CHART_SERIES = {
   clay: "#d97957",
   tan: "#d5a98b",
@@ -432,6 +434,41 @@ function DeviceSettingsDialog({ kind, open, onClose, onSave, snapshot, config, u
   )
 }
 
+function PowerProtectionDialog({ message, onClose }: { message: string; onClose: () => void }) {
+  const acknowledgeButtonRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    const body = document.body
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const previousOverflow = body.style.overflow
+    const previousPaddingRight = body.style.paddingRight
+    const focusFrame = window.requestAnimationFrame(() => acknowledgeButtonRef.current?.focus())
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth
+    const hasStableScrollbarGutter = getComputedStyle(document.documentElement).scrollbarGutter.includes("stable")
+    body.style.overflow = "hidden"
+    if (scrollbarWidth > 0 && !hasStableScrollbarGutter) body.style.paddingRight = `${scrollbarWidth}px`
+    return () => {
+      body.style.overflow = previousOverflow
+      body.style.paddingRight = previousPaddingRight
+      window.cancelAnimationFrame(focusFrame)
+      previousFocus?.focus()
+    }
+  }, [])
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-[2px]">
+      <div aria-labelledby="power-protection-title" aria-modal="true" className="w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--app-danger)_55%,transparent)] bg-popover shadow-2xl shadow-black/45" role="alertdialog">
+        <div className="flex items-start gap-4 border-b border-border px-5 py-5">
+          <div className="grid size-11 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,var(--app-danger)_16%,transparent)] text-[var(--app-danger)]"><OctagonAlert className="size-6" /></div>
+          <div><h2 className="text-lg font-semibold" id="power-protection-title">功率保护已触发</h2><p className="mt-1 text-sm text-muted-foreground">设备已进入断电保护状态</p></div>
+        </div>
+        <div className="px-5 py-5"><p className="whitespace-pre-line text-sm leading-6 text-foreground">{message}</p></div>
+        <div className="flex justify-end border-t border-border bg-background/35 px-5 py-3"><Button onClick={onClose} ref={acknowledgeButtonRef} variant="destructive">确认并关闭</Button></div>
+      </div>
+    </div>
+  )
+}
+
 function sameRows<T>(
   left: readonly T[] | undefined,
   right: readonly T[] | undefined,
@@ -688,6 +725,8 @@ function App() {
   ]
   const [dismissedNotifications, setDismissedNotifications] = useState<Set<string>>(new Set())
   const visibleNotifications = notifications.filter((notification) => !dismissedNotifications.has(notification.key))
+  const powerProtectionNotification = visibleNotifications.find((notification) => notification.title === "功率保护")
+  const toastNotifications = visibleNotifications.filter((notification) => notification !== powerProtectionNotification)
   const title = navigation.find((item) => item.id === page)?.label ?? "自动测试"
 
   return (
@@ -730,8 +769,8 @@ function App() {
             </div>
           </header>
 
-          {visibleNotifications.length > 0 && <div className="pointer-events-none fixed right-4 top-20 z-50 flex w-[min(420px,calc(100vw-2rem))] flex-col gap-2">
-            {visibleNotifications.map((notification) => {
+          {toastNotifications.length > 0 && <div className="pointer-events-none fixed right-4 top-20 z-50 flex w-[min(420px,calc(100vw-2rem))] flex-col gap-2">
+            {toastNotifications.map((notification) => {
               const isError = notification.level === "error"
               const isWarning = notification.level === "warning"
               return <div className={`notification-enter pointer-events-auto flex items-start gap-3 rounded-lg border bg-[var(--app-surface-muted)] px-4 py-3 text-sm text-[var(--app-text)] shadow-lg shadow-black/25 ${isError ? "border-[color-mix(in_srgb,var(--app-danger)_40%,transparent)]" : isWarning ? "border-[color-mix(in_srgb,var(--app-warning)_40%,transparent)]" : "border-[color-mix(in_srgb,var(--app-validation)_40%,transparent)]"}`} key={notification.key} role="alert">
@@ -741,6 +780,8 @@ function App() {
               </div>
             })}
           </div>}
+
+          {powerProtectionNotification && <PowerProtectionDialog message={powerProtectionNotification.message} onClose={() => setDismissedNotifications((current) => new Set(current).add(powerProtectionNotification.key))} />}
 
           <div className="page-enter space-y-4 p-5 lg:p-6" key={page}>
             {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={active} controlsLocked={automaticInteractionLocked} pending={commandPending} readyCount={devicesReady} readyTotal={requiredDevices} progress={progress} run={run} saveConfiguration={saveConfiguration} />}
@@ -778,6 +819,8 @@ function AutomaticPage({ snapshot, config, update, active, controlsLocked, pendi
 }) {
   const auto = snapshot?.automaticTest
   const running = auto && !["idle", "completed", "paused"].includes(auto.state)
+  const showingRampDownCurrent = auto?.state === "ramping_down" || auto?.state === "completed"
+  const displayedCurrentA = showingRampDownCurrent ? snapshot?.devices.powerSupply.activeCurrentA : auto?.currentA
   const [openSettings, setOpenSettings] = useState<DeviceSettingsKind | null>(null)
   const closeSettings = () => setOpenSettings(null)
   useEffect(() => {
@@ -819,7 +862,7 @@ function AutomaticPage({ snapshot, config, update, active, controlsLocked, pendi
           <Card className="shadow-none">
             <CardContent className="grid grid-cols-[1fr_auto] items-center gap-4 py-4">
               <div><div className="flex items-center gap-2"><StatusDot state={auto?.state === "paused" ? "error" : running ? "connected" : "disconnected"} /><b className="text-sm">{auto?.detail || "未开始"}</b></div><Progress className="mt-3 h-2" value={progress} /><p className="mt-2 text-xs text-muted-foreground">测试点 {Math.max(0, (auto?.currentIndex ?? -1) + 1)} / {auto?.currents?.length ?? 0}</p></div>
-              <div className="text-right"><p className="text-2xl font-semibold">{formatNumber(auto?.currentA, " A", 1)}</p><p className="text-xs text-muted-foreground">当前测试电流</p></div>
+              <div className="text-right"><p className="text-2xl font-semibold">{formatNumber(displayedCurrentA, " A", 1)}</p><p className="text-xs text-muted-foreground">当前电流</p></div>
             </CardContent>
           </Card>
           <PowerRealtimeChart snapshot={snapshot} stretch />
@@ -919,6 +962,16 @@ function ManualPage({ snapshot, config, update, active, pending, run }: {
 
 function PdPage({ snapshot, active, pending, run }: { snapshot: BackendSnapshot | null; active: boolean; pending: boolean; run: RunCommand }) {
   const pd = snapshot?.pd
+  const pdData = (pd?.points ?? []) as Array<Record<string, number>>
+  const latestElapsedS = pdData[pdData.length - 1]?.elapsedS
+  const pdTimeDomain: [number, number] = typeof latestElapsedS === "number"
+    ? [Math.max(0, latestElapsedS - PD_PLOT_HISTORY_S), Math.max(10, latestElapsedS)]
+    : [0, 10]
+  const firstPdTickS = Math.ceil(pdTimeDomain[0] / PD_TIME_TICK_INTERVAL_S) * PD_TIME_TICK_INTERVAL_S
+  const pdTimeTicks = Array.from(
+    { length: Math.floor((pdTimeDomain[1] - firstPdTickS) / PD_TIME_TICK_INTERVAL_S) + 1 },
+    (_, index) => firstPdTickS + index * PD_TIME_TICK_INTERVAL_S,
+  )
   const [settings, setSettings] = useState(pd?.settings)
   useEffect(() => { if (!settings && pd?.settings) setSettings(pd.settings) }, [pd?.settings, settings])
   const current = settings ?? { device: "", channel: "", terminal: "DIFF", range: 10, sampleRateHz: 1000, blockSize: 100, scale: 1, offset: 0, unit: "V", save: true, outputDir: "" }
@@ -960,7 +1013,7 @@ function PdPage({ snapshot, active, pending, run }: { snapshot: BackendSnapshot 
         </CardContent></Card>
         <div className="space-y-4">
           <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">{[["当前值", pd?.currentValue ?? "--"], ["电压", pd?.voltage ?? "--"], ["采样数", pd?.sampleCount ?? "0"]].map(([label, value]) => <Card className="py-4 shadow-none" key={label}><CardContent><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-lg font-semibold">{value}</p></CardContent></Card>)}</section>
-          <ChartPanel heightClassName="h-64" title="PD 实时趋势" data={(pd?.points ?? []) as Array<Record<string, number>>} xKey="elapsedS" lines={[{ key: "value", label: current.unit || "PD", color: PLM_CHART_SERIES.clay }]} empty="开始采集后显示实时趋势" />
+          <ChartPanel heightClassName="h-64" title="PD 实时趋势" data={pdData} xKey="elapsedS" xDomain={pdTimeDomain} xTicks={pdTimeTicks} lines={[{ key: "value", label: current.unit || "PD", color: PLM_CHART_SERIES.clay }]} empty="开始采集后显示实时趋势" />
           <Card className="py-4 shadow-none"><CardContent className="grid grid-cols-3 gap-4 text-sm"><div><p className="text-xs text-muted-foreground">批次均值</p><p className="mt-1 font-medium">{pd?.mean ?? "--"}</p></div><div><p className="text-xs text-muted-foreground">标准差</p><p className="mt-1 font-medium">{pd?.standardDeviation ?? "--"}</p></div><div><p className="text-xs text-muted-foreground">最小 / 最大</p><p className="mt-1 font-medium">{pd?.rangeText ?? "--"}</p></div></CardContent></Card>
         </div>
       </section>

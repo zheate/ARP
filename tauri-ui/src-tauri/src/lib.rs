@@ -3,8 +3,10 @@ use std::env;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use tauri::State;
+use std::time::Duration;
+use tauri::{ipc::Channel, State};
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -261,7 +263,46 @@ impl Drop for PythonBridge {
 }
 
 #[derive(Default)]
-struct BridgeState(Arc<Mutex<Option<PythonBridge>>>);
+struct BridgeState {
+    bridge: Arc<Mutex<Option<PythonBridge>>>,
+    stream_generation: Arc<AtomicU64>,
+}
+
+fn request_shared_bridge(
+    shared_bridge: &Arc<Mutex<Option<PythonBridge>>>,
+    method: &str,
+    params: Value,
+) -> Result<Value, String> {
+    let mut bridge_guard = shared_bridge
+        .lock()
+        .map_err(|_| "Python 后端状态锁不可用".to_string())?;
+    if bridge_guard.is_none() {
+        *bridge_guard = Some(PythonBridge::spawn()?);
+    }
+
+    let result = bridge_guard
+        .as_mut()
+        .expect("bridge was initialized")
+        .request(method, params);
+    if result.is_err() {
+        *bridge_guard = None;
+    }
+    result
+}
+
+fn update_stream_cursor(snapshot: &Value, series: &str, full_pointer: &str, cursors: &mut serde_json::Map<String, Value>) {
+    let patch_pointer = format!("/seriesPatches/{series}/points");
+    let latest = snapshot
+        .pointer(&patch_pointer)
+        .or_else(|| snapshot.pointer(full_pointer))
+        .and_then(Value::as_array)
+        .and_then(|points| points.last())
+        .and_then(|point| point.get("elapsedS"))
+        .and_then(Value::as_f64);
+    if let Some(value) = latest {
+        cursors.insert(series.to_string(), json!(value));
+    }
+}
 
 #[tauri::command]
 async fn bridge_snapshot(state: State<'_, BridgeState>) -> Result<Value, String> {
@@ -274,31 +315,70 @@ async fn bridge_request(
     params: Value,
     state: State<'_, BridgeState>,
 ) -> Result<Value, String> {
-    let shared_bridge = Arc::clone(&state.0);
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut bridge_guard = shared_bridge
-            .lock()
-            .map_err(|_| "Python 后端状态锁不可用".to_string())?;
-        if bridge_guard.is_none() {
-            *bridge_guard = Some(PythonBridge::spawn()?);
-        }
-
-        let result = bridge_guard
-            .as_mut()
-            .expect("bridge was initialized")
-            .request(&method, params);
-        if result.is_err() {
-            *bridge_guard = None;
-        }
-        result
-    })
+    let shared_bridge = Arc::clone(&state.bridge);
+    tauri::async_runtime::spawn_blocking(move || request_shared_bridge(&shared_bridge, &method, params))
     .await
     .map_err(|error| format!("Python 后端任务异常结束：{error}"))?
 }
 
 #[tauri::command]
+async fn bridge_subscribe(
+    view: String,
+    on_event: Channel<Value>,
+    state: State<'_, BridgeState>,
+) -> Result<u64, String> {
+    let generation = state.stream_generation.fetch_add(1, Ordering::SeqCst) + 1;
+    let active_generation = Arc::clone(&state.stream_generation);
+    let shared_bridge = Arc::clone(&state.bridge);
+    let interval = if view == "pd" { 1000 } else { 250 };
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut since: Option<Value> = None;
+        let mut cursors = serde_json::Map::new();
+        while active_generation.load(Ordering::SeqCst) == generation {
+            let mut params = serde_json::Map::new();
+            params.insert("view".to_string(), json!(view));
+            if let Some(revisions) = since.clone() {
+                params.insert("since".to_string(), revisions);
+            }
+            if !cursors.is_empty() {
+                params.insert("cursors".to_string(), Value::Object(cursors.clone()));
+            }
+
+            match request_shared_bridge(&shared_bridge, "app.snapshot", Value::Object(params)) {
+                Ok(snapshot) => {
+                    since = snapshot.get("seriesRevisions").cloned();
+                    update_stream_cursor(&snapshot, "power", "/measurements/power", &mut cursors);
+                    update_stream_cursor(&snapshot, "pd", "/pd/points", &mut cursors);
+                    if on_event.send(json!({ "snapshot": snapshot })).is_err() {
+                        break;
+                    }
+                }
+                Err(error) => {
+                    let _ = on_event.send(json!({ "error": error }));
+                    break;
+                }
+            }
+            std::thread::sleep(Duration::from_millis(interval));
+        }
+    });
+    Ok(generation)
+}
+
+#[tauri::command]
+fn bridge_unsubscribe(generation: u64, state: State<'_, BridgeState>) {
+    let _ = state.stream_generation.compare_exchange(
+        generation,
+        generation + 1,
+        Ordering::SeqCst,
+        Ordering::SeqCst,
+    );
+}
+
+#[tauri::command]
 async fn bridge_disconnect(state: State<'_, BridgeState>) -> Result<(), String> {
-    let shared_bridge = Arc::clone(&state.0);
+    state.stream_generation.fetch_add(1, Ordering::SeqCst);
+    let shared_bridge = Arc::clone(&state.bridge);
     tauri::async_runtime::spawn_blocking(move || {
         let mut bridge_guard = shared_bridge
             .lock()
@@ -318,6 +398,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             bridge_snapshot,
             bridge_request,
+            bridge_subscribe,
+            bridge_unsubscribe,
             bridge_disconnect
         ])
         .run(tauri::generate_context!())

@@ -5,11 +5,68 @@ from combined_test.automation import (
     AutomaticTestOrchestrator,
     AutomaticTestSettings,
     AutomaticTestState,
+    PowerDropProtectionDetector,
     build_ramp_down_currents,
     build_ramp_up_currents,
     build_test_currents,
     validate_automatic_test_settings,
 )
+
+
+class PowerDropProtectionDetectorTests(unittest.TestCase):
+    def test_protection_waits_until_five_second_window_is_covered(self) -> None:
+        detector = PowerDropProtectionDetector()
+
+        self.assertFalse(detector.observe(100.0, 0.0).triggered)
+        self.assertFalse(detector.observe(60.0, 4.99).triggered)
+        self.assertIsNone(detector.reference_power_w)
+
+    def test_drop_must_exceed_thirty_percent_over_five_seconds(self) -> None:
+        detector = PowerDropProtectionDetector()
+        detector.observe(100.0, 0.0)
+
+        self.assertFalse(detector.observe(70.0, 5.0).triggered)
+        result = detector.observe(69.9, 5.1)
+
+        self.assertTrue(result.triggered)
+        self.assertEqual(result.reference_power_w, 100.0)
+        self.assertAlmostEqual(result.drop_w, 30.1)
+        self.assertAlmostEqual(result.threshold_w, 30.0)
+        self.assertFalse(detector.observe(60.0, 5.2).triggered)
+
+    def test_brief_high_sample_is_not_used_as_the_reference(self) -> None:
+        detector = PowerDropProtectionDetector()
+        detector.observe(100.0, 0.0)
+        detector.observe(200.0, 2.0)
+
+        result = detector.observe(90.0, 5.0)
+
+        self.assertFalse(result.triggered)
+        self.assertEqual(result.reference_power_w, 100.0)
+        self.assertAlmostEqual(result.drop_w, 10.0)
+
+    def test_rolling_window_advances_and_reset_clears_history(self) -> None:
+        detector = PowerDropProtectionDetector()
+        detector.observe(100.0, 0.0)
+        detector.observe(110.0, 5.0)
+        detector.observe(200.0, 6.0)
+
+        result = detector.observe(150.0, 11.0)
+        self.assertFalse(result.triggered)
+        self.assertEqual(result.reference_power_w, 200.0)
+        detector.reset()
+
+        self.assertIsNone(detector.reference_power_w)
+        self.assertFalse(detector.observe(0.0, 12.0).triggered)
+
+    def test_drop_to_zero_is_protected_at_very_low_power(self) -> None:
+        detector = PowerDropProtectionDetector()
+        detector.observe(0.05, 0.0)
+
+        result = detector.observe(0.0, 5.0)
+
+        self.assertTrue(result.triggered)
+        self.assertAlmostEqual(result.threshold_w, 0.015)
 
 
 class AutomaticCurrentSequenceTests(unittest.TestCase):

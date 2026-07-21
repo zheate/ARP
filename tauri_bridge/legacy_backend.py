@@ -77,6 +77,58 @@ def _downsample_spectrum(
     )
 
 
+def _downsample_pd_history(
+    times: Any,
+    values: Any,
+    *,
+    bucket_s: float = 0.1,
+) -> list[dict[str, float]]:
+    """Compact the bounded PD display history while retaining narrow extrema."""
+
+    duration = max(float(bucket_s), 1e-6)
+    output: list[dict[str, float]] = []
+    bucket_index: int | None = None
+    first: tuple[float, float] | None = None
+    minimum: tuple[float, float] | None = None
+    maximum: tuple[float, float] | None = None
+    last: tuple[float, float] | None = None
+
+    def flush_bucket() -> None:
+        candidates = (first, minimum, maximum, last)
+        unique = {
+            point[0]: point
+            for point in candidates
+            if point is not None
+        }
+        output.extend(
+            {"elapsedS": elapsed_s, "value": value}
+            for elapsed_s, value in sorted(unique.values())
+        )
+
+    for raw_time, raw_value in zip(times, values):
+        elapsed_s = _number(raw_time)
+        value = _number(raw_value)
+        if elapsed_s is None or value is None:
+            continue
+        next_bucket_index = math.floor(elapsed_s / duration)
+        if bucket_index is None or next_bucket_index != bucket_index:
+            if bucket_index is not None:
+                flush_bucket()
+            bucket_index = next_bucket_index
+            first = minimum = maximum = last = (elapsed_s, value)
+            continue
+        point = (elapsed_s, value)
+        last = point
+        if minimum is None or value < minimum[1]:
+            minimum = point
+        if maximum is None or value > maximum[1]:
+            maximum = point
+
+    if bucket_index is not None:
+        flush_bucket()
+    return output
+
+
 class LegacyWindowBackend:
     """Expose the current Qt application through serializable commands."""
 
@@ -236,10 +288,7 @@ class LegacyWindowBackend:
         )
         if cache_key == self._pd_cache_key:
             return self._pd_cache_payload
-        payload = [
-            {"elapsedS": x, "value": y}
-            for x, y in zip(_series(times), _series(values))
-        ]
+        payload = _downsample_pd_history(times, values)
         self._pd_cache_key = cache_key
         self._pd_cache_payload = payload
         self._bump_series_revision("pd")

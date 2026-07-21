@@ -2610,12 +2610,47 @@ class MainWindow(QMainWindow):
         self.pd_panel.stop_acquisition()
 
     def emergency_stop(self) -> None:
-        """Immediately de-energize the supply and stop every acquisition task."""
+        """Immediately de-energize the supply after an operator request."""
+        self._execute_emergency_stop(
+            terminal_outcome=AutomaticTestTerminalOutcome.STOPPED_BY_OPERATOR,
+            terminal_reason="操作者执行紧急停止",
+            completion_detail="紧急停止已执行，电源已安全停止",
+            action_label="紧急停止",
+        )
+
+    def emergency_stop_for_power_protection(self, reason: str) -> None:
+        """Immediately de-energize the supply after an automatic power loss."""
+        self._execute_emergency_stop(
+            terminal_outcome=AutomaticTestTerminalOutcome.ABORTED_SAFELY,
+            terminal_reason=reason,
+            completion_detail=f"功率保护已触发，电源已立即断电：{reason}",
+            action_label="功率保护",
+        )
+
+    def show_power_protection_alert(self, reason: str) -> None:
+        """Require an operator-facing acknowledgement after protection trips."""
+        QMessageBox.critical(
+            self,
+            "功率保护",
+            "检测到功率异常下降，已执行断电保护。\n\n"
+            f"{reason}\n\n"
+            "请检查被测器件和电源状态，确认安全后再重新测试。",
+        )
+
+    def _execute_emergency_stop(
+        self,
+        *,
+        terminal_outcome: AutomaticTestTerminalOutcome,
+        terminal_reason: str,
+        completion_detail: str,
+        action_label: str,
+    ) -> None:
+        """Apply the shared immediate hardware shutdown boundary."""
         automatic_active = self._automatic_workflow_is_active()
         if automatic_active:
             self.automatic_controller._set_pending_terminal_outcome(
-                AutomaticTestTerminalOutcome.STOPPED_BY_OPERATOR,
-                "操作者执行紧急停止",
+                terminal_outcome,
+                terminal_reason,
             )
             for timer in (
                 self.automatic_device_start_timer,
@@ -2684,32 +2719,34 @@ class MainWindow(QMainWindow):
         if automatic_active and supply_is_safe:
             self.complete_automatic_test(
                 tdk_output_already_disabled=is_tdk,
-                completion_detail="紧急停止已执行，电源已安全停止",
+                completion_detail=completion_detail,
             )
         else:
             self.update_global_status()
 
         if errors:
             detail = "\n".join(errors)
-            self.add_log(f"紧急停止存在异常：{'；'.join(errors)}")
+            self.add_log(f"{action_label}存在异常：{'；'.join(errors)}")
             if supply_is_safe:
-                self.statusBar().showMessage("紧急停止已执行，但部分电源命令返回异常")
+                self.statusBar().showMessage(f"{action_label}已执行，但部分电源命令返回异常")
             else:
-                self.statusBar().showMessage("紧急停止未完成，请立即检查电源面板")
+                self.statusBar().showMessage(f"{action_label}断电未完成，请立即检查电源面板")
             QMessageBox.critical(
                 self,
-                "紧急停止",
+                action_label,
                 f"{detail}\n\n请立即检查电源面板并确认输出状态。",
             )
             return
 
-        message = "紧急停止已执行：电源电流已归零，采集设备正在停止"
+        message = f"{action_label}已执行：电源电流已归零，采集设备正在停止"
         if not power_supply_connected:
-            message = "紧急停止已执行：未检测到已连接电源，采集设备正在停止"
+            message = f"{action_label}已执行：未检测到已连接电源，采集设备正在停止"
         elif is_tdk:
-            message = "紧急停止已执行：TDK 输出已关闭，采集设备正在停止"
+            message = f"{action_label}已执行：TDK 输出已关闭，采集设备正在停止"
         self.statusBar().showMessage(message)
         self.add_log(message)
+        if action_label == "功率保护":
+            self.show_power_protection_alert(terminal_reason)
 
     def update_global_status(self) -> None:
         if not hasattr(self, "global_status_label"):
@@ -3852,6 +3889,11 @@ class MainWindow(QMainWindow):
 
     def on_power_meter_reading(self, reading: PowerMeterReading) -> None:
         self.latest_power_meter_reading = reading
+        if self.automatic_controller.on_automatic_power_sample(
+            reading.power_w,
+            reading.elapsed_s,
+        ):
+            return
         self.live_plots.set_power_value(reading.power_w)
         entry_tolerance_w = stability_tolerance_for_power(reading.power_w)
         active_tolerance_w = (

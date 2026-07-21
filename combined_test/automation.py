@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import math
+import time
+from collections import deque
 from dataclasses import dataclass
 from enum import Enum
 
@@ -11,6 +13,8 @@ MAX_CURRENT_CENTIAMPS = 2000
 MIN_POWER_SUPPLY_COMMAND_INTERVAL_S = 1.1
 MAX_RAMP_UP_STEP_CENTIAMPS = 100
 MAX_AUTOMATIC_SEQUENCE_POINTS = 10_000
+POWER_DROP_PROTECTION_RELATIVE_FRACTION = 0.30
+POWER_DROP_PROTECTION_WINDOW_S = 5.0
 
 
 class AutomaticTestState(str, Enum):
@@ -36,6 +40,93 @@ class AutomaticTestSettings:
     pause_ramp_down_timeout_s: float = 30.0
     use_spectrometer: bool = True
     maximum_current_a: float | None = MAX_CURRENT_CENTIAMPS / 100.0
+
+
+@dataclass(frozen=True)
+class PowerDropProtectionResult:
+    """Result of checking one automatic-test power sample."""
+
+    triggered: bool
+    reference_power_w: float | None
+    observed_power_w: float
+    drop_w: float = 0.0
+    threshold_w: float = 0.0
+
+
+class PowerDropProtectionDetector:
+    """Latch when power falls by more than the limit over a rolling window."""
+
+    def __init__(
+        self,
+        relative_fraction: float = POWER_DROP_PROTECTION_RELATIVE_FRACTION,
+        window_s: float = POWER_DROP_PROTECTION_WINDOW_S,
+    ) -> None:
+        relative = float(relative_fraction)
+        if not math.isfinite(relative) or not 0.0 < relative < 1.0:
+            raise ValueError("功率下降保护比例必须在 0 和 1 之间")
+        window = float(window_s)
+        if not math.isfinite(window) or window <= 0.0:
+            raise ValueError("功率下降保护窗口必须大于 0 秒")
+        self.relative_fraction = relative
+        self.window_s = window
+        self.reference_power_w: float | None = None
+        self.tripped = False
+        self._samples: deque[tuple[float, float]] = deque()
+
+    def reset(self) -> None:
+        self.reference_power_w = None
+        self.tripped = False
+        self._samples.clear()
+
+    def observe(
+        self,
+        power_w: float,
+        elapsed_s: float | None = None,
+    ) -> PowerDropProtectionResult:
+        power = float(power_w)
+        observed_at_s = time.monotonic() if elapsed_s is None else float(elapsed_s)
+        reference = self.reference_power_w
+        if self.tripped or not math.isfinite(power) or not math.isfinite(observed_at_s):
+            return PowerDropProtectionResult(False, reference, power)
+
+        if self._samples and observed_at_s < self._samples[-1][0]:
+            self._samples.clear()
+            self.reference_power_w = None
+
+        self._samples.append((observed_at_s, power))
+        cutoff_s = observed_at_s - self.window_s
+        while len(self._samples) >= 2 and self._samples[1][0] <= cutoff_s:
+            self._samples.popleft()
+
+        if not self._samples or self._samples[0][0] > cutoff_s:
+            self.reference_power_w = None
+            return PowerDropProtectionResult(False, None, power)
+
+        reference = self._samples[0][1]
+        self.reference_power_w = reference
+        if reference <= 0.0:
+            return PowerDropProtectionResult(False, reference, power)
+
+        threshold_w = reference * self.relative_fraction
+        drop_w = reference - power
+        comparison_margin = max(1e-12, threshold_w * 1e-12)
+        if drop_w > threshold_w + comparison_margin:
+            self.tripped = True
+            return PowerDropProtectionResult(
+                True,
+                reference,
+                power,
+                drop_w,
+                threshold_w,
+            )
+
+        return PowerDropProtectionResult(
+            False,
+            reference,
+            power,
+            max(0.0, drop_w),
+            threshold_w,
+        )
 
 
 class AutomaticTestOrchestrator:

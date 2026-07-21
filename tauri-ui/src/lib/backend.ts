@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core"
+import { Channel, invoke } from "@tauri-apps/api/core"
 
 export type BackendMode = "read_only" | "active"
 export type DeviceConnectionState = "disconnected" | "connecting" | "connected" | "error"
@@ -192,6 +192,29 @@ export async function fetchBackendSnapshot(view: SnapshotView, since?: SeriesRev
     method: "app.snapshot",
     params: { view, ...(since ? { since } : {}), ...(cursors ? { cursors } : {}) },
   })
+}
+
+type BackendSnapshotStreamMessage = {
+  snapshot?: BackendSnapshotPatch
+  error?: string
+}
+
+export async function subscribeBackendSnapshots(
+  view: SnapshotView,
+  onSnapshot: (snapshot: BackendSnapshotPatch) => void,
+  onError: (message: string) => void,
+): Promise<() => Promise<void>> {
+  ensureTauri()
+  const channel = new Channel<BackendSnapshotStreamMessage>()
+  channel.onmessage = (message) => {
+    if (message.snapshot) onSnapshot(message.snapshot)
+    if (message.error) onError(message.error)
+  }
+  const generation = await invoke<number>("bridge_subscribe", { view, onEvent: channel })
+  return async () => {
+    await invoke("bridge_unsubscribe", { generation })
+    void channel.id
+  }
 }
 
 export async function sendBackendCommand(

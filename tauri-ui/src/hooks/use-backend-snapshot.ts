@@ -1,15 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
-import { fetchBackendSnapshot, mergeBackendSnapshot, sendBackendCommand, type BackendSnapshot, type SeriesRevisions, type SnapshotView } from "@/lib/backend"
+import { fetchBackendSnapshot, mergeBackendSnapshot, sendBackendCommand, subscribeBackendSnapshots, type BackendSnapshot, type SeriesRevisions, type SnapshotView } from "@/lib/backend"
 
-// The acquisition threads keep sampling at their configured rates. The UI only
-// needs enough frames for smooth feedback. Series revisions keep unchanged chart
-// arrays out of the snapshot stream and preserve their references in React.
-const REFRESH_INTERVAL_MS: Record<SnapshotView, number> = {
-  automatic: 250,
-  manual: 250,
-  pd: 250,
-}
+// Acquisition remains device-owned; the Tauri channel streams compact snapshots
+// without allocating a new command callback for every UI refresh.
 const DEMO_PREVIEW_ENABLED = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("demo") === "1"
 
 const DEMO_SPECTRUM = [
@@ -212,27 +206,58 @@ export function useBackendSnapshot(view: SnapshotView) {
 
   useEffect(() => {
     let cancelled = false
-    let timer: number | undefined
+    let streamEpoch = 0
+    let stopStream: (() => Promise<void>) | undefined
 
-    const poll = async (showLoading = false) => {
+    if (DEMO_PREVIEW_ENABLED) {
+      void loadSnapshot(true, view)
+      return () => { cancelled = true }
+    }
+
+    const stop = () => {
+      streamEpoch += 1
+      const currentStop = stopStream
+      stopStream = undefined
+      if (currentStop) void currentStop()
+    }
+
+    const start = async () => {
       if (cancelled || document.visibilityState === "hidden") return
-      await loadSnapshot(showLoading, view)
-      if (!cancelled && !DEMO_PREVIEW_ENABLED) {
-        timer = window.setTimeout(() => void poll(), REFRESH_INTERVAL_MS[view])
+      const epoch = ++streamEpoch
+      setLoading(true)
+      try {
+        const unsubscribe = await subscribeBackendSnapshots(
+          view,
+          (patch) => {
+            if (cancelled || epoch !== streamEpoch || latestViewRef.current !== view) return
+            const nextSnapshot = mergeBackendSnapshot(snapshotRef.current, patch)
+            snapshotRef.current = nextSnapshot
+            revisionsRef.current = nextSnapshot.seriesRevisions ?? null
+            setSnapshot(nextSnapshot)
+            setError(null)
+            setLoading(false)
+          },
+          (message) => {
+            if (cancelled || epoch !== streamEpoch) return
+            setError(message)
+            setLoading(false)
+          },
+        )
+        if (cancelled || epoch !== streamEpoch) void unsubscribe()
+        else stopStream = unsubscribe
+      } catch (reason) {
+        if (cancelled || epoch !== streamEpoch) return
+        setError(reason instanceof Error ? reason.message : String(reason))
+        setLoading(false)
       }
     }
 
-    const handleVisibilityChange = () => {
-      if (timer !== undefined) window.clearTimeout(timer)
-      timer = undefined
-      if (document.visibilityState === "visible") void poll()
-    }
-
+    const handleVisibilityChange = () => document.visibilityState === "hidden" ? stop() : void start()
     document.addEventListener("visibilitychange", handleVisibilityChange)
-    void poll(true)
+    void start()
     return () => {
       cancelled = true
-      if (timer !== undefined) window.clearTimeout(timer)
+      stop()
       document.removeEventListener("visibilitychange", handleVisibilityChange)
     }
   }, [loadSnapshot, view])
