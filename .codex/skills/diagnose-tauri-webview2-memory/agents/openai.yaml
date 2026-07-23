@@ -1,0 +1,7 @@
+interface:
+  display_name: "Tauri WebView2 内存诊断"
+  short_description: "诊断并修复 Tauri、WebView2 与 React 持续内存增长"
+  default_prompt: "Use $diagnose-tauri-webview2-memory to diagnose and fix this Tauri WebView2 renderer memory growth."
+
+policy:
+  allow_implicit_invocation: true
