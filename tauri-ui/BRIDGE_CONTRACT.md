@@ -36,6 +36,8 @@ On Windows, the Rust layer sends the live stream through WebView2's native `Post
 
 The WebView2 renderer starts with a 64 MB V8 old-generation limit and exposes its garbage collector. While the snapshot hook is mounted, the frontend requests a collection every 30 seconds so transient React and IPC objects do not wait for WebView2's much larger default pressure threshold. This affects only the UI JavaScript heap, not the Python device process or the hardware sampling rate.
 
+The Tauri development command also starts Vite with `NODE_ENV=production`. Rust and frontend hot reload remain available, but the embedded WebView runs React's production runtime and does not perform development-only duplicate renders during continuous acquisition.
+
 The stream fingerprints business state and series revisions after removing transport-only fields such as `capturedAt`, full measurement arrays, and append patches. If that fingerprint has not changed, no channel message is emitted. An idle application therefore performs lightweight backend checks without continuously allocating WebView2 IPC messages.
 
 ```json
