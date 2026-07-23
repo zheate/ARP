@@ -290,7 +290,12 @@ fn request_shared_bridge(
     result
 }
 
-fn update_stream_cursor(snapshot: &Value, series: &str, full_pointer: &str, cursors: &mut serde_json::Map<String, Value>) {
+fn update_stream_cursor(
+    snapshot: &Value,
+    series: &str,
+    full_pointer: &str,
+    cursors: &mut serde_json::Map<String, Value>,
+) {
     let patch_pointer = format!("/seriesPatches/{series}/points");
     let latest = snapshot
         .pointer(&patch_pointer)
@@ -302,6 +307,35 @@ fn update_stream_cursor(snapshot: &Value, series: &str, full_pointer: &str, curs
     if let Some(value) = latest {
         cursors.insert(series.to_string(), json!(value));
     }
+}
+
+fn take_compact_spectrum(snapshot: &mut Value) -> Option<Value> {
+    let revision = snapshot.pointer("/seriesRevisions/spectrum")?.as_u64()?;
+    let measurements = snapshot.get_mut("measurements")?.as_object_mut()?;
+    let spectrum = measurements.remove("spectrum")?.as_array()?.to_owned();
+    let points = spectrum
+        .into_iter()
+        .filter_map(|point| {
+            Some(json!([
+                point.get("wavelengthNm")?.as_f64()?,
+                point.get("intensity")?.as_f64()?,
+            ]))
+        })
+        .collect::<Vec<_>>();
+    Some(json!({ "revision": revision, "points": points }))
+}
+
+fn snapshot_fingerprint(snapshot: &Value) -> Value {
+    let mut fingerprint = snapshot.clone();
+    if let Some(root) = fingerprint.as_object_mut() {
+        root.remove("capturedAt");
+        root.remove("measurements");
+        root.remove("seriesPatches");
+    }
+    if let Some(pd) = fingerprint.get_mut("pd").and_then(Value::as_object_mut) {
+        pd.remove("points");
+    }
+    fingerprint
 }
 
 #[tauri::command]
@@ -316,7 +350,9 @@ async fn bridge_request(
     state: State<'_, BridgeState>,
 ) -> Result<Value, String> {
     let shared_bridge = Arc::clone(&state.bridge);
-    tauri::async_runtime::spawn_blocking(move || request_shared_bridge(&shared_bridge, &method, params))
+    tauri::async_runtime::spawn_blocking(move || {
+        request_shared_bridge(&shared_bridge, &method, params)
+    })
     .await
     .map_err(|error| format!("Python 后端任务异常结束：{error}"))?
 }
@@ -335,6 +371,7 @@ async fn bridge_subscribe(
     tauri::async_runtime::spawn_blocking(move || {
         let mut since: Option<Value> = None;
         let mut cursors = serde_json::Map::new();
+        let mut last_fingerprint: Option<Value> = None;
         while active_generation.load(Ordering::SeqCst) == generation {
             let mut params = serde_json::Map::new();
             params.insert("view".to_string(), json!(view));
@@ -346,10 +383,21 @@ async fn bridge_subscribe(
             }
 
             match request_shared_bridge(&shared_bridge, "app.snapshot", Value::Object(params)) {
-                Ok(snapshot) => {
+                Ok(mut snapshot) => {
                     since = snapshot.get("seriesRevisions").cloned();
                     update_stream_cursor(&snapshot, "power", "/measurements/power", &mut cursors);
                     update_stream_cursor(&snapshot, "pd", "/pd/points", &mut cursors);
+                    let fingerprint = snapshot_fingerprint(&snapshot);
+                    if last_fingerprint.as_ref() == Some(&fingerprint) {
+                        std::thread::sleep(Duration::from_millis(interval));
+                        continue;
+                    }
+                    last_fingerprint = Some(fingerprint);
+                    if let Some(spectrum) = take_compact_spectrum(&mut snapshot) {
+                        if on_event.send(json!({ "spectrum": spectrum })).is_err() {
+                            break;
+                        }
+                    }
                     if on_event.send(json!({ "snapshot": snapshot })).is_err() {
                         break;
                     }
@@ -408,7 +456,60 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::PythonBridge;
+    use super::{snapshot_fingerprint, take_compact_spectrum, PythonBridge};
+
+    #[test]
+    fn snapshot_fingerprint_ignores_transport_only_changes() {
+        let first = serde_json::json!({
+            "capturedAt": "2026-07-21T10:00:00Z",
+            "seriesRevisions": { "power": 7, "stable": 1, "spectrum": 3, "pd": 0 },
+            "measurements": { "power": [{ "elapsedS": 1.0, "powerW": 2.0 }] },
+            "seriesPatches": { "power": { "startX": 1.0, "points": [] } },
+            "pd": { "state": "idle", "points": [{ "elapsedS": 1.0, "value": 0.0 }] },
+            "status": { "message": "ready" },
+        });
+        let second = serde_json::json!({
+            "capturedAt": "2026-07-21T10:00:01Z",
+            "seriesRevisions": { "power": 7, "stable": 1, "spectrum": 3, "pd": 0 },
+            "measurements": {},
+            "pd": { "state": "idle" },
+            "status": { "message": "ready" },
+        });
+
+        assert_eq!(snapshot_fingerprint(&first), snapshot_fingerprint(&second));
+
+        let mut changed = second;
+        changed["seriesRevisions"]["power"] = serde_json::json!(8);
+        assert_ne!(snapshot_fingerprint(&first), snapshot_fingerprint(&changed));
+    }
+
+    #[test]
+    fn compact_spectrum_message_stays_below_direct_channel_limit() {
+        let spectrum = (0..160)
+            .map(|index| {
+                serde_json::json!({
+                    "wavelengthNm": 956.0 + index as f64 * 0.25,
+                    "intensity": 16_000.0 - index as f64 * 3.5,
+                })
+            })
+            .collect::<Vec<_>>();
+        let mut snapshot = serde_json::json!({
+            "seriesRevisions": { "spectrum": 42 },
+            "measurements": { "spectrum": spectrum },
+        });
+
+        let compact = take_compact_spectrum(&mut snapshot).expect("spectrum should be extracted");
+
+        assert!(snapshot.pointer("/measurements/spectrum").is_none());
+        assert_eq!(compact["revision"], 42);
+        assert_eq!(compact["points"].as_array().map(Vec::len), Some(160));
+        assert!(
+            serde_json::to_vec(&serde_json::json!({ "spectrum": compact }))
+                .expect("compact spectrum should serialize")
+                .len()
+                < 8192
+        );
+    }
 
     #[test]
     fn python_bridge_returns_snapshot() {

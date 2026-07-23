@@ -196,6 +196,10 @@ export async function fetchBackendSnapshot(view: SnapshotView, since?: SeriesRev
 
 type BackendSnapshotStreamMessage = {
   snapshot?: BackendSnapshotPatch
+  spectrum?: {
+    revision: number
+    points: Array<[number, number]>
+  }
   error?: string
 }
 
@@ -206,8 +210,22 @@ export async function subscribeBackendSnapshots(
 ): Promise<() => Promise<void>> {
   ensureTauri()
   const channel = new Channel<BackendSnapshotStreamMessage>()
+  let pendingSpectrum: BackendSnapshotStreamMessage["spectrum"]
   channel.onmessage = (message) => {
-    if (message.snapshot) onSnapshot(message.snapshot)
+    if (message.spectrum) pendingSpectrum = message.spectrum
+    if (message.snapshot) {
+      const spectrumRevision = message.snapshot.seriesRevisions?.spectrum
+      const matchingSpectrum = pendingSpectrum?.revision === spectrumRevision ? pendingSpectrum : undefined
+      const spectrum = matchingSpectrum
+        ? matchingSpectrum.points.map(([wavelengthNm, intensity]) => ({ wavelengthNm, intensity }))
+        : undefined
+      const snapshot = spectrum ? {
+        ...message.snapshot,
+        measurements: { ...message.snapshot.measurements, spectrum },
+      } : message.snapshot
+      if (spectrum) pendingSpectrum = undefined
+      onSnapshot(snapshot)
+    }
     if (message.error) onError(message.error)
   }
   const generation = await invoke<number>("bridge_subscribe", { view, onEvent: channel })

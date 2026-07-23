@@ -29,11 +29,9 @@ class SpectrumPayloadTests(unittest.TestCase):
         intensity = [100.0 for _index in range(2400)]
         intensity[1234] = 16000.0
 
-        chart_wavelength, chart_intensity = _downsample_spectrum(
-            wavelength, intensity, limit=800
-        )
+        chart_wavelength, chart_intensity = _downsample_spectrum(wavelength, intensity)
 
-        self.assertLessEqual(len(chart_wavelength), 800)
+        self.assertLessEqual(len(chart_wavelength), 160)
         self.assertEqual(len(chart_wavelength), len(chart_intensity))
         self.assertEqual(chart_wavelength[0], wavelength[0])
         self.assertEqual(chart_wavelength[-1], wavelength[-1])

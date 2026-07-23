@@ -44,7 +44,7 @@ def _series(values: Any, *, limit: int | None = 1200) -> list[float]:
 
 
 def _downsample_spectrum(
-    wavelength: list[float], intensity: list[float], *, limit: int = 800
+    wavelength: list[float], intensity: list[float], *, limit: int = 160
 ) -> tuple[list[float], list[float]]:
     """Bound chart payload size while retaining narrow local extrema."""
 

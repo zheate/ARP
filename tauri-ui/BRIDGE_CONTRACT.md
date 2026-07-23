@@ -28,9 +28,13 @@ The bridge being connected never means a physical device is connected. Every dev
 - PD: `pd.refresh`, `pd.configure`, `pd.start`, `pd.stop`
 - Charts: `charts.reset`
 
-Every successful mutation returns a fresh full snapshot. Routine polling passes the active `view` (`automatic`, `manual`, or `pd`) so large chart and PD point arrays are only serialized for their consumer. Live views refresh at most four times per second, and polling pauses while the WebView is hidden. The acquisition threads continue at their configured hardware sampling rates.
+Every successful mutation returns a fresh full snapshot. The routine snapshot stream passes the active `view` (`automatic`, `manual`, or `pd`) so large chart and PD point arrays are only serialized for their consumer. Live views refresh at most four times per second, and streaming pauses while the WebView is hidden. The acquisition threads continue at their configured hardware sampling rates.
 
 After the first full response, the frontend returns `seriesRevisions` as `params.since`. Unchanged power, stable-point, spectrum, and PD arrays are omitted and the frontend retains the previous arrays. Power and PD additionally send their last displayed `elapsedS` values in `params.cursors`; when the bounded history is continuous, the response uses `seriesPatches` to append only newer points and supplies `startX` so the frontend can discard points that left the display window. A missing cursor, reset curve, page change, or explicit refresh falls back to a complete array.
+
+For the live Tauri channel, the Rust layer removes a changed spectrum from the general snapshot and sends it immediately beforehand as a compact `{revision, points: [[wavelengthNm, intensity], ...]}` message. Spectrum display data is extrema-preserving and bounded to 160 points. The frontend only attaches that frame to the snapshot with the same revision. Keeping each routine channel message below Tauri's direct-delivery threshold avoids the queued large-JSON fetch path that causes sustained WebView2 allocation pressure.
+
+The stream fingerprints business state and series revisions after removing transport-only fields such as `capturedAt`, full measurement arrays, and append patches. If that fingerprint has not changed, no channel message is emitted. An idle application therefore performs lightweight backend checks without continuously allocating WebView2 IPC messages.
 
 ```json
 {
