@@ -501,12 +501,14 @@ export function CanvasLineChart({ data, xKey, lines, xDomain, xTicks, annotation
     drawBaseChart(canvas, container, size, layout, displayData, xKey, lines, annotations)
   }, [annotations, displayData, layout, lines, size, xKey])
 
+  const hoverRow = hover ? data[hover.index] : undefined
+
   useEffect(() => {
     const canvas = hoverCanvasRef.current
     const container = containerRef.current
     if (!canvas || !container || size.width <= 0 || size.height <= 0) return
-    drawHover(canvas, container, size, layout, hover ? data[hover.index] : undefined, xKey, lines)
-  }, [data, hover, layout, lines, size, xKey])
+    drawHover(canvas, container, size, layout, hoverRow, xKey, lines)
+  }, [hoverRow, layout, lines, size, xKey])
 
   const positionTooltip = useCallback((pointerX: number, pointerY: number) => {
     const tooltip = tooltipRef.current
@@ -551,7 +553,6 @@ export function CanvasLineChart({ data, xKey, lines, xDomain, xTicks, annotation
     scheduleHover({ index: nearestRowIndex(data, xKey, target), pointerX, pointerY })
   }
 
-  const hoverRow = hover ? data[hover.index] : undefined
   const tooltipLeft = Math.min(Math.max(8, pointerRef.current.x + 12), Math.max(8, size.width - 172))
   const tooltipTop = Math.min(Math.max(8, pointerRef.current.y - 18), Math.max(8, size.height - 96))
 

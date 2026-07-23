@@ -1,4 +1,7 @@
 use serde_json::{json, Value};
+
+const LIVE_SNAPSHOT_INTERVAL_MS: u64 = 500;
+const PD_SNAPSHOT_INTERVAL_MS: u64 = 1000;
 use std::env;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -6,7 +9,13 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::{ipc::Channel, State};
+use tauri::{State, Webview};
+
+#[cfg(windows)]
+use windows_core::PCWSTR;
+
+#[cfg(not(windows))]
+use tauri::ipc::Channel;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::process::CommandExt;
@@ -309,22 +318,6 @@ fn update_stream_cursor(
     }
 }
 
-fn take_compact_spectrum(snapshot: &mut Value) -> Option<Value> {
-    let revision = snapshot.pointer("/seriesRevisions/spectrum")?.as_u64()?;
-    let measurements = snapshot.get_mut("measurements")?.as_object_mut()?;
-    let spectrum = measurements.remove("spectrum")?.as_array()?.to_owned();
-    let points = spectrum
-        .into_iter()
-        .filter_map(|point| {
-            Some(json!([
-                point.get("wavelengthNm")?.as_f64()?,
-                point.get("intensity")?.as_f64()?,
-            ]))
-        })
-        .collect::<Vec<_>>();
-    Some(json!({ "revision": revision, "points": points }))
-}
-
 fn snapshot_fingerprint(snapshot: &Value) -> Value {
     let mut fingerprint = snapshot.clone();
     if let Some(root) = fingerprint.as_object_mut() {
@@ -336,6 +329,52 @@ fn snapshot_fingerprint(snapshot: &Value) -> Value {
         pd.remove("points");
     }
     fingerprint
+}
+
+fn stream_envelope(subscription_id: &str, message: Value) -> Value {
+    json!({
+        "__arpSnapshotStream": subscription_id,
+        "message": message,
+    })
+}
+
+struct StreamSender {
+    subscription_id: String,
+    webview: Webview,
+    #[cfg(not(windows))]
+    on_event: Channel<Value>,
+}
+
+impl StreamSender {
+    #[cfg(windows)]
+    fn send(&self, message: Value) -> Result<(), String> {
+        let payload = serde_json::to_string(&stream_envelope(&self.subscription_id, message))
+            .map_err(|error| format!("无法编码 WebView2 实时消息：{error}"))?;
+        self.webview
+            .with_webview(move |platform_webview| {
+                let wide_payload = payload
+                    .encode_utf16()
+                    .chain(std::iter::once(0))
+                    .collect::<Vec<_>>();
+                let result = unsafe {
+                    platform_webview
+                        .controller()
+                        .CoreWebView2()
+                        .and_then(|core| core.PostWebMessageAsJson(PCWSTR(wide_payload.as_ptr())))
+                };
+                if let Err(error) = result {
+                    eprintln!("无法发送 WebView2 实时消息：{error}");
+                }
+            })
+            .map_err(|error| format!("无法调度 WebView2 实时消息：{error}"))
+    }
+
+    #[cfg(not(windows))]
+    fn send(&self, message: Value) -> Result<(), String> {
+        self.on_event
+            .send(stream_envelope(&self.subscription_id, message))
+            .map_err(|error| error.to_string())
+    }
 }
 
 #[tauri::command]
@@ -357,16 +396,15 @@ async fn bridge_request(
     .map_err(|error| format!("Python 后端任务异常结束：{error}"))?
 }
 
-#[tauri::command]
-async fn bridge_subscribe(
-    view: String,
-    on_event: Channel<Value>,
-    state: State<'_, BridgeState>,
-) -> Result<u64, String> {
+fn start_bridge_stream(view: String, sender: StreamSender, state: &BridgeState) -> u64 {
     let generation = state.stream_generation.fetch_add(1, Ordering::SeqCst) + 1;
     let active_generation = Arc::clone(&state.stream_generation);
     let shared_bridge = Arc::clone(&state.bridge);
-    let interval = if view == "pd" { 1000 } else { 250 };
+    let interval = if view == "pd" {
+        PD_SNAPSHOT_INTERVAL_MS
+    } else {
+        LIVE_SNAPSHOT_INTERVAL_MS
+    };
 
     tauri::async_runtime::spawn_blocking(move || {
         let mut since: Option<Value> = None;
@@ -383,7 +421,7 @@ async fn bridge_subscribe(
             }
 
             match request_shared_bridge(&shared_bridge, "app.snapshot", Value::Object(params)) {
-                Ok(mut snapshot) => {
+                Ok(snapshot) => {
                     since = snapshot.get("seriesRevisions").cloned();
                     update_stream_cursor(&snapshot, "power", "/measurements/power", &mut cursors);
                     update_stream_cursor(&snapshot, "pd", "/pd/points", &mut cursors);
@@ -393,24 +431,57 @@ async fn bridge_subscribe(
                         continue;
                     }
                     last_fingerprint = Some(fingerprint);
-                    if let Some(spectrum) = take_compact_spectrum(&mut snapshot) {
-                        if on_event.send(json!({ "spectrum": spectrum })).is_err() {
-                            break;
-                        }
-                    }
-                    if on_event.send(json!({ "snapshot": snapshot })).is_err() {
+                    if sender.send(json!({ "snapshot": snapshot })).is_err() {
                         break;
                     }
                 }
                 Err(error) => {
-                    let _ = on_event.send(json!({ "error": error }));
+                    let _ = sender.send(json!({ "error": error }));
                     break;
                 }
             }
             std::thread::sleep(Duration::from_millis(interval));
         }
     });
-    Ok(generation)
+    generation
+}
+
+#[cfg(windows)]
+#[tauri::command]
+async fn bridge_subscribe(
+    view: String,
+    subscription_id: String,
+    webview: Webview,
+    state: State<'_, BridgeState>,
+) -> Result<u64, String> {
+    Ok(start_bridge_stream(
+        view,
+        StreamSender {
+            subscription_id,
+            webview,
+        },
+        &state,
+    ))
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+async fn bridge_subscribe(
+    view: String,
+    subscription_id: String,
+    on_event: Channel<Value>,
+    webview: Webview,
+    state: State<'_, BridgeState>,
+) -> Result<u64, String> {
+    Ok(start_bridge_stream(
+        view,
+        StreamSender {
+            subscription_id,
+            webview,
+            on_event,
+        },
+        &state,
+    ))
 }
 
 #[tauri::command]
@@ -456,7 +527,7 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{snapshot_fingerprint, take_compact_spectrum, PythonBridge};
+    use super::{snapshot_fingerprint, stream_envelope, PythonBridge};
 
     #[test]
     fn snapshot_fingerprint_ignores_transport_only_changes() {
@@ -484,31 +555,14 @@ mod tests {
     }
 
     #[test]
-    fn compact_spectrum_message_stays_below_direct_channel_limit() {
-        let spectrum = (0..160)
-            .map(|index| {
-                serde_json::json!({
-                    "wavelengthNm": 956.0 + index as f64 * 0.25,
-                    "intensity": 16_000.0 - index as f64 * 3.5,
-                })
-            })
-            .collect::<Vec<_>>();
-        let mut snapshot = serde_json::json!({
-            "seriesRevisions": { "spectrum": 42 },
-            "measurements": { "spectrum": spectrum },
-        });
-
-        let compact = take_compact_spectrum(&mut snapshot).expect("spectrum should be extracted");
-
-        assert!(snapshot.pointer("/measurements/spectrum").is_none());
-        assert_eq!(compact["revision"], 42);
-        assert_eq!(compact["points"].as_array().map(Vec::len), Some(160));
-        assert!(
-            serde_json::to_vec(&serde_json::json!({ "spectrum": compact }))
-                .expect("compact spectrum should serialize")
-                .len()
-                < 8192
+    fn stream_envelope_routes_messages_to_one_subscription() {
+        let envelope = stream_envelope(
+            "automatic-7",
+            serde_json::json!({ "snapshot": { "capturedAt": "now" } }),
         );
+
+        assert_eq!(envelope["__arpSnapshotStream"], "automatic-7");
+        assert_eq!(envelope["message"]["snapshot"]["capturedAt"], "now");
     }
 
     #[test]

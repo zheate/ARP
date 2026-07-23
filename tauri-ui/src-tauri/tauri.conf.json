@@ -18,7 +18,8 @@
         "minWidth": 1180,
         "minHeight": 720,
         "center": true,
-        "zoomHotkeysEnabled": true
+        "zoomHotkeysEnabled": true,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --js-flags=\"--max-old-space-size=64 --expose-gc\""
       }
     ],
     "security": {

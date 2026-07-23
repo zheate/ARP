@@ -196,11 +196,21 @@ export async function fetchBackendSnapshot(view: SnapshotView, since?: SeriesRev
 
 type BackendSnapshotStreamMessage = {
   snapshot?: BackendSnapshotPatch
-  spectrum?: {
-    revision: number
-    points: Array<[number, number]>
-  }
   error?: string
+}
+
+type BackendSnapshotStreamEnvelope = {
+  __arpSnapshotStream?: string
+  message?: BackendSnapshotStreamMessage
+}
+
+type WebView2Host = {
+  addEventListener: (type: "message", listener: (event: { data: unknown }) => void) => void
+  removeEventListener: (type: "message", listener: (event: { data: unknown }) => void) => void
+}
+
+function getWebView2Host(): WebView2Host | undefined {
+  return (window as unknown as { chrome?: { webview?: WebView2Host } }).chrome?.webview
 }
 
 export async function subscribeBackendSnapshots(
@@ -209,29 +219,48 @@ export async function subscribeBackendSnapshots(
   onError: (message: string) => void,
 ): Promise<() => Promise<void>> {
   ensureTauri()
-  const channel = new Channel<BackendSnapshotStreamMessage>()
-  let pendingSpectrum: BackendSnapshotStreamMessage["spectrum"]
-  channel.onmessage = (message) => {
-    if (message.spectrum) pendingSpectrum = message.spectrum
-    if (message.snapshot) {
-      const spectrumRevision = message.snapshot.seriesRevisions?.spectrum
-      const matchingSpectrum = pendingSpectrum?.revision === spectrumRevision ? pendingSpectrum : undefined
-      const spectrum = matchingSpectrum
-        ? matchingSpectrum.points.map(([wavelengthNm, intensity]) => ({ wavelengthNm, intensity }))
-        : undefined
-      const snapshot = spectrum ? {
-        ...message.snapshot,
-        measurements: { ...message.snapshot.measurements, spectrum },
-      } : message.snapshot
-      if (spectrum) pendingSpectrum = undefined
-      onSnapshot(snapshot)
-    }
+  const subscriptionId = `${view}-${crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`
+  const webView2Host = getWebView2Host()
+  let active = true
+
+  const dispatch = (message: BackendSnapshotStreamMessage) => {
+    if (!active) return
+    if (message.snapshot) onSnapshot(message.snapshot)
     if (message.error) onError(message.error)
   }
-  const generation = await invoke<number>("bridge_subscribe", { view, onEvent: channel })
+
+  const acceptEnvelope = (value: unknown) => {
+    if (!value || typeof value !== "object") return
+    const envelope = value as BackendSnapshotStreamEnvelope
+    if (envelope.__arpSnapshotStream !== subscriptionId || !envelope.message) return
+    dispatch(envelope.message)
+  }
+
+  const handleWebView2Message = (event: { data: unknown }) => acceptEnvelope(event.data)
+  webView2Host?.addEventListener("message", handleWebView2Message)
+
+  const channel = webView2Host ? undefined : new Channel<BackendSnapshotStreamEnvelope>()
+  if (channel) channel.onmessage = acceptEnvelope
+
+  let generation: number
+  try {
+    generation = await invoke<number>("bridge_subscribe", {
+      view,
+      subscriptionId,
+      ...(channel ? { onEvent: channel } : {}),
+    })
+  } catch (reason) {
+    active = false
+    webView2Host?.removeEventListener("message", handleWebView2Message)
+    if (channel) channel.onmessage = () => undefined
+    throw reason
+  }
+
   return async () => {
+    active = false
+    webView2Host?.removeEventListener("message", handleWebView2Message)
+    if (channel) channel.onmessage = () => undefined
     await invoke("bridge_unsubscribe", { generation })
-    void channel.id
   }
 }
 

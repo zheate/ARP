@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 import { fetchBackendSnapshot, mergeBackendSnapshot, sendBackendCommand, subscribeBackendSnapshots, type BackendSnapshot, type SeriesRevisions, type SnapshotView } from "@/lib/backend"
 
-// Acquisition remains device-owned; the Tauri channel streams compact snapshots
-// without allocating a new command callback for every UI refresh.
+// Acquisition remains device-owned; the native WebView2 bridge streams compact
+// snapshots without allocating a new command callback for every UI refresh.
 const DEMO_PREVIEW_ENABLED = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("demo") === "1"
+const WEBVIEW_GC_INTERVAL_MS = 30_000
 
 const DEMO_SPECTRUM = [
   { wavelengthNm: 972, intensity: 180 },
@@ -119,6 +120,13 @@ export function useBackendSnapshot(view: SnapshotView) {
   useEffect(() => {
     mountedRef.current = true
     return () => { mountedRef.current = false }
+  }, [])
+
+  useEffect(() => {
+    const collectGarbage = (globalThis as typeof globalThis & { gc?: () => void }).gc
+    if (typeof collectGarbage !== "function") return
+    const timer = window.setInterval(() => collectGarbage(), WEBVIEW_GC_INTERVAL_MS)
+    return () => window.clearInterval(timer)
   }, [])
 
   const loadSnapshot = useCallback(async (showLoading: boolean, requestedView: SnapshotView) => {
