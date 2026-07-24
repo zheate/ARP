@@ -9,7 +9,7 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::{State, Webview};
+use tauri::{Manager, State, Webview};
 
 #[cfg(windows)]
 use windows_core::PCWSTR;
@@ -513,7 +513,16 @@ async fn bridge_disconnect(state: State<'_, BridgeState>) -> Result<(), String> 
 pub fn run() {
     tauri::Builder::default()
         .manage(BridgeState::default())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                window
+                    .set_zoom(1.0)
+                    .map_err(|error| format!("无法初始化 WebView2 页面缩放：{error}"))?;
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             bridge_snapshot,
             bridge_request,

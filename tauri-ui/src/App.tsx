@@ -4,11 +4,14 @@ import {
   ChevronDown,
   CircleGauge,
   Download,
+  FileText,
+  FolderOpen,
   Gauge,
   LoaderCircle,
   OctagonAlert,
   Play,
   Power,
+  Plus,
   Radio,
   RefreshCw,
   RotateCcw,
@@ -17,6 +20,9 @@ import {
   Square,
   X,
 } from "lucide-react"
+import { open as openDialog } from "@tauri-apps/plugin-dialog"
+import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener"
+import { getCurrentWebview } from "@tauri-apps/api/webview"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { CanvasLineChart, type CanvasChartAnnotation, type CanvasChartLine } from "@/components/canvas-line-chart"
@@ -26,15 +32,16 @@ import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { useBackendSnapshot } from "@/hooks/use-backend-snapshot"
-import type { AppConfiguration, BackendSnapshot, DeviceSnapshot } from "@/lib/backend"
+import { sendBackendRequest, type AppConfiguration, type BackendSnapshot, type DeviceSnapshot, type ShippingReportFieldDefinition, type ShippingReportGenerationResult, type ShippingReportPointSuggestion, type ShippingReportPreviewResult, type ShippingReportType, type ShippingWorkbookInspection, type SpectrumAxisMode } from "@/lib/backend"
 
-type Page = "automatic" | "manual" | "pd"
+type Page = "automatic" | "manual" | "pd" | "shipping"
 
 const CH341_CURRENT_LIMIT_A = 20
 const POWER_PLOT_HISTORY_S = 60
 const POWER_TIME_TICK_INTERVAL_S = 10
 const PD_PLOT_HISTORY_S = 60
 const PD_TIME_TICK_INTERVAL_S = 10
+const SHIPPING_PRODUCT_NAME_STORAGE_KEY = "power-test.shipping-report.product-name"
 const PLM_CHART_SERIES = {
   clay: "#d97957",
   tan: "#d5a98b",
@@ -47,9 +54,12 @@ const navigation = [
   { id: "automatic" as const, label: "自动测试", icon: CircleGauge },
   { id: "manual" as const, label: "详细配置", icon: SlidersHorizontal },
   { id: "pd" as const, label: "PD 采集", icon: BarChart3 },
+  { id: "shipping" as const, label: "出货报告", icon: FileText },
 ]
 
-const pageShortcuts: Page[] = ["automatic", "manual", "pd"]
+const pageShortcuts: Page[] = ["automatic", "manual", "pd", "shipping"]
+const AUTOMATIC_LAYOUT_MIN_WIDTH = 1168
+const MIN_STARTUP_ZOOM = 0.67
 
 const emptyConfig: AppConfiguration = {
   sn: "",
@@ -650,13 +660,31 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
 
 function App() {
   const [page, setPage] = useState<Page>("automatic")
-  const { snapshot, error, loading, commandPending, pendingCommand, refresh, command } = useBackendSnapshot(page)
+  const snapshotView = page === "shipping" ? "pd" : page
+  const { snapshot, error, loading, commandPending, pendingCommand, refresh, command } = useBackendSnapshot(snapshotView)
   const [config, setConfig] = useState<AppConfiguration>(emptyConfig)
   const [dirty, setDirty] = useState(false)
-  const pageScrollPositionsRef = useRef<Record<Page, number>>({ automatic: 0, manual: 0, pd: 0 })
+  const pageScrollPositionsRef = useRef<Record<Page, number>>({ automatic: 0, manual: 0, pd: 0, shipping: 0 })
   const active = snapshot?.backend.mode === "active"
   const automaticWorkflowActive = Boolean(snapshot && !["idle", "completed"].includes(snapshot.automaticTest.state))
   const automaticInteractionLocked = automaticWorkflowActive || pendingCommand === "automatic.start"
+
+  useEffect(() => {
+    let cancelled = false
+    const fitInitialZoom = async () => {
+      const webview = getCurrentWebview()
+      // Clear any zoom retained by WebView2 before measuring the real viewport.
+      await webview.setZoom(1)
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
+      const viewportWidth = window.innerWidth
+      const zoom = viewportWidth < AUTOMATIC_LAYOUT_MIN_WIDTH
+        ? Math.max(MIN_STARTUP_ZOOM, viewportWidth / AUTOMATIC_LAYOUT_MIN_WIDTH)
+        : 1
+      if (!cancelled && zoom < 1) await webview.setZoom(zoom)
+    }
+    void fitInitialZoom().catch((error) => console.error("无法初始化 WebView2 页面缩放", error))
+    return () => { cancelled = true }
+  }, [])
 
   const changePage = useCallback((nextPage: Page) => {
     if (nextPage === page) return
@@ -787,6 +815,7 @@ function App() {
             {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={active} controlsLocked={automaticInteractionLocked} pending={commandPending} readyCount={devicesReady} readyTotal={requiredDevices} progress={progress} run={run} saveConfiguration={saveConfiguration} />}
             {page === "manual" && <ManualPage snapshot={snapshot} config={config} update={update} active={active} pending={commandPending} run={run} />}
             {page === "pd" && <PdPage snapshot={snapshot} active={active} pending={commandPending} run={run} />}
+            {page === "shipping" && <ShippingReportPage active={active} controlsLocked={automaticInteractionLocked} pending={commandPending} />}
           </div>
         </main>
       </div>
@@ -814,6 +843,349 @@ function updatePowerSupplyKind(config: AppConfiguration, update: UpdateConfig, k
   update("rampDownStepA", Math.min(config.rampDownStepA, CH341_CURRENT_LIMIT_A))
 }
 
+type ShippingFieldState = Record<string, { include: boolean; value: string }>
+
+function shippingSuggestedValue(point: ShippingReportPointSuggestion | undefined, measuredKey?: string | null): string {
+  if (!point || !measuredKey) return ""
+  const value = (point as unknown as Record<string, unknown>)[measuredKey]
+  if (typeof value !== "number" || !Number.isFinite(value)) return ""
+  if (measuredKey === "currentA") return String(value)
+  if (measuredKey === "powerW") return value.toFixed(1)
+  if (measuredKey === "voltageV" || measuredKey === "efficiencyPercent") return value.toFixed(2)
+  return value.toFixed(3).replace(/\.?0+$/, "")
+}
+
+function shippingDefaultOutputDirectory(sourcePath: string): string {
+  const separatorIndex = Math.max(sourcePath.lastIndexOf("/"), sourcePath.lastIndexOf("\\"))
+  return separatorIndex >= 0 ? sourcePath.slice(0, separatorIndex) : ""
+}
+
+function shippingOutputFilePath(outputDirectory: string, sn: string): string {
+  const trimmedDirectory = outputDirectory.trim()
+  if (!trimmedDirectory) return ""
+  const directory = trimmedDirectory.replace(/[\\/]+$/, "") || trimmedDirectory
+  const separator = directory.includes("\\") ? "\\" : "/"
+  const safeSn = (sn.trim() || "出货报告").replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
+  return `${directory}${directory.endsWith("/") || directory.endsWith("\\") ? "" : separator}${safeSn}_出货报告.pdf`
+}
+
+function getStoredShippingProductName(): string {
+  try {
+    return window.localStorage.getItem(SHIPPING_PRODUCT_NAME_STORAGE_KEY) ?? ""
+  } catch {
+    return ""
+  }
+}
+
+function storeShippingProductName(value: string): void {
+  try {
+    if (value.trim()) window.localStorage.setItem(SHIPPING_PRODUCT_NAME_STORAGE_KEY, value)
+    else window.localStorage.removeItem(SHIPPING_PRODUCT_NAME_STORAGE_KEY)
+  } catch {
+    // Local storage may be unavailable in restricted WebView environments.
+  }
+}
+
+function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
+  const [inspection, setInspection] = useState<ShippingWorkbookInspection | null>(null)
+  const [reportType, setReportType] = useState<ShippingReportType>("pole")
+  const [productName, setProductName] = useState(getStoredShippingProductName)
+  const [sn, setSn] = useState("")
+  const [operatingCurrentA, setOperatingCurrentA] = useState(0)
+  const [fields, setFields] = useState<ShippingFieldState>({})
+  const [customFields, setCustomFields] = useState<ShippingReportFieldDefinition[]>([])
+  const [axisMode, setAxisMode] = useState<SpectrumAxisMode>("relative_db")
+  const [axisMinimum, setAxisMinimum] = useState(-80)
+  const [axisMaximum, setAxisMaximum] = useState(0)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
+  const [lastOutputPath, setLastOutputPath] = useState("")
+  const [previewPages, setPreviewPages] = useState<string[]>([])
+  const [previewBusy, setPreviewBusy] = useState(false)
+  const [previewError, setPreviewError] = useState("")
+  const [sourcePath, setSourcePath] = useState("")
+  const [outputDirectory, setOutputDirectory] = useState("")
+  const previewRequestRef = useRef(0)
+
+  const initializeFields = useCallback((nextInspection: ShippingWorkbookInspection, nextType: ShippingReportType, currentA: number) => {
+    const point = nextInspection.points.find((item) => Math.abs(item.currentA - currentA) < 1e-9)
+    const preference = nextInspection.preferences[nextType] ?? { selectedFields: [], manualValues: {}, customFields: [] }
+    const selected = new Set(preference.selectedFields)
+    const nextCustomFields = preference.customFields ?? []
+    const nextDefinitions = [...nextInspection.fieldDefinitions[nextType], ...nextCustomFields]
+    const nextFields = Object.fromEntries(nextDefinitions.map((definition) => [
+      definition.key,
+      {
+        include: selected.has(definition.key),
+        value: definition.measuredKey
+          ? shippingSuggestedValue(point, definition.measuredKey)
+          : preference.manualValues[definition.key] ?? "",
+      },
+    ]))
+    setFields(nextFields)
+    setCustomFields(nextCustomFields)
+    if (nextType === "spectrum") {
+      const axis = preference.spectrumAxis ?? { mode: "relative_db" as const, minimum: -80, maximum: 0 }
+      setAxisMode(axis.mode)
+      setAxisMinimum(axis.minimum)
+      setAxisMaximum(axis.maximum)
+    }
+  }, [])
+
+  const chooseSourcePath = async () => {
+    if (disabled || busy) return
+    try {
+      const selected = await openDialog({
+        multiple: false,
+        directory: false,
+        title: "选择出货报告测试数据",
+        filters: [{ name: "Excel 测试文件", extensions: ["xlsx"] }],
+      })
+      if (typeof selected !== "string") return
+      setSourcePath(selected)
+      setOutputDirectory(shippingDefaultOutputDirectory(selected))
+      setError("")
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    }
+  }
+
+  const chooseOutputDirectory = async () => {
+    if (disabled || busy) return
+    try {
+      const selected = await openDialog({
+        multiple: false,
+        directory: true,
+        title: "选择出货报告保存文件夹",
+      })
+      if (typeof selected === "string") {
+        setOutputDirectory(selected)
+        setError("")
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    }
+  }
+
+  const configureReport = async () => {
+    if (disabled || busy) return
+    const nextSourcePath = sourcePath.trim()
+    const nextOutputDirectory = outputDirectory.trim()
+    if (!nextSourcePath) {
+      setError("请选择 Excel 测试数据路径")
+      return
+    }
+    if (!nextOutputDirectory) {
+      setError("请选择本地 PDF 保存文件夹")
+      return
+    }
+    setError("")
+    setPreviewPages([])
+    setPreviewError("")
+    try {
+      setBusy(true)
+      const result = await sendBackendRequest<ShippingWorkbookInspection>("shippingReport.inspect", { path: nextSourcePath })
+      if (result.compatibility.kind === "rejected") throw new Error(result.compatibility.message)
+      const nextType: ShippingReportType = result.allowedReportTypes.includes("spectrum") ? "spectrum" : "pole"
+      const currentA = result.currents[result.currents.length - 1] ?? 0
+      setInspection(result)
+      setReportType(nextType)
+      setProductName((current) => current.trim() || result.productName)
+      setSn(result.sn)
+      setOperatingCurrentA(currentA)
+      initializeFields(result, nextType, currentA)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const changeReportType = (nextType: ShippingReportType) => {
+    if (!inspection) return
+    setReportType(nextType)
+    initializeFields(inspection, nextType, operatingCurrentA)
+    setError("")
+  }
+
+  const changeProductName = (value: string) => {
+    setProductName(value)
+    storeShippingProductName(value)
+  }
+
+  const changeOperatingCurrent = (currentA: number) => {
+    if (!inspection) return
+    setOperatingCurrentA(currentA)
+    const point = inspection.points.find((item) => Math.abs(item.currentA - currentA) < 1e-9)
+    const measuredKeys = new Map(inspection.fieldDefinitions[reportType].filter((item) => item.measuredKey).map((item) => [item.key, item.measuredKey]))
+    setFields((previous) => Object.fromEntries(Object.entries(previous).map(([key, state]) => [
+      key,
+      measuredKeys.has(key) ? { ...state, value: shippingSuggestedValue(point, measuredKeys.get(key)) } : state,
+    ])))
+  }
+
+  const addCustomField = () => {
+    const key = `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const definition: ShippingReportFieldDefinition = {
+      key,
+      label: "新参数",
+      unit: "",
+      side: reportType === "spectrum" ? "left" : "single",
+    }
+    setCustomFields((previous) => [...previous, definition])
+    setFields((previous) => ({ ...previous, [key]: { include: true, value: "" } }))
+  }
+
+  const updateCustomField = (key: string, patch: Partial<Pick<ShippingReportFieldDefinition, "label" | "unit">>) => {
+    setCustomFields((previous) => previous.map((field) => field.key === key ? { ...field, ...patch } : field))
+  }
+
+  const removeCustomField = (key: string) => {
+    setCustomFields((previous) => previous.filter((field) => field.key !== key))
+    setFields((previous) => {
+      const next = { ...previous }
+      delete next[key]
+      return next
+    })
+  }
+
+  const generate = async () => {
+    if (!inspection || busy) return
+    setError("")
+    try {
+      const targetPath = shippingOutputFilePath(outputDirectory, sn)
+      if (!targetPath) throw new Error("请选择本地 PDF 保存文件夹")
+      setBusy(true)
+      const result = await sendBackendRequest<ShippingReportGenerationResult>("shippingReport.generate", {
+        sourcePath: inspection.sourcePath,
+        outputPath: targetPath,
+        reportType,
+        productName,
+        sn,
+        operatingCurrentA,
+        fields,
+        customFields,
+        legacyCompletionConfirmed: true,
+        ...(reportType === "spectrum" ? { spectrumAxis: { mode: axisMode, minimum: axisMinimum, maximum: axisMaximum } } : {}),
+      })
+      setLastOutputPath(result.outputPath)
+      setInspection(null)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!inspection) return
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !busy) setInspection(null)
+    }
+    window.addEventListener("keydown", handleKey)
+    return () => window.removeEventListener("keydown", handleKey)
+  }, [inspection, busy])
+
+  useEffect(() => {
+    if (!inspection || busy) {
+      setPreviewBusy(false)
+      return
+    }
+    let cancelled = false
+    const requestId = ++previewRequestRef.current
+    setPreviewBusy(true)
+    const timer = window.setTimeout(() => {
+      if (cancelled) return
+      void sendBackendRequest<ShippingReportPreviewResult>("shippingReport.preview", {
+        sourcePath: inspection.sourcePath,
+        reportType,
+        productName,
+        sn,
+        operatingCurrentA,
+        fields,
+        customFields,
+        legacyCompletionConfirmed: true,
+        ...(reportType === "spectrum" ? { spectrumAxis: { mode: axisMode, minimum: axisMinimum, maximum: axisMaximum } } : {}),
+      })
+        .then((result) => {
+          if (cancelled || requestId !== previewRequestRef.current) return
+          setPreviewPages(result.pages)
+          setPreviewError("")
+        })
+        .catch((reason: unknown) => {
+          if (cancelled || requestId !== previewRequestRef.current) return
+          setPreviewError(reason instanceof Error ? reason.message : String(reason))
+        })
+        .finally(() => {
+          if (!cancelled && requestId === previewRequestRef.current) setPreviewBusy(false)
+        })
+    }, 500)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [axisMaximum, axisMinimum, axisMode, busy, customFields, fields, inspection, operatingCurrentA, productName, reportType, sn])
+
+  const definitions: ShippingReportFieldDefinition[] = inspection ? [...inspection.fieldDefinitions[reportType], ...customFields] : []
+  const outputPath = shippingOutputFilePath(outputDirectory, sn)
+  return (
+    <>
+      <div className="grid gap-4">
+        <Field label="Excel 测试数据路径">
+          <div className="flex min-w-0 gap-2">
+            <Input aria-label="Excel 测试数据路径" disabled={disabled || busy} onChange={(event) => { setSourcePath(event.target.value); setError("") }} placeholder="选择自动测试生成的 .xlsx 文件" value={sourcePath} />
+            <Button className="shrink-0" disabled={disabled || busy} onClick={() => void chooseSourcePath()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />浏览</Button>
+          </div>
+        </Field>
+        <Field label="本地 PDF 保存文件夹">
+          <div className="flex min-w-0 gap-2">
+            <Input aria-label="本地 PDF 保存文件夹" disabled={disabled || busy} onChange={(event) => { setOutputDirectory(event.target.value); setError("") }} placeholder="选择 PDF 保存文件夹，文件名将自动生成" value={outputDirectory} />
+            <Button className="shrink-0" disabled={disabled || busy} onClick={() => void chooseOutputDirectory()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />选择文件夹</Button>
+          </div>
+        </Field>
+      </div>
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+        <div className="min-w-0 text-xs text-muted-foreground">
+          {error && <p className="font-medium text-destructive">{error}</p>}
+          {lastOutputPath && <div className="flex min-w-0 flex-wrap items-center gap-2"><span className="max-w-[520px] truncate">已生成：{lastOutputPath}</span><Button onClick={() => void openPath(lastOutputPath)} size="sm" variant="outline"><FileText className="size-3.5" />打开 PDF</Button><Button onClick={() => void revealItemInDir(lastOutputPath)} size="sm" variant="outline"><FolderOpen className="size-3.5" />打开文件夹</Button></div>}
+          {!error && !lastOutputPath && <p>填写两个本地路径后，可配置报告参数并预览 PDF。</p>}
+        </div>
+        <Button disabled={disabled || busy} onClick={() => void configureReport()}><FileText className="size-4" />{busy && !inspection ? "正在读取…" : "配置报告"}</Button>
+      </div>
+      {inspection && <section aria-labelledby="shipping-report-title" className="mt-6 border-t border-border pt-6">
+          <div className="mb-5 flex items-start justify-between gap-4"><div><h2 className="text-base font-semibold" id="shipping-report-title">生成出货报告</h2><p className="mt-1 max-w-2xl truncate text-xs text-muted-foreground">{inspection.sourcePath}</p></div><button aria-label="收起报告配置" className="rounded-md p-1.5 text-muted-foreground hover:bg-muted" disabled={busy} onClick={() => setInspection(null)} type="button"><X className="size-4" /></button></div>
+            <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(365px,0.95fr)]">
+              <div className="min-w-0">
+                <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2">
+                  <Field label="报告类型"><NativeSelect value={reportType} onChange={(value) => changeReportType(value as ShippingReportType)}>{inspection.allowedReportTypes.includes("spectrum") && <option value="spectrum">含光谱测试报告</option>}<option value="pole">Pole 无光谱测试报告</option></NativeSelect></Field>
+                  <Field label="工作电流点"><NativeSelect value={String(operatingCurrentA)} onChange={(value) => changeOperatingCurrent(Number(value))}>{inspection.currents.map((current) => <option key={current} value={String(current)}>{Number.isInteger(current) ? current.toFixed(0) : String(current)} A</option>)}</NativeSelect></Field>
+                  <Field label="产品名称"><Input value={productName} onChange={(event) => changeProductName(event.target.value)} /></Field>
+                  <Field label="SN"><Input value={sn} onChange={(event) => setSn(event.target.value)} /></Field>
+                </div>
+                <Separator className="my-5" />
+                <div><div className="mb-3 flex items-end justify-between gap-4"><div><h3 className="text-sm font-semibold">报告参数</h3><p className="mt-1 text-xs text-muted-foreground">勾选需要出现在 PDF 中的参数；已勾选参数必须填写。</p></div><div className="flex shrink-0 items-center gap-3"><span className="text-xs text-muted-foreground">已选 {Object.values(fields).filter((item) => item.include).length} 项</span><Button disabled={busy} onClick={addCustomField} size="sm" type="button" variant="outline"><Plus className="size-3.5" />手动增加参数</Button></div></div>
+                  <div className="grid grid-cols-1 gap-x-6 gap-y-3 2xl:grid-cols-2">{definitions.filter((definition) => !customFields.some((field) => field.key === definition.key)).map((definition) => { const state = fields[definition.key] ?? { include: false, value: "" }; return <div className="grid grid-cols-[minmax(150px,0.9fr)_minmax(110px,1fr)_52px] items-center gap-2" key={definition.key}><label className="flex items-center gap-2 text-sm"><input checked={state.include} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" /><span>{definition.label}</span></label><Input aria-label={`${definition.label}数值`} className="h-8" value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} /><span className="text-xs text-muted-foreground">{definition.unit || "-"}</span></div> })}
+                    {customFields.map((definition) => { const state = fields[definition.key] ?? { include: true, value: "" }; return <div className="col-span-1 grid grid-cols-[auto_minmax(130px,0.8fr)_minmax(110px,1fr)_minmax(60px,0.35fr)_auto] items-center gap-2 rounded-md border border-dashed border-border bg-muted/20 p-2 2xl:col-span-2" key={definition.key}><input aria-label={`选择${definition.label}`} checked={state.include} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" /><Input aria-label="自定义参数名称" className="h-8" placeholder="参数名称" value={definition.label} onChange={(event) => updateCustomField(definition.key, { label: event.target.value })} /><Input aria-label={`${definition.label}数值`} className="h-8" placeholder="参数值" value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} /><Input aria-label={`${definition.label}单位`} className="h-8" placeholder="单位" value={definition.unit} onChange={(event) => updateCustomField(definition.key, { unit: event.target.value })} /><button aria-label={`删除${definition.label}`} className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => removeCustomField(definition.key)} type="button"><X className="size-4" /></button></div> })}
+                  </div>
+                </div>
+                {reportType === "spectrum" && <><Separator className="my-5" /><div><h3 className="text-sm font-semibold">光谱纵轴</h3><div className="mt-3 grid grid-cols-3 gap-4"><Field label="单位"><NativeSelect value={axisMode} onChange={(value) => setAxisMode(value as SpectrumAxisMode)}><option value="relative_db">相对强度 (dB)</option><option value="counts">原始强度 (counts)</option></NativeSelect></Field><NumberField label="下限" value={axisMinimum} onChange={setAxisMinimum} step="1" /><NumberField label="上限" value={axisMaximum} onChange={setAxisMaximum} step="1" /></div></div></>}
+                {error && <p className="mt-4 rounded-md bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">{error}</p>}
+              </div>
+              <aside aria-labelledby="shipping-report-preview-title" className="min-w-0 border-t border-border pt-5 lg:sticky lg:top-[88px] lg:self-start lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
+                <div className="flex items-start justify-between gap-3">
+                  <div><h3 className="text-sm font-semibold" id="shipping-report-preview-title">实时预览</h3><p aria-live="polite" className="mt-1 text-xs text-muted-foreground">{previewBusy ? "正在更新预览…" : previewPages.length ? "与导出的 PDF 使用同一渲染器" : "填写完整后将自动生成预览"}</p></div>
+                  {previewBusy && <LoaderCircle aria-label="正在更新预览" className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />}
+                </div>
+                {previewError && <div className="mt-4 rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 text-xs text-amber-950"><p className="font-medium">当前输入暂无法预览</p><p className="mt-1 leading-relaxed">{previewError}</p></div>}
+                {previewPages.length > 0 ? <div className="mt-4 space-y-5">{previewPages.map((page, index) => <figure className="overflow-hidden rounded-sm border border-border bg-white shadow-sm" key={`${index}-${page.slice(-24)}`}><img alt={`出货报告预览，第 ${index + 1} 页`} className="block h-auto w-full" src={`data:image/png;base64,${page}`} /><figcaption className="border-t border-border bg-muted/30 px-3 py-1.5 text-center text-[11px] text-muted-foreground">第 {index + 1} 页</figcaption></figure>)}</div> : !previewError && !previewBusy && <div className="mt-4 grid min-h-56 place-items-center border border-dashed border-border bg-muted/20 px-6 text-center text-xs text-muted-foreground"><div><FileText className="mx-auto mb-2 size-5 opacity-60" /><p>正在准备报告预览</p></div></div>}
+              </aside>
+            </div>
+          <div className="mt-6 flex items-center justify-between gap-3 border-t border-border pt-4"><p className="max-w-[60%] truncate text-xs text-muted-foreground" title={outputPath}>将保存至：{outputPath}</p><div className="flex gap-2"><Button disabled={busy} onClick={() => setInspection(null)} variant="outline">取消</Button><Button disabled={busy} onClick={() => void generate()}>{busy ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}{busy ? "正在生成…" : "生成 PDF"}</Button></div></div>
+      </section>}
+    </>
+  )
+}
+
 function AutomaticPage({ snapshot, config, update, active, controlsLocked, pending, readyCount, readyTotal, progress, run, saveConfiguration }: {
   snapshot: BackendSnapshot | null; config: AppConfiguration; update: UpdateConfig; active: boolean; controlsLocked: boolean; pending: boolean; readyCount: number; readyTotal: number; progress: number; run: RunCommand; saveConfiguration: () => Promise<void>
 }) {
@@ -834,8 +1206,8 @@ function AutomaticPage({ snapshot, config, update, active, controlsLocked, pendi
         <DeviceCard title="光谱仪" icon={<Radio className="size-5" />} device={snapshot?.devices.spectrometer} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("spectrometer")} />
       </section>
       {openSettings && <DeviceSettingsDialog active={active} config={config} kind={openSettings} onClose={closeSettings} onSave={saveConfiguration} open pending={pending} run={run} snapshot={snapshot} update={update} />}
-      <section className="grid grid-cols-[minmax(360px,0.9fr)_minmax(520px,1.35fr)] gap-4">
-        <Card className="shadow-none">
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(360px,0.9fr)_minmax(520px,1.35fr)]">
+        <Card className="min-w-0 shadow-none">
           <CardContent className="grid grid-cols-2 gap-x-4 gap-y-5 pb-6">
             <Field label="输出目录" className="col-span-2"><Input disabled={controlsLocked} value={config.outputDir} onChange={(e) => update("outputDir", e.target.value)} /></Field>
             <Field label="壳体 SN"><Input disabled={controlsLocked} value={config.sn} onChange={(e) => update("sn", e.target.value)} /></Field>
@@ -858,7 +1230,7 @@ function AutomaticPage({ snapshot, config, update, active, controlsLocked, pendi
             </div>
           </CardContent>
         </Card>
-        <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_minmax(0,1fr)] gap-4">
+        <div className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)_minmax(0,1fr)] gap-4">
           <Card className="shadow-none">
             <CardContent className="grid grid-cols-[1fr_auto] items-center gap-4 py-4">
               <div><div className="flex items-center gap-2"><StatusDot state={auto?.state === "paused" ? "error" : running ? "connected" : "disconnected"} /><b className="text-sm">{auto?.detail || "未开始"}</b></div><Progress className="mt-3 h-2" value={progress} /><p className="mt-2 text-xs text-muted-foreground">测试点 {Math.max(0, (auto?.currentIndex ?? -1) + 1)} / {auto?.currents?.length ?? 0}</p></div>
@@ -872,6 +1244,20 @@ function AutomaticPage({ snapshot, config, update, active, controlsLocked, pendi
         </div>
       </section>
     </>
+  )
+}
+
+function ShippingReportPage({ active, controlsLocked, pending }: { active: boolean; controlsLocked: boolean; pending: boolean }) {
+  return (
+    <Card className="shadow-none">
+      <CardHeader>
+        <CardTitle className="text-base">出货报告</CardTitle>
+        <CardDescription>填写测试 Excel 和本地 PDF 保存文件夹，再配置报告参数并导出。</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <ShippingReportWorkflow disabled={!active || controlsLocked || pending} />
+      </CardContent>
+    </Card>
   )
 }
 

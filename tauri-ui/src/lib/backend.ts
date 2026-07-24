@@ -194,6 +194,64 @@ export async function fetchBackendSnapshot(view: SnapshotView, since?: SeriesRev
   })
 }
 
+export type ShippingReportType = "spectrum" | "pole"
+export type SpectrumAxisMode = "counts" | "relative_db"
+
+export interface ShippingReportFieldDefinition {
+  key: string
+  label: string
+  unit: string
+  side: "left" | "right" | "single"
+  measuredKey?: string | null
+}
+
+export interface ShippingReportPointSuggestion {
+  currentA: number
+  voltageV: number
+  powerW: number
+  efficiencyPercent: number
+  peakWavelengthNm?: number | null
+  centroidNm?: number | null
+  fwhmNm?: number | null
+  pibPercent?: number | null
+  smsrDb?: number | null
+  hasSpectrum: boolean
+}
+
+export interface ShippingReportPreferences {
+  selectedFields: string[]
+  manualValues: Record<string, string>
+  customFields: ShippingReportFieldDefinition[]
+  spectrumAxis?: { mode: SpectrumAxisMode; minimum: number; maximum: number }
+}
+
+export interface ShippingWorkbookInspection {
+  sourcePath: string
+  schemaVersion: string
+  sn: string
+  productName: string
+  currents: number[]
+  points: ShippingReportPointSuggestion[]
+  spectrumComplete: boolean
+  allowedReportTypes: ShippingReportType[]
+  compatibility: {
+    kind: "verified_success" | "legacy_needs_confirmation" | "rejected"
+    status: string
+    message: string
+    requiresLegacyConfirmation: boolean
+  }
+  fieldDefinitions: Record<ShippingReportType, ShippingReportFieldDefinition[]>
+  preferences: Record<ShippingReportType, ShippingReportPreferences>
+}
+
+export interface ShippingReportGenerationResult {
+  outputPath: string
+}
+
+export interface ShippingReportPreviewResult {
+  pages: string[]
+}
+
 type BackendSnapshotStreamMessage = {
   snapshot?: BackendSnapshotPatch
   error?: string
@@ -268,6 +326,13 @@ export async function sendBackendCommand(
   method: string,
   params: Record<string, unknown> = {},
 ): Promise<BackendSnapshot> {
+  return sendBackendRequest<BackendSnapshot>(method, params)
+}
+
+export async function sendBackendRequest<T>(
+  method: string,
+  params: Record<string, unknown> = {},
+): Promise<T> {
   ensureTauri()
-  return invoke<BackendSnapshot>("bridge_request", { method, params })
+  return invoke<T>("bridge_request", { method, params })
 }

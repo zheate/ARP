@@ -26,6 +26,7 @@ RESULT_HEADERS = (
     "PIB",
     "SMSR(dB)",
 )
+EXPORT_WORKBOOK_SCHEMA_VERSION = "1"
 INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
@@ -121,6 +122,7 @@ def _write_test_station(sheet: Worksheet, test_station: str) -> None:
 def _write_session_information(workbook: Workbook, session: Any) -> None:
     sheet = workbook.create_sheet("会话信息")
     rows = (
+        ("出货报告格式版本", EXPORT_WORKBOOK_SCHEMA_VERSION),
         ("会话编号", getattr(session, "session_id", "")),
         ("SN", getattr(session, "sn", "")),
         ("产品型号", getattr(session, "product_model", "")),

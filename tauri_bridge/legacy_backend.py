@@ -15,6 +15,14 @@ from typing import Any, Callable
 
 from combined_test.spectrum_math import calculate_smsr
 from combined_test.spectrum import find_spectrum_peak_annotations
+from combined_test.shipping_report import (
+    ShippingReportRequest,
+    generate_shipping_report,
+    inspect_shipping_workbook,
+    load_shipping_report_preferences,
+    render_shipping_report_preview,
+    save_shipping_report_preferences,
+)
 
 
 def _enum_value(value: Any) -> Any:
@@ -334,7 +342,7 @@ class LegacyWindowBackend:
         return {"status": "ok", "mode": self.mode}
 
     def dispatch(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
-        actions: dict[str, Callable[[dict[str, Any]], None]] = {
+        actions: dict[str, Callable[[dict[str, Any]], Any]] = {
             "app.configure": self._configure,
             "device.refresh": self._refresh_device,
             "powerSupply.connect": lambda _p: self._set_power_supply_connected(True),
@@ -353,6 +361,9 @@ class LegacyWindowBackend:
             "automatic.retry": lambda _p: self.window.retry_automatic_test(),
             "automatic.end": lambda _p: self.window.end_automatic_test(),
             "automatic.reset": lambda _p: self.window.reset_automatic_test(),
+            "shippingReport.inspect": self._inspect_shipping_report,
+            "shippingReport.preview": self._preview_shipping_report,
+            "shippingReport.generate": self._generate_shipping_report,
             "pd.refresh": lambda _p: self.window.pd_panel.refresh_devices(),
             "pd.configure": self._configure_pd,
             "pd.start": self._start_pd,
@@ -365,9 +376,10 @@ class LegacyWindowBackend:
         if action is None:
             raise KeyError(method)
         self.notices.clear()
-        action(params)
-        self.window.save_input_settings()
-        return self.snapshot()
+        result = action(params)
+        if method != "shippingReport.preview":
+            self.window.save_input_settings()
+        return self.snapshot() if result is None else result
 
     @staticmethod
     def _set_combo_data(combo: Any, value: Any) -> None:
@@ -534,6 +546,36 @@ class LegacyWindowBackend:
         )
         self.window.statusBar().showMessage(f"光谱已保存：{path}")
         self.window.add_log(f"光谱 CSV 已保存：{path}")
+
+    def _inspect_shipping_report(self, params: dict[str, Any]) -> dict[str, Any]:
+        source_path = str(params.get("path", "")).strip()
+        if not source_path:
+            raise ValueError("请选择 Excel 测试文件")
+        inspection = inspect_shipping_workbook(source_path)
+        payload = inspection.to_payload()
+        payload["preferences"] = load_shipping_report_preferences(self.window.input_settings)
+        return payload
+
+    def _generate_shipping_report(self, params: dict[str, Any]) -> dict[str, Any]:
+        source_path = str(params.get("sourcePath", "")).strip()
+        output_path = str(params.get("outputPath", "")).strip()
+        if not source_path:
+            raise ValueError("请选择 Excel 测试文件")
+        if not output_path:
+            raise ValueError("请选择 PDF 保存位置")
+        request = ShippingReportRequest.from_mapping(params)
+        target = generate_shipping_report(source_path, output_path, request)
+        save_shipping_report_preferences(self.window.input_settings, request)
+        self.window.statusBar().showMessage(f"出货报告已生成：{target}")
+        self.window.add_log(f"出货报告已生成：{target}")
+        return {"outputPath": str(target)}
+
+    def _preview_shipping_report(self, params: dict[str, Any]) -> dict[str, Any]:
+        source_path = str(params.get("sourcePath", "")).strip()
+        if not source_path:
+            raise ValueError("请选择 Excel 测试文件")
+        request = ShippingReportRequest.from_mapping(params)
+        return {"pages": render_shipping_report_preview(source_path, request)}
 
     def _shutdown(self) -> None:
         """Apply the existing emergency boundary and flush acquisition threads."""

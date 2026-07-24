@@ -105,6 +105,12 @@ from .spectrum import (
 )
 from .excel_export import ExcelTestRecord, sanitize_sn
 from .spectrum_math import calculate_pib, calculate_smsr, calculate_stats
+from .shipping_report import (
+    generate_shipping_report,
+    inspect_shipping_workbook,
+    save_shipping_report_preferences,
+)
+from .shipping_report_dialog import ShippingReportConfigurationDialog
 from .tdk_power_supply import (
     TdkLambdaPowerSupply,
     compensate_tdk_output_voltage,
@@ -226,6 +232,7 @@ class MainWindow(QMainWindow):
         self.last_raw_output_voltage_v = math.nan
         self.excel_save_thread: ExcelSaveThread | None = None
         self._excel_export_retry_blocked = False
+        self._automatic_finalization_pending: tuple[ExcelTestRecord | None, str] | None = None
         self.automatic_orchestrator = AutomaticTestOrchestrator()
         self.automatic_controller = AutomaticTestController(
             self,
@@ -1005,6 +1012,10 @@ class MainWindow(QMainWindow):
         folder_label.setBuddy(self.output_dir_field)
         form.addRow(folder_label, path_row)
 
+        self.shipping_report_button = QPushButton("生成出货报告", self)
+        self.shipping_report_button.clicked.connect(self.generate_shipping_report_from_excel)
+        form.addRow("出货文件", self.shipping_report_button)
+
         parent.addWidget(group)
         self._reserve_group_height(group)
 
@@ -1263,12 +1274,15 @@ class MainWindow(QMainWindow):
         actions = QHBoxLayout()
         self.open_result_button = QPushButton("打开结果文件", self.automatic_result_page)
         self.open_result_folder_button = QPushButton("打开所在文件夹", self.automatic_result_page)
+        self.generate_result_report_button = QPushButton("生成出货报告", self.automatic_result_page)
         self.return_to_prepare_button = QPushButton("返回准备页", self.automatic_result_page)
         self.open_result_button.clicked.connect(self.open_result_file)
         self.open_result_folder_button.clicked.connect(self.open_result_folder)
+        self.generate_result_report_button.clicked.connect(self.generate_shipping_report_from_excel)
         self.return_to_prepare_button.clicked.connect(self.return_to_automatic_prepare)
         actions.addWidget(self.open_result_button)
         actions.addWidget(self.open_result_folder_button)
+        actions.addWidget(self.generate_result_report_button)
         actions.addStretch(1)
         actions.addWidget(self.return_to_prepare_button)
         layout.addLayout(actions)
@@ -2466,6 +2480,65 @@ class MainWindow(QMainWindow):
         if self.excel_workbook_path is not None and self.excel_workbook_path.is_file():
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.excel_workbook_path.parent)))
 
+    def generate_shipping_report_from_excel(self) -> None:
+        if self.automatic_test_state not in (
+            AutomaticTestState.IDLE,
+            AutomaticTestState.COMPLETED,
+        ):
+            QMessageBox.warning(self, "生成出货报告", "自动测试运行期间不能生成出货报告。")
+            return
+        initial_dir = self.output_dir_field.text().strip() or str(Path.cwd())
+        source_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择出货报告测试数据",
+            initial_dir,
+            "Excel 测试文件 (*.xlsx)",
+        )
+        if not source_path:
+            return
+        try:
+            inspection = inspect_shipping_workbook(source_path)
+        except ValueError as exc:
+            QMessageBox.warning(self, "生成出货报告", str(exc))
+            return
+        if inspection.compatibility.kind == "rejected":
+            QMessageBox.warning(self, "生成出货报告", inspection.compatibility.message)
+            return
+        dialog = ShippingReportConfigurationDialog(inspection, self.input_settings, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted or dialog.request is None:
+            return
+        request = dialog.request
+        safe_sn = sanitize_sn(request.sn)
+        default_path = inspection.source_path.with_name(f"{safe_sn}_出货报告.pdf")
+        output_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "保存出货报告",
+            str(default_path),
+            "PDF 文件 (*.pdf)",
+        )
+        if not output_path:
+            return
+        try:
+            target = generate_shipping_report(source_path, output_path, request)
+            save_shipping_report_preferences(self.input_settings, request)
+        except Exception as exc:
+            QMessageBox.critical(self, "生成出货报告", user_facing_error_message(exc))
+            return
+        self.statusBar().showMessage(f"出货报告已生成：{target}")
+        self.add_log(f"出货报告已生成：{target}")
+        confirmation = QMessageBox(self)
+        confirmation.setWindowTitle("出货报告已生成")
+        confirmation.setIcon(QMessageBox.Icon.Information)
+        confirmation.setText(f"PDF 已保存：\n{target}")
+        open_pdf_button = confirmation.addButton("打开 PDF", QMessageBox.ButtonRole.AcceptRole)
+        open_folder_button = confirmation.addButton("打开文件夹", QMessageBox.ButtonRole.ActionRole)
+        confirmation.addButton("关闭", QMessageBox.ButtonRole.RejectRole)
+        confirmation.exec()
+        if confirmation.clickedButton() is open_pdf_button:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(target)))
+        elif confirmation.clickedButton() is open_folder_button:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(target.parent)))
+
     def _build_log_panel(self, parent: QVBoxLayout) -> None:
         group = QGroupBox("日志", self)
         layout = QHBoxLayout(group)
@@ -3517,6 +3590,36 @@ class MainWindow(QMainWindow):
         self.add_log(f"正在后台保存 {len(records_snapshot)} 个测试点")
         self.excel_save_thread.start()
 
+    def finalize_automatic_session_workbook(
+        self,
+        completion_record: ExcelTestRecord | None,
+        completed_message: str,
+    ) -> bool:
+        """Rewrite the workbook once so its terminal session status is durable."""
+        if self.excel_save_thread is not None or self.excel_workbook_path is None:
+            return False
+        records_snapshot = list(self.record_store.snapshot())
+        session = self.record_store.current_session
+        if not records_snapshot or session is None or not self.excel_workbook_path.is_file():
+            return False
+        attempts = self.record_store.list_attempts(session.session_id)
+        self._automatic_finalization_pending = (completion_record, completed_message)
+        self.excel_save_thread = ExcelSaveThread(
+            self.excel_workbook_path,
+            records_snapshot,
+            self,
+            session=session,
+            attempts=attempts,
+        )
+        self.excel_save_thread.saved.connect(self.on_excel_save_succeeded)
+        self.excel_save_thread.failed.connect(self.on_excel_save_failed)
+        self.excel_save_thread.finished.connect(self.on_excel_save_finished)
+        self.save_excel_button.setEnabled(False)
+        self.save_excel_button.setText("保存中…")
+        self.save_status_label.setText("正在写入最终测试状态…")
+        self.excel_save_thread.start()
+        return True
+
     def on_excel_save_succeeded(self, elapsed_s: float) -> None:
         thread = self.excel_save_thread
         if thread is None:
@@ -3538,13 +3641,31 @@ class MainWindow(QMainWindow):
             self.save_status_label.setText(f"已在 {elapsed_s:.2f} 秒内保存：{thread.path.name}")
         self.statusBar().showMessage(f"Excel 已在 {elapsed_s:.2f} 秒内保存：{thread.path.name}")
         self.add_log(f"Excel 已在 {elapsed_s:.2f} 秒内保存：{thread.path}")
-        self.automatic_controller.on_record_saved()
+        pending_finalization = self._automatic_finalization_pending
+        if pending_finalization is not None:
+            self._automatic_finalization_pending = None
+            completion_record, completed_message = pending_finalization
+            self.automatic_controller.finish_automatic_test_presentation(
+                completion_record,
+                completed_message,
+            )
+        else:
+            self.automatic_controller.on_record_saved()
 
     def on_excel_save_failed(self, message: str) -> None:
         self._excel_export_retry_blocked = True
         self.save_status_label.setText("保存失败")
         self.add_log(f"Excel 保存失败：{message}")
-        self.automatic_controller.on_record_save_failed(message)
+        pending_finalization = self._automatic_finalization_pending
+        if pending_finalization is not None:
+            self._automatic_finalization_pending = None
+            completion_record, completed_message = pending_finalization
+            self.automatic_controller.finish_automatic_test_presentation(
+                completion_record,
+                f"{completed_message}；Excel 最终状态写入失败",
+            )
+        else:
+            self.automatic_controller.on_record_save_failed(message)
         QMessageBox.critical(self, "保存 Excel", user_facing_error_message(message))
 
     def on_excel_save_finished(self) -> None:

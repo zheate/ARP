@@ -625,6 +625,10 @@ class AutomaticTestController:
             self.tdk_output_button,
         ):
             widget.setEnabled(not active)
+        for name in ("shipping_report_button", "generate_result_report_button"):
+            widget = getattr(self._host, name, None)
+            if widget is not None:
+                widget.setEnabled(not active)
         if self._selected_power_supply_kind() != "tdk":
             for widget in (
                 self.tdk_resource_combo,
@@ -952,14 +956,28 @@ class AutomaticTestController:
                 )
             except Exception as exc:
                 self.add_log(f"测试结束状态更新失败：{self._error_formatter(exc)}")
+        completion_record = self.automatic_completion_record
+        self.automatic_completion_record = None
+        finalizer = getattr(self._host, "finalize_automatic_session_workbook", None)
+        if callable(finalizer) and finalizer(completion_record, completed_message):
+            self.set_automatic_test_state(AutomaticTestState.COMPLETED, "正在写入最终测试状态")
+            self.statusBar().showMessage("正在写入 Excel 最终测试状态")
+            self.add_log("正在后台写入 Excel 最终测试状态")
+            return
+        self.finish_automatic_test_presentation(completion_record, completed_message)
+
+    def finish_automatic_test_presentation(
+        self,
+        completion_record: Any | None,
+        completed_message: str,
+    ) -> None:
+        """Present the terminal state after final workbook metadata is durable."""
         self.set_automatic_test_state(AutomaticTestState.COMPLETED, completed_message)
         self.statusBar().showMessage(completed_message)
         self.add_log(completed_message)
         # Keep measurement devices in their current state after a normal test.
         # An optional spectrometer that was never started therefore stays off,
         # while devices used by the test remain available for the next run.
-        completion_record = self.automatic_completion_record
-        self.automatic_completion_record = None
         if not self.close_after_automatic_ramp_down:
             result_handler = getattr(self._host, "show_automatic_result", None)
             if callable(result_handler):

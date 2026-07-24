@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 310" role="img" aria-label="激光危险警示">
+  <path d="M180 12 305 208H55z" fill="#fff34f" stroke="#050505" stroke-width="14" stroke-linejoin="round"/>
+  <circle cx="180" cy="132" r="27" fill="#050505"/>
+  <g stroke="#050505" stroke-width="7">
+    <path d="M180 65v31M180 168v31M113 132h31M216 132h31M133 85l22 23M205 157l22 23M227 85l-22 23M155 157l-22 23"/>
+  </g>
+  <rect x="28" y="218" width="304" height="82" rx="3" fill="#fff34f" stroke="#050505" stroke-width="12"/>
+  <path d="M60 272h240M78 286h204" stroke="#050505" stroke-width="5"/>
+</svg>
