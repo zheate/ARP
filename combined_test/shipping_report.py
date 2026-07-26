@@ -159,6 +159,19 @@ class WorkbookInspection:
         return bool(self.points) and all(point.has_complete_spectrum for point in self.points)
 
     @property
+    def spectrum_wavelength_range(self) -> tuple[float, float] | None:
+        values = [
+            value
+            for point in self.points
+            for value in point.wavelength
+            if math.isfinite(value)
+        ]
+        if len(values) < 2:
+            return None
+        minimum, maximum = min(values), max(values)
+        return (minimum, minimum + 1.0) if math.isclose(minimum, maximum) else (minimum, maximum)
+
+    @property
     def allowed_report_types(self) -> tuple[str, ...]:
         return (
             (ShippingReportType.SPECTRUM.value, ShippingReportType.POLE.value)
@@ -174,6 +187,7 @@ class WorkbookInspection:
         raise ValueError(f"Excel 中不存在 {requested:g} A 测试点")
 
     def to_payload(self) -> dict[str, Any]:
+        spectrum_wavelength_range = self.spectrum_wavelength_range
         return {
             "sourcePath": str(self.source_path),
             "schemaVersion": self.schema_version,
@@ -188,6 +202,11 @@ class WorkbookInspection:
                 for point in self.points
             ],
             "spectrumComplete": self.spectrum_complete,
+            "spectrumWavelengthRange": (
+                {"minimum": spectrum_wavelength_range[0], "maximum": spectrum_wavelength_range[1]}
+                if spectrum_wavelength_range is not None
+                else None
+            ),
             "allowedReportTypes": list(self.allowed_report_types),
             "compatibility": {
                 "kind": self.compatibility.kind,
@@ -213,6 +232,8 @@ class SpectrumAxisSettings:
     mode: SpectrumAxisMode
     minimum: float
     maximum: float
+    wavelength_minimum: float | None = None
+    wavelength_maximum: float | None = None
 
 
 @dataclass(frozen=True)
@@ -272,6 +293,21 @@ class ShippingReportRequest:
                 )
             except (TypeError, ValueError) as exc:
                 raise ValueError("光谱纵轴设置无效") from exc
+            raw_wavelength_minimum = raw_axis.get("wavelengthMinimum")
+            raw_wavelength_maximum = raw_axis.get("wavelengthMaximum")
+            if raw_wavelength_minimum is not None or raw_wavelength_maximum is not None:
+                try:
+                    if raw_wavelength_minimum is None or raw_wavelength_maximum is None:
+                        raise ValueError
+                    spectrum_axis = SpectrumAxisSettings(
+                        mode=spectrum_axis.mode,
+                        minimum=spectrum_axis.minimum,
+                        maximum=spectrum_axis.maximum,
+                        wavelength_minimum=float(raw_wavelength_minimum),
+                        wavelength_maximum=float(raw_wavelength_maximum),
+                    )
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("光谱横轴设置无效") from exc
         try:
             operating_current_a = float(values.get("operatingCurrentA"))
         except (TypeError, ValueError) as exc:
@@ -523,6 +559,16 @@ def validate_shipping_report_request(inspection: WorkbookInspection, request: Sh
             raise ValueError("原始强度纵轴下限不能小于 0")
         if axis.mode is SpectrumAxisMode.RELATIVE_DB and axis.maximum > 0:
             raise ValueError("相对强度纵轴上限不能大于 0 dB")
+        if axis.wavelength_minimum is not None or axis.wavelength_maximum is not None:
+            if (
+                axis.wavelength_minimum is None
+                or axis.wavelength_maximum is None
+                or not math.isfinite(axis.wavelength_minimum)
+                or not math.isfinite(axis.wavelength_maximum)
+            ):
+                raise ValueError("请填写有效的光谱横轴范围")
+            if axis.wavelength_minimum >= axis.wavelength_maximum:
+                raise ValueError("光谱横轴下限必须小于上限")
 
 
 def suggested_field_values(
@@ -612,6 +658,15 @@ def load_shipping_report_preferences(settings: Any) -> dict[str, Any]:
                 "minimum": stored_float(prefix + "axis_minimum", -80.0),
                 "maximum": stored_float(prefix + "axis_maximum", 0.0),
             }
+            wavelength_minimum = _finite_or_none(settings.value(prefix + "wavelength_minimum", None))
+            wavelength_maximum = _finite_or_none(settings.value(prefix + "wavelength_maximum", None))
+            if (
+                wavelength_minimum is not None
+                and wavelength_maximum is not None
+                and wavelength_minimum < wavelength_maximum
+            ):
+                preference["spectrumAxis"]["wavelengthMinimum"] = wavelength_minimum
+                preference["spectrumAxis"]["wavelengthMaximum"] = wavelength_maximum
         output[report_type.value] = preference
     return output
 
@@ -636,6 +691,15 @@ def save_shipping_report_preferences(settings: Any, request: ShippingReportReque
         settings.setValue(prefix + "axis_mode", request.spectrum_axis.mode.value)
         settings.setValue(prefix + "axis_minimum", request.spectrum_axis.minimum)
         settings.setValue(prefix + "axis_maximum", request.spectrum_axis.maximum)
+        if (
+            request.spectrum_axis.wavelength_minimum is not None
+            and request.spectrum_axis.wavelength_maximum is not None
+        ):
+            settings.setValue(prefix + "wavelength_minimum", request.spectrum_axis.wavelength_minimum)
+            settings.setValue(prefix + "wavelength_maximum", request.spectrum_axis.wavelength_maximum)
+        else:
+            settings.remove(prefix + "wavelength_minimum")
+            settings.remove(prefix + "wavelength_maximum")
     settings.sync()
 
 
@@ -1486,10 +1550,12 @@ class _ShippingReportRenderer:
             int(Qt.AlignmentFlag.AlignCenter),
             "Spectrum at Different Currents",
         )
-        x_values = [value for point in self.inspection.points for value in point.wavelength]
-        x_min, x_max = min(x_values), max(x_values)
-        if math.isclose(x_min, x_max):
-            x_max = x_min + 1.0
+        default_x_range = self.inspection.spectrum_wavelength_range
+        assert default_x_range is not None
+        if axis.wavelength_minimum is None:
+            x_min, x_max = default_x_range
+        else:
+            x_min, x_max = axis.wavelength_minimum, axis.wavelength_maximum
 
         def map_x(value: float) -> float:
             return plot.left() + (value - x_min) / (x_max - x_min) * plot.width()

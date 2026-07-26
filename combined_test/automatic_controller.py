@@ -359,7 +359,7 @@ class AutomaticTestController:
             self.statusBar().showMessage("请等待当前 Excel 保存完成")
             return
         if not self._manual_i2c_connected():
-            label = "TDK" if self._selected_power_supply_kind() == "tdk" else "CH341"
+            label = self._power_supply_controller_label()
             QMessageBox.warning(self._host, "自动测试", f"请先连接 {label}。")
             return
         if (
@@ -478,7 +478,7 @@ class AutomaticTestController:
 
     def write_automatic_current(self, current_a: float, kind: str) -> None:
         if not self._manual_i2c_connected():
-            label = "TDK" if self._selected_power_supply_kind() == "tdk" else "CH341"
+            label = self._power_supply_controller_label()
             self.pause_automatic_test(f"{label} 未连接")
             return
         if (
@@ -766,7 +766,7 @@ class AutomaticTestController:
             self.begin_automatic_ramp_down()
             return
         if not self._manual_i2c_connected():
-            label = "TDK" if self._selected_power_supply_kind() == "tdk" else "CH341"
+            label = self._power_supply_controller_label()
             self.pause_automatic_test(f"{label} 未连接")
             return
         if (

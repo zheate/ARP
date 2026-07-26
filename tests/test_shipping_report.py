@@ -100,7 +100,7 @@ class ShippingReportTests(unittest.TestCase):
             fields=fields,
             legacy_completion_confirmed=False,
             spectrum_axis=(
-                SpectrumAxisSettings(SpectrumAxisMode.RELATIVE_DB, -80.0, 0.0)
+                SpectrumAxisSettings(SpectrumAxisMode.RELATIVE_DB, -80.0, 0.0, 974.0, 978.0)
                 if report_type is ShippingReportType.SPECTRUM
                 else None
             ),
@@ -128,6 +128,11 @@ class ShippingReportTests(unittest.TestCase):
             self.assertTrue(inspection.spectrum_complete)
             self.assertEqual(inspection.allowed_report_types, ("spectrum", "pole"))
             self.assertEqual(inspection.sn, "HEA000001")
+            self.assertEqual(inspection.spectrum_wavelength_range, (974.0, 978.0))
+            self.assertEqual(
+                inspection.to_payload()["spectrumWavelengthRange"],
+                {"minimum": 974.0, "maximum": 978.0},
+            )
             suggestions = suggested_field_values(inspection, ShippingReportType.SPECTRUM, 3.0)
             self.assertEqual(suggestions["operatingCurrent"], "3")
             self.assertEqual(suggestions["power"], "60.0")
@@ -288,6 +293,11 @@ class ShippingReportTests(unittest.TestCase):
             )
             validate_shipping_report_request(inspection, counts)
 
+            wavelength_window = ShippingReportRequest(
+                **{**base.__dict__, "spectrum_axis": SpectrumAxisSettings(SpectrumAxisMode.COUNTS, 0, 1200, 975, 977)}
+            )
+            validate_shipping_report_request(inspection, wavelength_window)
+
             bad_counts = ShippingReportRequest(
                 **{**base.__dict__, "spectrum_axis": SpectrumAxisSettings(SpectrumAxisMode.COUNTS, -1, 1200)}
             )
@@ -299,6 +309,12 @@ class ShippingReportTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "上限不能大于 0 dB"):
                 validate_shipping_report_request(inspection, bad_db)
+
+            bad_wavelength = ShippingReportRequest(
+                **{**base.__dict__, "spectrum_axis": SpectrumAxisSettings(SpectrumAxisMode.COUNTS, 0, 1200, 977, 975)}
+            )
+            with self.assertRaisesRegex(ValueError, "横轴下限必须小于上限"):
+                validate_shipping_report_request(inspection, bad_wavelength)
 
     def test_preferences_remember_selection_and_only_manual_values(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -312,6 +328,8 @@ class ShippingReportTests(unittest.TestCase):
             self.assertEqual(restored["manualValues"]["coolingTemperature"], "25")
             self.assertNotIn("power", restored["manualValues"])
             self.assertEqual(restored["spectrumAxis"]["minimum"], -80.0)
+            self.assertEqual(restored["spectrumAxis"]["wavelengthMinimum"], 974.0)
+            self.assertEqual(restored["spectrumAxis"]["wavelengthMaximum"], 978.0)
 
     def test_first_use_pole_preferences_match_the_approved_six_row_template(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

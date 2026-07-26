@@ -36,7 +36,7 @@ import { sendBackendRequest, type AppConfiguration, type BackendSnapshot, type D
 
 type Page = "automatic" | "manual" | "pd" | "shipping"
 
-const CH341_CURRENT_LIMIT_A = 20
+const I2C_CURRENT_LIMIT_A = 20
 const POWER_PLOT_HISTORY_S = 60
 const POWER_TIME_TICK_INTERVAL_S = 10
 const PD_PLOT_HISTORY_S = 60
@@ -293,7 +293,7 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
   const psu = snapshot?.devices.powerSupply
   return (
     <div className="space-y-3">
-      <Field label="控制器"><NativeSelect value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as "ch341" | "tdk")}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
+      <Field label="控制器"><NativeSelect value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="usb2xxx">USB2XXX I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
       {config.powerSupplyKind === "tdk" && <Field label="TDK 串口"><Input value={config.tdkResource} onChange={(e) => update("tdkResource", e.target.value)} /></Field>}
       {config.powerSupplyKind === "tdk" && <NumberField label="输出电压 (V)" value={config.tdkVoltageV} onChange={(v) => update("tdkVoltageV", v)} step="0.1" />}
       <NumberField label="设定电流 (A)" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
@@ -830,17 +830,17 @@ function currentInputMaximum(config: AppConfiguration, snapshot: BackendSnapshot
   const connectedKind = snapshot?.devices.powerSupply.connected
     ? snapshot.configuration?.powerSupplyKind ?? config.powerSupplyKind
     : config.powerSupplyKind
-  return connectedKind === "ch341" ? CH341_CURRENT_LIMIT_A : undefined
+  return connectedKind !== "tdk" ? I2C_CURRENT_LIMIT_A : undefined
 }
 
-function updatePowerSupplyKind(config: AppConfiguration, update: UpdateConfig, kind: "ch341" | "tdk") {
+function updatePowerSupplyKind(config: AppConfiguration, update: UpdateConfig, kind: AppConfiguration["powerSupplyKind"]) {
   update("powerSupplyKind", kind)
-  if (kind !== "ch341") return
-  update("setCurrentA", Math.min(config.setCurrentA, CH341_CURRENT_LIMIT_A))
-  update("initialCurrentA", Math.min(config.initialCurrentA, CH341_CURRENT_LIMIT_A))
-  update("targetCurrentA", Math.min(config.targetCurrentA, CH341_CURRENT_LIMIT_A))
-  update("currentStepA", Math.min(config.currentStepA, CH341_CURRENT_LIMIT_A))
-  update("rampDownStepA", Math.min(config.rampDownStepA, CH341_CURRENT_LIMIT_A))
+  if (kind === "tdk") return
+  update("setCurrentA", Math.min(config.setCurrentA, I2C_CURRENT_LIMIT_A))
+  update("initialCurrentA", Math.min(config.initialCurrentA, I2C_CURRENT_LIMIT_A))
+  update("targetCurrentA", Math.min(config.targetCurrentA, I2C_CURRENT_LIMIT_A))
+  update("currentStepA", Math.min(config.currentStepA, I2C_CURRENT_LIMIT_A))
+  update("rampDownStepA", Math.min(config.rampDownStepA, I2C_CURRENT_LIMIT_A))
 }
 
 type ShippingFieldState = Record<string, { include: boolean; value: string }>
@@ -897,6 +897,8 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
   const [axisMode, setAxisMode] = useState<SpectrumAxisMode>("relative_db")
   const [axisMinimum, setAxisMinimum] = useState(-80)
   const [axisMaximum, setAxisMaximum] = useState(0)
+  const [wavelengthMinimum, setWavelengthMinimum] = useState(0)
+  const [wavelengthMaximum, setWavelengthMaximum] = useState(2000)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [lastOutputPath, setLastOutputPath] = useState("")
@@ -926,9 +928,12 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
     setCustomFields(nextCustomFields)
     if (nextType === "spectrum") {
       const axis = preference.spectrumAxis ?? { mode: "relative_db" as const, minimum: -80, maximum: 0 }
+      const wavelengthRange = nextInspection.spectrumWavelengthRange
       setAxisMode(axis.mode)
       setAxisMinimum(axis.minimum)
       setAxisMaximum(axis.maximum)
+      setWavelengthMinimum(axis.wavelengthMinimum ?? wavelengthRange?.minimum ?? 0)
+      setWavelengthMaximum(axis.wavelengthMaximum ?? wavelengthRange?.maximum ?? 2000)
     }
   }, [])
 
@@ -1066,7 +1071,7 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
         fields,
         customFields,
         legacyCompletionConfirmed: true,
-        ...(reportType === "spectrum" ? { spectrumAxis: { mode: axisMode, minimum: axisMinimum, maximum: axisMaximum } } : {}),
+        ...(reportType === "spectrum" ? { spectrumAxis: { mode: axisMode, minimum: axisMinimum, maximum: axisMaximum, wavelengthMinimum, wavelengthMaximum } } : {}),
       })
       setLastOutputPath(result.outputPath)
       setInspection(null)
@@ -1105,7 +1110,7 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
         fields,
         customFields,
         legacyCompletionConfirmed: true,
-        ...(reportType === "spectrum" ? { spectrumAxis: { mode: axisMode, minimum: axisMinimum, maximum: axisMaximum } } : {}),
+        ...(reportType === "spectrum" ? { spectrumAxis: { mode: axisMode, minimum: axisMinimum, maximum: axisMaximum, wavelengthMinimum, wavelengthMaximum } } : {}),
       })
         .then((result) => {
           if (cancelled || requestId !== previewRequestRef.current) return
@@ -1124,7 +1129,7 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [axisMaximum, axisMinimum, axisMode, busy, customFields, fields, inspection, operatingCurrentA, productName, reportType, sn])
+  }, [axisMaximum, axisMinimum, axisMode, busy, customFields, fields, inspection, operatingCurrentA, productName, reportType, sn, wavelengthMaximum, wavelengthMinimum])
 
   const definitions: ShippingReportFieldDefinition[] = inspection ? [...inspection.fieldDefinitions[reportType], ...customFields] : []
   const outputPath = shippingOutputFilePath(outputDirectory, sn)
@@ -1168,7 +1173,7 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
                     {customFields.map((definition) => { const state = fields[definition.key] ?? { include: true, value: "" }; return <div className="col-span-1 grid grid-cols-[auto_minmax(130px,0.8fr)_minmax(110px,1fr)_minmax(60px,0.35fr)_auto] items-center gap-2 rounded-md border border-dashed border-border bg-muted/20 p-2 2xl:col-span-2" key={definition.key}><input aria-label={`选择${definition.label}`} checked={state.include} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" /><Input aria-label="自定义参数名称" className="h-8" placeholder="参数名称" value={definition.label} onChange={(event) => updateCustomField(definition.key, { label: event.target.value })} /><Input aria-label={`${definition.label}数值`} className="h-8" placeholder="参数值" value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} /><Input aria-label={`${definition.label}单位`} className="h-8" placeholder="单位" value={definition.unit} onChange={(event) => updateCustomField(definition.key, { unit: event.target.value })} /><button aria-label={`删除${definition.label}`} className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => removeCustomField(definition.key)} type="button"><X className="size-4" /></button></div> })}
                   </div>
                 </div>
-                {reportType === "spectrum" && <><Separator className="my-5" /><div><h3 className="text-sm font-semibold">光谱纵轴</h3><div className="mt-3 grid grid-cols-3 gap-4"><Field label="单位"><NativeSelect value={axisMode} onChange={(value) => setAxisMode(value as SpectrumAxisMode)}><option value="relative_db">相对强度 (dB)</option><option value="counts">原始强度 (counts)</option></NativeSelect></Field><NumberField label="下限" value={axisMinimum} onChange={setAxisMinimum} step="1" /><NumberField label="上限" value={axisMaximum} onChange={setAxisMaximum} step="1" /></div></div></>}
+                {reportType === "spectrum" && <><Separator className="my-5" /><div><h3 className="text-sm font-semibold">光谱纵轴</h3><div className="mt-3 grid grid-cols-3 gap-4"><Field label="单位"><NativeSelect value={axisMode} onChange={(value) => setAxisMode(value as SpectrumAxisMode)}><option value="relative_db">相对强度 (dB)</option><option value="counts">原始强度 (counts)</option></NativeSelect></Field><NumberField label="下限" value={axisMinimum} onChange={setAxisMinimum} step="1" /><NumberField label="上限" value={axisMaximum} onChange={setAxisMaximum} step="1" /></div></div><Separator className="my-5" /><div><h3 className="text-sm font-semibold">光谱横轴</h3><div className="mt-3 grid grid-cols-2 gap-4"><NumberField label="下限 (nm)" value={wavelengthMinimum} onChange={setWavelengthMinimum} step="0.1" /><NumberField label="上限 (nm)" value={wavelengthMaximum} onChange={setWavelengthMaximum} step="0.1" /></div></div></>}
                 {error && <p className="mt-4 rounded-md bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">{error}</p>}
               </div>
               <aside aria-labelledby="shipping-report-preview-title" className="min-w-0 border-t border-border pt-5 lg:sticky lg:top-[88px] lg:self-start lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
@@ -1283,7 +1288,7 @@ function ManualPage({ snapshot, config, update, active, pending, run }: {
     <>
       <section className="grid grid-cols-3 gap-4">
         <Card className="shadow-none"><CardHeader><CardTitle className="text-base">电源控制</CardTitle></CardHeader><CardContent className="space-y-3">
-          <Field label="控制器"><NativeSelect value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as "ch341" | "tdk")}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
+          <Field label="控制器"><NativeSelect value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="usb2xxx">USB2XXX I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
           {config.powerSupplyKind === "tdk" && <Field label="TDK 串口"><Input value={config.tdkResource} onChange={(e) => update("tdkResource", e.target.value)} /></Field>}
           {config.powerSupplyKind === "tdk" && <NumberField label="输出电压 (V)" value={config.tdkVoltageV} onChange={(v) => update("tdkVoltageV", v)} step="0.1" />}
           <NumberField label="设定电流 (A)" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />

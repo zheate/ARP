@@ -80,7 +80,7 @@ class SpectrumMeter(Protocol):
 
 
 class ControllerPowerSupply:
-    """Semantic adapter for both legacy CH341 and TDK compatibility controllers."""
+    """Semantic adapter for CH341, USB2XXX, and TDK compatibility controllers."""
 
     def __init__(self, controller: Any, address: int = DEFAULT_POWER_SUPPLY_ADDRESS) -> None:
         self.controller = controller

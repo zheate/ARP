@@ -412,7 +412,7 @@ class LegacyWindowBackend:
                 widget.setText(str(params[key]))
 
         # Select the controller before applying current values so that the Qt
-        # widgets enforce the CH341 20 A limit without constraining TDK values.
+        # widgets enforce the I2C-controller 20 A limit without constraining TDK values.
         if "powerSupplyKind" in params:
             self._set_combo_data(window.power_supply_controller_combo, params["powerSupplyKind"])
 
@@ -473,8 +473,10 @@ class LegacyWindowBackend:
         current_a = float(params["currentA"])
         if not math.isfinite(current_a) or current_a < 0:
             raise ValueError("电流必须是大于或等于 0 A 的有限数值")
-        if self.window._selected_power_supply_kind() == "ch341" and current_a > 20.0:
-            raise ValueError("CH341 最大电流不能超过 20 A")
+        controller_kind = self.window._selected_power_supply_kind()
+        if controller_kind != "tdk" and current_a > 20.0:
+            label = "USB2XXX" if controller_kind == "usb2xxx" else "CH341"
+            raise ValueError(f"{label} 最大电流不能超过 20 A")
         self.window.set_current_spin.setValue(current_a)
         self.window.apply_output_current()
 
@@ -489,7 +491,7 @@ class LegacyWindowBackend:
             and getattr(self.window.manual_ch341_controller, "output_enabled", False)
         )
         if self.window._selected_power_supply_kind() != "tdk":
-            raise ValueError("CH341 控制器没有独立输出开关")
+            raise ValueError("I²C 控制器没有独立输出开关")
         if current != desired:
             self.window.toggle_tdk_output()
 
@@ -775,7 +777,15 @@ class LegacyWindowBackend:
             "devices": {
                 "powerSupply": {
                     "state": self._device_state(power_connected, False, ""),
-                    "label": "TDK RS232" if window._selected_power_supply_kind() == "tdk" else "CH341 I²C",
+                    "label": (
+                        "TDK RS232"
+                        if window._selected_power_supply_kind() == "tdk"
+                        else (
+                            "USB2XXX I²C"
+                            if window._selected_power_supply_kind() == "usb2xxx"
+                            else "CH341 I²C"
+                        )
+                    ),
                     "detail": window.i2c_status_label.text(),
                     "connected": power_connected,
                     "outputEnabled": bool(getattr(power_supply, "output_enabled", False)) if power_supply else False,

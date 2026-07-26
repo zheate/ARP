@@ -110,19 +110,28 @@ class ShippingReportConfigurationDialog(QDialog):
         scroll.setWidget(self.fields_group)
         editor_layout.addWidget(scroll, stretch=1)
 
-        self.axis_group = QGroupBox("光谱纵轴", editor)
+        self.axis_group = QGroupBox("光谱坐标轴", editor)
         axis_form = QFormLayout(self.axis_group)
         self.axis_mode_combo = QComboBox(self.axis_group)
         self.axis_mode_combo.addItem("原始强度 (counts)", SpectrumAxisMode.COUNTS.value)
         self.axis_mode_combo.addItem("相对强度 (dB)", SpectrumAxisMode.RELATIVE_DB.value)
         self.axis_minimum_spin = QDoubleSpinBox(self.axis_group)
         self.axis_maximum_spin = QDoubleSpinBox(self.axis_group)
-        for spin in (self.axis_minimum_spin, self.axis_maximum_spin):
+        self.wavelength_minimum_spin = QDoubleSpinBox(self.axis_group)
+        self.wavelength_maximum_spin = QDoubleSpinBox(self.axis_group)
+        for spin in (
+            self.axis_minimum_spin,
+            self.axis_maximum_spin,
+            self.wavelength_minimum_spin,
+            self.wavelength_maximum_spin,
+        ):
             spin.setRange(-1_000_000_000.0, 1_000_000_000.0)
             spin.setDecimals(3)
         axis_form.addRow("单位", self.axis_mode_combo)
         axis_form.addRow("下限", self.axis_minimum_spin)
         axis_form.addRow("上限", self.axis_maximum_spin)
+        axis_form.addRow("横轴下限 (nm)", self.wavelength_minimum_spin)
+        axis_form.addRow("横轴上限 (nm)", self.wavelength_maximum_spin)
         editor_layout.addWidget(self.axis_group)
 
         preview_panel = QWidget(splitter)
@@ -171,6 +180,8 @@ class ShippingReportConfigurationDialog(QDialog):
         self.axis_mode_combo.currentIndexChanged.connect(self._schedule_preview)
         self.axis_minimum_spin.valueChanged.connect(self._schedule_preview)
         self.axis_maximum_spin.valueChanged.connect(self._schedule_preview)
+        self.wavelength_minimum_spin.valueChanged.connect(self._schedule_preview)
+        self.wavelength_maximum_spin.valueChanged.connect(self._schedule_preview)
         self._rebuild_fields()
 
     def _report_type(self) -> ShippingReportType:
@@ -236,6 +247,9 @@ class ShippingReportConfigurationDialog(QDialog):
             self.axis_mode_combo.setCurrentIndex(max(0, index))
             self.axis_minimum_spin.setValue(float(axis.get("minimum", -80.0)))
             self.axis_maximum_spin.setValue(float(axis.get("maximum", 0.0)))
+            wavelength_minimum, wavelength_maximum = self.inspection.spectrum_wavelength_range or (0.0, 1.0)
+            self.wavelength_minimum_spin.setValue(float(axis.get("wavelengthMinimum", wavelength_minimum)))
+            self.wavelength_maximum_spin.setValue(float(axis.get("wavelengthMaximum", wavelength_maximum)))
         self._schedule_preview()
 
     def _add_custom_field_row(self, *, key: str, label: str, unit: str, value: str, include: bool) -> None:
@@ -362,6 +376,8 @@ class ShippingReportConfigurationDialog(QDialog):
                 mode=SpectrumAxisMode(str(self.axis_mode_combo.currentData())),
                 minimum=self.axis_minimum_spin.value(),
                 maximum=self.axis_maximum_spin.value(),
+                wavelength_minimum=self.wavelength_minimum_spin.value(),
+                wavelength_maximum=self.wavelength_maximum_spin.value(),
             )
         return ShippingReportRequest(
             report_type=report_type,

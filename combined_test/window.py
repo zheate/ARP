@@ -67,6 +67,7 @@ from .devices import (
     SpectrometerReaderThread,
     extract_power_resource_name,
     load_legacy_ch341_controller_class,
+    load_usb2xxx_controller_class,
     load_spectrometer_components,
     normalize_power_resource_name,
     open_spectrometer_device,
@@ -126,6 +127,11 @@ UNDETECTED_POWER_METER_NAME = "功率计（待检测）"
 DEFAULT_OUTPUT_DIR = "test_records"
 DEFAULT_I2C_ADDRESS = 0x41
 DEFAULT_I2C_SPEED = 0  # 20 KHz
+POWER_SUPPLY_CONTROLLER_LABELS = {
+    "ch341": "CH341",
+    "usb2xxx": "USB2XXX",
+    "tdk": "TDK",
+}
 AUTO_VOUT_AFTER_STABLE_S = 5.0
 MIN_VOUT_READ_INTERVAL_S = 5.0
 POWER_SUPPLY_COMMAND_MIN_INTERVAL_S = MIN_POWER_SUPPLY_COMMAND_INTERVAL_S
@@ -1031,6 +1037,7 @@ class MainWindow(QMainWindow):
         self.prepare_power_supply_combo.setAccessibleName("自动测试电源控制器")
         self.prepare_power_supply_combo.setMaximumWidth(360)
         self.prepare_power_supply_combo.addItem("CH341 I²C", "ch341")
+        self.prepare_power_supply_combo.addItem("USB2XXX I²C", "usb2xxx")
         self.prepare_power_supply_combo.addItem("TDK RS232", "tdk")
         self.prepare_psu_button = QPushButton("连接", self)
         self.prepare_psu_button.clicked.connect(self.connect_i2c_device)
@@ -1306,6 +1313,7 @@ class MainWindow(QMainWindow):
         self.power_supply_controller_combo.setAccessibleName("电源控制器")
         self.power_supply_controller_combo.setMaximumWidth(360)
         self.power_supply_controller_combo.addItem("CH341 I²C", "ch341")
+        self.power_supply_controller_combo.addItem("USB2XXX I²C", "usb2xxx")
         self.power_supply_controller_combo.addItem("TDK RS232", "tdk")
         self.power_supply_controller_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
@@ -2130,7 +2138,13 @@ class MainWindow(QMainWindow):
         self._set_checklist_item(
             self.preflight_labels["tdk"],
             tdk_ok,
-            "TDK 输出已开启" if is_tdk and tdk_ok else ("TDK 输出尚未开启" if is_tdk else "CH341 无需输出开关"),
+            "TDK 输出已开启"
+            if is_tdk and tdk_ok
+            else (
+                "TDK 输出尚未开启"
+                if is_tdk
+                else f"{self._power_supply_controller_label()} 无需输出开关"
+            ),
         )
         self._set_checklist_item(
             self.preflight_labels["power_meter"],
@@ -2168,7 +2182,7 @@ class MainWindow(QMainWindow):
         if not output_ok:
             blockers.append("请选择有效输出目录")
         if not power_ok:
-            blockers.append(f"请连接 {'TDK' if is_tdk else 'CH341'} 电源")
+            blockers.append(f"请连接 {self._power_supply_controller_label()} 电源")
         elif not tdk_ok:
             blockers.append("请开启 TDK 输出")
         if not power_resource_ok:
@@ -2195,7 +2209,9 @@ class MainWindow(QMainWindow):
         elif not output_ok:
             self.preflight_action_button.setText("选择输出目录")
         elif not power_ok:
-            self.preflight_action_button.setText(f"连接 {'TDK' if is_tdk else 'CH341'}")
+            self.preflight_action_button.setText(
+                f"连接 {self._power_supply_controller_label()}"
+            )
         elif not power_resource_ok:
             self.preflight_action_button.setText("选择功率计")
         elif not settings_ok:
@@ -2618,7 +2634,7 @@ class MainWindow(QMainWindow):
                 kind=self._selected_power_supply_kind(),
                 resource=self.tdk_resource_combo.currentText().strip()
                 if self._selected_power_supply_kind() == "tdk"
-                else "CH341 I²C",
+                else f"{self._power_supply_controller_label()} I²C",
             ),
             DeviceSnapshot(
                 role="功率计",
@@ -2964,6 +2980,10 @@ class MainWindow(QMainWindow):
     def _selected_power_supply_kind(self) -> str:
         return str(self.power_supply_controller_combo.currentData() or "ch341")
 
+    def _power_supply_controller_label(self, kind: str | None = None) -> str:
+        selected = self._selected_power_supply_kind() if kind is None else str(kind)
+        return POWER_SUPPLY_CONTROLLER_LABELS.get(selected, selected.upper())
+
     def on_power_supply_controller_changed(self) -> None:
         selected_kind = self._selected_power_supply_kind()
         previous_kind = self.power_supply_controller_kind
@@ -2986,8 +3006,8 @@ class MainWindow(QMainWindow):
             self._update_prepare_power_controls()
             return
         if selected_kind != previous_kind and self.manual_ch341_controller is not None:
-            # A disconnected CH341 object cannot be reused as a TDK RS-232
-            # controller (or vice versa). Keeping it here sends the next
+            # A disconnected controller cannot be reused for another protocol.
+            # Keeping it here sends the next
             # connection attempt through the previous controller's protocol.
             self.manual_ch341_controller = None
         self.power_supply_controller_kind = selected_kind
@@ -3008,7 +3028,7 @@ class MainWindow(QMainWindow):
             current_widget.setToolTip(
                 "TDK 模式不设置软件电流上限，请勿超过电源及被测产品的额定值。"
                 if is_tdk
-                else "CH341 控制协议的电流范围为 0–20 A。"
+                else f"{self._power_supply_controller_label(selected_kind)} 控制协议的电流范围为 0–20 A。"
             )
         if not is_tdk:
             self.tdk_voltage_spin.setMaximum(1000.0)
@@ -3022,7 +3042,9 @@ class MainWindow(QMainWindow):
             widget.setEnabled(is_tdk)
         self.read_input_voltage_button.setEnabled(not is_tdk)
         self.read_temperature_button.setEnabled(not is_tdk)
-        self.connect_i2c_button.setText("连接 TDK" if is_tdk else "连接 CH341")
+        self.connect_i2c_button.setText(
+            f"连接 {self._power_supply_controller_label(selected_kind)}"
+        )
         self.i2c_status_label.setText("未连接")
         self.sync_tdk_output_controls(False)
         if hasattr(self, "power_supply_group"):
@@ -3046,10 +3068,15 @@ class MainWindow(QMainWindow):
 
     def _get_manual_ch341_controller(self) -> Any:
         if self.manual_ch341_controller is None:
-            if self._selected_power_supply_kind() == "tdk":
+            selected_kind = self._selected_power_supply_kind()
+            if selected_kind == "tdk":
                 resource = self.tdk_resource_combo.currentText().strip()
                 self.manual_ch341_controller = TdkLambdaPowerSupply(resource)
                 self.power_supply_controller_kind = "tdk"
+            elif selected_kind == "usb2xxx":
+                controller_class = load_usb2xxx_controller_class()
+                self.manual_ch341_controller = controller_class()
+                self.power_supply_controller_kind = "usb2xxx"
             else:
                 controller_class = load_legacy_ch341_controller_class()
                 self.manual_ch341_controller = controller_class()
@@ -3058,7 +3085,7 @@ class MainWindow(QMainWindow):
 
     def connect_i2c_device(self) -> None:
         controller = self._get_manual_ch341_controller()
-        label = "TDK" if self.power_supply_controller_kind == "tdk" else "CH341"
+        label = self._power_supply_controller_label(self.power_supply_controller_kind)
         if self._manual_i2c_connected():
             try:
                 if label == "TDK":
@@ -3100,7 +3127,7 @@ class MainWindow(QMainWindow):
 
     def _require_manual_i2c_controller(self) -> Any | None:
         if not self._manual_i2c_connected():
-            label = "TDK" if self._selected_power_supply_kind() == "tdk" else "CH341"
+            label = self._power_supply_controller_label()
             QMessageBox.warning(self, label, f"请先连接 {label}。")
             return None
         return self.manual_ch341_controller

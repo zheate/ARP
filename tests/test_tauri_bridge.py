@@ -398,6 +398,15 @@ class LegacyWindowBackendCurrentLimitTests(unittest.TestCase):
         self.assertEqual(backend.window.set_current_spin.value, 25.0)
         self.assertTrue(backend.window.applied)
 
+    def test_usb2xxx_uses_same_20_a_protocol_limit(self) -> None:
+        backend = self.make_backend("usb2xxx")
+
+        with self.assertRaisesRegex(ValueError, "USB2XXX 最大电流不能超过 20 A"):
+            backend._set_current({"currentA": 20.1})
+
+        self.assertIsNone(backend.window.set_current_spin.value)
+        self.assertFalse(backend.window.applied)
+
 
 if __name__ == "__main__":
     unittest.main()

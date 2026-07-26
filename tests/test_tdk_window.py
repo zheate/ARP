@@ -462,6 +462,48 @@ class TdkWindowTests(unittest.TestCase):
         window.manual_ch341_controller = None
         window.close()
 
+    def test_usb2xxx_mode_uses_usb2xxx_controller_and_labels(self) -> None:
+        class FakeUSB2XXXController:
+            def __init__(self) -> None:
+                self.is_connected = False
+                self.speed = None
+
+            def set_i2c_speed(self, speed: int) -> bool:
+                self.speed = speed
+                return True
+
+            def connect_device(self, _index: int = 0) -> tuple[bool, dict[str, str]]:
+                self.is_connected = True
+                return True, {"controller": "USB2XXX", "serial": "310027B4"}
+
+            def disconnect_device(self) -> bool:
+                self.is_connected = False
+                return True
+
+        old_loader = window_module.load_usb2xxx_controller_class
+        window_module.load_usb2xxx_controller_class = (  # type: ignore[assignment]
+            lambda: FakeUSB2XXXController
+        )
+        try:
+            window = self.make_window()
+            usb2xxx_index = window.power_supply_controller_combo.findData("usb2xxx")
+            self.assertGreaterEqual(usb2xxx_index, 0)
+            window.power_supply_controller_combo.setCurrentIndex(usb2xxx_index)
+
+            self.assertEqual(window.connect_i2c_button.text(), "连接 USB2XXX")
+            window.connect_i2c_device()
+
+            controller = window.manual_ch341_controller
+            self.assertIsInstance(controller, FakeUSB2XXXController)
+            self.assertTrue(controller.is_connected)
+            self.assertEqual(controller.speed, window_module.DEFAULT_I2C_SPEED)
+            self.assertEqual(window.power_supply_controller_kind, "usb2xxx")
+            self.assertEqual(window.connect_i2c_button.text(), "断开 USB2XXX")
+            window.close()
+            self.assertFalse(controller.is_connected)
+        finally:
+            window_module.load_usb2xxx_controller_class = old_loader
+
 
 if __name__ == "__main__":
     unittest.main()

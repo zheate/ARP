@@ -37,7 +37,7 @@ export interface AppConfiguration {
   batch: string
   station: string
   outputDir: string
-  powerSupplyKind: "ch341" | "tdk"
+  powerSupplyKind: "ch341" | "usb2xxx" | "tdk"
   tdkResource: string
   setCurrentA: number
   tdkVoltageV: number
@@ -222,7 +222,13 @@ export interface ShippingReportPreferences {
   selectedFields: string[]
   manualValues: Record<string, string>
   customFields: ShippingReportFieldDefinition[]
-  spectrumAxis?: { mode: SpectrumAxisMode; minimum: number; maximum: number }
+  spectrumAxis?: {
+    mode: SpectrumAxisMode
+    minimum: number
+    maximum: number
+    wavelengthMinimum?: number
+    wavelengthMaximum?: number
+  }
 }
 
 export interface ShippingWorkbookInspection {
@@ -233,6 +239,7 @@ export interface ShippingWorkbookInspection {
   currents: number[]
   points: ShippingReportPointSuggestion[]
   spectrumComplete: boolean
+  spectrumWavelengthRange?: { minimum: number; maximum: number } | null
   allowedReportTypes: ShippingReportType[]
   compatibility: {
     kind: "verified_success" | "legacy_needs_confirmation" | "rejected"

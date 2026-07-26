@@ -67,6 +67,20 @@ def load_legacy_ch341_controller_class() -> type:
     return controller_class
 
 
+@lru_cache(maxsize=1)
+def load_usb2xxx_controller_class() -> type:
+    path = TOOLS_ROOT / "usb2xxx_control.py"
+    spec = importlib.util.spec_from_file_location("usb2xxx_control", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"无法加载 USB2XXX 控制器：{path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    controller_class = getattr(module, "USB2XXXI2CController", None)
+    if controller_class is None:
+        raise RuntimeError(f"在 {path} 中未找到 USB2XXXI2CController")
+    return controller_class
+
+
 def parse_i2c_address(text: str) -> int:
     value = text.strip()
     if value.lower().startswith("0x"):
