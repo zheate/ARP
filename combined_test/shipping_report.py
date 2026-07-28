@@ -42,6 +42,38 @@ REPORT_SESSION_SHEET = "会话信息"
 _REPORT_QT_APPLICATION: QApplication | None = None
 
 
+_RESULT_COLUMN_ALIASES = {
+    "current": ("电流", "工作电流", "设定电流", "current", "operating current", "current a"),
+    "voltage": ("电压", "工作电压", "输出电压", "voltage", "operating voltage", "voltage v"),
+    "power": ("功率", "输出功率", "光功率", "power", "output power", "optical power", "power w"),
+    "efficiency": (
+        "电光效率",
+        "光电效率",
+        "转换效率",
+        "效率",
+        "efficiency",
+        "e-o efficiency",
+        "eo efficiency",
+        "electro optical efficiency",
+        "wall plug efficiency",
+    ),
+    "peak_wavelength": ("中心波长", "峰值波长", "peak wavelength", "center wavelength", "central wavelength"),
+    "centroid": ("质心波长", "光谱质心", "centroid", "centroid wavelength"),
+    "fwhm": ("fwhm", "半高全宽", "光谱宽度", "spectral width"),
+    "pib": ("pib", "桶中功率", "power in bucket"),
+    "smsr": ("smsr", "边模抑制比", "side mode suppression ratio"),
+}
+_REQUIRED_RESULT_COLUMNS = frozenset(("current", "voltage", "power", "efficiency"))
+
+
+@dataclass(frozen=True)
+class _WorkbookDataLayout:
+    sheet: Any
+    header_row: int
+    columns: Mapping[str, int]
+    detected_from_headers: bool
+
+
 class ShippingReportType(str, Enum):
     SPECTRUM = "spectrum"
     POLE = "pole"
@@ -372,6 +404,93 @@ def _parse_session_information(workbook: Any) -> dict[str, str]:
     return output
 
 
+def _normalize_result_header(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip().lower().replace("％", "%")
+    text = re.sub(r"[（(][^）)]*[）)]", " ", text)
+    text = re.sub(r"[^0-9a-z\u4e00-\u9fff]+", " ", text)
+    return " ".join(text.split())
+
+
+_NORMALIZED_RESULT_COLUMN_ALIASES = {
+    key: frozenset(_normalize_result_header(alias) for alias in aliases)
+    for key, aliases in _RESULT_COLUMN_ALIASES.items()
+}
+
+
+def _result_column_key(value: Any) -> str | None:
+    normalized = _normalize_result_header(value)
+    if not normalized:
+        return None
+    for key, aliases in _NORMALIZED_RESULT_COLUMN_ALIASES.items():
+        if normalized in aliases:
+            return key
+    return None
+
+
+def _find_workbook_data_layout(workbook: Any) -> _WorkbookDataLayout:
+    candidates: list[tuple[int, int, int, _WorkbookDataLayout]] = []
+    for sheet in workbook.worksheets:
+        if sheet.title == REPORT_SESSION_SHEET:
+            continue
+        scan_columns = min(sheet.max_column, 200)
+        nonempty_rows_scanned = 0
+        for row in range(1, sheet.max_row + 1):
+            columns: dict[str, int] = {}
+            row_has_content = False
+            for column in range(1, scan_columns + 1):
+                value = sheet.cell(row=row, column=column).value
+                row_has_content = row_has_content or value not in (None, "")
+                key = _result_column_key(value)
+                if key is not None and key not in columns:
+                    columns[key] = column
+            if row_has_content:
+                nonempty_rows_scanned += 1
+            if not _REQUIRED_RESULT_COLUMNS.issubset(columns):
+                if nonempty_rows_scanned >= 100:
+                    break
+                continue
+            optional_count = len(columns) - len(_REQUIRED_RESULT_COLUMNS)
+            numeric_rows = 0
+            for data_row in range(row + 1, min(sheet.max_row, row + 20) + 1):
+                if _finite_or_none(sheet.cell(data_row, columns["current"]).value) is not None:
+                    numeric_rows += 1
+            candidates.append(
+                (
+                    len(columns),
+                    numeric_rows,
+                    optional_count,
+                    _WorkbookDataLayout(sheet, row, columns, True),
+                )
+            )
+            break
+    if candidates:
+        candidates.sort(key=lambda item: (item[0], item[1], item[2]), reverse=True)
+        return candidates[0][3]
+
+    # Headerless exports produced by older ARP versions cannot be identified by
+    # column names. Preserve their historical fixed-layout fallback only when
+    # no header-driven layout exists anywhere in the workbook.
+    sheet = workbook[REPORT_DATA_SHEET] if REPORT_DATA_SHEET in workbook.sheetnames else workbook[workbook.sheetnames[0]]
+    return _WorkbookDataLayout(
+        sheet=sheet,
+        header_row=2,
+        columns={
+            "current": 1,
+            "voltage": 2,
+            "power": 3,
+            "efficiency": 4,
+            "peak_wavelength": 5,
+            "centroid": 6,
+            "fwhm": 7,
+            "pib": 8,
+            "smsr": 9,
+        },
+        detected_from_headers=False,
+    )
+
+
 def _compatibility(session: Mapping[str, str], schema_version: str) -> WorkbookCompatibility:
     status = str(session.get("流程状态", "")).strip().lower()
     explicit_failures = {"stopped_by_operator", "aborted_safely", "failed", "error"}
@@ -427,37 +546,49 @@ def inspect_shipping_workbook(path: Path | str) -> WorkbookInspection:
     try:
         session = _parse_session_information(workbook)
         schema_version = str(session.get("出货报告格式版本", "")).strip()
-        sheet = workbook[REPORT_DATA_SHEET] if REPORT_DATA_SHEET in workbook.sheetnames else workbook[workbook.sheetnames[0]]
+        layout = _find_workbook_data_layout(workbook)
+        sheet = layout.sheet
+        columns = layout.columns
+
+        def cell_value(row: int, key: str) -> Any:
+            column = columns.get(key)
+            return None if column is None else sheet.cell(row=row, column=column).value
+
         points_by_current: dict[float, ReportPoint] = {}
-        row = 3
-        while True:
-            raw_current = sheet.cell(row=row, column=1).value
+        for row in range(layout.header_row + 1, sheet.max_row + 1):
+            raw_current = cell_value(row, "current")
             if raw_current is None or str(raw_current).strip() == "":
-                break
-            current = _required_number(raw_current, f"第 {row} 行电流")
+                continue
+            current = _finite_or_none(raw_current)
+            if current is None:
+                if layout.detected_from_headers:
+                    continue
+                raise ValueError(f"第 {row} 行电流必须是有效数值")
             if current in points_by_current:
                 raise ValueError(f"Excel 中存在重复电流点：{current:g} A")
             point = ReportPoint(
                 current_a=current,
-                voltage_v=_required_number(sheet.cell(row=row, column=2).value, f"{current:g} A 电压"),
-                power_w=_required_number(sheet.cell(row=row, column=3).value, f"{current:g} A 功率"),
-                efficiency=_required_number(sheet.cell(row=row, column=4).value, f"{current:g} A 效率"),
-                peak_wavelength_nm=_finite_or_none(sheet.cell(row=row, column=5).value),
-                centroid_nm=_finite_or_none(sheet.cell(row=row, column=6).value),
-                fwhm_nm=_finite_or_none(sheet.cell(row=row, column=7).value),
-                pib=_finite_or_none(sheet.cell(row=row, column=8).value),
-                smsr_db=_finite_or_none(sheet.cell(row=row, column=9).value),
+                voltage_v=_required_number(cell_value(row, "voltage"), f"{current:g} A 电压"),
+                power_w=_required_number(cell_value(row, "power"), f"{current:g} A 功率"),
+                efficiency=_required_number(cell_value(row, "efficiency"), f"{current:g} A 效率"),
+                peak_wavelength_nm=_finite_or_none(cell_value(row, "peak_wavelength")),
+                centroid_nm=_finite_or_none(cell_value(row, "centroid")),
+                fwhm_nm=_finite_or_none(cell_value(row, "fwhm")),
+                pib=_finite_or_none(cell_value(row, "pib")),
+                smsr_db=_finite_or_none(cell_value(row, "smsr")),
                 wavelength=(),
                 intensity=(),
             )
             points_by_current[current] = point
-            row += 1
         if not points_by_current:
             raise ValueError("Excel 中没有有效测试点")
 
         spectra: dict[float, tuple[tuple[float, ...], tuple[float, ...]]] = {}
-        for column in range(10, sheet.max_column + 1, 2):
-            label = sheet.cell(row=2, column=column).value
+        result_columns = set(columns.values())
+        for column in range(1, sheet.max_column):
+            if column in result_columns or column + 1 in result_columns:
+                continue
+            label = sheet.cell(row=layout.header_row, column=column).value
             if label is None:
                 continue
             match = re.fullmatch(r"\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*A\s*", str(label), re.IGNORECASE)
@@ -469,7 +600,7 @@ def inspect_shipping_workbook(path: Path | str) -> WorkbookInspection:
             wavelength: list[float] = []
             intensity: list[float] = []
             invalid_pair = False
-            for spectrum_row in range(3, sheet.max_row + 1):
+            for spectrum_row in range(layout.header_row + 1, sheet.max_row + 1):
                 x = _finite_or_none(sheet.cell(row=spectrum_row, column=column).value)
                 y = _finite_or_none(sheet.cell(row=spectrum_row, column=column + 1).value)
                 if x is None and y is None:

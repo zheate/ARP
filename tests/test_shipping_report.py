@@ -144,6 +144,57 @@ class ShippingReportTests(unittest.TestCase):
             zero_current = replace(inspection.point_for_current(1.0), current_a=0.0, power_w=0.0)
             self.assertIsNone(zero_current.suggestions()["slopeEfficiencyWPerA"])
 
+    def test_inspection_detects_renamed_sheet_shifted_header_and_shuffled_columns(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "customer-format.xlsx"
+            workbook = Workbook()
+            cover = workbook.active
+            cover.title = "说明"
+            cover["A1"] = "客户测试记录"
+            sheet = workbook.create_sheet("LIV Result")
+            headers = (
+                "Output Power (W)",
+                "SMSR (dB)",
+                "Operating Current (A)",
+                "FWHM (nm)",
+                "Voltage (V)",
+                "E-O efficiency (%)",
+                "Peak Wavelength (nm)",
+                "PIB (%)",
+                "Centroid Wavelength (nm)",
+            )
+            for column, header in enumerate(headers, start=1):
+                sheet.cell(120, column, header)
+            rows = (
+                (20.0, 35.0, 1.0, 0.3, 11.0, 0.50, 976.1, 0.95, 976.0),
+                (40.0, 36.0, 2.0, 0.4, 12.0, 0.55, 976.2, 0.96, 976.1),
+            )
+            for row_index, values in enumerate(rows, start=121):
+                for column, value in enumerate(values, start=1):
+                    sheet.cell(row_index, column, value)
+            session = workbook.create_sheet("会话信息")
+            session.append(("出货报告格式版本", REPORT_WORKBOOK_SCHEMA_VERSION))
+            session.append(("流程状态", "completed"))
+            session.append(("SN", "CUSTOM-001"))
+            session.append(("产品型号", "Customer Module"))
+            workbook.save(path)
+            workbook.close()
+
+            inspection = inspect_shipping_workbook(path)
+
+            self.assertEqual(inspection.compatibility.kind, "verified_success")
+            self.assertEqual(inspection.sn, "CUSTOM-001")
+            self.assertEqual([point.current_a for point in inspection.points], [1.0, 2.0])
+            point = inspection.point_for_current(2.0)
+            self.assertEqual(point.voltage_v, 12.0)
+            self.assertEqual(point.power_w, 40.0)
+            self.assertEqual(point.efficiency, 0.55)
+            self.assertEqual(point.peak_wavelength_nm, 976.2)
+            self.assertEqual(point.centroid_nm, 976.1)
+            self.assertEqual(point.fwhm_nm, 0.4)
+            self.assertEqual(point.pib, 0.96)
+            self.assertEqual(point.smsr_db, 36.0)
+
     def test_pole_summary_values_use_compact_report_precision(self) -> None:
         definitions = {definition.key: definition for definition in POLE_FIELD_DEFINITIONS}
 

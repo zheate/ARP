@@ -1,0 +1,134 @@
+- generic [ref=e4]:
+  - complementary [ref=e5]:
+    - paragraph [ref=e6]: 工作区
+    - navigation [ref=e7]:
+      - button "自动测试" [ref=e8] [cursor=pointer]
+      - button "详细配置" [ref=e14] [cursor=pointer]
+      - button "PD 采集" [ref=e17] [cursor=pointer]
+  - main [ref=e21]:
+    - generic [ref=e22]:
+      - generic [ref=e23]:
+        - generic [ref=e24]:
+          - heading "自动测试" [level=1] [ref=e25]
+          - generic [ref=e26]: 只读兼容模式
+        - paragraph [ref=e27]: 等待后端
+      - generic [ref=e28]:
+        - button "刷新" [ref=e29] [cursor=pointer]
+        - button "紧急停止" [disabled]
+    - alert [ref=e30]:
+      - generic [ref=e33]:
+        - paragraph [ref=e34]: 系统错误
+        - paragraph [ref=e35]: 浏览器预览模式不会启动 Python 后端
+      - button "关闭提示" [ref=e36] [cursor=pointer]
+    - generic [ref=e40]:
+      - generic [ref=e41]:
+        - button "打开电源设置" [ref=e42] [cursor=pointer]:
+          - generic [ref=e47]:
+            - generic [ref=e48]: 电源
+            - paragraph [ref=e51]: 未连接
+        - button "打开功率计设置" [ref=e52] [cursor=pointer]:
+          - generic [ref=e58]:
+            - generic [ref=e59]: 功率计
+            - paragraph [ref=e62]: 未连接
+        - button "打开光谱仪设置" [ref=e63] [cursor=pointer]:
+          - generic [ref=e72]:
+            - generic [ref=e73]: 光谱仪
+            - paragraph [ref=e76]: 未连接
+      - dialog [ref=e155]:
+        - generic [ref=e156]:
+          - generic [ref=e161]:
+            - heading "电源设置" [level=2] [ref=e162]
+            - paragraph [ref=e163]: 配置电源控制器、输出参数并执行安全控制
+          - button "关闭设置弹窗" [active] [ref=e164] [cursor=pointer]
+        - generic [ref=e169]:
+          - generic [ref=e170]:
+            - generic [ref=e171]: 控制器
+            - combobox [ref=e173] [cursor=pointer]:
+              - generic [ref=e174]: CH341 I²C
+          - generic [ref=e177]:
+            - generic [ref=e178]: 设定电流 (A)
+            - spinbutton [ref=e179]: "0"
+          - generic [ref=e180]:
+            - button "连接电源" [disabled]
+            - button "设置电流" [disabled]
+          - generic [ref=e181]:
+            - button "读取输出电压" [disabled]
+            - button "读取输出电流" [disabled]
+            - button "读取输入电压" [disabled]
+            - button "读取模块温度" [disabled]
+        - generic [ref=e182]:
+          - paragraph [ref=e183]: 修改后保存到当前测试配置
+          - generic [ref=e184]:
+            - button "关闭" [ref=e185] [cursor=pointer]
+            - button "保存设置" [disabled]
+      - generic [ref=e77]:
+        - generic [ref=e79]:
+          - generic [ref=e80]:
+            - generic [ref=e81]: 输出目录
+            - textbox [ref=e82]
+          - generic [ref=e83]:
+            - generic [ref=e84]: 壳体 SN
+            - textbox [ref=e85]
+          - generic [ref=e86]:
+            - generic [ref=e87]: 测试站别
+            - textbox [ref=e88]
+          - generic [ref=e89]:
+            - generic [ref=e90]: 起始电流 (A)
+            - spinbutton [ref=e91]: "1"
+          - generic [ref=e92]:
+            - generic [ref=e93]: 目标电流 (A)
+            - spinbutton [ref=e94]: "20"
+          - generic [ref=e95]:
+            - generic [ref=e96]: 电流间隔 (A)
+            - spinbutton [ref=e97]: "3"
+          - generic [ref=e98]:
+            - generic [ref=e99]: 单点超时 (s)
+            - spinbutton [ref=e100]: "120"
+          - generic [ref=e101]:
+            - generic [ref=e102]: 下电步长 (A)
+            - spinbutton [ref=e103]: "5"
+          - generic [ref=e104]:
+            - generic [ref=e105]: 下电间隔 (s)
+            - spinbutton [ref=e106]: "1.1"
+          - generic [ref=e107]:
+            - checkbox "同时采集光谱并判断波长稳定" [checked] [ref=e108]
+            - text: 同时采集光谱并判断波长稳定
+          - generic [ref=e109]:
+            - generic [ref=e110]:
+              - generic [ref=e111]: 准备状态
+              - generic [ref=e112]: 0 / 3
+            - progressbar [ref=e113]
+            - paragraph [ref=e115]: 等待配置
+          - generic [ref=e116]:
+            - button "开始自动测试" [disabled]
+            - button "结束并安全下电" [disabled]
+        - generic [ref=e117]:
+          - generic [ref=e119]:
+            - generic [ref=e120]:
+              - generic [ref=e121]: 未开始
+              - progressbar [ref=e124]
+              - paragraph [ref=e126]: 测试点 0 / 0
+            - generic [ref=e127]:
+              - paragraph [ref=e128]: "--"
+              - paragraph [ref=e129]: 当前测试电流
+          - generic [ref=e130]:
+            - generic [ref=e131]:
+              - generic [ref=e132]: 功率实时
+              - generic [ref=e133]:
+                - generic [ref=e134]: 未采集
+                - paragraph [ref=e136]: "--"
+            - generic [ref=e137]: 暂无实时数据
+          - generic [ref=e139]:
+            - generic [ref=e140]:
+              - generic [ref=e141]: 光谱
+              - generic [ref=e142]:
+                - generic [ref=e143]:
+                  - paragraph [ref=e144]: "--"
+                  - paragraph [ref=e145]: 中心波长
+                - generic [ref=e146]:
+                  - paragraph [ref=e147]: "--"
+                  - paragraph [ref=e148]: FWHM
+                - generic [ref=e149]:
+                  - paragraph [ref=e150]: "--"
+                  - paragraph [ref=e151]: SMSR
+            - generic [ref=e152]: 暂无实时数据

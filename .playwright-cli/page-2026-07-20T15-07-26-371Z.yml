@@ -1,0 +1,104 @@
+- generic [ref=e4]:
+  - complementary [ref=e5]:
+    - paragraph [ref=e6]: 工作区
+    - navigation [ref=e7]:
+      - button "自动测试" [ref=e8] [cursor=pointer]
+      - button "详细配置" [ref=e14] [cursor=pointer]
+      - button "PD 采集" [active] [ref=e17] [cursor=pointer]
+  - main [ref=e21]:
+    - generic [ref=e22]:
+      - generic [ref=e23]:
+        - generic [ref=e24]:
+          - heading "PD 采集" [level=1] [ref=e279]
+          - generic [ref=e26]: 只读兼容模式
+        - paragraph [ref=e27]: 等待后端
+      - generic [ref=e28]:
+        - button "刷新" [ref=e29] [cursor=pointer]
+        - button "紧急停止" [disabled]
+    - alert [ref=e30]:
+      - generic [ref=e33]:
+        - paragraph [ref=e34]: 系统错误
+        - paragraph [ref=e35]: 浏览器预览模式不会启动 Python 后端
+      - button "关闭提示" [ref=e36] [cursor=pointer]
+    - generic [ref=e281]:
+      - generic [ref=e282]:
+        - generic [ref=e283]:
+          - generic [ref=e284]: NI-DAQ 采集设置
+          - generic [ref=e285]: PD 采集可在电源加电期间独立启动或停止
+        - generic [ref=e286]:
+          - paragraph [ref=e288]: 采集参数
+          - generic [ref=e289]:
+            - generic [ref=e290]: 采集卡
+            - generic [ref=e291]:
+              - combobox [ref=e293] [cursor=pointer]:
+                - generic [ref=e294]: 请选择
+              - button "识别" [disabled]
+          - generic [ref=e297]:
+            - generic [ref=e298]: 输入通道
+            - combobox [ref=e300] [cursor=pointer]:
+              - generic [ref=e301]: 请选择
+          - generic [ref=e304]:
+            - generic [ref=e305]: 接线方式
+            - combobox [ref=e307] [cursor=pointer]:
+              - generic [ref=e308]: 差分 DIFF
+          - generic [ref=e311]:
+            - generic [ref=e312]: 输入量程
+            - combobox [ref=e314] [cursor=pointer]:
+              - generic [ref=e315]: "10"
+          - generic [ref=e318]:
+            - generic [ref=e319]: 采样率 (S/s)
+            - spinbutton [ref=e320]: "1000"
+          - paragraph [ref=e322]: 标定参数
+          - generic [ref=e323]:
+            - generic [ref=e324]: 每批点数
+            - spinbutton [ref=e325]: "100"
+          - generic [ref=e326]:
+            - generic [ref=e327]: 标定比例
+            - spinbutton [ref=e328]: "1"
+          - generic [ref=e329]:
+            - generic [ref=e330]: 标定偏置
+            - spinbutton [ref=e331]: "0"
+          - generic [ref=e332]:
+            - generic [ref=e333]: 显示单位
+            - textbox [ref=e334]: V
+          - generic [ref=e335]:
+            - generic [ref=e336]:
+              - generic [ref=e337]:
+                - paragraph [ref=e338]: 保存设置
+                - paragraph [ref=e339]: 可选：保存本次采集的原始数据
+              - generic [ref=e340]:
+                - checkbox "保存原始数据" [checked] [ref=e341]
+                - text: 保存原始数据
+            - generic [ref=e342]:
+              - generic [ref=e343]: 保存目录
+              - textbox [ref=e344]
+          - generic [ref=e345]:
+            - generic [ref=e346]:
+              - generic [ref=e347]: "1"
+              - generic [ref=e348]: 先识别采集卡，再开始采集
+            - button "开始采集" [disabled]
+          - paragraph [ref=e349]: 等待识别采集卡
+      - generic [ref=e350]:
+        - generic [ref=e351]:
+          - generic [ref=e353]:
+            - paragraph [ref=e354]: 当前值
+            - paragraph [ref=e355]: "--"
+          - generic [ref=e357]:
+            - paragraph [ref=e358]: 电压
+            - paragraph [ref=e359]: "--"
+          - generic [ref=e361]:
+            - paragraph [ref=e362]: 采样数
+            - paragraph [ref=e363]: "0"
+        - generic [ref=e364]:
+          - generic [ref=e365]: PD 实时趋势
+          - generic [ref=e367]: 开始采集后显示实时趋势
+        - generic [ref=e370]:
+          - generic [ref=e371]:
+            - paragraph [ref=e372]: 批次均值
+            - paragraph [ref=e373]: "--"
+          - generic [ref=e374]:
+            - paragraph [ref=e375]: 标准差
+            - paragraph [ref=e376]: "--"
+          - generic [ref=e377]:
+            - paragraph [ref=e378]: 最小 / 最大
+            - paragraph [ref=e379]: "--"
