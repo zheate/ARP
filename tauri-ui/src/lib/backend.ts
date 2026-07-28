@@ -215,6 +215,8 @@ export interface ShippingReportPointSuggestion {
   fwhmNm?: number | null
   pibPercent?: number | null
   smsrDb?: number | null
+  spectrumPeakCounts?: number | null
+  wavelengthCurrentCoefficientNmPerA?: number | null
   hasSpectrum: boolean
 }
 

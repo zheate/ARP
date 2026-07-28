@@ -27,8 +27,10 @@ from combined_test.shipping_report import (
     ShippingReportType,
     SpectrumAxisMode,
     SpectrumAxisSettings,
+    _balanced_report_columns,
     _format_performance_parameters_title,
     _format_pole_summary_value,
+    _format_scientific_axis_tick,
     build_batch_shipping_report_request,
     generate_shipping_report,
     generate_shipping_report_batch_item,
@@ -174,9 +176,18 @@ class ShippingReportTests(unittest.TestCase):
             self.assertEqual(inspection.allowed_report_types, ("spectrum", "pole"))
             self.assertEqual(inspection.sn, "HEA000001")
             self.assertEqual(inspection.spectrum_wavelength_range, (974.0, 978.0))
+            self.assertAlmostEqual(inspection.wavelength_current_coefficient_nm_per_a, 0.01)
             self.assertEqual(
                 inspection.to_payload()["spectrumWavelengthRange"],
                 {"minimum": 974.0, "maximum": 978.0},
+            )
+            self.assertAlmostEqual(
+                inspection.to_payload()["points"][-1]["wavelengthCurrentCoefficientNmPerA"],
+                0.01,
+            )
+            self.assertEqual(
+                inspection.to_payload()["points"][-1]["spectrumPeakCounts"],
+                1000.0,
             )
             suggestions = suggested_field_values(inspection, ShippingReportType.SPECTRUM, 3.0)
             self.assertEqual(suggestions["operatingCurrent"], "3")
@@ -184,6 +195,7 @@ class ShippingReportTests(unittest.TestCase):
             self.assertEqual(suggestions["operatingVoltage"], "13.00")
             self.assertEqual(suggestions["slopeEfficiency"], "20.000")
             self.assertEqual(suggestions["electroOpticalEfficiency"], "153.85")
+            self.assertEqual(suggestions["wavelengthCurrentCoefficient"], "0.01")
             pole_suggestions = suggested_field_values(inspection, ShippingReportType.POLE, 3.0)
             self.assertEqual(pole_suggestions["slopeEfficiency"], "20.000")
             zero_current = replace(inspection.point_for_current(1.0), current_a=0.0, power_w=0.0)
@@ -344,11 +356,34 @@ class ShippingReportTests(unittest.TestCase):
         self.assertEqual(_format_pole_summary_value(definitions["electroOpticalEfficiency"], "28.50"), "28.5")
         self.assertEqual(_format_pole_summary_value(definitions["coolingTemperature"], "25"), "25")
 
+    def test_spectrum_count_ticks_use_compact_scientific_notation(self) -> None:
+        self.assertEqual(_format_scientific_axis_tick(0.0), "0")
+        self.assertEqual(_format_scientific_axis_tick(4_530.8), "4.53e3")
+        self.assertEqual(_format_scientific_axis_tick(18_123.2), "1.81e4")
+
     def test_pole_report_labels_use_the_requested_english_names(self) -> None:
         definitions = {definition.key: definition for definition in POLE_FIELD_DEFINITIONS}
+        spectrum_definitions = {definition.key: definition for definition in SPECTRUM_FIELD_DEFINITIONS}
 
         self.assertEqual(definitions["electroOpticalEfficiency"].label, "E-O efficiency")
-        self.assertEqual(_format_performance_parameters_title(7.0), "Performance Parameters @7A")
+        self.assertEqual(definitions["coolingTemperature"].label, "Cooling Temperature")
+        self.assertEqual(spectrum_definitions["coolingTemperature"].label, "Cooling Temperature")
+        self.assertEqual(_format_performance_parameters_title(7.0), "Performance @7A")
+
+    def test_spectrum_summary_columns_are_balanced_with_extra_row_on_left(self) -> None:
+        fields = [
+            (ReportFieldDefinition(f"field-{index}", f"Field {index}", "", "left"), str(index))
+            for index in range(9)
+        ]
+
+        left, right = _balanced_report_columns(fields)
+
+        self.assertEqual(len(left), 5)
+        self.assertEqual(len(right), 4)
+        self.assertEqual(left + right, fields)
+        even_left, even_right = _balanced_report_columns(fields[:8])
+        self.assertEqual(len(even_left), 4)
+        self.assertEqual(len(even_right), 4)
 
     def test_explicit_failed_workbook_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

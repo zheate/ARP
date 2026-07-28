@@ -509,6 +509,32 @@ async fn bridge_disconnect(state: State<'_, BridgeState>) -> Result<(), String> 
     .map_err(|error| format!("Python 后端断开任务异常结束：{error}"))?
 }
 
+#[tauri::command]
+fn open_directory(path: String) -> Result<(), String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return Err("输出文件夹不能为空。".to_string());
+    }
+
+    let directory = PathBuf::from(trimmed);
+    if !directory.is_dir() {
+        return Err(format!("输出文件夹不存在：{}", directory.display()));
+    }
+
+    #[cfg(target_os = "windows")]
+    let mut command = Command::new("explorer.exe");
+    #[cfg(target_os = "macos")]
+    let mut command = Command::new("open");
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = Command::new("xdg-open");
+
+    command.arg(&directory);
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("无法打开输出文件夹：{error}"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -528,7 +554,8 @@ pub fn run() {
             bridge_request,
             bridge_subscribe,
             bridge_unsubscribe,
-            bridge_disconnect
+            bridge_disconnect,
+            open_directory
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

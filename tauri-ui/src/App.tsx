@@ -22,6 +22,7 @@ import {
 } from "lucide-react"
 import { open as openDialog } from "@tauri-apps/plugin-dialog"
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener"
+import { invoke } from "@tauri-apps/api/core"
 import { getCurrentWebview } from "@tauri-apps/api/webview"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -855,6 +856,27 @@ function shippingSuggestedValue(point: ShippingReportPointSuggestion | undefined
   return value.toFixed(3).replace(/\.?0+$/, "")
 }
 
+function suggestedSpectrumAxis(inspection: ShippingWorkbookInspection, currentA: number) {
+  const point = inspection.points.find((item) => Math.abs(item.currentA - currentA) < 1e-9)
+  const wavelengthRange = inspection.spectrumWavelengthRange
+  const centerWavelength = point?.peakWavelengthNm
+    ?? point?.centroidNm
+    ?? (wavelengthRange ? (wavelengthRange.minimum + wavelengthRange.maximum) / 2 : 0)
+  let maximumPeakCounts = 0
+  for (const candidate of inspection.points) {
+    if (typeof candidate.spectrumPeakCounts === "number" && Number.isFinite(candidate.spectrumPeakCounts)) {
+      maximumPeakCounts = Math.max(maximumPeakCounts, candidate.spectrumPeakCounts)
+    }
+  }
+  return {
+    mode: "counts" as const,
+    minimum: 0,
+    maximum: maximumPeakCounts > 0 ? maximumPeakCounts * 1.05 : 1,
+    wavelengthMinimum: centerWavelength - 15,
+    wavelengthMaximum: centerWavelength + 15,
+  }
+}
+
 function shippingDefaultOutputDirectory(sourcePath: string): string {
   const separatorIndex = Math.max(sourcePath.lastIndexOf("/"), sourcePath.lastIndexOf("\\"))
   return separatorIndex >= 0 ? sourcePath.slice(0, separatorIndex) : ""
@@ -927,13 +949,12 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
     setFields(nextFields)
     setCustomFields(nextCustomFields)
     if (nextType === "spectrum") {
-      const axis = preference.spectrumAxis ?? { mode: "relative_db" as const, minimum: -80, maximum: 0 }
-      const wavelengthRange = nextInspection.spectrumWavelengthRange
+      const axis = suggestedSpectrumAxis(nextInspection, currentA)
       setAxisMode(axis.mode)
       setAxisMinimum(axis.minimum)
       setAxisMaximum(axis.maximum)
-      setWavelengthMinimum(axis.wavelengthMinimum ?? wavelengthRange?.minimum ?? 0)
-      setWavelengthMaximum(axis.wavelengthMaximum ?? wavelengthRange?.maximum ?? 2000)
+      setWavelengthMinimum(axis.wavelengthMinimum)
+      setWavelengthMaximum(axis.wavelengthMaximum)
     }
   }, [])
 
@@ -1027,6 +1048,14 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
       key,
       measuredKeys.has(key) ? { ...state, value: shippingSuggestedValue(point, measuredKeys.get(key)) } : state,
     ])))
+    if (reportType === "spectrum") {
+      const axis = suggestedSpectrumAxis(inspection, currentA)
+      setAxisMode(axis.mode)
+      setAxisMinimum(axis.minimum)
+      setAxisMaximum(axis.maximum)
+      setWavelengthMinimum(axis.wavelengthMinimum)
+      setWavelengthMaximum(axis.wavelengthMaximum)
+    }
   }
 
   const addCustomField = () => {
@@ -1173,7 +1202,7 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
                     {customFields.map((definition) => { const state = fields[definition.key] ?? { include: true, value: "" }; return <div className="col-span-1 grid grid-cols-[auto_minmax(130px,0.8fr)_minmax(110px,1fr)_minmax(60px,0.35fr)_auto] items-center gap-2 rounded-md border border-dashed border-border bg-muted/20 p-2 2xl:col-span-2" key={definition.key}><input aria-label={`选择${definition.label}`} checked={state.include} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" /><Input aria-label="自定义参数名称" className="h-8" placeholder="参数名称" value={definition.label} onChange={(event) => updateCustomField(definition.key, { label: event.target.value })} /><Input aria-label={`${definition.label}数值`} className="h-8" placeholder="参数值" value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} /><Input aria-label={`${definition.label}单位`} className="h-8" placeholder="单位" value={definition.unit} onChange={(event) => updateCustomField(definition.key, { unit: event.target.value })} /><button aria-label={`删除${definition.label}`} className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => removeCustomField(definition.key)} type="button"><X className="size-4" /></button></div> })}
                   </div>
                 </div>
-                {reportType === "spectrum" && <><Separator className="my-5" /><div><h3 className="text-sm font-semibold">光谱纵轴</h3><div className="mt-3 grid grid-cols-3 gap-4"><Field label="单位"><NativeSelect value={axisMode} onChange={(value) => setAxisMode(value as SpectrumAxisMode)}><option value="relative_db">相对强度 (dB)</option><option value="counts">原始强度 (counts)</option></NativeSelect></Field><NumberField label="下限" value={axisMinimum} onChange={setAxisMinimum} step="1" /><NumberField label="上限" value={axisMaximum} onChange={setAxisMaximum} step="1" /></div></div><Separator className="my-5" /><div><h3 className="text-sm font-semibold">光谱横轴</h3><div className="mt-3 grid grid-cols-2 gap-4"><NumberField label="下限 (nm)" value={wavelengthMinimum} onChange={setWavelengthMinimum} step="0.1" /><NumberField label="上限 (nm)" value={wavelengthMaximum} onChange={setWavelengthMaximum} step="0.1" /></div></div></>}
+                {reportType === "spectrum" && <><Separator className="my-5" /><div><h3 className="text-sm font-semibold">光谱纵轴</h3><div className="mt-3 grid grid-cols-3 gap-4"><Field label="单位"><NativeSelect disabled value={axisMode} onChange={() => undefined}><option value="counts">原始强度 (counts)</option></NativeSelect></Field><NumberField label="下限" value={axisMinimum} onChange={setAxisMinimum} step="1" /><NumberField label="上限" value={axisMaximum} onChange={setAxisMaximum} step="1" /></div></div><Separator className="my-5" /><div><h3 className="text-sm font-semibold">光谱横轴</h3><div className="mt-3 grid grid-cols-2 gap-4"><NumberField label="下限 (nm)" value={wavelengthMinimum} onChange={setWavelengthMinimum} step="0.1" /><NumberField label="上限 (nm)" value={wavelengthMaximum} onChange={setWavelengthMaximum} step="0.1" /></div></div></>}
                 {error && <p className="mt-4 rounded-md bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">{error}</p>}
               </div>
               <aside aria-labelledby="shipping-report-preview-title" className="min-w-0 border-t border-border pt-5 lg:sticky lg:top-[88px] lg:self-start lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
@@ -1241,12 +1270,12 @@ function BatchShippingReportWorkflow({ disabled }: { disabled: boolean }) {
     ])))
     setCustomFields(nextCustomFields)
     if (nextType === "spectrum") {
-      const axis = preference.spectrumAxis ?? { mode: "relative_db" as const, minimum: -80, maximum: 0 }
+      const axis = suggestedSpectrumAxis(inspection, currentA)
       setAxisMode(axis.mode)
       setAxisMinimum(axis.minimum)
       setAxisMaximum(axis.maximum)
-      setWavelengthMinimum(axis.wavelengthMinimum ?? inspection.spectrumWavelengthRange?.minimum ?? 0)
-      setWavelengthMaximum(axis.wavelengthMaximum ?? inspection.spectrumWavelengthRange?.maximum ?? 2000)
+      setWavelengthMinimum(axis.wavelengthMinimum)
+      setWavelengthMaximum(axis.wavelengthMaximum)
     }
   }, [])
 
@@ -1257,6 +1286,14 @@ function BatchShippingReportWorkflow({ disabled }: { disabled: boolean }) {
       key,
       measuredKeys.has(key) ? { ...state, value: shippingSuggestedValue(point, measuredKeys.get(key)) } : state,
     ])))
+    if (nextType === "spectrum") {
+      const axis = suggestedSpectrumAxis(inspection, currentA)
+      setAxisMode(axis.mode)
+      setAxisMinimum(axis.minimum)
+      setAxisMaximum(axis.maximum)
+      setWavelengthMinimum(axis.wavelengthMinimum)
+      setWavelengthMaximum(axis.wavelengthMaximum)
+    }
   }, [])
 
   const inspectRepresentative = useCallback(async (item: ShippingReportBatchItem, nextType: ShippingReportType, currentA: number, resetFields: boolean) => {
@@ -1293,6 +1330,21 @@ function BatchShippingReportWorkflow({ disabled }: { disabled: boolean }) {
       }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
+    }
+  }
+
+  const openOutputDirectory = async () => {
+    const directory = outputDirectory.trim()
+    if (!directory) {
+      setError("请选择批量 PDF 保存文件夹")
+      return
+    }
+    try {
+      await invoke("open_directory", { path: directory })
+      setError("")
+    } catch (reason) {
+      const detail = reason instanceof Error ? reason.message : String(reason)
+      setError(`无法打开输出文件夹：${detail}`)
     }
   }
 
@@ -1528,9 +1580,9 @@ function BatchShippingReportWorkflow({ disabled }: { disabled: boolean }) {
           <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2"><Field label="报告类型"><NativeSelect disabled={busy} value={reportType} onChange={(value) => void changeReportType(value as ShippingReportType)}>{reportTypes.includes("spectrum") && <option value="spectrum">含光谱测试报告</option>}<option value="pole">Pole 无光谱测试报告</option></NativeSelect></Field><Field label="统一工作电流"><NativeSelect disabled={busy} value={Number.isFinite(operatingCurrentA) ? String(operatingCurrentA) : ""} onChange={(value) => void changeOperatingCurrent(Number(value))}><option disabled value="">请选择工作电流</option>{batch.unionCurrents.map((current) => <option key={current} value={String(current)}>{Number.isInteger(current) ? current.toFixed(0) : String(current)} A{batch.commonCurrents.includes(current) ? " · 全部共有" : ""}</option>)}</NativeSelect></Field><Field className="2xl:col-span-2" label="统一产品名称"><Input disabled={busy} value={productName} onChange={(event) => changeProductName(event.target.value)} /></Field></div>
           <Separator className="my-5" />
           <div><div className="mb-3 flex items-end justify-between gap-4"><div><h3 className="text-sm font-semibold">报告参数</h3><p className="mt-1 text-xs text-muted-foreground">测量参数会按每份 Excel 重新取值；手工参数统一应用。</p></div><div className="flex shrink-0 items-center gap-3"><span className="text-xs text-muted-foreground">已选 {Object.values(fields).filter((item) => item.include).length} 项</span><Button disabled={busy} onClick={addCustomField} size="sm" type="button" variant="outline"><Plus className="size-3.5" />手动增加参数</Button></div></div><div className="grid grid-cols-1 gap-x-6 gap-y-3 2xl:grid-cols-2">{definitions.filter((definition) => !customFields.some((field) => field.key === definition.key)).map((definition) => { const state = fields[definition.key] ?? { include: false, value: "" }; return <div className="grid grid-cols-[minmax(150px,0.9fr)_minmax(110px,1fr)_52px] items-center gap-2" key={definition.key}><label className="flex items-center gap-2 text-sm"><input checked={state.include} disabled={busy} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" /><span>{definition.label}</span></label><Input aria-label={`${definition.label}数值`} className="h-8" disabled={busy || Boolean(definition.measuredKey)} value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} /><span className="text-xs text-muted-foreground">{definition.unit || "-"}</span></div>})}{customFields.map((definition) => { const state = fields[definition.key] ?? { include: true, value: "" }; return <div className="col-span-1 grid grid-cols-[auto_minmax(130px,0.8fr)_minmax(110px,1fr)_minmax(60px,0.35fr)_auto] items-center gap-2 rounded-md border border-dashed border-border bg-muted/20 p-2 2xl:col-span-2" key={definition.key}><input checked={state.include} disabled={busy} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" /><Input className="h-8" disabled={busy} placeholder="参数名称" value={definition.label} onChange={(event) => updateCustomField(definition.key, { label: event.target.value })} /><Input className="h-8" disabled={busy} placeholder="参数值" value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} /><Input className="h-8" disabled={busy} placeholder="单位" value={definition.unit} onChange={(event) => updateCustomField(definition.key, { unit: event.target.value })} /><button aria-label={`删除${definition.label}`} disabled={busy} onClick={() => removeCustomField(definition.key)} type="button"><X className="size-4" /></button></div>})}</div></div>
-          {reportType === "spectrum" && <><Separator className="my-5" /><div><h3 className="text-sm font-semibold">光谱纵轴</h3><div className="mt-3 grid grid-cols-3 gap-4"><Field label="单位"><NativeSelect disabled={busy} value={axisMode} onChange={(value) => setAxisMode(value as SpectrumAxisMode)}><option value="relative_db">相对强度 (dB)</option><option value="counts">原始强度 (counts)</option></NativeSelect></Field><NumberField disabled={busy} label="下限" value={axisMinimum} onChange={setAxisMinimum} /><NumberField disabled={busy} label="上限" value={axisMaximum} onChange={setAxisMaximum} /></div></div><Separator className="my-5" /><div><h3 className="text-sm font-semibold">光谱横轴</h3><div className="mt-3 grid grid-cols-2 gap-4"><NumberField disabled={busy} label="下限 (nm)" value={wavelengthMinimum} onChange={setWavelengthMinimum} step="0.1" /><NumberField disabled={busy} label="上限 (nm)" value={wavelengthMaximum} onChange={setWavelengthMaximum} step="0.1" /></div></div></>}
+          {reportType === "spectrum" && <><Separator className="my-5" /><div><h3 className="text-sm font-semibold">光谱纵轴</h3><div className="mt-3 grid grid-cols-3 gap-4"><Field label="单位"><NativeSelect disabled value={axisMode} onChange={() => undefined}><option value="counts">原始强度 (counts)</option></NativeSelect></Field><NumberField disabled={busy} label="下限" value={axisMinimum} onChange={setAxisMinimum} /><NumberField disabled={busy} label="上限" value={axisMaximum} onChange={setAxisMaximum} /></div></div><Separator className="my-5" /><div><h3 className="text-sm font-semibold">光谱横轴</h3><div className="mt-3 grid grid-cols-2 gap-4"><NumberField disabled={busy} label="下限 (nm)" value={wavelengthMinimum} onChange={setWavelengthMinimum} step="0.1" /><NumberField disabled={busy} label="上限 (nm)" value={wavelengthMaximum} onChange={setWavelengthMaximum} step="0.1" /></div></div></>}
         </div><aside className="min-w-0 border-t border-border pt-5 lg:sticky lg:top-[88px] lg:self-start lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0"><div className="flex items-center justify-between"><div><h3 className="text-sm font-semibold">代表文件预览</h3><p className="mt-1 text-xs text-muted-foreground">SN：{representative.sn}</p></div>{previewBusy && <LoaderCircle className="size-4 animate-spin text-muted-foreground" />}</div>{previewError && <p className="mt-4 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-950">{previewError}</p>}{previewPages.length ? <div className="mt-4 space-y-5">{previewPages.map((page, index) => <img alt={`批量出货报告代表预览，第 ${index + 1} 页`} className="w-full border border-border bg-white" key={`${index}-${page.slice(-24)}`} src={`data:image/png;base64,${page}`} />)}</div> : !previewBusy && !previewError && <div className="mt-4 grid min-h-56 place-items-center border border-dashed border-border text-xs text-muted-foreground">等待有效配置</div>}</aside></div>
-        <div className="mt-6 border-t border-border pt-4">{generationProgress.total > 0 && <div className="mb-4"><div className="mb-2 flex justify-between text-xs text-muted-foreground"><span>批量生成进度</span><span>{generationProgress.completed} / {generationProgress.total}</span></div><Progress value={generationProgress.total ? generationProgress.completed / generationProgress.total * 100 : 0} /></div>}<div className="flex flex-wrap items-center justify-between gap-3"><div className="text-xs text-muted-foreground">{resultValues.length ? `成功 ${successCount}，跳过 ${skippedCount}，失败 ${failedCount}` : `输出目录：${outputDirectory || "未选择"}`}</div><div className="flex gap-2">{resultValues.length > 0 && <Button onClick={() => void openPath(outputDirectory)} variant="outline"><FolderOpen className="size-4" />打开输出文件夹</Button>}<Button disabled={disabled || busy} onClick={() => void generateBatch()}>{generating ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}{generating ? "正在批量生成…" : "批量生成 PDF"}</Button></div></div></div>
+        <div className="mt-6 border-t border-border pt-4">{generationProgress.total > 0 && <div className="mb-4"><div className="mb-2 flex justify-between text-xs text-muted-foreground"><span>批量生成进度</span><span>{generationProgress.completed} / {generationProgress.total}</span></div><Progress value={generationProgress.total ? generationProgress.completed / generationProgress.total * 100 : 0} /></div>}<div className="flex flex-wrap items-center justify-between gap-3"><div className="text-xs text-muted-foreground">{resultValues.length ? `成功 ${successCount}，跳过 ${skippedCount}，失败 ${failedCount}` : `输出目录：${outputDirectory || "未选择"}`}</div><div className="flex gap-2">{resultValues.length > 0 && <Button disabled={!outputDirectory.trim()} onClick={() => void openOutputDirectory()} variant="outline"><FolderOpen className="size-4" />打开输出文件夹</Button>}<Button disabled={disabled || busy} onClick={() => void generateBatch()}>{generating ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}{generating ? "正在批量生成…" : "批量生成 PDF"}</Button></div></div></div>
       </section>}
     </>}
   </>
