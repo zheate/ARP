@@ -29,9 +29,13 @@ from combined_test.shipping_report import (
     SpectrumAxisSettings,
     _format_performance_parameters_title,
     _format_pole_summary_value,
+    build_batch_shipping_report_request,
     generate_shipping_report,
+    generate_shipping_report_batch_item,
+    inspect_shipping_report_batch,
     inspect_shipping_workbook,
     load_shipping_report_preferences,
+    next_shipping_report_output_path,
     render_shipping_report_preview,
     save_shipping_report_preferences,
     suggested_field_values,
@@ -82,6 +86,47 @@ class ShippingReportTests(unittest.TestCase):
     def _write(self, path: Path, *, status: SessionStatus = SessionStatus.COMPLETED, mixed=False) -> None:
         records = [self._record(1.0), self._record(2.0), self._record(3.0, spectrum=not mixed)]
         save_test_records(path, records, session=self._session(status))
+
+    def _set_session_value(self, path: Path, label: str, value: str) -> None:
+        workbook = load_workbook(path)
+        sheet = workbook["会话信息"]
+        for row in range(1, sheet.max_row + 1):
+            if sheet.cell(row, 1).value == label:
+                sheet.cell(row, 2, value)
+                break
+        workbook.save(path)
+        workbook.close()
+
+    @staticmethod
+    def _request_payload(request: ShippingReportRequest) -> dict[str, object]:
+        return {
+            "reportType": request.report_type.value,
+            "productName": request.product_name,
+            "sn": "SHOULD-BE-IGNORED",
+            "operatingCurrentA": request.operating_current_a,
+            "fields": {
+                key: {"include": selected.include, "value": selected.value}
+                for key, selected in request.fields.items()
+            },
+            "legacyCompletionConfirmed": request.legacy_completion_confirmed,
+            "customFields": [
+                {"key": field.key, "label": field.label, "unit": field.unit, "side": field.side}
+                for field in request.custom_fields
+            ],
+            **(
+                {
+                    "spectrumAxis": {
+                        "mode": request.spectrum_axis.mode.value,
+                        "minimum": request.spectrum_axis.minimum,
+                        "maximum": request.spectrum_axis.maximum,
+                        "wavelengthMinimum": request.spectrum_axis.wavelength_minimum,
+                        "wavelengthMaximum": request.spectrum_axis.wavelength_maximum,
+                    }
+                }
+                if request.spectrum_axis is not None
+                else {}
+            ),
+        }
 
     def _request(self, report_type: ShippingReportType) -> ShippingReportRequest:
         definitions = SPECTRUM_FIELD_DEFINITIONS if report_type is ShippingReportType.SPECTRUM else POLE_FIELD_DEFINITIONS
@@ -143,6 +188,100 @@ class ShippingReportTests(unittest.TestCase):
             self.assertEqual(pole_suggestions["slopeEfficiency"], "20.000")
             zero_current = replace(inspection.point_for_current(1.0), current_a=0.0, power_w=0.0)
             self.assertIsNone(zero_current.suggestions()["slopeEfficiencyWPerA"])
+
+    def test_batch_scan_recurses_uses_excel_sn_and_selects_latest_duplicate(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            older = root / "folder-name-is-not-sn" / "station-a" / "older.xlsx"
+            newer = root / "another-folder" / "deep" / "newer.xlsx"
+            missing_sn = root / "missing-sn.xlsx"
+            corrupt = root / "corrupt.xlsx"
+            ignored_lock = root / "~$open.xlsx"
+            for path in (older, newer, missing_sn, ignored_lock):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                self._write(path)
+            corrupt.write_bytes(b"not an xlsx workbook")
+            self._set_session_value(older, "SN", "EXCEL-SN-001")
+            self._set_session_value(newer, "SN", "EXCEL-SN-001")
+            self._set_session_value(missing_sn, "SN", "")
+            os.utime(older, ns=(1_000_000_000, 1_000_000_000))
+            os.utime(newer, ns=(2_000_000_000, 2_000_000_000))
+
+            batch = inspect_shipping_report_batch(root)
+
+            self.assertEqual(len(batch.items), 4)
+            by_name = {item.source_path.name: item for item in batch.items}
+            self.assertEqual(by_name["newer.xlsx"].status, "ready")
+            self.assertEqual(by_name["newer.xlsx"].sn, "EXCEL-SN-001")
+            self.assertEqual(by_name["older.xlsx"].status, "ignored_duplicate")
+            self.assertEqual(by_name["missing-sn.xlsx"].status, "invalid")
+            self.assertIn("缺少 SN", by_name["missing-sn.xlsx"].message)
+            self.assertEqual(by_name["corrupt.xlsx"].status, "invalid")
+            self.assertIn("无法读取 Excel", by_name["corrupt.xlsx"].message)
+            self.assertEqual(batch.union_currents, (1.0, 2.0, 3.0))
+            self.assertEqual(batch.common_currents, (1.0, 2.0, 3.0))
+            self.assertTrue(batch.to_payload()["allReadySupportSpectrum"])
+
+    def test_batch_duplicate_tie_breaks_by_full_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            first = root / "a" / "source.xlsx"
+            second = root / "b" / "source.xlsx"
+            for path in (first, second):
+                path.parent.mkdir(parents=True)
+                self._write(path)
+                self._set_session_value(path, "SN", "TIE-SN")
+                os.utime(path, ns=(5_000_000_000, 5_000_000_000))
+
+            batch = inspect_shipping_report_batch(root)
+
+            ready = [item for item in batch.items if item.ready]
+            self.assertEqual([item.source_path for item in ready], [second.resolve()])
+
+    def test_batch_request_replaces_sn_and_measured_values_from_each_workbook(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "source.xlsx"
+            self._write(source)
+            self._set_session_value(source, "SN", "EXCEL-SN-002")
+            inspection = inspect_shipping_workbook(source)
+            template = self._request(ShippingReportType.POLE)
+            payload = self._request_payload(template)
+            fields = payload["fields"]
+            assert isinstance(fields, dict)
+            fields["power"] = {"include": True, "value": "9999"}
+            fields["operatingVoltage"] = {"include": True, "value": "9999"}
+
+            request = build_batch_shipping_report_request(inspection, payload)
+
+            self.assertEqual(request.sn, "EXCEL-SN-002")
+            self.assertEqual(request.product_name, template.product_name)
+            self.assertEqual(request.fields["power"].value, "60.0")
+            self.assertEqual(request.fields["operatingVoltage"].value, "13.00")
+            self.assertEqual(request.fields["coolingTemperature"].value, "25")
+
+    def test_batch_output_path_adds_stable_suffixes_and_generates(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "source.xlsx"
+            output = root / "pdf"
+            self._write(source)
+            (output / "HEA000001_出货报告.pdf").parent.mkdir(parents=True)
+            (output / "HEA000001_出货报告.pdf").write_bytes(b"existing")
+            (output / "HEA000001_出货报告_2.pdf").write_bytes(b"existing")
+
+            self.assertEqual(
+                next_shipping_report_output_path(output, "HEA000001").name,
+                "HEA000001_出货报告_3.pdf",
+            )
+            target, request = generate_shipping_report_batch_item(
+                source,
+                output,
+                self._request_payload(self._request(ShippingReportType.POLE)),
+            )
+
+            self.assertEqual(request.sn, "HEA000001")
+            self.assertEqual(target.name, "HEA000001_出货报告_3.pdf")
+            self.assertTrue(target.read_bytes().startswith(b"%PDF"))
 
     def test_inspection_detects_renamed_sheet_shifted_header_and_shuffled_columns(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

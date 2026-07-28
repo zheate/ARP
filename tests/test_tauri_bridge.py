@@ -408,5 +408,49 @@ class LegacyWindowBackendCurrentLimitTests(unittest.TestCase):
         self.assertFalse(backend.window.applied)
 
 
+class LegacyWindowBackendShippingBatchTests(unittest.TestCase):
+    @staticmethod
+    def make_backend():
+        backend = object.__new__(LegacyWindowBackend)
+        backend.window = SimpleNamespace(
+            input_settings=object(),
+            statusBar=lambda: SimpleNamespace(showMessage=lambda _message: None),
+            add_log=lambda _message: None,
+        )
+        return backend
+
+    def test_batch_inspect_exposes_scan_payload_and_preferences(self) -> None:
+        backend = self.make_backend()
+        batch = SimpleNamespace(to_payload=lambda: {"rootPath": "/batch", "items": []})
+        with (
+            patch("tauri_bridge.legacy_backend.inspect_shipping_report_batch", return_value=batch) as inspect_batch,
+            patch("tauri_bridge.legacy_backend.load_shipping_report_preferences", return_value={"pole": {}}),
+        ):
+            result = backend._inspect_shipping_report_batch({"rootPath": "/batch"})
+
+        inspect_batch.assert_called_once_with("/batch")
+        self.assertEqual(result["rootPath"], "/batch")
+        self.assertEqual(result["preferences"], {"pole": {}})
+
+    def test_batch_generate_item_returns_identity_and_saves_preferences(self) -> None:
+        backend = self.make_backend()
+        request = SimpleNamespace(sn="SN-001")
+        with (
+            patch(
+                "tauri_bridge.legacy_backend.generate_shipping_report_batch_item",
+                return_value=(Path("/output/SN-001_出货报告.pdf"), request),
+            ) as generate_item,
+            patch("tauri_bridge.legacy_backend.save_shipping_report_preferences") as save_preferences,
+        ):
+            result = backend._generate_shipping_report_batch_item(
+                {"sourcePath": "/batch/source.xlsx", "outputDirectory": "/output"}
+            )
+
+        generate_item.assert_called_once()
+        save_preferences.assert_called_once_with(backend.window.input_settings, request)
+        self.assertEqual(result["sn"], "SN-001")
+        self.assertEqual(result["sourcePath"], "/batch/source.xlsx")
+        self.assertTrue(result["outputPath"].endswith("SN-001_出货报告.pdf"))
+
 if __name__ == "__main__":
     unittest.main()

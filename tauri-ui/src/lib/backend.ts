@@ -255,6 +255,35 @@ export interface ShippingReportGenerationResult {
   outputPath: string
 }
 
+export type ShippingReportBatchItemStatus = "ready" | "invalid" | "ignored_duplicate"
+
+export interface ShippingReportBatchItem {
+  sourcePath: string
+  modifiedAtMs: number
+  sn: string
+  productName: string
+  currents: number[]
+  allowedReportTypes: ShippingReportType[]
+  status: ShippingReportBatchItemStatus
+  message: string
+  compatibility: ShippingWorkbookInspection["compatibility"] | null
+}
+
+export interface ShippingReportBatchInspection {
+  rootPath: string
+  items: ShippingReportBatchItem[]
+  unionCurrents: number[]
+  commonCurrents: number[]
+  productNames: string[]
+  allReadySupportSpectrum: boolean
+  preferences: Record<ShippingReportType, ShippingReportPreferences>
+}
+
+export interface ShippingReportBatchGenerationResult extends ShippingReportGenerationResult {
+  sourcePath: string
+  sn: string
+}
+
 export interface ShippingReportPreviewResult {
   pages: string[]
 }

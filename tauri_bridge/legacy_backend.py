@@ -18,6 +18,8 @@ from combined_test.spectrum import find_spectrum_peak_annotations
 from combined_test.shipping_report import (
     ShippingReportRequest,
     generate_shipping_report,
+    generate_shipping_report_batch_item,
+    inspect_shipping_report_batch,
     inspect_shipping_workbook,
     load_shipping_report_preferences,
     render_shipping_report_preview,
@@ -362,6 +364,8 @@ class LegacyWindowBackend:
             "automatic.end": lambda _p: self.window.end_automatic_test(),
             "automatic.reset": lambda _p: self.window.reset_automatic_test(),
             "shippingReport.inspect": self._inspect_shipping_report,
+            "shippingReport.batchInspect": self._inspect_shipping_report_batch,
+            "shippingReport.batchGenerateItem": self._generate_shipping_report_batch_item,
             "shippingReport.preview": self._preview_shipping_report,
             "shippingReport.generate": self._generate_shipping_report,
             "pd.refresh": lambda _p: self.window.pd_panel.refresh_devices(),
@@ -571,6 +575,27 @@ class LegacyWindowBackend:
         self.window.statusBar().showMessage(f"出货报告已生成：{target}")
         self.window.add_log(f"出货报告已生成：{target}")
         return {"outputPath": str(target)}
+
+    def _inspect_shipping_report_batch(self, params: dict[str, Any]) -> dict[str, Any]:
+        root_path = str(params.get("rootPath", "")).strip()
+        if not root_path:
+            raise ValueError("请选择 Excel 批量根目录")
+        payload = inspect_shipping_report_batch(root_path).to_payload()
+        payload["preferences"] = load_shipping_report_preferences(self.window.input_settings)
+        return payload
+
+    def _generate_shipping_report_batch_item(self, params: dict[str, Any]) -> dict[str, Any]:
+        source_path = str(params.get("sourcePath", "")).strip()
+        output_directory = str(params.get("outputDirectory", "")).strip()
+        if not source_path:
+            raise ValueError("请选择 Excel 测试文件")
+        if not output_directory:
+            raise ValueError("请选择 PDF 保存文件夹")
+        target, request = generate_shipping_report_batch_item(source_path, output_directory, params)
+        save_shipping_report_preferences(self.window.input_settings, request)
+        self.window.statusBar().showMessage(f"批量出货报告已生成：{target}")
+        self.window.add_log(f"批量出货报告已生成：{target}")
+        return {"outputPath": str(target), "sourcePath": source_path, "sn": request.sn}
 
     def _preview_shipping_report(self, params: dict[str, Any]) -> dict[str, Any]:
         source_path = str(params.get("sourcePath", "")).strip()

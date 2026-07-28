@@ -10,7 +10,7 @@ import os
 import re
 import sys
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -33,7 +33,7 @@ from PySide6.QtGui import (
 from PySide6.QtPdf import QPdfDocument
 from PySide6.QtWidgets import QApplication
 
-from .excel_export import EXPORT_WORKBOOK_SCHEMA_VERSION
+from .excel_export import EXPORT_WORKBOOK_SCHEMA_VERSION, sanitize_sn
 
 
 REPORT_WORKBOOK_SCHEMA_VERSION = EXPORT_WORKBOOK_SCHEMA_VERSION
@@ -250,6 +250,82 @@ class WorkbookInspection:
                 ShippingReportType.SPECTRUM.value: [_field_payload(item) for item in SPECTRUM_FIELD_DEFINITIONS],
                 ShippingReportType.POLE.value: [_field_payload(item) for item in POLE_FIELD_DEFINITIONS],
             },
+        }
+
+
+@dataclass(frozen=True)
+class BatchWorkbookInspection:
+    source_path: Path
+    modified_time_ns: int
+    sn: str
+    product_name: str
+    currents: tuple[float, ...]
+    allowed_report_types: tuple[str, ...]
+    compatibility: WorkbookCompatibility | None
+    status: str
+    message: str
+
+    @property
+    def ready(self) -> bool:
+        return self.status == "ready"
+
+    def to_payload(self) -> dict[str, Any]:
+        compatibility = self.compatibility
+        return {
+            "sourcePath": str(self.source_path),
+            "modifiedAtMs": self.modified_time_ns / 1_000_000,
+            "sn": self.sn,
+            "productName": self.product_name,
+            "currents": list(self.currents),
+            "allowedReportTypes": list(self.allowed_report_types),
+            "status": self.status,
+            "message": self.message,
+            "compatibility": (
+                {
+                    "kind": compatibility.kind,
+                    "status": compatibility.status,
+                    "message": compatibility.message,
+                    "requiresLegacyConfirmation": compatibility.requires_legacy_confirmation,
+                }
+                if compatibility is not None
+                else None
+            ),
+        }
+
+
+@dataclass(frozen=True)
+class ShippingReportBatchInspection:
+    root_path: Path
+    items: tuple[BatchWorkbookInspection, ...]
+
+    @property
+    def ready_items(self) -> tuple[BatchWorkbookInspection, ...]:
+        return tuple(item for item in self.items if item.ready)
+
+    @property
+    def union_currents(self) -> tuple[float, ...]:
+        return tuple(sorted({current for item in self.ready_items for current in item.currents}))
+
+    @property
+    def common_currents(self) -> tuple[float, ...]:
+        ready = self.ready_items
+        if not ready:
+            return ()
+        common = set(ready[0].currents)
+        for item in ready[1:]:
+            common.intersection_update(item.currents)
+        return tuple(sorted(common))
+
+    def to_payload(self) -> dict[str, Any]:
+        ready = self.ready_items
+        return {
+            "rootPath": str(self.root_path),
+            "items": [item.to_payload() for item in self.items],
+            "unionCurrents": list(self.union_currents),
+            "commonCurrents": list(self.common_currents),
+            "productNames": sorted({item.product_name for item in ready if item.product_name}),
+            "allReadySupportSpectrum": bool(ready)
+            and all(ShippingReportType.SPECTRUM.value in item.allowed_report_types for item in ready),
         }
 
 
@@ -644,6 +720,103 @@ def inspect_shipping_workbook(path: Path | str) -> WorkbookInspection:
         workbook.close()
 
 
+def inspect_shipping_report_batch(root_path: Path | str) -> ShippingReportBatchInspection:
+    root = Path(root_path).expanduser().resolve()
+    if not root.is_dir():
+        raise ValueError("请选择有效的 Excel 批量根目录")
+
+    source_paths = sorted(
+        (
+            path.resolve()
+            for path in root.rglob("*")
+            if path.is_file()
+            and not path.is_symlink()
+            and path.suffix.lower() == ".xlsx"
+            and not path.name.startswith("~$")
+        ),
+        key=lambda path: str(path).casefold(),
+    )
+    candidates: list[BatchWorkbookInspection] = []
+    for source_path in source_paths:
+        try:
+            modified_time_ns = source_path.stat().st_mtime_ns
+        except OSError as exc:
+            candidates.append(
+                BatchWorkbookInspection(
+                    source_path=source_path,
+                    modified_time_ns=0,
+                    sn="",
+                    product_name="",
+                    currents=(),
+                    allowed_report_types=(),
+                    compatibility=None,
+                    status="invalid",
+                    message=f"无法读取文件信息：{exc}",
+                )
+            )
+            continue
+        try:
+            inspection = inspect_shipping_workbook(source_path)
+        except Exception as exc:
+            candidates.append(
+                BatchWorkbookInspection(
+                    source_path=source_path,
+                    modified_time_ns=modified_time_ns,
+                    sn="",
+                    product_name="",
+                    currents=(),
+                    allowed_report_types=(),
+                    compatibility=None,
+                    status="invalid",
+                    message=str(exc),
+                )
+            )
+            continue
+        if not inspection.sn:
+            status = "invalid"
+            message = "Excel 会话信息中缺少 SN"
+        else:
+            status = "candidate"
+            message = inspection.compatibility.message
+        candidates.append(
+            BatchWorkbookInspection(
+                source_path=source_path,
+                modified_time_ns=modified_time_ns,
+                sn=inspection.sn,
+                product_name=inspection.product_name,
+                currents=tuple(point.current_a for point in inspection.points),
+                allowed_report_types=inspection.allowed_report_types,
+                compatibility=inspection.compatibility,
+                status=status,
+                message=message,
+            )
+        )
+
+    by_sn: dict[str, list[int]] = {}
+    for index, item in enumerate(candidates):
+        if item.status == "candidate":
+            by_sn.setdefault(item.sn, []).append(index)
+    for indices in by_sn.values():
+        selected_index = max(
+            indices,
+            key=lambda index: (candidates[index].modified_time_ns, str(candidates[index].source_path)),
+        )
+        selected = candidates[selected_index]
+        if selected.compatibility is not None and selected.compatibility.kind == "rejected":
+            candidates[selected_index] = replace(selected, status="invalid")
+        else:
+            candidates[selected_index] = replace(selected, status="ready")
+        for index in indices:
+            if index == selected_index:
+                continue
+            candidates[index] = replace(
+                candidates[index],
+                status="ignored_duplicate",
+                message=f"同一 SN 已选择较新的文件：{selected.source_path.name}",
+            )
+    return ShippingReportBatchInspection(root_path=root, items=tuple(candidates))
+
+
 def validate_shipping_report_request(inspection: WorkbookInspection, request: ShippingReportRequest) -> None:
     if inspection.compatibility.kind == "rejected":
         raise ValueError(inspection.compatibility.message)
@@ -728,6 +901,64 @@ def suggested_field_values(
         else:
             output[definition.key] = f"{value:.3f}".rstrip("0").rstrip(".")
     return output
+
+
+def build_batch_shipping_report_request(
+    inspection: WorkbookInspection,
+    values: Mapping[str, Any],
+) -> ShippingReportRequest:
+    if not inspection.sn:
+        raise ValueError("Excel 会话信息中缺少 SN")
+    normalized = dict(values)
+    normalized["sn"] = inspection.sn
+    request = ShippingReportRequest.from_mapping(normalized)
+    suggestions = suggested_field_values(
+        inspection,
+        request.report_type,
+        request.operating_current_a,
+    )
+    definitions = (
+        SPECTRUM_FIELD_DEFINITIONS
+        if request.report_type is ShippingReportType.SPECTRUM
+        else POLE_FIELD_DEFINITIONS
+    )
+    fields = dict(request.fields)
+    for definition in definitions:
+        if definition.measured_key is None or definition.key not in fields:
+            continue
+        selected = fields[definition.key]
+        fields[definition.key] = SelectedReportField(
+            include=selected.include,
+            value=suggestions.get(definition.key, ""),
+        )
+    return replace(request, sn=inspection.sn, fields=fields)
+
+
+def next_shipping_report_output_path(output_directory: Path | str, sn: str) -> Path:
+    directory = Path(output_directory).expanduser().resolve()
+    if directory.exists() and not directory.is_dir():
+        raise ValueError("PDF 输出位置不是文件夹")
+    safe_sn = sanitize_sn(sn)
+    base = directory / f"{safe_sn}_出货报告.pdf"
+    if not base.exists():
+        return base
+    index = 2
+    while True:
+        candidate = directory / f"{safe_sn}_出货报告_{index}.pdf"
+        if not candidate.exists():
+            return candidate
+        index += 1
+
+
+def generate_shipping_report_batch_item(
+    source_path: Path | str,
+    output_directory: Path | str,
+    values: Mapping[str, Any],
+) -> tuple[Path, ShippingReportRequest]:
+    inspection = inspect_shipping_workbook(source_path)
+    request = build_batch_shipping_report_request(inspection, values)
+    target = next_shipping_report_output_path(output_directory, request.sn)
+    return generate_shipping_report(source_path, target, request), request
 
 
 def load_shipping_report_preferences(settings: Any) -> dict[str, Any]:
