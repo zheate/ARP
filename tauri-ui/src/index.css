@@ -20,6 +20,19 @@ body {
   overscroll-behavior-y: none;
 }
 
+.manual-control-content {
+  display: flex;
+  flex: 1 1 0%;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.manual-page [data-slot="button"] {
+  min-height: 2.25rem;
+  font-size: 1rem;
+}
+
 @theme inline {
   --font-heading: var(--font-sans);
   --font-sans: 'Geist Variable', 'PingFang SC', 'Noto Sans SC Variable', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Hiragino Sans GB', sans-serif;
@@ -235,14 +248,108 @@ html.dark {
   box-shadow: 0 0 0 3px var(--app-focus-ring);
 }
 
-@keyframes page-enter {
+@keyframes shell-sidebar-enter {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes shell-header-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
   }
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes nav-item-enter {
+  from {
+    opacity: 0;
+    transform: translateX(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes page-section-enter {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes page-title-enter {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes overlay-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes dialog-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes menu-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes status-dot-enter {
+  0% {
+    opacity: 0.35;
+    transform: scale(0.7);
+  }
+  70% { transform: scale(1.2); }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes tooltip-enter {
+  from {
+    opacity: 0;
+    transform: translateY(2px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }
 
@@ -257,8 +364,71 @@ html.dark {
   }
 }
 
-.page-enter {
-  animation: page-enter 180ms cubic-bezier(0.2, 0, 0, 1) both;
+.shell-sidebar-enter {
+  animation: shell-sidebar-enter 220ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.shell-header-enter {
+  animation: shell-header-enter 200ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.app-nav-item {
+  animation: nav-item-enter 220ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.app-nav-item:nth-child(2) { animation-delay: 30ms; }
+.app-nav-item:nth-child(3) { animation-delay: 60ms; }
+.app-nav-item:nth-child(4) { animation-delay: 90ms; }
+
+.app-nav-icon,
+.device-card-icon {
+  transition: color 180ms ease, transform 180ms cubic-bezier(0.2, 0, 0, 1), background-color 180ms ease, border-color 180ms ease;
+}
+
+.app-nav-item:not(:disabled):hover .app-nav-icon {
+  transform: scale(1.08);
+}
+
+.device-card:not([aria-disabled="true"]):hover .device-card-icon,
+.device-card:not([aria-disabled="true"]):focus-visible .device-card-icon {
+  border-color: var(--plm-flat-border-strong);
+  background: var(--app-selected-soft);
+  color: var(--app-accent-strong);
+  transform: scale(1.04);
+}
+
+.page-enter > :not(.motion-overlay-enter) {
+  animation: page-section-enter 240ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.page-enter > :nth-child(2 of :not(.motion-overlay-enter)) { animation-delay: 35ms; }
+.page-enter > :nth-child(3 of :not(.motion-overlay-enter)) { animation-delay: 70ms; }
+.page-enter > :nth-child(4 of :not(.motion-overlay-enter)) { animation-delay: 105ms; }
+
+.page-title-enter {
+  animation: page-title-enter 180ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.motion-overlay-enter {
+  animation: overlay-enter 160ms ease-out both;
+}
+
+.motion-dialog-enter {
+  animation: dialog-enter 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.menu-enter {
+  transform-origin: top center;
+  animation: menu-enter 140ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.status-dot {
+  animation: status-dot-enter 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.chart-tooltip-enter {
+  transform-origin: top left;
+  animation: tooltip-enter 120ms ease-out both;
 }
 
 .notification-enter {
@@ -270,6 +440,7 @@ html.dark {
   *::before,
   *::after {
     scroll-behavior: auto !important;
+    animation-delay: 0ms !important;
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;

@@ -1,5 +1,16 @@
 # Agent Notes
 
+## Default Implementation Target
+
+- Unless the user explicitly says otherwise, make code and UI changes in the Tauri version (`tauri-ui` and its related Tauri integration) and do not modify the Qt version.
+
+## Verification Policy
+
+- Only run relevant tests automatically for important or high-risk changes.
+- For explanations, analysis, code inspection, and small low-risk changes, do not run tests unless the user explicitly asks for them.
+- Before running the full test suite, packaging, or any long-running build or verification command, obtain the user's consent.
+- When tests are skipped under this policy, state briefly that the change has not been test-verified.
+
 ## Combined Test App
 
 - Run from this workspace with the Python environment that can load the scripts runner compiled modules:
@@ -88,4 +99,4 @@ Run standalone diagnostics from the repository root with `python -m tools.power_
 - `Save Excel` snapshots all queued points, rebuilds the workbook once on an `ExcelSaveThread`, and atomically replaces the target file so the GUI remains responsive during large saves.
 - PIB uses trapezoidal spectral-power integration: 974.5-977.5 nm divided by the fixed 956-996 nm pump-laser analysis band.
 - SMSR uses `10 * log10(main peak / highest resolved side-mode peak)` within 956-996 nm; saturated or unresolved spectra report no SMSR value.
-- Spectrum saturation is flagged when at least 3 consecutive pixels are at or above 16000 counts and within 99.5% of the frame maximum; saturated points show a red warning and are not queued for Excel.
+- Spectrum saturation is flagged when at least 3 consecutive pixels are at or above 99.5% of the device-reported full scale; saturated points show a red warning and are not queued for Excel.

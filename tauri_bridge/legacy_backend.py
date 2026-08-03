@@ -13,8 +13,12 @@ from pathlib import Path
 from enum import Enum
 from typing import Any, Callable
 
-from combined_test.spectrum_math import calculate_smsr
-from combined_test.spectrum import find_spectrum_peak_annotations
+from combined_test.runtime_logging import runtime_log_path
+from combined_test.spectrum_math import calculate_smsr, calculate_stats
+from combined_test.spectrum import (
+    SPECTRUM_CENTER_LOCK_HALF_RANGE_NM,
+    find_spectrum_peak_annotations,
+)
 from combined_test.shipping_report import (
     ShippingReportRequest,
     generate_shipping_report,
@@ -39,24 +43,42 @@ def _number(value: Any) -> float | None:
     return result if math.isfinite(result) else None
 
 
-def _series(values: Any, *, limit: int | None = 1200) -> list[float]:
-    if values is None:
-        return []
-    output: list[float] = []
-    source = list(values)
-    if limit is not None:
-        source = source[-limit:]
-    for value in source:
-        number = _number(value)
-        if number is not None:
-            output.append(number)
-    return output
+def _paired_series(
+    x_values: Any,
+    y_values: Any,
+    *,
+    limit: int | None = 1200,
+) -> tuple[list[float], list[float]]:
+    """Sanitize paired samples without shifting one axis past invalid values."""
+
+    if x_values is None or y_values is None:
+        return [], []
+    x_source = list(x_values)
+    y_source = list(y_values)
+    point_count = min(len(x_source), len(y_source))
+    start = 0 if limit is None else max(0, point_count - limit)
+    x_output: list[float] = []
+    y_output: list[float] = []
+    for index in range(start, point_count):
+        x_value = _number(x_source[index])
+        y_value = _number(y_source[index])
+        if x_value is None or y_value is None:
+            continue
+        x_output.append(x_value)
+        y_output.append(y_value)
+    return x_output, y_output
+
+
+SPECTRUM_CHART_POINT_LIMIT = 4096
 
 
 def _downsample_spectrum(
-    wavelength: list[float], intensity: list[float], *, limit: int = 160
+    wavelength: list[float],
+    intensity: list[float],
+    *,
+    limit: int = SPECTRUM_CHART_POINT_LIMIT,
 ) -> tuple[list[float], list[float]]:
-    """Bound chart payload size while retaining narrow local extrema."""
+    """Keep a full OceanHR4 frame while bounding unusually large payloads."""
 
     point_count = min(len(wavelength), len(intensity))
     if point_count <= limit:
@@ -147,15 +169,26 @@ class LegacyWindowBackend:
     def __init__(self, window: Any) -> None:
         self.window = window
         self.notices: list[dict[str, str]] = []
+        log_path = runtime_log_path()
+        if log_path is not None:
+            self.notices.append(
+                {
+                    "id": "runtime-log-enabled",
+                    "level": "info",
+                    "title": "运行日志已启用",
+                    "message": f"完整运行日志保存至：{log_path}",
+                }
+            )
+        self._notice_sequence = 0
         self.latest_spectrometer_reading: Any | None = None
         self._connected_spectrum_reader_id: int | None = None
-        self._spectrum_cache_source: tuple[Any, Any, bool] | None = None
+        self._spectrum_cache_source: tuple[Any, Any, bool, float | None, int | None] | None = None
         self._spectrum_cache_payload: tuple[
-            list[float], list[float], float | None, list[dict[str, Any]]
-        ] = ([], [], None, [])
+            list[float], list[float], float | None, list[dict[str, Any]], Any | None
+        ] = ([], [], None, [], None)
         self._power_cache_key: tuple[Any, ...] | None = None
         self._power_cache_payload: list[dict[str, float]] = []
-        self._spectrum_points_cache_key: tuple[int, int] | None = None
+        self._spectrum_points_cache_source: tuple[Any, Any] | None = None
         self._spectrum_points_cache_payload: list[dict[str, float]] = []
         self._stable_cache_key: tuple[Any, ...] | None = None
         self._stable_cache_payload: list[dict[str, float | None]] = []
@@ -188,9 +221,10 @@ class LegacyWindowBackend:
         cache_key = (revision, len(times), last_time)
         if cache_key == self._power_cache_key:
             return self._power_cache_payload
+        elapsed_values, power_values = _paired_series(times, values)
         payload = [
             {"elapsedS": x, "powerW": y}
-            for x, y in zip(_series(times), _series(values))
+            for x, y in zip(elapsed_values, power_values)
         ]
         self._power_cache_key = cache_key
         self._power_cache_payload = payload
@@ -204,14 +238,20 @@ class LegacyWindowBackend:
     ) -> list[dict[str, float]]:
         """Avoid rebuilding spectrum row dictionaries before JSON encoding."""
 
-        cache_key = (id(wavelength), id(intensity))
-        if cache_key == self._spectrum_points_cache_key:
+        cached_source = self._spectrum_points_cache_source
+        if (
+            cached_source is not None
+            and cached_source[0] is wavelength
+            and cached_source[1] is intensity
+        ):
             return self._spectrum_points_cache_payload
         payload = [
             {"wavelengthNm": x, "intensity": y}
             for x, y in zip(wavelength, intensity)
         ]
-        self._spectrum_points_cache_key = cache_key
+        # Retaining the source references also prevents Python object-id reuse
+        # from producing a false cache hit after the previous frame is freed.
+        self._spectrum_points_cache_source = (wavelength, intensity)
         self._spectrum_points_cache_payload = payload
         return payload
 
@@ -237,8 +277,19 @@ class LegacyWindowBackend:
         return payload
 
     def _spectrum_snapshot(
-        self, wavelength_values: Any, intensity_values: Any, saturated: bool
-    ) -> tuple[list[float], list[float], float | None, list[dict[str, Any]]]:
+        self,
+        wavelength_values: Any,
+        intensity_values: Any,
+        saturated: bool,
+        locked_center_nm: float | None = None,
+        frame_revision: int | None = None,
+    ) -> tuple[
+        list[float],
+        list[float],
+        float | None,
+        list[dict[str, Any]],
+        Any | None,
+    ]:
         """Analyze a spectrum once per acquired frame, not once per UI poll."""
 
         cached_source = self._spectrum_cache_source
@@ -247,23 +298,69 @@ class LegacyWindowBackend:
             and cached_source[0] is wavelength_values
             and cached_source[1] is intensity_values
             and cached_source[2] == saturated
+            and cached_source[3] == locked_center_nm
+            and cached_source[4] == frame_revision
         ):
             return self._spectrum_cache_payload
 
-        full_wavelength = _series(wavelength_values, limit=None)
-        full_intensity = _series(intensity_values, limit=None)
-        wavelength, intensity = _downsample_spectrum(full_wavelength, full_intensity)
+        full_wavelength, full_intensity = _paired_series(
+            wavelength_values,
+            intensity_values,
+            limit=None,
+        )
+        chart_wavelength = full_wavelength
+        chart_intensity = full_intensity
+        if locked_center_nm is not None:
+            minimum_nm = locked_center_nm - SPECTRUM_CENTER_LOCK_HALF_RANGE_NM
+            maximum_nm = locked_center_nm + SPECTRUM_CENTER_LOCK_HALF_RANGE_NM
+            visible_wavelength: list[float] = []
+            visible_intensity: list[float] = []
+            for wavelength_nm, value in zip(full_wavelength, full_intensity):
+                if minimum_nm <= wavelength_nm <= maximum_nm:
+                    visible_wavelength.append(wavelength_nm)
+                    visible_intensity.append(value)
+            if visible_wavelength:
+                chart_wavelength = visible_wavelength
+                chart_intensity = visible_intensity
+        # Preserve every native spectrometer sample in the locked display
+        # window. The wavelength density is hardware-defined, so dropping
+        # points here can only reduce the fidelity of the live spectrum.
+        wavelength, intensity = chart_wavelength, chart_intensity
         smsr_db: float | None = None
         peaks: list[dict[str, Any]] = []
+        frame_stats: Any | None = None
         if not saturated and wavelength_values is not None and intensity_values is not None:
             window = getattr(self, "window", None)
-            if hasattr(window, "latest_spectrum_smsr_db"):
-                smsr_db = _number(window.latest_spectrum_smsr_db)
+            cached_analysis_matches = bool(
+                window is not None
+                and frame_revision is not None
+                and getattr(window, "latest_spectrum_analysis_revision", None)
+                == frame_revision
+                and getattr(window, "latest_spectrum_wavelength", None)
+                is wavelength_values
+                and getattr(window, "latest_spectrum_intensity", None)
+                is intensity_values
+            )
+            if cached_analysis_matches:
+                frame_stats = getattr(window, "latest_spectrum_stats", None)
+                smsr_db = _number(getattr(window, "latest_spectrum_smsr_db", None))
+                annotations = getattr(window, "latest_spectrum_peak_annotations", ())
             else:
+                mode_result = None
                 try:
-                    smsr_db = _number(calculate_smsr(wavelength_values, intensity_values).smsr_db)
+                    frame_stats = calculate_stats(wavelength_values, intensity_values)
+                    mode_result = calculate_smsr(wavelength_values, intensity_values)
+                    smsr_db = _number(mode_result.smsr_db)
                 except (TypeError, ValueError):
                     pass
+                try:
+                    annotations = find_spectrum_peak_annotations(
+                        zip(full_wavelength, full_intensity),
+                        stats=frame_stats,
+                        smsr_result=mode_result,
+                    )
+                except (TypeError, ValueError):
+                    annotations = ()
             try:
                 peaks = [
                     {
@@ -272,15 +369,25 @@ class LegacyWindowBackend:
                         "peakWavelengthNm": _number(annotation.peak_wavelength_nm),
                         "peakIntensity": _number(annotation.peak_intensity),
                     }
-                    for annotation in find_spectrum_peak_annotations(
-                        zip(full_wavelength, full_intensity)
-                    )
+                    for annotation in annotations
                 ]
             except (TypeError, ValueError):
                 pass
 
-        self._spectrum_cache_source = (wavelength_values, intensity_values, saturated)
-        self._spectrum_cache_payload = (wavelength, intensity, smsr_db, peaks)
+        self._spectrum_cache_source = (
+            wavelength_values,
+            intensity_values,
+            saturated,
+            locked_center_nm,
+            frame_revision,
+        )
+        self._spectrum_cache_payload = (
+            wavelength,
+            intensity,
+            smsr_db,
+            peaks,
+            frame_stats,
+        )
         self._bump_series_revision("spectrum")
         return self._spectrum_cache_payload
 
@@ -309,10 +416,18 @@ class LegacyWindowBackend:
 
         from PySide6.QtWidgets import QMessageBox
 
+        self.window._dialogs_are_nonblocking = True
+
         def notice(level: str) -> Callable[..., Any]:
             def capture(_parent: Any, title: str, message: str, *_args: Any, **_kwargs: Any) -> Any:
+                self._notice_sequence += 1
                 self.notices.append(
-                    {"level": level, "title": str(title), "message": str(message)}
+                    {
+                        "id": str(self._notice_sequence),
+                        "level": level,
+                        "title": str(title),
+                        "message": str(message),
+                    }
                 )
                 return QMessageBox.StandardButton.Ok
 
@@ -329,8 +444,10 @@ class LegacyWindowBackend:
             *_args: Any,
             **_kwargs: Any,
         ) -> Any:
+            self._notice_sequence += 1
             self.notices.append(
                 {
+                    "id": str(self._notice_sequence),
                     "level": "warning",
                     "title": str(title),
                     "message": f"需要在新界面中确认：{message}",
@@ -353,13 +470,14 @@ class LegacyWindowBackend:
             "powerSupply.setVoltage": self._set_voltage,
             "powerSupply.setOutput": self._set_output,
             "powerSupply.read": self._read_power_supply,
-            "powerMeter.start": lambda _p: self.window.start_power_meter(),
+            "powerMeter.start": lambda _p: self._start_power_meter(),
             "powerMeter.stop": lambda _p: self.window.stop_power_meter(),
             "powerMeter.setRelativeZero": self._set_relative_zero,
             "spectrometer.start": lambda _p: self._start_spectrometer(),
             "spectrometer.stop": lambda _p: self.window.stop_spectrometer(),
             "spectrometer.saveCsv": self._save_spectrum_csv,
             "automatic.start": self._start_automatic,
+            "automatic.pause": lambda _p: self._pause_automatic(),
             "automatic.retry": lambda _p: self.window.retry_automatic_test(),
             "automatic.end": lambda _p: self.window.end_automatic_test(),
             "automatic.reset": lambda _p: self.window.reset_automatic_test(),
@@ -402,6 +520,14 @@ class LegacyWindowBackend:
         elif combo.isEditable():
             combo.setEditText(text)
 
+    def _set_power_meter_resource(self, value: Any) -> None:
+        resource = str(value).strip()
+        index = self.window._find_power_meter_resource_index(resource)
+        if index >= 0:
+            self.window.power_meter_combo.setCurrentIndex(index)
+        else:
+            self._set_combo_text(self.window.power_meter_combo, resource)
+
     def _configure(self, params: dict[str, Any]) -> None:
         window = self.window
         fields = {
@@ -435,6 +561,7 @@ class LegacyWindowBackend:
             "powerMeterIntervalMs": window.power_meter_interval_spin,
             "integrationTimeUs": window.integration_spin,
             "spectrometerIntervalMs": window.interval_spin,
+            "spectrumAverageFrames": window.spectrum_average_spin,
             "stableWindowS": window.stable_window_spin,
             "stableToleranceW": window.stable_tolerance_spin,
         }
@@ -445,7 +572,7 @@ class LegacyWindowBackend:
         if "tdkResource" in params:
             self._set_combo_text(window.tdk_resource_combo, params["tdkResource"])
         if "powerMeterResource" in params:
-            self._set_combo_text(window.power_meter_combo, params["powerMeterResource"])
+            self._set_power_meter_resource(params["powerMeterResource"])
         if "spectrometerResource" in params:
             spectrometer_resource = str(params["spectrometerResource"]).strip()
             if spectrometer_resource:
@@ -500,7 +627,14 @@ class LegacyWindowBackend:
             self.window.toggle_tdk_output()
 
     def _set_relative_zero(self, params: dict[str, Any]) -> None:
+        if self.window.power_meter_detect_thread is not None:
+            raise ValueError("功率计正在识别，请等待识别完成后再调零")
         self.window.set_power_meter_relative_zero(bool(params.get("enabled")))
+
+    def _start_power_meter(self) -> None:
+        if self.window.power_meter_detect_thread is not None:
+            raise ValueError("功率计正在识别，请等待识别完成后再开始采集")
+        self.window.start_power_meter()
 
     def _read_power_supply(self, params: dict[str, Any]) -> None:
         readers = {
@@ -516,9 +650,17 @@ class LegacyWindowBackend:
         reader()
 
     def _start_automatic(self, params: dict[str, Any]) -> None:
+        if self.window.power_meter_detect_thread is not None:
+            raise ValueError("功率计正在识别，请等待识别完成后再开始自动测试")
         self._configure(params)
         self.window.start_automatic_test()
         self._connect_spectrum_capture()
+
+    def _pause_automatic(self) -> None:
+        state = _enum_value(self.window.automatic_orchestrator.state)
+        if state in ("idle", "completed", "paused", "ramping_down"):
+            raise ValueError("当前自动测试状态不能暂停")
+        self.window.pause_automatic_test("操作者暂停", operator_requested=True)
 
     def _start_spectrometer(self) -> None:
         self.window.start_spectrometer()
@@ -604,7 +746,7 @@ class LegacyWindowBackend:
         request = ShippingReportRequest.from_mapping(params)
         return {"pages": render_shipping_report_preview(source_path, request)}
 
-    def _shutdown(self) -> None:
+    def _shutdown(self) -> dict[str, bool]:
         """Apply the existing emergency boundary and flush acquisition threads."""
 
         self.window.emergency_stop()
@@ -616,6 +758,32 @@ class LegacyWindowBackend:
         ):
             if reader is not None and hasattr(reader, "wait"):
                 reader.wait(5000)
+
+        controller = self.window.manual_ch341_controller
+        active_current_a = float(self.window.active_output_current_a or 0.0)
+        if self.window.power_supply_controller_kind == "tdk":
+            output_enabled = bool(getattr(controller, "output_enabled", False))
+            if (
+                self.window.automatic_controller.output_shutdown_unconfirmed
+                or output_enabled
+                or active_current_a > 0.005
+            ):
+                raise RuntimeError(
+                    "无法确认 TDK 输出已经关闭；程序将保持打开，请检查电源面板后重试退出"
+                )
+        elif active_current_a > 0.005:
+            raise RuntimeError(
+                f"无法确认电源电流已经归零（最近设定 {active_current_a:g} A）；"
+                "程序将保持打开，请检查电源后重试退出"
+            )
+        discard_controller = getattr(
+            self.window,
+            "_discard_manual_power_supply_controller",
+            None,
+        )
+        if callable(discard_controller):
+            discard_controller("Tauri 后端已确认安全退出")
+        return {"shutdownConfirmed": True}
 
     def _configure_pd(self, params: dict[str, Any]) -> None:
         panel = self.window.pd_panel
@@ -670,23 +838,38 @@ class LegacyWindowBackend:
         power_supply = window.get_power_supply()
         power_connected = bool(power_supply is not None and power_supply.connected)
         power_meter_running = window.power_meter_reader is not None
+        power_meter_detecting = window.power_meter_detect_thread is not None
         spectrum_running = window.spectrometer_reader is not None
         power_reading = window.latest_power_meter_reading
-        spectrum_reading = self.latest_spectrometer_reading
         automatic = window.automatic_orchestrator
         currents = list(automatic.currents)
         current_index = int(automatic.current_index)
 
         plots = window.live_plots
         spectrum_saturated = bool(window.latest_spectrum_saturated)
+        spectrum_center_locked_nm = _number(window.spectrum_center_locked_nm)
         if include_live_charts:
-            wavelength, intensity, spectrum_smsr_db, spectrum_peaks = self._spectrum_snapshot(
+            (
+                wavelength,
+                intensity,
+                spectrum_smsr_db,
+                spectrum_peaks,
+                spectrum_frame_stats,
+            ) = self._spectrum_snapshot(
                 window.latest_spectrum_wavelength,
                 window.latest_spectrum_intensity,
                 spectrum_saturated,
+                spectrum_center_locked_nm,
+                int(getattr(window, "spectrum_frame_revision", 0)),
             )
         else:
-            wavelength, intensity, spectrum_smsr_db, spectrum_peaks = [], [], None, []
+            wavelength, intensity, spectrum_smsr_db, spectrum_peaks, spectrum_frame_stats = (
+                [],
+                [],
+                None,
+                [],
+                None,
+            )
         power_points = self._power_snapshot(plots) if include_live_charts else []
         spectrum_points = self._spectrum_points_snapshot(wavelength, intensity)
         stable_points = self._stable_snapshot(window) if include_live_charts else []
@@ -696,10 +879,12 @@ class LegacyWindowBackend:
         series_revisions = self._current_series_revisions()
 
         def include_series(name: str, active_for_view: bool) -> bool:
+            if not active_for_view:
+                return False
             if since_revisions is None:
                 return True
             previous = since_revisions.get(name)
-            return active_for_view and (
+            return (
                 not isinstance(previous, (int, float))
                 or int(previous) != series_revisions[name]
             )
@@ -764,6 +949,7 @@ class LegacyWindowBackend:
                 "connected": True,
                 "mode": self.mode,
                 "pythonVersion": __import__("platform").python_version(),
+                "runtimeLogPath": str(runtime_log_path() or ""),
                 "notices": list(self.notices[-8:]),
             },
             "configuration": {
@@ -788,6 +974,7 @@ class LegacyWindowBackend:
                 "integrationTimeUs": window.integration_spin.value(),
                 "autoIntegration": window.auto_integration_check.isChecked(),
                 "spectrometerIntervalMs": window.interval_spin.value(),
+                "spectrumAverageFrames": window.spectrum_average_spin.value(),
                 "stableWindowS": window.stable_window_spin.value(),
                 "stableToleranceW": window.stable_tolerance_spin.value(),
                 "initialCurrentA": window.auto_initial_current_spin.value(),
@@ -818,10 +1005,15 @@ class LegacyWindowBackend:
                     "resources": [window.tdk_resource_combo.itemText(i) for i in range(window.tdk_resource_combo.count())],
                 },
                 "powerMeter": {
-                    "state": self._device_state(False, power_meter_running, window._power_meter_fault_message),
+                    "state": (
+                        "connecting"
+                        if power_meter_detecting
+                        else self._device_state(False, power_meter_running, window._power_meter_fault_message)
+                    ),
                     "label": "功率计",
                     "detail": window._power_meter_fault_message or ("采集中" if power_meter_running else "已停止"),
                     "running": power_meter_running,
+                    "detecting": power_meter_detecting,
                     "ready": bool(power_meter_running and getattr(window.power_meter_reader, "is_ready", False)),
                     "powerW": _number(getattr(power_reading, "power_w", None)),
                     "stable": bool(getattr(power_reading, "stable", False)),
@@ -833,11 +1025,19 @@ class LegacyWindowBackend:
                     "detail": window._spectrometer_fault_message or ("采集中" if spectrum_running else "已停止"),
                     "running": spectrum_running,
                     "ready": bool(spectrum_running and getattr(window.spectrometer_reader, "is_ready", False)),
-                    "peakWavelengthNm": None if spectrum_saturated else _number(getattr(spectrum_reading, "peak_wavelength_nm", None)),
-                    "centroidNm": None if spectrum_saturated else _number(getattr(spectrum_reading, "centroid_nm", None)),
-                    "fwhmNm": None if spectrum_saturated else _number(getattr(spectrum_reading, "fwhm_nm", None)),
+                    "peakWavelengthNm": None if spectrum_saturated else _number(getattr(spectrum_frame_stats, "peak_wavelength_nm", None)),
+                    "centroidNm": None if spectrum_saturated else _number(getattr(spectrum_frame_stats, "centroid_nm", None)),
+                    "fwhmNm": None if spectrum_saturated else _number(getattr(spectrum_frame_stats, "fwhm_nm", None)),
                     "smsrDb": spectrum_smsr_db,
                     "saturated": spectrum_saturated,
+                    "spectrumWindow": (
+                        {
+                            "centerNm": spectrum_center_locked_nm,
+                            "halfRangeNm": SPECTRUM_CENTER_LOCK_HALF_RANGE_NM,
+                        }
+                        if spectrum_center_locked_nm is not None
+                        else None
+                    ),
                     "resources": [window.spectrometer_combo.itemText(i) for i in range(window.spectrometer_combo.count())],
                 },
             },
@@ -845,8 +1045,13 @@ class LegacyWindowBackend:
                 "state": _enum_value(automatic.state),
                 "detail": window.automatic_test_status_label.text(),
                 "controlsEnabled": True,
-                "canStart": bool(window.start_automatic_test_button.isEnabled()),
+                "canStart": bool(
+                    window.start_automatic_test_button.isEnabled()
+                    and not window._manual_output_is_energized()
+                ),
                 "canRetry": _enum_value(automatic.state) == "paused",
+                "canPause": _enum_value(automatic.state)
+                not in ("idle", "completed", "paused", "ramping_down"),
                 "canEnd": _enum_value(automatic.state) not in ("idle", "completed", "ramping_down"),
                 "settingsError": settings_error,
                 "currents": currents,

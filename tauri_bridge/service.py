@@ -7,7 +7,12 @@ import platform
 from datetime import datetime, timezone
 from typing import Any
 
+from combined_test.runtime_logging import get_runtime_logger, runtime_log_path
+
 from .protocol import PROTOCOL_VERSION, error_response, success_response
+
+
+_LOGGER = get_runtime_logger("bridge_service")
 
 
 class BridgeService:
@@ -20,6 +25,7 @@ class BridgeService:
         try:
             request = json.loads(line)
         except json.JSONDecodeError:
+            _LOGGER.warning("收到无效 JSON 请求 | payload=%r", line[:500])
             return error_response("", "invalid_json", "请求不是有效的 JSON")
 
         if not isinstance(request, dict):
@@ -59,17 +65,32 @@ class BridgeService:
                 return success_response(request_id, self.backend.snapshot(params))
             return success_response(request_id, self.build_snapshot())
 
+        # Read-only mode owns no hardware, so there is nothing that needs an
+        # emergency ramp-down before the Tauri window may close.
+        if method == "app.shutdown" and self.backend is None:
+            return success_response(request_id, {"shutdownConfirmed": True})
+
         if self.backend is not None:
             params = request.get("params", {})
             if not isinstance(params, dict):
                 return error_response(request_id, "invalid_params", "params 必须是 JSON 对象")
             try:
-                return success_response(request_id, self.backend.dispatch(str(method), params))
+                _LOGGER.info("前端命令开始 | id=%s | method=%s | params=%r", request_id, method, params)
+                result = self.backend.dispatch(str(method), params)
+                _LOGGER.info("前端命令完成 | id=%s | method=%s", request_id, method)
+                return success_response(request_id, result)
             except KeyError:
                 pass
             except (TypeError, ValueError) as exc:
+                _LOGGER.warning(
+                    "前端命令参数错误 | id=%s | method=%s | error=%s",
+                    request_id,
+                    method,
+                    exc,
+                )
                 return error_response(request_id, "invalid_params", str(exc))
             except Exception as exc:
+                _LOGGER.exception("前端命令执行失败 | id=%s | method=%s", request_id, method)
                 return error_response(request_id, "action_failed", str(exc))
 
         return error_response(
@@ -89,6 +110,7 @@ class BridgeService:
                 "mode": "read_only",
                 "protocolVersion": PROTOCOL_VERSION,
                 "pythonVersion": platform.python_version(),
+                "runtimeLogPath": str(runtime_log_path() or ""),
             },
             "devices": {
                 "powerSupply": {

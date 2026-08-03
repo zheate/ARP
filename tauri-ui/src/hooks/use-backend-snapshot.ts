@@ -52,6 +52,7 @@ const DEMO_SNAPSHOT: BackendSnapshot = {
     integrationTimeUs: 10000,
     autoIntegration: false,
     spectrometerIntervalMs: 100,
+    spectrumAverageFrames: 5,
     stableWindowS: 3,
     stableToleranceW: 0.15,
     initialCurrentA: 2,
@@ -66,7 +67,7 @@ const DEMO_SNAPSHOT: BackendSnapshot = {
   devices: {
     powerSupply: { state: "connected", label: "电源", detail: "TDK RS232 · 示例", connected: true, outputEnabled: true, activeCurrentA: 8 },
     powerMeter: { state: "connected", label: "功率计", detail: "ASRL3::INSTR · 示例", connected: true, running: true, ready: true, stable: true, powerW: 0.86 },
-    spectrometer: { state: "connected", label: "光谱仪", detail: "Ocean Insight · 示例", connected: true, running: true, ready: true, resources: ["自动选择第一台 Ocean Insight"], centroidNm: 976.2, fwhmNm: 0.42, smsrDb: 41.8 },
+    spectrometer: { state: "connected", label: "光谱仪", detail: "Ocean Insight · 示例", connected: true, running: true, ready: true, resources: ["自动选择第一台 Ocean Insight"], peakWavelengthNm: 976.2, centroidNm: 976.2, fwhmNm: 0.42, smsrDb: null, spectrumWindow: { centerNm: 976.2, halfRangeNm: 20 } },
   },
   automaticTest: {
     state: "running",
@@ -99,7 +100,7 @@ const DEMO_SNAPSHOT: BackendSnapshot = {
       { currentA: 12, powerW: 0.9, efficiencyPercent: 8.7 },
     ],
     spectrum: DEMO_SPECTRUM,
-    spectrumPeaks: [{ label: "主峰", centroidNm: 976.2, peakWavelengthNm: 976.2, peakIntensity: 12400 }],
+    spectrumPeaks: [{ label: "P1", centroidNm: 976.2, peakWavelengthNm: 976.2, peakIntensity: 12400 }],
   },
   safety: { hardwareAccess: false, commandMode: "controller_owned", detail: "示例数据模式" },
 }
@@ -131,7 +132,6 @@ export function useBackendSnapshot(view: SnapshotView) {
 
   const loadSnapshot = useCallback(async (showLoading: boolean, requestedView: SnapshotView) => {
     if (showLoading) {
-      snapshotRef.current = null
       revisionsRef.current = null
       setLoading(true)
     }
@@ -145,7 +145,7 @@ export function useBackendSnapshot(view: SnapshotView) {
         }
         return
       }
-      const previousSnapshot = showLoading ? null : snapshotRef.current
+      const previousSnapshot = snapshotRef.current
       const previousPower = previousSnapshot?.measurements?.power
       const previousPd = previousSnapshot?.pd?.points
       const powerCursor = previousPower?.[previousPower.length - 1]?.elapsedS
@@ -167,7 +167,6 @@ export function useBackendSnapshot(view: SnapshotView) {
       setError(null)
     } catch (reason) {
       if (!mountedRef.current || latestViewRef.current !== requestedView) return
-      if (showLoading) setSnapshot(null)
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
       if (showLoading && mountedRef.current && latestViewRef.current === requestedView) setLoading(false)
@@ -177,6 +176,22 @@ export function useBackendSnapshot(view: SnapshotView) {
   const refresh = useCallback(() => loadSnapshot(true, view), [loadSnapshot, view])
 
   const command = useCallback(async (method: string, params: Record<string, unknown> = {}) => {
+    if (method === "app.stopAll") {
+      try {
+        const requestedView = view
+        const nextSnapshot = await sendBackendCommand(method, params)
+        if (mountedRef.current && latestViewRef.current === requestedView) {
+          snapshotRef.current = nextSnapshot
+          revisionsRef.current = nextSnapshot.seriesRevisions ?? null
+          setSnapshot(nextSnapshot)
+          setError(null)
+        }
+        return nextSnapshot
+      } catch (reason) {
+        if (mountedRef.current) setError(reason instanceof Error ? reason.message : String(reason))
+        throw reason
+      }
+    }
     if (commandPendingRef.current) {
       if (snapshotRef.current) return snapshotRef.current
       throw new Error("上一项操作仍在处理中")
@@ -216,6 +231,15 @@ export function useBackendSnapshot(view: SnapshotView) {
     let cancelled = false
     let streamEpoch = 0
     let stopStream: (() => Promise<void>) | undefined
+
+    // A view owns a different set of large chart histories. Drop the previous
+    // view before its first full stream message so hidden arrays are not kept
+    // alive by merge fallbacks after navigation.
+    snapshotRef.current = null
+    revisionsRef.current = null
+    setSnapshot(null)
+    setError(null)
+    setLoading(true)
 
     if (DEMO_PREVIEW_ENABLED) {
       void loadSnapshot(true, view)

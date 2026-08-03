@@ -22,9 +22,10 @@ class FakeUSB2XXXDll:
     def __init__(
         self,
         *,
-        init_status: int = 0,
-        write_status: int = 0,
-        read_status: int = 0,
+        init_status: int | list[int] = 0,
+        write_status: int | list[int] = 0,
+        read_status: int | list[int] = 0,
+        close_status: int | list[int] = 1,
         response: list[int] | None = None,
     ) -> None:
         self.events: list[Any] = []
@@ -32,6 +33,7 @@ class FakeUSB2XXXDll:
         self.init_status = init_status
         self.write_status = write_status
         self.read_status = read_status
+        self.close_status = close_status
         self.response = [0x5A, 0x4D, 0x19, 0x43] if response is None else response
         self.USB_ScanDevice = FakeFunction(self._scan)
         self.USB_OpenDevice = FakeFunction(self._open)
@@ -41,6 +43,12 @@ class FakeUSB2XXXDll:
         self.IIC_WriteBytes = FakeFunction(self._write)
         self.IIC_ReadBytes = FakeFunction(self._read)
         self.IIC_WriteReadBytes = FakeFunction(self._combined_write_read)
+
+    @staticmethod
+    def _next_status(status: int | list[int]) -> int:
+        if isinstance(status, list):
+            return status.pop(0)
+        return status
 
     def _scan(self, handles: Any) -> int:
         self.events.append("scan")
@@ -53,7 +61,7 @@ class FakeUSB2XXXDll:
 
     def _close(self, handle: int) -> int:
         self.events.append(("close", handle))
-        return 1
+        return self._next_status(self.close_status)
 
     def _set_power_level(self, handle: int, level: int) -> int:
         self.events.append(("power", handle, level))
@@ -62,7 +70,7 @@ class FakeUSB2XXXDll:
     def _init(self, handle: int, channel: int, config_pointer: Any) -> int:
         self.events.append(("init", handle, channel))
         self.config = config_pointer._obj
-        return self.init_status
+        return self._next_status(self.init_status)
 
     def _write(
         self,
@@ -76,7 +84,7 @@ class FakeUSB2XXXDll:
         self.events.append(
             ("write", handle, channel, address, list(buffer[:length]), timeout_ms)
         )
-        return self.write_status
+        return self._next_status(self.write_status)
 
     def _read(
         self,
@@ -90,7 +98,7 @@ class FakeUSB2XXXDll:
         self.events.append(("read", handle, channel, address, length, timeout_ms))
         for index in range(length):
             buffer[index] = self.response[index]
-        return self.read_status
+        return self._next_status(self.read_status)
 
     def _combined_write_read(self, *_args: Any) -> int:
         raise AssertionError("不得调用 IIC_WriteReadBytes")
@@ -106,7 +114,8 @@ class USB2XXXControllerTests(unittest.TestCase):
 
     def test_connect_initializes_channel_zero_for_known_safe_configuration(self) -> None:
         dll = FakeUSB2XXXDll()
-        controller = self.make_controller(dll)
+        sleeps: list[float] = []
+        controller = self.make_controller(dll, sleeps)
 
         self.assertTrue(controller.set_i2c_speed(0))
         connected, detail = controller.connect_device(0)
@@ -123,6 +132,11 @@ class USB2XXXControllerTests(unittest.TestCase):
         self.assertEqual(dll.config.EnablePu, 1)
         self.assertEqual(dll.config.ByteIntervalUs, 0)
         self.assertIn(("power", dll.HANDLE, 3), dll.events)
+        self.assertEqual(sleeps, [controller.DEFAULT_POWER_ON_SETTLE_S])
+        self.assertLess(
+            dll.events.index(("power", dll.HANDLE, 3)),
+            dll.events.index(("init", dll.HANDLE, 0)),
+        )
 
     def test_read_uses_stop_separated_write_wait_and_read(self) -> None:
         dll = FakeUSB2XXXDll()
@@ -135,7 +149,10 @@ class USB2XXXControllerTests(unittest.TestCase):
 
         self.assertTrue(success)
         self.assertEqual(data, [0x5A, 0x4D, 0x19, 0x43])
-        self.assertEqual(sleeps, [0.5])
+        self.assertEqual(
+            sleeps,
+            [controller.DEFAULT_POWER_ON_SETTLE_S, controller.read_delay_s],
+        )
         self.assertEqual(dll.events[0][0], "write")
         self.assertEqual(dll.events[0][3], 0x41)
         self.assertEqual(dll.events[0][4], [0xB4, 0x8B, 0x00, 0x00])
@@ -198,6 +215,166 @@ class USB2XXXControllerTests(unittest.TestCase):
         self.assertIn("总线忙", detail)
         self.assertIn("断电重启", detail)
 
+    def test_reinitializes_and_retries_after_transient_adapter_command_failure(self) -> None:
+        dll = FakeUSB2XXXDll(write_status=[-4, 0])
+        controller = self.make_controller(dll)
+        self.assertTrue(controller.connect_device(0)[0])
+        dll.events.clear()
+
+        success, detail = controller.i2c_write(0x41, [0xB4, 0xFF, 0x01, 0x00])
+
+        self.assertTrue(success)
+        self.assertIn("写入成功；恢复记录：", detail)
+        self.assertEqual([event[0] for event in dll.events], ["write", "init", "write"])
+
+    def test_read_replays_query_after_transient_usb_read_failure(self) -> None:
+        dll = FakeUSB2XXXDll(read_status=[-3, 0])
+        controller = self.make_controller(dll)
+        self.assertTrue(controller.connect_device(0)[0])
+        dll.events.clear()
+
+        success, data = controller.i2c_write_read(
+            0x41,
+            [0xB4, 0x8C, 0x00, 0x00],
+            4,
+        )
+
+        self.assertTrue(success)
+        self.assertEqual(data, [0x5A, 0x4D, 0x19, 0x43])
+        self.assertEqual(
+            [event[0] for event in dll.events],
+            ["write", "read", "init", "write", "read"],
+        )
+
+    def test_first_read_after_safe_power_down_recovers_lost_target_link(self) -> None:
+        dll = FakeUSB2XXXDll(read_status=[5, 5, 0])
+        sleeps: list[float] = []
+        controller = self.make_controller(dll, sleeps)
+        self.assertTrue(controller.connect_device(0)[0])
+
+        # This is the last command sent by the normal automatic ramp-down.
+        self.assertTrue(
+            controller.i2c_write(0x41, [0xB4, 0xFF, 0x00, 0x00])[0]
+        )
+        dll.events.clear()
+
+        success, data = controller.i2c_write_read(
+            0x41,
+            [0xB4, 0x8B, 0x00, 0x00],
+            4,
+        )
+
+        self.assertTrue(success)
+        self.assertEqual(data, [0x5A, 0x4D, 0x19, 0x43])
+        self.assertEqual(
+            [event if isinstance(event, str) else event[0] for event in dll.events],
+            [
+                "write",
+                "read",
+                "init",
+                "write",
+                "read",
+                "power",
+                "close",
+                "scan",
+                "open",
+                "power",
+                "init",
+                "write",
+                "read",
+            ],
+        )
+        self.assertTrue(controller.is_connected)
+        self.assertEqual(
+            sleeps[-3:],
+            [
+                controller.DEFAULT_RECOVERY_DELAY_S,
+                controller.DEFAULT_POWER_ON_SETTLE_S,
+                controller.read_delay_s,
+            ],
+        )
+
+    def test_reopens_adapter_before_final_retry(self) -> None:
+        dll = FakeUSB2XXXDll(write_status=[-4, -4, 0])
+        sleeps: list[float] = []
+        controller = self.make_controller(dll, sleeps)
+        self.assertTrue(controller.connect_device(0)[0])
+        dll.events.clear()
+
+        success, detail = controller.i2c_write(0x41, [0xB4, 0xFF, 0x01, 0x00])
+
+        self.assertTrue(success)
+        self.assertIn("写入成功；恢复记录：", detail)
+        self.assertIn(("close", dll.HANDLE), dll.events)
+        self.assertEqual(
+            sleeps,
+            [
+                controller.DEFAULT_POWER_ON_SETTLE_S,
+                controller.DEFAULT_RECOVERY_DELAY_S,
+                controller.DEFAULT_POWER_ON_SETTLE_S,
+            ],
+        )
+        self.assertTrue(controller.is_connected)
+
+    def test_failed_i2c_reinit_escalates_to_rescan_reopen_and_reinit(self) -> None:
+        dll = FakeUSB2XXXDll(
+            init_status=[0, -2, 0],
+            write_status=[-2, 0],
+        )
+        controller = self.make_controller(dll)
+        self.assertTrue(controller.connect_device(0)[0])
+        dll.events.clear()
+
+        success, detail = controller.i2c_write(
+            0x41,
+            [0xB4, 0xFF, 0x01, 0x00],
+        )
+
+        self.assertTrue(success)
+        self.assertIn("写入成功；恢复记录：", detail)
+        self.assertIn("USB2XXX 状态码 -2", detail)
+        self.assertIn("重新扫描、打开并初始化", detail)
+        self.assertEqual(
+            [event if isinstance(event, str) else event[0] for event in dll.events],
+            ["write", "init", "power", "close", "scan", "open", "power", "init", "write"],
+        )
+        self.assertTrue(controller.is_connected)
+
+    def test_usb_error_detail_includes_vendor_status_code(self) -> None:
+        dll = FakeUSB2XXXDll(write_status=2)
+        controller = self.make_controller(dll)
+        self.assertTrue(controller.connect_device(0)[0])
+
+        success, detail = controller.i2c_write(0x41, [0xB4, 0xFF, 0x01, 0x00])
+
+        self.assertFalse(success)
+        self.assertIn("USB2XXX 状态码 2", detail)
+
+    def test_disconnect_reconnect_waits_for_power_before_reading_again(self) -> None:
+        dll = FakeUSB2XXXDll()
+        sleeps: list[float] = []
+        controller = self.make_controller(dll, sleeps)
+
+        self.assertTrue(controller.connect_device(0)[0])
+        self.assertTrue(controller.disconnect_device())
+        self.assertTrue(controller.connect_device(0)[0])
+        success, data = controller.i2c_write_read(
+            0x41,
+            [0xB4, 0x8B, 0x00, 0x00],
+            4,
+        )
+
+        self.assertTrue(success)
+        self.assertEqual(data, [0x5A, 0x4D, 0x19, 0x43])
+        self.assertEqual(
+            sleeps,
+            [
+                controller.DEFAULT_POWER_ON_SETTLE_S,
+                controller.DEFAULT_POWER_ON_SETTLE_S,
+                controller.read_delay_s,
+            ],
+        )
+
     def test_init_failure_closes_opened_adapter(self) -> None:
         dll = FakeUSB2XXXDll(init_status=4)
         controller = self.make_controller(dll)
@@ -208,6 +385,34 @@ class USB2XXXControllerTests(unittest.TestCase):
         self.assertIn("超时", detail)
         self.assertIn(("close", dll.HANDLE), dll.events)
         self.assertIn(("power", dll.HANDLE, 0), dll.events)
+        self.assertFalse(controller.is_connected)
+        self.assertIsNone(controller.device_handle)
+
+    def test_disconnect_turns_off_interface_power_before_closing_adapter(self) -> None:
+        dll = FakeUSB2XXXDll()
+        controller = self.make_controller(dll)
+        self.assertTrue(controller.connect_device(0)[0])
+        dll.events.clear()
+
+        self.assertTrue(controller.disconnect_device())
+
+        self.assertEqual(
+            dll.events,
+            [("power", dll.HANDLE, 0), ("close", dll.HANDLE)],
+        )
+        self.assertFalse(controller.is_connected)
+        self.assertIsNone(controller.device_handle)
+
+    def test_failed_close_keeps_usb2xxx_handle_available_for_retry(self) -> None:
+        dll = FakeUSB2XXXDll(close_status=[0, 1])
+        controller = self.make_controller(dll)
+        self.assertTrue(controller.connect_device(0)[0])
+
+        self.assertFalse(controller.disconnect_device())
+        self.assertTrue(controller.is_connected)
+        self.assertEqual(controller.device_handle, dll.HANDLE)
+
+        self.assertTrue(controller.disconnect_device())
         self.assertFalse(controller.is_connected)
         self.assertIsNone(controller.device_handle)
 

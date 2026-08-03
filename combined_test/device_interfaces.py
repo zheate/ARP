@@ -139,4 +139,6 @@ class ControllerPowerSupply:
         )
 
     def disconnect(self) -> None:
-        self.controller.disconnect_device()
+        disconnected = self.controller.disconnect_device()
+        if disconnected is False:
+            raise RuntimeError("释放电源控制器失败，无法确认设备已经断开")

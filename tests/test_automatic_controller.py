@@ -168,6 +168,12 @@ class AutomaticTestControllerLifecycleTests(unittest.TestCase):
         self.window.on_power_meter_reading(
             PowerMeterReading(6.0, 69.0, False, 31.0, 5.0)
         )
+        self.window.on_power_meter_reading(
+            PowerMeterReading(6.1, 68.5, False, 31.5, 5.1)
+        )
+        self.window.on_power_meter_reading(
+            PowerMeterReading(6.2, 68.0, False, 32.0, 5.2)
+        )
 
         self.assertEqual(controller.writes, [[0xB4, 0xFF, 0x00, 0x00]])
         self.assertEqual(self.window.active_output_current_a, 0.0)
@@ -179,7 +185,8 @@ class AutomaticTestControllerLifecycleTests(unittest.TestCase):
         self.assertIn("5 秒前 100.000 W", self.window.automatic_controller.terminal_reason)
         self.assertIn("功率保护已触发", result_details[-1])
         self.assertEqual(len(self.power_protection_alerts), 1)
-        self.assertIn("当前 69.000 W", self.power_protection_alerts[0])
+        self.assertIn("当前 68.000 W", self.power_protection_alerts[0])
+        self.assertIn("连续 3 个样本", self.power_protection_alerts[0])
         self.window.manual_ch341_controller = None
 
     def test_power_drop_immediately_sets_zero_and_disables_tdk_output(self) -> None:
@@ -210,6 +217,12 @@ class AutomaticTestControllerLifecycleTests(unittest.TestCase):
         self.window.on_power_meter_reading(
             PowerMeterReading(6.0, 34.0, False, 16.0, 5.0)
         )
+        self.window.on_power_meter_reading(
+            PowerMeterReading(6.1, 33.5, False, 16.5, 5.1)
+        )
+        self.window.on_power_meter_reading(
+            PowerMeterReading(6.2, 33.0, False, 17.0, 5.2)
+        )
 
         self.assertEqual(controller.commands, ["current:0", "output:0"])
         self.assertFalse(controller.output_enabled)
@@ -219,7 +232,7 @@ class AutomaticTestControllerLifecycleTests(unittest.TestCase):
             AutomaticTestTerminalOutcome.ABORTED_SAFELY,
         )
         self.assertEqual(len(self.power_protection_alerts), 1)
-        self.assertIn("当前 34.000 W", self.power_protection_alerts[0])
+        self.assertIn("当前 33.000 W", self.power_protection_alerts[0])
         self.window.manual_ch341_controller = None
 
     def test_power_drop_protection_is_inactive_during_normal_ramp_down(self) -> None:
@@ -266,6 +279,25 @@ class AutomaticTestControllerLifecycleTests(unittest.TestCase):
         self.assertIn("异常中止", result_details[-1])
         self.assertIn("安全下电", result_details[-1])
 
+    def test_saturation_pause_holds_current_until_operator_action(self) -> None:
+        self.window.automatic_test_settings = self.window.collect_automatic_test_settings()
+        self.window.automatic_test_state = AutomaticTestState.WAITING_STABLE
+        self.window.active_output_current_a = 10.0
+
+        self.window.pause_automatic_test(
+            "光谱饱和",
+            hold_current_until_operator=True,
+        )
+
+        self.assertEqual(self.window.automatic_test_state, AutomaticTestState.PAUSED)
+        self.assertEqual(self.window.active_output_current_a, 10.0)
+        self.assertFalse(self.window.automatic_pause_safety_timer.isActive())
+
+        # Even a stale timeout event must not start a ramp-down.
+        self.window.on_automatic_pause_safety_timeout()
+        self.assertEqual(self.window.automatic_test_state, AutomaticTestState.PAUSED)
+        self.assertEqual(self.window.active_output_current_a, 10.0)
+
     def test_terminal_outcome_is_hidden_while_ramp_down_is_in_progress(self) -> None:
         class ConnectedLegacyController:
             is_connected = True
@@ -288,19 +320,19 @@ class AutomaticTestControllerLifecycleTests(unittest.TestCase):
         self.assertEqual(result_details, [])
         self.window.automatic_ramp_down_timer.stop()
 
-    def test_two_amp_single_point_retries_transient_second_i2c_write(self) -> None:
+    def test_configured_current_point_is_written_directly_and_retried(self) -> None:
         class FlakyLegacyController:
             is_connected = True
 
             def __init__(self) -> None:
                 self.writes: list[list[int]] = []
-                self.two_amp_attempts = 0
+                self.five_amp_attempts = 0
 
             def i2c_write(self, _address: int, command: list[int]) -> tuple[bool, str]:
                 self.writes.append(command)
-                if command == [0xB4, 0xFF, 0x02, 0x00]:
-                    self.two_amp_attempts += 1
-                    if self.two_amp_attempts == 1:
+                if command == [0xB4, 0xFF, 0x05, 0x00]:
+                    self.five_amp_attempts += 1
+                    if self.five_amp_attempts == 1:
                         return False, "写入失败"
                 return True, "OK"
 
@@ -311,21 +343,17 @@ class AutomaticTestControllerLifecycleTests(unittest.TestCase):
         controller = FlakyLegacyController()
         self.window.manual_ch341_controller = controller
         self.window.power_meter_reader = ReaderStub()  # type: ignore[assignment]
+        self.window.auto_initial_current_spin.setValue(2.0)
+        self.window.auto_target_current_spin.setValue(5.0)
+        self.window.auto_current_step_spin.setValue(3.0)
         self.window.automatic_test_settings = self.window.collect_automatic_test_settings()
-        self.window.automatic_test_currents = (2.0,)
-        self.window.automatic_test_current_index = 0
+        self.window.automatic_test_currents = (2.0, 5.0)
+        self.window.automatic_test_current_index = 1
+        self.window.active_output_current_a = 2.0
 
         self.window.begin_automatic_current_point()
 
-        self.assertEqual(controller.writes, [[0xB4, 0xFF, 0x01, 0x00]])
-        self.window.automatic_command_timer.stop()
-        self.window.last_power_supply_command_monotonic_s = time.monotonic() - 2.0
-        self.window.on_automatic_command_timer_timeout()
-
-        self.assertEqual(
-            controller.writes,
-            [[0xB4, 0xFF, 0x01, 0x00], [0xB4, 0xFF, 0x02, 0x00]],
-        )
+        self.assertEqual(controller.writes, [[0xB4, 0xFF, 0x05, 0x00]])
         self.assertEqual(self.window.automatic_test_state, AutomaticTestState.SETTING_CURRENT)
         self.assertTrue(self.window.automatic_command_timer.isActive())
 
@@ -336,9 +364,8 @@ class AutomaticTestControllerLifecycleTests(unittest.TestCase):
         self.assertEqual(
             controller.writes,
             [
-                [0xB4, 0xFF, 0x01, 0x00],
-                [0xB4, 0xFF, 0x02, 0x00],
-                [0xB4, 0xFF, 0x02, 0x00],
+                [0xB4, 0xFF, 0x05, 0x00],
+                [0xB4, 0xFF, 0x05, 0x00],
             ],
         )
         self.assertEqual(self.window.automatic_test_state, AutomaticTestState.WAITING_STABLE)

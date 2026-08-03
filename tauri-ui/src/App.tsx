@@ -1,9 +1,9 @@
-import { Children, isValidElement, memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from "react"
+import { Children, isValidElement, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react"
 import {
   BarChart3,
   ChevronDown,
+  CircleCheck,
   CircleGauge,
-  Download,
   FileText,
   FolderOpen,
   Gauge,
@@ -23,7 +23,7 @@ import {
 import { open as openDialog } from "@tauri-apps/plugin-dialog"
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener"
 import { invoke } from "@tauri-apps/api/core"
-import { getCurrentWebview } from "@tauri-apps/api/webview"
+import { getCurrentWindow } from "@tauri-apps/api/window"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { CanvasLineChart, type CanvasChartAnnotation, type CanvasChartLine } from "@/components/canvas-line-chart"
@@ -42,6 +42,9 @@ const POWER_PLOT_HISTORY_S = 60
 const POWER_TIME_TICK_INTERVAL_S = 10
 const PD_PLOT_HISTORY_S = 60
 const PD_TIME_TICK_INTERVAL_S = 10
+const SPECTRUM_Y_AXIS_PADDING_FRACTION = 0.08
+const SPECTRUM_Y_AXIS_SHRINK_TRIGGER_FRACTION = 0.72
+const SPECTRUM_Y_AXIS_SHRINK_REQUIRED_FRAMES = 6
 const SHIPPING_PRODUCT_NAME_STORAGE_KEY = "power-test.shipping-report.product-name"
 const PLM_CHART_SERIES = {
   clay: "#d97957",
@@ -59,8 +62,49 @@ const navigation = [
 ]
 
 const pageShortcuts: Page[] = ["automatic", "manual", "pd", "shipping"]
-const AUTOMATIC_LAYOUT_MIN_WIDTH = 1168
-const MIN_STARTUP_ZOOM = 0.67
+const FIT_TO_VIEWPORT_PAGES: ReadonlySet<Page> = new Set(["automatic", "manual"])
+const MIN_PAGE_ZOOM = 0.45
+
+type SpectrumYAxisState = { domain: [number, number]; compactFrameCount: number }
+
+function spectrumYAxisDomain(values: number[]): [number, number] {
+  if (values.length === 0) return [0, 1]
+  const minimum = Math.min(...values)
+  const maximum = Math.max(...values)
+  const measuredSpan = maximum - minimum
+  const fallbackSpan = Math.max(Math.abs(minimum), Math.abs(maximum), 1) * 0.1
+  const span = Math.max(measuredSpan, fallbackSpan, 1)
+  const padding = span * SPECTRUM_Y_AXIS_PADDING_FRACTION
+  const lowerPadding = minimum > 0 ? Math.min(padding, minimum * 0.25) : padding
+  return [minimum - lowerPadding, maximum + padding]
+}
+
+function stabilizeSpectrumYAxis(
+  desiredDomain: [number, number],
+  current: SpectrumYAxisState | null,
+): SpectrumYAxisState {
+  if (!current) return { domain: desiredDomain, compactFrameCount: 0 }
+  const [desiredMinimum, desiredMaximum] = desiredDomain
+  const [currentMinimum, currentMaximum] = current.domain
+  if (desiredMinimum < currentMinimum || desiredMaximum > currentMaximum) {
+    return {
+      domain: [Math.min(desiredMinimum, currentMinimum), Math.max(desiredMaximum, currentMaximum)],
+      compactFrameCount: 0,
+    }
+  }
+  const currentSpan = currentMaximum - currentMinimum
+  const desiredSpan = desiredMaximum - desiredMinimum
+  const shouldCompact = desiredSpan <= currentSpan * SPECTRUM_Y_AXIS_SHRINK_TRIGGER_FRACTION
+    || desiredMinimum - currentMinimum >= currentSpan * 0.15
+    || currentMaximum - desiredMaximum >= currentSpan * 0.15
+  if (!shouldCompact) {
+    return current.compactFrameCount === 0 ? current : { ...current, compactFrameCount: 0 }
+  }
+  const compactFrameCount = current.compactFrameCount + 1
+  return compactFrameCount >= SPECTRUM_Y_AXIS_SHRINK_REQUIRED_FRAMES
+    ? { domain: desiredDomain, compactFrameCount: 0 }
+    : { ...current, compactFrameCount }
+}
 
 const emptyConfig: AppConfiguration = {
   sn: "",
@@ -80,6 +124,7 @@ const emptyConfig: AppConfiguration = {
   integrationTimeUs: 1000,
   autoIntegration: false,
   spectrometerIntervalMs: 100,
+  spectrumAverageFrames: 5,
   stableWindowS: 3,
   stableToleranceW: 0.15,
   initialCurrentA: 1,
@@ -118,6 +163,7 @@ function pendingCommandLabel(method: string | null): string {
   if (method === "app.configure") return "正在保存设置"
   if (method === "app.stopAll") return "正在安全停止"
   if (method === "automatic.start") return "正在启动自动测试"
+  if (method === "automatic.pause") return "正在暂停自动测试"
   if (method === "automatic.retry") return "正在重试当前点"
   if (method === "automatic.end") return "正在结束并安全下电"
   if (method === "device.refresh") return "正在识别设备"
@@ -204,7 +250,7 @@ function NativeSelect({ value, onChange, children, disabled }: {
         <span className="min-w-0 truncate">{displayValue}</span>
         <ChevronDown className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
-      {open && <div className="absolute left-0 top-full z-[80] mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-[var(--plm-flat-border-strong)] bg-popover p-1 shadow-lg shadow-black/30" role="listbox">
+      {open && <div className="menu-enter absolute left-0 top-full z-[80] mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-[var(--plm-flat-border-strong)] bg-popover p-1 shadow-lg shadow-black/30" role="listbox">
         {options.map((option, index) => {
           const optionValue = String(option.props.value ?? "") || emptyValue
           const selected = optionValue === selectedValue
@@ -253,7 +299,7 @@ function StatusDot({ state }: { state?: string }) {
       : state === "connecting"
         ? "bg-[var(--app-warning)]"
         : "bg-muted-foreground/45"
-  return <span className={`size-2 shrink-0 rounded-full ${color}`} />
+  return <span className={`status-dot size-2 shrink-0 rounded-full ${color}`} key={state ?? "idle"} />
 }
 
 type DeviceSettingsKind = "powerSupply" | "powerMeter" | "spectrometer"
@@ -263,7 +309,7 @@ function DeviceCard({ title, icon, device, disabled = false, onOpenSettings }: {
     <Card
       aria-disabled={disabled}
       aria-label={`打开${title}设置`}
-      className={`gap-3 py-4 shadow-none transition-[color,background-color,border-color,box-shadow] duration-150 ${disabled ? "cursor-not-allowed opacity-55" : "cursor-pointer hover:border-[var(--plm-flat-border-strong)] hover:bg-[var(--plm-flat-hover)] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25"}`}
+      className={`device-card gap-3 py-4 shadow-none transition-[color,background-color,border-color,box-shadow] duration-200 ${disabled ? "cursor-not-allowed opacity-55" : "cursor-pointer hover:border-[var(--plm-flat-border-strong)] hover:bg-[var(--plm-flat-hover)] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25"}`}
       onClick={() => { if (!disabled) onOpenSettings() }}
       onKeyDown={(event) => {
         if (disabled) return
@@ -276,7 +322,7 @@ function DeviceCard({ title, icon, device, disabled = false, onOpenSettings }: {
       tabIndex={disabled ? -1 : 0}
     >
       <CardContent className="flex items-center gap-3 px-4">
-        <div className="grid size-10 place-items-center rounded-lg border border-[var(--plm-flat-border)] bg-muted/35 text-muted-foreground">{icon}</div>
+        <div className="device-card-icon grid size-10 place-items-center rounded-lg border border-[var(--plm-flat-border)] bg-muted/35 text-muted-foreground">{icon}</div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2 text-sm font-medium">
             <span>{title}</span><StatusDot state={device?.state} />
@@ -336,7 +382,7 @@ function PowerMeterSettingsForm({ snapshot, config, update, active, pending, run
       </Field>
       <NumberField label="校准波长 (nm)" value={config.powerMeterWavelengthNm} onChange={(v) => update("powerMeterWavelengthNm", v)} step="0.1" />
       <NumberField label="软件增益" value={config.softwareGain} onChange={(v) => update("softwareGain", v)} step="0.01" />
-      <Button className="w-full" disabled={!active || pending} onClick={() => void run(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)}>{meter?.running ? "停止采集" : "开始采集"}</Button>
+      <Button className="w-full" disabled={!active || pending} onClick={() => void run(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
       <div className="grid grid-cols-2 gap-2"><Button disabled={!active || pending || meter?.running} onClick={() => void run("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button disabled={!active || pending || meter?.running} onClick={() => void run("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></div>
       <p className="text-xs text-muted-foreground">实时功率 {formatNumber(meter?.powerW, " W")} · {meter?.stable ? "已稳定" : "稳定中"}</p>
     </div>
@@ -360,10 +406,10 @@ function SpectrometerSettingsForm({ snapshot, config, update, active, pending, r
       </Field>
       <NumberField label="积分时间 (μs)" value={config.integrationTimeUs} onChange={(v) => update("integrationTimeUs", v)} />
       <NumberField label="刷新间隔 (ms)" value={config.spectrometerIntervalMs} onChange={(v) => update("spectrometerIntervalMs", v)} />
+      <NumberField label="平均帧数" min={1} max={20} value={config.spectrumAverageFrames} onChange={(v) => update("spectrumAverageFrames", Math.max(1, Math.min(20, Math.round(v))))} />
       <label className="flex items-center gap-2 text-sm"><input checked={config.autoIntegration} onChange={(e) => update("autoIntegration", e.target.checked)} type="checkbox" />自动积分</label>
-      <Button className="w-full" disabled={!active || pending} onClick={() => void run(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)}>{spectrum?.running ? "停止采集" : "开始采集"}</Button>
-      <div className="grid grid-cols-2 gap-2"><Button disabled={!active || pending || !snapshot?.measurements?.spectrum.length} onClick={() => void run("spectrometer.saveCsv")} variant="outline"><Download className="size-4" />保存光谱 CSV</Button><Button disabled={!active || pending} onClick={() => void run("charts.reset")} variant="outline"><RotateCcw className="size-4" />清空曲线</Button></div>
-      <p className="text-xs text-muted-foreground">中心 {formatNumber(spectrum?.centroidNm, " nm")} · FWHM {formatNumber(spectrum?.fwhmNm, " nm")}</p>
+      <Button className="w-full" disabled={!active || pending} onClick={() => void run(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
+      <p className="text-xs text-muted-foreground">中心 {formatNumber(spectrum?.peakWavelengthNm, " nm")} · FWHM {formatNumber(spectrum?.fwhmNm, " nm")}</p>
     </div>
   )
 }
@@ -428,8 +474,8 @@ function DeviceSettingsDialog({ kind, open, onClose, onSave, snapshot, config, u
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/65 p-4 backdrop-blur-[2px]" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-      <div aria-labelledby={`${kind}-settings-title`} aria-modal="true" className="flex max-h-[min(760px,calc(100vh-2rem))] w-[min(520px,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-[var(--plm-flat-border-strong)] bg-popover shadow-lg shadow-black/35" role="dialog">
+    <div className="motion-overlay-enter fixed inset-0 z-[60] flex items-center justify-center bg-black/65 p-4 backdrop-blur-[2px]" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+      <div aria-labelledby={`${kind}-settings-title`} aria-modal="true" className="motion-dialog-enter flex max-h-[min(760px,calc(100vh-2rem))] w-[min(520px,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-[var(--plm-flat-border-strong)] bg-popover shadow-lg shadow-black/35" role="dialog">
         <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
           <div className="flex items-start gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-lg border border-[var(--plm-flat-border)] bg-muted/35 text-muted-foreground">{details.icon}</div><div><h2 className="text-base font-semibold" id={`${kind}-settings-title`}>{details.title}</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">{details.description}</p></div></div>
           <button aria-label="关闭设置弹窗" className="rounded-md p-1.5 text-muted-foreground transition-colors duration-150 hover:bg-[var(--plm-flat-hover)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25" onClick={onClose} ref={closeButtonRef} type="button"><X className="size-4" /></button>
@@ -467,14 +513,164 @@ function PowerProtectionDialog({ message, onClose }: { message: string; onClose:
   }, [])
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-[2px]">
-      <div aria-labelledby="power-protection-title" aria-modal="true" className="w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--app-danger)_55%,transparent)] bg-popover shadow-2xl shadow-black/45" role="alertdialog">
+    <div className="motion-overlay-enter fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-[2px]">
+      <div aria-labelledby="power-protection-title" aria-modal="true" className="motion-dialog-enter w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--app-danger)_55%,transparent)] bg-popover shadow-2xl shadow-black/45" role="alertdialog">
         <div className="flex items-start gap-4 border-b border-border px-5 py-5">
           <div className="grid size-11 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,var(--app-danger)_16%,transparent)] text-[var(--app-danger)]"><OctagonAlert className="size-6" /></div>
           <div><h2 className="text-lg font-semibold" id="power-protection-title">功率保护已触发</h2><p className="mt-1 text-sm text-muted-foreground">设备已进入断电保护状态</p></div>
         </div>
         <div className="px-5 py-5"><p className="whitespace-pre-line text-sm leading-6 text-foreground">{message}</p></div>
         <div className="flex justify-end border-t border-border bg-background/35 px-5 py-3"><Button onClick={onClose} ref={acknowledgeButtonRef} variant="destructive">确认并关闭</Button></div>
+      </div>
+    </div>
+  )
+}
+
+function SpectrumSaturationDialog({ message, onClose }: { message: string; onClose: () => void }) {
+  const acknowledgeButtonRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    const body = document.body
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const previousOverflow = body.style.overflow
+    const previousPaddingRight = body.style.paddingRight
+    const focusFrame = window.requestAnimationFrame(() => acknowledgeButtonRef.current?.focus())
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth
+    const hasStableScrollbarGutter = getComputedStyle(document.documentElement).scrollbarGutter.includes("stable")
+    body.style.overflow = "hidden"
+    if (scrollbarWidth > 0 && !hasStableScrollbarGutter) body.style.paddingRight = `${scrollbarWidth}px`
+    return () => {
+      body.style.overflow = previousOverflow
+      body.style.paddingRight = previousPaddingRight
+      window.cancelAnimationFrame(focusFrame)
+      previousFocus?.focus()
+    }
+  }, [])
+
+  return (
+    <div className="motion-overlay-enter fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-[2px]">
+      <div aria-labelledby="spectrum-saturation-title" aria-modal="true" className="motion-dialog-enter w-[min(540px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--app-warning)_55%,transparent)] bg-popover shadow-2xl shadow-black/45" role="alertdialog">
+        <div className="flex items-start gap-4 border-b border-border px-5 py-5">
+          <div className="grid size-11 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,var(--app-warning)_16%,transparent)] text-[var(--app-warning)]"><OctagonAlert className="size-6" /></div>
+          <div><h2 className="text-lg font-semibold" id="spectrum-saturation-title">光谱强度异常，测试已暂停</h2><p className="mt-1 text-sm text-muted-foreground">当前电流保持不变、未下电，程序不会继续升流</p></div>
+        </div>
+        <div className="px-5 py-5"><p className="whitespace-pre-line text-sm leading-6 text-foreground">{message}</p></div>
+        <div className="flex justify-end border-t border-border bg-background/35 px-5 py-3"><Button className="border-[color-mix(in_srgb,var(--app-warning)_45%,transparent)] text-[var(--app-warning)] hover:bg-[var(--app-warning-soft)]" onClick={onClose} ref={acknowledgeButtonRef} variant="outline">已调整位置，继续测试</Button></div>
+      </div>
+    </div>
+  )
+}
+
+function AutomaticCompletionDialog({ title, message, onClose }: { title: string; message: string; onClose: () => void }) {
+  const acknowledgeButtonRef = useRef<HTMLButtonElement>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+
+  useEffect(() => {
+    const body = document.body
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const previousOverflow = body.style.overflow
+    const previousPaddingRight = body.style.paddingRight
+    const focusFrame = window.requestAnimationFrame(() => acknowledgeButtonRef.current?.focus())
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth
+    const hasStableScrollbarGutter = getComputedStyle(document.documentElement).scrollbarGutter.includes("stable")
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return
+      event.preventDefault()
+      onCloseRef.current()
+    }
+    body.style.overflow = "hidden"
+    if (scrollbarWidth > 0 && !hasStableScrollbarGutter) body.style.paddingRight = `${scrollbarWidth}px`
+    document.addEventListener("keydown", handleKeyDown)
+    return () => {
+      body.style.overflow = previousOverflow
+      body.style.paddingRight = previousPaddingRight
+      document.removeEventListener("keydown", handleKeyDown)
+      window.cancelAnimationFrame(focusFrame)
+      previousFocus?.focus()
+    }
+  }, [])
+
+  return (
+    <div className="motion-overlay-enter fixed inset-0 z-[80] flex items-center justify-center bg-black/65 p-4 backdrop-blur-[2px]">
+      <div aria-labelledby="automatic-completion-title" aria-modal="true" className="motion-dialog-enter w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--app-success)_50%,transparent)] bg-popover shadow-2xl shadow-black/45" role="dialog">
+        <div className="flex items-start gap-4 border-b border-border px-5 py-5">
+          <div className="grid size-11 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,var(--app-success)_16%,transparent)] text-[var(--app-success)]"><CircleCheck className="size-6" /></div>
+          <div><h2 className="text-lg font-semibold" id="automatic-completion-title">{title}</h2><p className="mt-1 text-sm text-muted-foreground">测试流程已经结束，设备已完成安全下电</p></div>
+        </div>
+        <div className="px-5 py-5"><p className="whitespace-pre-line text-sm leading-6 text-foreground">{message}</p></div>
+        <div className="flex justify-end border-t border-border bg-background/35 px-5 py-3"><Button onClick={onClose} ref={acknowledgeButtonRef}>确定</Button></div>
+      </div>
+    </div>
+  )
+}
+
+function ShutdownFailureDialog({
+  message,
+  pending,
+  onCancel,
+  onRetry,
+  onForceExit,
+}: {
+  message: string
+  pending: boolean
+  onCancel: () => void
+  onRetry: () => void
+  onForceExit: () => void
+}) {
+  const [physicalShutdownConfirmed, setPhysicalShutdownConfirmed] = useState(false)
+  const retryButtonRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    const body = document.body
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const previousOverflow = body.style.overflow
+    const previousPaddingRight = body.style.paddingRight
+    const focusFrame = window.requestAnimationFrame(() => retryButtonRef.current?.focus())
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth
+    const hasStableScrollbarGutter = getComputedStyle(document.documentElement).scrollbarGutter.includes("stable")
+    body.style.overflow = "hidden"
+    if (scrollbarWidth > 0 && !hasStableScrollbarGutter) body.style.paddingRight = `${scrollbarWidth}px`
+    return () => {
+      body.style.overflow = previousOverflow
+      body.style.paddingRight = previousPaddingRight
+      window.cancelAnimationFrame(focusFrame)
+      previousFocus?.focus()
+    }
+  }, [])
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || pending) return
+      event.preventDefault()
+      onCancel()
+    }
+    document.addEventListener("keydown", handleEscape)
+    return () => document.removeEventListener("keydown", handleEscape)
+  }, [onCancel, pending])
+
+  return (
+    <div className="motion-overlay-enter fixed inset-0 z-[90] flex items-center justify-center bg-black/75 p-4 backdrop-blur-[2px]">
+      <div aria-describedby="shutdown-failure-description" aria-labelledby="shutdown-failure-title" aria-modal="true" className="motion-dialog-enter w-[min(600px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--app-danger)_55%,transparent)] bg-popover shadow-2xl shadow-black/50" role="alertdialog">
+        <div className="flex items-start gap-4 border-b border-border px-5 py-5">
+          <div className="grid size-11 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,var(--app-danger)_16%,transparent)] text-[var(--app-danger)]"><OctagonAlert className="size-6" /></div>
+          <div><h2 className="text-lg font-semibold" id="shutdown-failure-title">无法确认安全下电</h2><p className="mt-1 text-sm text-muted-foreground">电源通信异常，程序无法自动确认输出已经关闭</p></div>
+        </div>
+        <div className="space-y-4 px-5 py-5">
+          <p className="whitespace-pre-line text-sm leading-6 text-foreground" id="shutdown-failure-description">{message}</p>
+          <div className="rounded-lg border border-[color-mix(in_srgb,var(--app-warning)_35%,transparent)] bg-[var(--app-warning-soft)] px-4 py-3 text-sm leading-6 text-foreground">
+            请检查电源实体面板。若能够恢复通信，请重试安全下电；若已人工确认输出关闭，可强制退出程序。
+          </div>
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-background/35 px-4 py-3 text-sm leading-5">
+            <input checked={physicalShutdownConfirmed} className="mt-0.5 size-4 accent-[var(--app-danger)]" disabled={pending} onChange={(event) => setPhysicalShutdownConfirmed(event.target.checked)} type="checkbox" />
+            <span>我已检查电源实体面板，并确认输出已关闭或电流已归零。</span>
+          </label>
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border bg-background/35 px-5 py-3">
+          <Button disabled={pending} onClick={onCancel} variant="outline">取消退出</Button>
+          <Button disabled={pending} onClick={onRetry} ref={retryButtonRef} variant="outline">{pending ? "正在重试…" : "重试安全下电"}</Button>
+          <Button disabled={pending || !physicalShutdownConfirmed} onClick={onForceExit} variant="destructive">{pending ? "正在退出…" : "确认并强制退出"}</Button>
+        </div>
       </div>
     </div>
   )
@@ -493,7 +689,40 @@ function sameRows<T>(
   })
 }
 
-const ChartPanel = memo(function ChartPanel({ title, data, xKey, lines, empty = "暂无实时数据", heightClassName, headerRight, annotations, stretch = false, xDomain, xTicks }: {
+function ChartLegend({ lines }: { lines: CanvasChartLine[] }) {
+  return (
+    <div aria-label="图例" className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+      {lines.map((line) => (
+        <span className="flex items-center gap-1.5 whitespace-nowrap" key={line.key}>
+          <svg aria-hidden="true" className="h-3.5 w-7 overflow-visible" viewBox="0 0 28 14">
+            <line stroke={line.color} strokeLinecap="round" strokeWidth="2" x1="1" x2="27" y1="7" y2="7" />
+            {line.showPoints && (line.pointShape === "triangle" ? (
+              <path
+                d="M14 2.5 18.2 10.5 9.8 10.5Z"
+                fill={line.pointStyle === "hollow" ? "var(--card)" : line.color}
+                stroke={line.color}
+                strokeLinejoin="round"
+                strokeWidth="2"
+              />
+            ) : (
+              <circle
+                cx="14"
+                cy="7"
+                fill={line.pointStyle === "hollow" ? "var(--card)" : line.color}
+                r="4"
+                stroke={line.color}
+                strokeWidth="2"
+              />
+            ))}
+          </svg>
+          <span>{line.label}</span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
+const ChartPanel = memo(function ChartPanel({ title, data, xKey, lines, empty = "暂无实时数据", heightClassName, headerRight, annotations, stretch = false, xDomain, xTicks, yDomain, preserveAllPoints = false }: {
   title: string
   data: Array<Record<string, number | null>>
   xKey: string
@@ -505,15 +734,17 @@ const ChartPanel = memo(function ChartPanel({ title, data, xKey, lines, empty = 
   stretch?: boolean
   xDomain?: [number, number]
   xTicks?: number[]
+  yDomain?: [number, number]
+  preserveAllPoints?: boolean
 }) {
   return (
-    <Card className={`shadow-none ${stretch ? "h-full min-h-0" : ""}`}>
-      <CardHeader className="flex min-h-9 flex-row items-center justify-between gap-3 pb-2"><CardTitle className="text-sm">{title}</CardTitle>{headerRight}</CardHeader>
+    <Card aria-label={title} className={`shadow-none ${stretch ? "h-full min-h-0" : ""}`}>
+      <CardHeader className="flex min-h-9 flex-row items-center justify-between gap-3 pb-2"><ChartLegend lines={lines} />{headerRight}</CardHeader>
       <CardContent className={`${stretch ? "min-h-0 flex-1" : heightClassName || (data.length === 0 ? "h-40" : "h-56")} px-3 pb-3`}>
         {data.length === 0 ? (
           <div className="grid h-full place-items-center rounded-lg bg-background/30 text-sm text-muted-foreground/70">{empty}</div>
         ) : (
-          <CanvasLineChart annotations={annotations} ariaLabel={`${title}曲线`} data={data} lines={lines} xDomain={xDomain} xKey={xKey} xTicks={xTicks} />
+          <CanvasLineChart annotations={annotations} ariaLabel={`${title}曲线`} data={data} lines={lines} preserveAllPoints={preserveAllPoints} xDomain={xDomain} xKey={xKey} xTicks={xTicks} yDomain={yDomain} />
         )}
       </CardContent>
     </Card>
@@ -547,15 +778,17 @@ const ChartPanel = memo(function ChartPanel({ title, data, xKey, lines, empty = 
     && previous.empty === next.empty
     && previous.heightClassName === next.heightClassName
     && previous.stretch === next.stretch
+    && previous.preserveAllPoints === next.preserveAllPoints
     && sameLines
     && sameNumbers(previous.xDomain, next.xDomain)
     && sameNumbers(previous.xTicks, next.xTicks)
+    && sameNumbers(previous.yDomain, next.yDomain)
     && previous.headerRight === undefined
     && next.headerRight === undefined
     && sameRows(previous.annotations, next.annotations, ["label", "x", "y", "color"])
 })
 
-const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch = false }: { snapshot: BackendSnapshot | null; stretch?: boolean }) {
+const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; stretch?: boolean; heightClassName?: string }) {
   const powerData = (snapshot?.measurements?.power ?? []) as Array<Record<string, number | null>>
   const latestPowerW = powerData[powerData.length - 1]?.powerW
   const latestElapsedS = powerData[powerData.length - 1]?.elapsedS
@@ -579,6 +812,7 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch 
       xKey="elapsedS"
       lines={[{ key: "powerW", label: "功率 (W)", color: powerStabilityColor }]}
       stretch={stretch}
+      heightClassName={heightClassName}
       xDomain={powerTimeDomain}
       xTicks={powerTimeTicks}
       headerRight={<div className="flex items-center gap-3"><div className={`flex items-center gap-1.5 text-sm font-medium ${powerStable ? "text-[var(--app-success)]" : powerMeter?.running ? "text-[var(--app-validation)]" : "text-muted-foreground"}`}><span className={`size-2 rounded-full ${powerStable ? "bg-[var(--app-success)]" : powerMeter?.running ? "bg-[var(--app-validation)]" : "bg-muted-foreground/45"}`} />{powerStabilityLabel}</div><p className="text-lg font-semibold tabular-nums">{formatNumber(latestPowerW, " W")}</p></div>}
@@ -590,6 +824,7 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch 
   const previousMeter = previous.snapshot?.devices.powerMeter
   const nextMeter = next.snapshot?.devices.powerMeter
   return previous.stretch === next.stretch
+    && previous.heightClassName === next.heightClassName
     && sameRows(previousPower, nextPower, ["elapsedS", "powerW"])
     && previousMeter?.running === nextMeter?.running
     && previousMeter?.stable === nextMeter?.stable
@@ -600,37 +835,88 @@ const powerEfficiencyLines: CanvasChartLine[] = [
   { key: "efficiencyPercent", label: "效率 (%)", color: PLM_CHART_SERIES.tan, yAxisId: "right", showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 1.7 },
 ]
 
-const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stretch = false }: { snapshot: BackendSnapshot | null; stretch?: boolean }) {
+const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; stretch?: boolean; heightClassName?: string }) {
   return (
     <ChartPanel
       data={(snapshot?.measurements?.stable ?? []) as Array<Record<string, number | null>>}
       empty="完成稳定测试点后显示功率 / 效率"
       lines={powerEfficiencyLines}
       stretch={stretch}
+      heightClassName={heightClassName}
       title="功率 / 效率"
       xKey="currentA"
     />
   )
 }, (previous, next) => previous.stretch === next.stretch
+  && previous.heightClassName === next.heightClassName
   && sameRows(previous.snapshot?.measurements?.stable, next.snapshot?.measurements?.stable, ["currentA", "powerW", "efficiencyPercent"]))
 
-const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, stretch = false }: { snapshot: BackendSnapshot | null; stretch?: boolean }) {
+const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; stretch?: boolean; heightClassName?: string }) {
   const spectrumData = (snapshot?.measurements?.spectrum ?? []) as Array<Record<string, number | null>>
   const spectrum = snapshot?.devices.spectrometer
   const spectrumPeaks = snapshot?.measurements?.spectrumPeaks ?? []
+  const spectrumYAxisStateRef = useRef<SpectrumYAxisState | null>(null)
+  const spectrumXDomain = useMemo<[number, number] | undefined>(() => {
+    const spectrumWindow = spectrum?.spectrumWindow
+    if (
+      spectrumWindow
+      && Number.isFinite(spectrumWindow.centerNm)
+      && Number.isFinite(spectrumWindow.halfRangeNm)
+      && spectrumWindow.halfRangeNm > 0
+    ) {
+      return [
+        spectrumWindow.centerNm - spectrumWindow.halfRangeNm,
+        spectrumWindow.centerNm + spectrumWindow.halfRangeNm,
+      ]
+    }
+
+    let minimum = Number.POSITIVE_INFINITY
+    let maximum = Number.NEGATIVE_INFINITY
+    for (const point of spectrumData) {
+      const wavelength = point.wavelengthNm
+      if (typeof wavelength !== "number" || !Number.isFinite(wavelength)) continue
+      minimum = Math.min(minimum, wavelength)
+      maximum = Math.max(maximum, wavelength)
+    }
+    return minimum < maximum ? [minimum, maximum] : undefined
+  }, [spectrum?.spectrumWindow, spectrumData])
+  const spectrumYDomain = useMemo<[number, number]>(() => {
+    if (spectrumData.length === 0) {
+      spectrumYAxisStateRef.current = null
+      return [0, 1]
+    }
+    const intensities: number[] = []
+    for (const point of spectrumData) {
+      const intensity = point.intensity
+      if (typeof intensity === "number" && Number.isFinite(intensity)) {
+        intensities.push(intensity)
+      }
+    }
+    spectrumYAxisStateRef.current = stabilizeSpectrumYAxis(
+      spectrumYAxisDomain(intensities),
+      spectrumYAxisStateRef.current,
+    )
+    return spectrumYAxisStateRef.current.domain
+  }, [spectrumData])
 
   return (
     <ChartPanel
       title="光谱"
       data={spectrumData}
       xKey="wavelengthNm"
+      xDomain={spectrumXDomain}
+      yDomain={spectrumYDomain}
+      preserveAllPoints
       lines={[{ key: "intensity", label: "强度", color: PLM_CHART_SERIES.green }]}
       stretch={stretch}
+      heightClassName={heightClassName}
       annotations={spectrumPeaks.map((annotation) => ({ label: annotation.label, x: annotation.centroidNm, y: annotation.peakIntensity, color: PLM_CHART_SERIES.blue }))}
       headerRight={
-        <div className="grid min-w-0 flex-1 grid-cols-3 items-center gap-6 text-center">
+        spectrum?.saturated
+          ? <div className="flex min-w-0 flex-1 items-center justify-end gap-2 text-sm font-medium text-[var(--app-warning)]"><OctagonAlert className="size-4" />光谱饱和 · 请缩短积分时间</div>
+          : <div className="grid min-w-0 flex-1 grid-cols-3 items-center gap-6 text-center">
           <div className="flex flex-col items-center gap-1">
-            <p className="text-lg font-semibold leading-none tabular-nums">{formatNumber(spectrum?.centroidNm, " nm")}</p>
+            <p className="text-lg font-semibold leading-none tabular-nums">{formatNumber(spectrum?.peakWavelengthNm, " nm")}</p>
             <p className="text-[10px] leading-none text-muted-foreground">中心波长</p>
           </div>
           <div className="flex flex-col items-center gap-1">
@@ -651,12 +937,16 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
   const previousSpectrum = previous.snapshot?.devices.spectrometer
   const nextSpectrum = next.snapshot?.devices.spectrometer
   return previous.stretch === next.stretch
+    && previous.heightClassName === next.heightClassName
     && sameRows(previousMeasurements?.spectrum, nextMeasurements?.spectrum, ["wavelengthNm", "intensity"])
     && sameRows(previousMeasurements?.spectrumPeaks, nextMeasurements?.spectrumPeaks, ["label", "centroidNm", "peakWavelengthNm", "peakIntensity"])
+    && previousSpectrum?.peakWavelengthNm === nextSpectrum?.peakWavelengthNm
     && previousSpectrum?.centroidNm === nextSpectrum?.centroidNm
     && previousSpectrum?.fwhmNm === nextSpectrum?.fwhmNm
     && previousSpectrum?.smsrDb === nextSpectrum?.smsrDb
     && previousSpectrum?.saturated === nextSpectrum?.saturated
+    && previousSpectrum?.spectrumWindow?.centerNm === nextSpectrum?.spectrumWindow?.centerNm
+    && previousSpectrum?.spectrumWindow?.halfRangeNm === nextSpectrum?.spectrumWindow?.halfRangeNm
 })
 
 function App() {
@@ -665,38 +955,159 @@ function App() {
   const { snapshot, error, loading, commandPending, pendingCommand, refresh, command } = useBackendSnapshot(snapshotView)
   const [config, setConfig] = useState<AppConfiguration>(emptyConfig)
   const [dirty, setDirty] = useState(false)
+  const [closeFailure, setCloseFailure] = useState<string | null>(null)
+  const [automaticCompletion, setAutomaticCompletion] = useState<{ title: string; message: string } | null>(null)
+  const [closeRequestPending, setCloseRequestPending] = useState(false)
+  const closeRequestInFlightRef = useRef(false)
+  const automaticRunSeenRef = useRef(false)
+  const fitWindowSizeRef = useRef<string | null>(null)
+  const [pageZoom, setPageZoom] = useState(1)
   const pageScrollPositionsRef = useRef<Record<Page, number>>({ automatic: 0, manual: 0, pd: 0, shipping: 0 })
   const active = snapshot?.backend.mode === "active"
   const automaticWorkflowActive = Boolean(snapshot && !["idle", "completed"].includes(snapshot.automaticTest.state))
+  const automaticPaused = snapshot?.automaticTest.state === "paused"
   const automaticInteractionLocked = automaticWorkflowActive || pendingCommand === "automatic.start"
+  const activeOutputCurrentA = snapshot?.devices.powerSupply.activeCurrentA
+  const manualPowerOutputActive = Boolean(
+    snapshot
+    && !automaticWorkflowActive
+    && (
+      (typeof activeOutputCurrentA === "number" && Math.abs(activeOutputCurrentA) > 0.005)
+      || (config.powerSupplyKind === "tdk" && snapshot.devices.powerSupply.outputEnabled)
+    )
+  )
 
   useEffect(() => {
     let cancelled = false
-    const fitInitialZoom = async () => {
-      const webview = getCurrentWebview()
-      // Clear any zoom retained by WebView2 before measuring the real viewport.
-      await webview.setZoom(1)
-      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
-      const viewportWidth = window.innerWidth
-      const zoom = viewportWidth < AUTOMATIC_LAYOUT_MIN_WIDTH
-        ? Math.max(MIN_STARTUP_ZOOM, viewportWidth / AUTOMATIC_LAYOUT_MIN_WIDTH)
+    let resizeTimer: number | undefined
+
+    const windowSizeKey = () => `${window.innerWidth}x${window.innerHeight}`
+    const fitPageToViewport = async () => {
+      // Measure every page at its natural size first. CSS zoom participates in
+      // document layout, so the resulting scale removes the scrollbar instead
+      // of only shrinking the pixels while the original scroll height remains.
+      setPageZoom(1)
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())))
+      if (cancelled) return
+
+      const documentElement = document.documentElement
+      const pageShell = document.querySelector<HTMLElement>("[data-page-shell]")
+      const fitContainer = pageShell?.parentElement
+      const viewportWidth = Math.max(1, fitContainer?.clientWidth ?? documentElement.clientWidth)
+      const viewportHeight = Math.max(1, window.innerHeight)
+      const contentWidth = Math.max(1, pageShell?.scrollWidth ?? documentElement.scrollWidth)
+      const contentHeight = Math.max(1, pageShell?.scrollHeight ?? documentElement.scrollHeight)
+      // Leave a tiny rounding buffer so a one-pixel scrollbar does not appear
+      // on the last row after WebView2 applies the fractional zoom.
+      const widthRatio = Math.max(1, viewportWidth - 2) / contentWidth
+      const heightRatio = Math.max(1, viewportHeight - 2) / contentHeight
+      const measuredZoom = FIT_TO_VIEWPORT_PAGES.has(page)
+        ? Math.min(1, widthRatio, heightRatio)
         : 1
-      if (!cancelled && zoom < 1) await webview.setZoom(zoom)
+      const zoom = Math.max(MIN_PAGE_ZOOM, Math.min(1, measuredZoom))
+      fitWindowSizeRef.current = windowSizeKey()
+      if (!cancelled) setPageZoom((current) => Math.abs(current - zoom) > 0.005 ? zoom : current)
     }
-    void fitInitialZoom().catch((error) => console.error("无法初始化 WebView2 页面缩放", error))
-    return () => { cancelled = true }
+
+    const handleResize = () => {
+      if (fitWindowSizeRef.current === windowSizeKey()) return
+      if (resizeTimer !== undefined) window.clearTimeout(resizeTimer)
+      resizeTimer = window.setTimeout(() => {
+        resizeTimer = undefined
+        void fitPageToViewport().catch((error) => console.error("无法更新页面缩放", error))
+      }, 120)
+    }
+
+    window.addEventListener("resize", handleResize)
+    void fitPageToViewport().catch((error) => console.error("无法初始化页面缩放", error))
+    return () => {
+      cancelled = true
+      window.removeEventListener("resize", handleResize)
+      if (resizeTimer !== undefined) window.clearTimeout(resizeTimer)
+    }
+  }, [page])
+
+  const attemptGracefulClose = useCallback(async () => {
+    if (!("__TAURI_INTERNALS__" in window) || closeRequestInFlightRef.current) return
+    closeRequestInFlightRef.current = true
+    setCloseRequestPending(true)
+    setCloseFailure(null)
+    try {
+      const result = await sendBackendRequest<{ shutdownConfirmed: boolean }>("app.shutdown")
+      if (!result.shutdownConfirmed) throw new Error("后端未确认安全下电")
+      await invoke("bridge_disconnect")
+      await getCurrentWindow().destroy()
+    } catch (reason) {
+      const detail = reason instanceof Error ? reason.message : String(reason)
+      setCloseFailure(detail)
+      setCloseRequestPending(false)
+      closeRequestInFlightRef.current = false
+    }
   }, [])
+
+  const cancelClose = useCallback(() => {
+    if (closeRequestInFlightRef.current) return
+    setCloseFailure(null)
+  }, [])
+
+  const forceClose = useCallback(async () => {
+    if (!("__TAURI_INTERNALS__" in window) || closeRequestInFlightRef.current) return
+    closeRequestInFlightRef.current = true
+    setCloseRequestPending(true)
+    const forceDisconnect = invoke("bridge_force_disconnect").catch((reason) => {
+      console.error("强制终止 Python 后端失败，将继续关闭窗口", reason)
+    })
+    await Promise.race([
+      forceDisconnect,
+      new Promise<void>((resolve) => window.setTimeout(resolve, 1500)),
+    ])
+    try {
+      await getCurrentWindow().destroy()
+    } catch (reason) {
+      const detail = reason instanceof Error ? reason.message : String(reason)
+      setCloseFailure(`强制关闭窗口失败：${detail}`)
+      setCloseRequestPending(false)
+      closeRequestInFlightRef.current = false
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return
+    let unlisten: (() => void) | undefined
+    let cancelled = false
+    const appWindow = getCurrentWindow()
+    void appWindow.onCloseRequested((event) => {
+      event.preventDefault()
+      void attemptGracefulClose()
+    }).then((dispose) => {
+      if (cancelled) dispose()
+      else unlisten = dispose
+    })
+    return () => {
+      cancelled = true
+      unlisten?.()
+    }
+  }, [attemptGracefulClose])
+
+  const pageIsBlocked = useCallback((nextPage: Page) => {
+    if (nextPage === "pd") return false
+    if (nextPage === "automatic") return manualPowerOutputActive
+    if (nextPage === "manual") return automaticWorkflowActive && !automaticPaused
+    return automaticInteractionLocked
+  }, [automaticInteractionLocked, automaticPaused, automaticWorkflowActive, manualPowerOutputActive])
 
   const changePage = useCallback((nextPage: Page) => {
     if (nextPage === page) return
-    if (automaticInteractionLocked && nextPage !== "automatic") return
+    if (pageIsBlocked(nextPage)) return
     pageScrollPositionsRef.current[page] = window.scrollY
     setPage(nextPage)
-  }, [automaticInteractionLocked, page])
+  }, [page, pageIsBlocked])
 
-  useEffect(() => {
-    if (automaticInteractionLocked && page !== "automatic") changePage("automatic")
-  }, [automaticInteractionLocked, changePage, page])
+  // Do not force the visible page from backend state snapshots. A manual
+  // current command produces several snapshots (configure, write, refresh),
+  // and a transient/stale automatic state must not navigate the operator away
+  // from Detailed Configuration. Automatic tests are started on their own page;
+  // if one is already active, the Automatic Test navigation item stays usable.
 
   useLayoutEffect(() => {
     window.scrollTo({ left: 0, top: pageScrollPositionsRef.current[page], behavior: "auto" })
@@ -722,6 +1133,30 @@ function App() {
     setConfig((current) => configurationsEqual(current, snapshot.configuration!) ? current : snapshot.configuration!)
   }, [snapshot?.configuration, dirty])
 
+  useEffect(() => {
+    const automatic = snapshot?.automaticTest
+    if (!automatic) return
+    if (!["idle", "completed"].includes(automatic.state)) {
+      automaticRunSeenRef.current = true
+      setAutomaticCompletion(null)
+      return
+    }
+    if (
+      automatic.state !== "completed"
+      || !automaticRunSeenRef.current
+      || automatic.detail === "正在写入最终测试状态"
+      || !automatic.terminalOutcome
+    ) return
+
+    automaticRunSeenRef.current = false
+    const title = automatic.terminalOutcome === "succeeded"
+      ? "测试完成"
+      : automatic.terminalOutcome === "stopped_by_operator"
+        ? "测试已提前结束"
+        : "测试异常中止"
+    setAutomaticCompletion({ title, message: automatic.detail || title })
+  }, [snapshot?.automaticTest])
+
   const update = <K extends keyof AppConfiguration>(key: K, value: AppConfiguration[K]) => {
     setConfig((current) => ({ ...current, [key]: value }))
     setDirty(true)
@@ -737,6 +1172,7 @@ function App() {
     if (!active) return
     if (sync && dirty) await saveConfiguration()
     await command(method, params)
+    if (method === "automatic.start") setDirty(false)
   }
 
   const devicesReady = [
@@ -749,42 +1185,49 @@ function App() {
   const notices = snapshot?.backend.notices ?? []
   const notifications = [
     ...(error ? [{ key: `request-error:${error}`, level: "error" as const, title: "系统错误", message: error }] : []),
-    ...notices.map((notice, index) => ({ ...notice, key: `backend-notice:${notice.level}:${notice.title}:${notice.message}:${index}` })),
+    ...notices.map((notice, index) => ({ ...notice, key: notice.id ? `backend-notice:${notice.id}` : `backend-notice:${notice.level}:${notice.title}:${notice.message}:${index}` })),
     ...(!active && snapshot ? [{ key: "runtime-warning", level: "warning" as const, title: "运行环境提示", message: "当前 Python 环境未加载 PySide6/设备驱动，因此控制功能暂不可用。请使用项目指定环境启动。" }] : []),
   ]
   const [dismissedNotifications, setDismissedNotifications] = useState<Set<string>>(new Set())
   const visibleNotifications = notifications.filter((notification) => !dismissedNotifications.has(notification.key))
   const powerProtectionNotification = visibleNotifications.find((notification) => notification.title === "功率保护")
-  const toastNotifications = visibleNotifications.filter((notification) => notification !== powerProtectionNotification)
+  const spectrumSaturationNotification = visibleNotifications.find((notification) => notification.title === "光谱饱和")
+  const activeAlertNotification = powerProtectionNotification ?? spectrumSaturationNotification
+  const toastNotifications = visibleNotifications.filter((notification) => notification !== powerProtectionNotification && notification !== spectrumSaturationNotification)
   const title = navigation.find((item) => item.id === page)?.label ?? "自动测试"
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="grid min-h-screen grid-cols-[232px_minmax(0,1fr)]">
-        <aside className="sticky top-0 flex h-screen min-h-0 self-start flex-col border-r border-border bg-[var(--app-sidebar)] px-4 py-5 text-[var(--app-text)]">
-          <p className="px-2 text-xs font-medium uppercase tracking-[0.16em] text-[var(--app-text-tertiary)]">工作区</p>
-          <nav className="mt-3 space-y-1.5">
+      <div className="grid min-h-screen grid-cols-[164px_minmax(0,1fr)]">
+        <aside className="shell-sidebar-enter sticky top-0 flex h-screen min-h-0 self-start flex-col border-r border-border bg-[var(--app-sidebar)] px-2.5 py-4 text-[var(--app-text)]">
+          <p className="px-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--app-text-tertiary)]">工作区</p>
+          <nav className="mt-2 space-y-0.5">
             {navigation.map((item, index) => (
               <button
                 aria-current={page === item.id ? "page" : undefined}
                 aria-keyshortcuts={`Meta+${index + 1} Control+${index + 1}`}
-                className={`relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-base outline-none transition-[color,background-color,box-shadow] duration-150 focus-visible:ring-2 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:text-[var(--app-text-tertiary)] disabled:opacity-45 ${page === item.id ? "bg-[var(--app-selected-soft)] font-medium text-[var(--app-text)] before:absolute before:inset-y-2.5 before:left-0 before:w-0.5 before:rounded-full before:bg-primary" : "text-[var(--app-text-tertiary)] hover:bg-[var(--app-hover-soft)] hover:text-[var(--app-text-secondary)] disabled:hover:bg-transparent"}`}
-                disabled={automaticInteractionLocked}
+                className={`app-nav-item relative flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] outline-none transition-[color,background-color,box-shadow] duration-200 before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:origin-center before:rounded-full before:bg-primary before:transition-transform before:duration-200 focus-visible:ring-2 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:text-[var(--app-text-tertiary)] disabled:opacity-45 ${page === item.id ? "bg-[var(--app-selected-soft)] font-medium text-[var(--app-text)] before:scale-y-100" : "text-[var(--app-text-tertiary)] before:scale-y-0 hover:bg-[var(--app-hover-soft)] hover:text-[var(--app-text-secondary)] disabled:hover:bg-transparent"}`}
+                disabled={pageIsBlocked(item.id)}
                 key={item.id}
                 onClick={() => changePage(item.id)}
-                title={`${item.label}（⌘/Ctrl + ${index + 1}）`}
+                title={
+                  manualPowerOutputActive && item.id === "automatic"
+                    ? "手动电源正在输出，请先在详细配置中将电流归零"
+                    : `${item.label}（⌘/Ctrl + ${index + 1}）`
+                }
                 type="button"
               >
-                <item.icon className="size-4" /><span>{item.label}</span>
+                <item.icon className="app-nav-icon size-3.5" /><span>{item.label}</span>
               </button>
             ))}
           </nav>
         </aside>
 
         <main className="min-h-screen min-w-0">
-          <header className="sticky top-0 z-40 flex h-[72px] items-center justify-between border-b border-border bg-[var(--app-header-bg)] px-6 backdrop-blur-md">
+          <div className="min-h-screen" data-page-shell style={{ zoom: pageZoom }}>
+            <header className="shell-header-enter sticky top-0 z-40 flex h-[72px] items-center justify-between border-b border-border bg-[var(--app-header-bg)] px-6 backdrop-blur-md">
             <div>
-              <div className="flex items-center gap-2"><h1 className="text-xl font-semibold tracking-tight">{title}</h1><Badge variant="outline" className={active ? "border-[color-mix(in_srgb,var(--app-verified)_24%,transparent)] bg-[var(--app-verified-soft)] text-[var(--app-verified)]" : "border-[color-mix(in_srgb,var(--app-warning)_24%,transparent)] bg-[var(--app-warning-soft)] text-[var(--app-warning)]"}>{active ? "控制器已接入" : "只读兼容模式"}</Badge></div>
+              <div className="flex items-center gap-2"><h1 className="page-title-enter text-xl font-semibold tracking-tight" key={page}>{title}</h1><Badge variant="outline" className={active ? "border-[color-mix(in_srgb,var(--app-verified)_24%,transparent)] bg-[var(--app-verified-soft)] text-[var(--app-verified)]" : "border-[color-mix(in_srgb,var(--app-warning)_24%,transparent)] bg-[var(--app-warning-soft)] text-[var(--app-warning)]"}>{active ? "控制器已接入" : "只读兼容模式"}</Badge></div>
               <p aria-live="polite" className="mt-1 flex min-h-4 items-center gap-1.5 text-xs text-muted-foreground">
                 {commandPending
                   ? <><LoaderCircle className="size-3 animate-spin text-primary" />{pendingCommandLabel(pendingCommand)}</>
@@ -792,13 +1235,13 @@ function App() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <Button aria-hidden={!dirty} className={dirty ? "" : "invisible"} disabled={!dirty || !active || commandPending || automaticInteractionLocked} onClick={() => void saveConfiguration()} size="sm" tabIndex={dirty && !automaticInteractionLocked ? 0 : -1} variant="outline"><Save className="size-4" />保存设置</Button>
+              <Button aria-hidden={!dirty} className={`transition-opacity duration-200 ${dirty ? "opacity-100" : "pointer-events-none opacity-0"}`} disabled={!dirty || !active || commandPending || automaticInteractionLocked} onClick={() => void saveConfiguration()} size="sm" tabIndex={dirty && !automaticInteractionLocked ? 0 : -1} variant="outline"><Save className="size-4" />保存设置</Button>
               <Button aria-label="刷新" disabled={loading || automaticInteractionLocked} onClick={() => void refresh()} size="icon" variant="outline"><RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} /></Button>
-              <Button disabled={!active || commandPending} onClick={() => void run("app.stopAll")} size="sm" variant="destructive"><OctagonAlert className="size-4" />紧急停止</Button>
+              <Button disabled={!active} onClick={() => void run("app.stopAll")} size="sm" variant="destructive"><OctagonAlert className="size-4" />紧急停止</Button>
             </div>
-          </header>
+            </header>
 
-          {toastNotifications.length > 0 && <div className="pointer-events-none fixed right-4 top-20 z-50 flex w-[min(420px,calc(100vw-2rem))] flex-col gap-2">
+            {toastNotifications.length > 0 && <div className="pointer-events-none fixed right-4 top-20 z-50 flex w-[min(420px,calc(100vw-2rem))] flex-col gap-2">
             {toastNotifications.map((notification) => {
               const isError = notification.level === "error"
               const isWarning = notification.level === "warning"
@@ -808,15 +1251,22 @@ function App() {
                 <button aria-label="关闭提示" className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-muted-foreground" disabled={automaticInteractionLocked} onClick={() => setDismissedNotifications((current) => new Set(current).add(notification.key))} type="button"><X className="size-4" /></button>
               </div>
             })}
-          </div>}
+            </div>}
 
-          {powerProtectionNotification && <PowerProtectionDialog message={powerProtectionNotification.message} onClose={() => setDismissedNotifications((current) => new Set(current).add(powerProtectionNotification.key))} />}
+            {activeAlertNotification === powerProtectionNotification && powerProtectionNotification && <PowerProtectionDialog message={powerProtectionNotification.message} onClose={() => setDismissedNotifications((current) => new Set(current).add(powerProtectionNotification.key))} />}
+            {activeAlertNotification === spectrumSaturationNotification && spectrumSaturationNotification && <SpectrumSaturationDialog message={spectrumSaturationNotification.message} onClose={() => {
+              setDismissedNotifications((current) => new Set(current).add(spectrumSaturationNotification.key))
+              if (snapshot?.automaticTest.state === "paused") void run("automatic.retry")
+            }} />}
+            {automaticCompletion && !activeAlertNotification && !closeFailure && <AutomaticCompletionDialog message={automaticCompletion.message} onClose={() => setAutomaticCompletion(null)} title={automaticCompletion.title} />}
+            {closeFailure && <ShutdownFailureDialog message={closeFailure} onCancel={cancelClose} onForceExit={() => void forceClose()} onRetry={() => void attemptGracefulClose()} pending={closeRequestPending} />}
 
-          <div className="page-enter space-y-4 p-5 lg:p-6" key={page}>
-            {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={active} controlsLocked={automaticInteractionLocked} pending={commandPending} readyCount={devicesReady} readyTotal={requiredDevices} progress={progress} run={run} saveConfiguration={saveConfiguration} />}
-            {page === "manual" && <ManualPage snapshot={snapshot} config={config} update={update} active={active} pending={commandPending} run={run} />}
-            {page === "pd" && <PdPage snapshot={snapshot} active={active} pending={commandPending} run={run} />}
-            {page === "shipping" && <ShippingReportPage active={active} controlsLocked={automaticInteractionLocked} pending={commandPending} />}
+            <div className="page-enter space-y-4 p-5 lg:p-6" data-page={page} key={page}>
+              {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={active} controlsLocked={automaticInteractionLocked || manualPowerOutputActive} pending={commandPending} readyCount={devicesReady} readyTotal={requiredDevices} progress={progress} run={run} saveConfiguration={saveConfiguration} />}
+              {page === "manual" && <ManualPage snapshot={snapshot} config={config} update={update} active={active} pending={commandPending} run={run} />}
+              {page === "pd" && <PdPage snapshot={snapshot} active={active} pending={commandPending} run={run} />}
+              {page === "shipping" && <ShippingReportPage active={active} controlsLocked={automaticInteractionLocked} pending={commandPending} />}
+            </div>
           </div>
         </main>
       </div>
@@ -1608,7 +2058,7 @@ function AutomaticPage({ snapshot, config, update, active, controlsLocked, pendi
         <DeviceCard title="光谱仪" icon={<Radio className="size-5" />} device={snapshot?.devices.spectrometer} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("spectrometer")} />
       </section>
       {openSettings && <DeviceSettingsDialog active={active} config={config} kind={openSettings} onClose={closeSettings} onSave={saveConfiguration} open pending={pending} run={run} snapshot={snapshot} update={update} />}
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(360px,0.9fr)_minmax(520px,1.35fr)]">
+      <section className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(320px,0.75fr)_minmax(520px,1.5fr)]">
         <Card className="min-w-0 shadow-none">
           <CardContent className="grid grid-cols-2 gap-x-4 gap-y-5 pb-6">
             <Field label="输出目录" className="col-span-2"><Input disabled={controlsLocked} value={config.outputDir} onChange={(e) => update("outputDir", e.target.value)} /></Field>
@@ -1628,6 +2078,7 @@ function AutomaticPage({ snapshot, config, update, active, controlsLocked, pendi
             </div>
             <div className="col-span-2 grid grid-cols-2 gap-3">
               <Button disabled={!active || pending || controlsLocked || !auto?.canStart} onClick={() => void run("automatic.start", config as unknown as Record<string, unknown>)}><Play className="size-4" />开始自动测试</Button>
+              {auto?.canRetry && <Button disabled={!active || pending} onClick={() => void run("automatic.retry")} variant="outline"><RotateCcw className="size-4" />修复后重试</Button>}
               <Button disabled={!active || pending || !auto?.canEnd} onClick={() => void run("automatic.end")} variant="destructive"><Square className="size-4" />结束并安全下电</Button>
             </div>
           </CardContent>
@@ -1682,31 +2133,41 @@ function ManualPage({ snapshot, config, update, active, pending, run }: {
   const spectrum = snapshot?.devices.spectrometer
   const powerMeterResources = meter?.resources ?? []
   const selectedPowerMeterResource = config.powerMeterResource.trim()
+  const commandLockRef = useRef(false)
+  const runManualCommand: RunCommand = async (method, params, sync) => {
+    if (commandLockRef.current || pending) return
+    commandLockRef.current = true
+    try {
+      await run(method, params, sync)
+    } finally {
+      commandLockRef.current = false
+    }
+  }
   return (
-    <>
+    <div className="manual-page space-y-4">
       <section className="grid grid-cols-3 gap-4">
-        <Card className="shadow-none"><CardHeader><CardTitle className="text-base">电源控制</CardTitle></CardHeader><CardContent className="space-y-3">
+        <Card size="sm" className="shadow-none"><CardHeader><CardTitle className="text-base">电源控制</CardTitle></CardHeader><CardContent className="manual-control-content">
           <Field label="控制器"><NativeSelect value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="usb2xxx">USB2XXX I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
           {config.powerSupplyKind === "tdk" && <Field label="TDK 串口"><Input value={config.tdkResource} onChange={(e) => update("tdkResource", e.target.value)} /></Field>}
           {config.powerSupplyKind === "tdk" && <NumberField label="输出电压 (V)" value={config.tdkVoltageV} onChange={(v) => update("tdkVoltageV", v)} step="0.1" />}
           <NumberField label="设定电流 (A)" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
           {config.powerSupplyKind === "tdk" ? <div className="grid grid-cols-2 gap-2">
-            <Button disabled={!active || pending} onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接 TDK"}</Button>
-            <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setVoltage", { voltageV: config.tdkVoltageV }, true)} variant="outline">设置电压</Button>
-            <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled ? "关闭输出" : "开启输出"}</Button>
-            <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
+            <Button disabled={!active} onClick={() => void runManualCommand(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接 TDK"}</Button>
+            <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setVoltage", { voltageV: config.tdkVoltageV }, true)} variant="outline">设置电压</Button>
+            <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled ? "关闭输出" : "开启输出"}</Button>
+            <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
           </div> : <>
-            <div className="grid grid-cols-2 gap-2"><Button disabled={!active || pending} onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接电源"}</Button><Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button></div>
+            <div className="grid grid-cols-2 gap-2"><Button disabled={!active} onClick={() => void runManualCommand(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接电源"}</Button><Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button></div>
             <div className="grid grid-cols-2 gap-2">
-              <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline">读取输出电压</Button>
-              <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline">读取输出电流</Button>
-              <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "inputVoltage" })} size="sm" variant="outline">读取输入电压</Button>
-              <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "temperature" })} size="sm" variant="outline">读取模块温度</Button>
+              <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline">读取输出电压</Button>
+              <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline">读取输出电流</Button>
+              <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "inputVoltage" })} size="sm" variant="outline">读取输入电压</Button>
+              <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "temperature" })} size="sm" variant="outline">读取模块温度</Button>
             </div>
           </>}
         </CardContent></Card>
 
-        <Card className="shadow-none"><CardHeader><CardTitle className="text-base">功率计</CardTitle></CardHeader><CardContent className="space-y-3">
+        <Card size="sm" className="shadow-none"><CardHeader><CardTitle className="text-base">功率计</CardTitle></CardHeader><CardContent className="manual-control-content">
           <Field label="串口资源">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
               <NativeSelect value={selectedPowerMeterResource} onChange={(v) => update("powerMeterResource", v)}>
@@ -1714,38 +2175,38 @@ function ManualPage({ snapshot, config, update, active, pending, run }: {
                 {selectedPowerMeterResource && !powerMeterResources.some((item) => powerMeterResourceValue(item) === selectedPowerMeterResource) && <option value={selectedPowerMeterResource}>{selectedPowerMeterResource}</option>}
                 {powerMeterResources.map((item) => <option key={item} value={powerMeterResourceValue(item)}>{item}</option>)}
               </NativeSelect>
-              <Button disabled={!active || pending} onClick={() => void run("device.refresh", { device: "powerMeter" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
+              <Button disabled={!active} onClick={() => void runManualCommand("device.refresh", { device: "powerMeter" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
             </div>
           </Field>
           <NumberField label="校准波长 (nm)" value={config.powerMeterWavelengthNm} onChange={(v) => update("powerMeterWavelengthNm", v)} step="0.1" />
           <NumberField label="软件增益" value={config.softwareGain} onChange={(v) => update("softwareGain", v)} step="0.01" />
-          <Button className="w-full" disabled={!active || pending} onClick={() => void run(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)}>{meter?.running ? "停止采集" : "开始采集"}</Button>
-          <div className="grid grid-cols-2 gap-2"><Button disabled={!active || pending || meter?.running} onClick={() => void run("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button disabled={!active || pending || meter?.running} onClick={() => void run("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></div>
+          <Button className="w-full" disabled={!active} onClick={() => void runManualCommand(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
+          <div className="grid grid-cols-2 gap-2"><Button disabled={!active || meter?.running} onClick={() => void runManualCommand("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button disabled={!active || meter?.running} onClick={() => void runManualCommand("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></div>
         </CardContent></Card>
 
-        <Card className="shadow-none"><CardHeader><CardTitle className="text-base">光谱仪</CardTitle></CardHeader><CardContent className="space-y-3">
+        <Card size="sm" className="shadow-none"><CardHeader><CardTitle className="text-base">光谱仪</CardTitle></CardHeader><CardContent className="manual-control-content">
           <Field label="串口资源">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
               <NativeSelect value={config.spectrometerResource} onChange={(v) => update("spectrometerResource", v)}>
                 <option value="">{defaultSpectrometerResourceLabel}</option>
                 {spectrum?.resources?.filter((item) => item !== defaultSpectrometerResourceLabel).map((item) => <option key={item} value={item}>{item}</option>)}
               </NativeSelect>
-              <Button disabled={!active || pending} onClick={() => void run("device.refresh", { device: "spectrometer" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
+              <Button disabled={!active} onClick={() => void runManualCommand("device.refresh", { device: "spectrometer" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
             </div>
           </Field>
           <NumberField label="积分时间 (μs)" value={config.integrationTimeUs} onChange={(v) => update("integrationTimeUs", v)} />
           <NumberField label="刷新间隔 (ms)" value={config.spectrometerIntervalMs} onChange={(v) => update("spectrometerIntervalMs", v)} />
+          <NumberField label="平均帧数" min={1} max={20} value={config.spectrumAverageFrames} onChange={(v) => update("spectrumAverageFrames", Math.max(1, Math.min(20, Math.round(v))))} />
           <label className="flex items-center gap-2 text-sm"><input checked={config.autoIntegration} onChange={(e) => update("autoIntegration", e.target.checked)} type="checkbox" />自动积分</label>
-          <Button className="w-full" disabled={!active || pending} onClick={() => void run(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)}>{spectrum?.running ? "停止采集" : "开始采集"}</Button>
-          <div className="grid grid-cols-2 gap-2"><Button disabled={!active || pending || !snapshot?.measurements?.spectrum.length} onClick={() => void run("spectrometer.saveCsv")} variant="outline"><Download className="size-4" />保存光谱 CSV</Button><Button disabled={!active || pending} onClick={() => void run("charts.reset")} variant="outline"><RotateCcw className="size-4" />清空曲线</Button></div>
+          <Button className="w-full" disabled={!active} onClick={() => void runManualCommand(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
         </CardContent></Card>
       </section>
       <section className="grid grid-cols-2 gap-4">
-        <PowerRealtimeChart snapshot={snapshot} />
-        <PowerEfficiencyChart snapshot={snapshot} />
-        <div className="col-span-2"><SpectrumRealtimeChart snapshot={snapshot} /></div>
+        <PowerRealtimeChart heightClassName="h-48" snapshot={snapshot} />
+        <PowerEfficiencyChart heightClassName="h-48" snapshot={snapshot} />
+        <div className="col-span-2"><SpectrumRealtimeChart heightClassName="h-48" snapshot={snapshot} /></div>
       </section>
-    </>
+    </div>
   )
 }
 

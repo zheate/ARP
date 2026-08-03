@@ -219,8 +219,16 @@ class NullLivePlots:
         self.reset_power()
         self.reset_spectrum()
 
-    def update_spectrum(self, _wavelength: Any, _intensity: Any, _locked_center_nm: float | None) -> None:
-        return
+    def update_spectrum(
+        self,
+        _wavelength: Any,
+        _intensity: Any,
+        _locked_center_nm: float | None,
+        annotations: list[Any] | None = None,
+    ) -> None:
+        if annotations is not None:
+            self.spectrum_peak_annotations.clear()
+            self.spectrum_peak_annotations.extend(annotations)
 
 
 class _NoOpTabs:

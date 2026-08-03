@@ -14,7 +14,7 @@ from .excel_export import ExcelTestRecord, build_test_workbook_path
 
 
 APP_VERSION = "1.0.0"
-CALCULATION_VERSION = "2026-07"
+CALCULATION_VERSION = "2026-08"
 
 
 class SessionStatus(str, Enum):
@@ -322,6 +322,33 @@ class SessionRecordStore:
         )
         self._attempts.append(attempt)
         return attempt
+
+    def append_latest_invalid_attempt_reason(self, current_a: float, detail: str) -> bool:
+        """Attach shutdown/driver diagnostics to the latest archived attempt."""
+
+        session = self.current_session
+        diagnostic = str(detail).strip()
+        if session is None or not diagnostic:
+            return False
+        current = float(current_a)
+        for index in range(len(self._attempts) - 1, -1, -1):
+            attempt = self._attempts[index]
+            if attempt.session_id != session.session_id or attempt.validity == AttemptValidity.VALID:
+                continue
+            if not math.isclose(
+                attempt.target_current_a,
+                current,
+                rel_tol=0.0,
+                abs_tol=1e-9,
+            ):
+                continue
+            separator = "；" if attempt.invalid_reason else ""
+            self._attempts[index] = replace(
+                attempt,
+                invalid_reason=f"{attempt.invalid_reason}{separator}{diagnostic}",
+            )
+            return True
+        return False
 
     def discard_pending(self, current_a: float) -> None:
         if float(current_a) not in self.recorded_currents:

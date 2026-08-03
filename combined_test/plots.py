@@ -19,7 +19,12 @@ from matplotlib.ticker import MaxNLocator, MultipleLocator, ScalarFormatter
 
 from .models import SpectrumPeakAnnotation
 from .plot_types import PlotLayoutContext
-from .spectrum import SPECTRUM_CENTER_LOCK_HALF_RANGE_NM, find_spectrum_peak_annotations
+from .spectrum import (
+    SPECTRUM_CENTER_LOCK_HALF_RANGE_NM,
+    SPECTRUM_Y_AXIS_MINIMUM_UPPER_COUNTS,
+    find_spectrum_peak_annotations,
+    stabilize_spectrum_y_axis_upper_limit,
+)
 
 
 MAX_CURVE_POINTS = 10000
@@ -257,6 +262,9 @@ class LivePlots:
             x_label="",
             y_label="Intensity (counts)",
         )
+        self._spectrum_y_upper_limit = SPECTRUM_Y_AXIS_MINIMUM_UPPER_COUNTS
+        self._spectrum_y_low_frame_count = 0
+        self.spectrum_curve_axis.set_ylim(0.0, self._spectrum_y_upper_limit)
         self.spectrum_centroid_text = self.spectrum_curve_figure.text(
             0.22,
             0.055,
@@ -595,11 +603,19 @@ class LivePlots:
         self._reset_spectrum_metric_texts()
         self.spectrum_curve_line.set_data([], [])
         self.spectrum_curve_axis.set_xlim(0, 1)
-        self.spectrum_curve_axis.set_ylim(0, 1)
+        self._spectrum_y_upper_limit = SPECTRUM_Y_AXIS_MINIMUM_UPPER_COUNTS
+        self._spectrum_y_low_frame_count = 0
+        self.spectrum_curve_axis.set_ylim(0.0, self._spectrum_y_upper_limit)
         self._last_spectrum_draw_s = time.monotonic()
         self.spectrum_curve_canvas.draw_idle()
 
-    def update_spectrum(self, wavelength: Any, intensity: Any, locked_center_nm: float | None) -> None:
+    def update_spectrum(
+        self,
+        wavelength: Any,
+        intensity: Any,
+        locked_center_nm: float | None,
+        annotations: list[SpectrumPeakAnnotation] | None = None,
+    ) -> None:
         points: list[tuple[float, float]] = []
         for x_raw, y_raw in zip(wavelength, intensity):
             x = float(x_raw)
@@ -634,7 +650,11 @@ class LivePlots:
         self.spectrum_curve_axis.set_xlim(x_min - x_pad, x_max + x_pad)
         self.spectrum_curve_axis.set_ylim(spectrum_y_min, spectrum_y_max)
         self.spectrum_peak_annotations.clear()
-        self.spectrum_peak_annotations.extend(find_spectrum_peak_annotations(visible_points))
+        self.spectrum_peak_annotations.extend(
+            find_spectrum_peak_annotations(points)
+            if annotations is None
+            else annotations
+        )
         self.draw_spectrum_annotations(self.spectrum_peak_annotations)
 
         now = time.monotonic()
@@ -642,11 +662,16 @@ class LivePlots:
             self._last_spectrum_draw_s = now
             self.spectrum_curve_canvas.draw_idle()
 
-    def _spectrum_y_limits(self, y_min: float, y_max: float) -> tuple[float, float]:
-        y_pad = self._axis_padding(y_min, y_max, fallback=1.0)
-        lower_limit = 0.0 if y_min >= 0.0 else float(y_min) - y_pad
-        upper_limit = max(float(y_max) + y_pad, 1.0)
-        return lower_limit, upper_limit
+    def _spectrum_y_limits(self, _y_min: float, y_max: float) -> tuple[float, float]:
+        (
+            self._spectrum_y_upper_limit,
+            self._spectrum_y_low_frame_count,
+        ) = stabilize_spectrum_y_axis_upper_limit(
+            y_max,
+            self._spectrum_y_upper_limit,
+            self._spectrum_y_low_frame_count,
+        )
+        return 0.0, self._spectrum_y_upper_limit
 
     def clear_spectrum_annotations(self) -> None:
         for artist in self.spectrum_peak_annotation_artists:

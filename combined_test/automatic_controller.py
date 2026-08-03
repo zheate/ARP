@@ -18,14 +18,15 @@ from .automation import (
     AutomaticTestSettings,
     AutomaticTestState,
     PowerDropProtectionDetector,
-    build_ramp_up_currents,
     validate_automatic_test_settings,
 )
 from .device_interfaces import PowerMeter, PowerSupply, SpectrumMeter
 from .record_store import AttemptValidity, RecordStore, SessionStatus
+from .runtime_logging import get_runtime_logger
 
 AUTO_VOUT_AFTER_STABLE_S = 5.0
 AUTOMATIC_DEVICE_START_TIMEOUT_S = 15.0
+_LOGGER = get_runtime_logger("automatic_controller")
 
 
 class AutomaticTestTerminalOutcome(str, Enum):
@@ -42,7 +43,6 @@ AUTOMATIC_CONTROLLER_METHODS = (
     "on_spectrometer_ready",
     "maybe_start_automatic_current_sequence",
     "begin_automatic_current_point",
-    "schedule_next_automatic_ramp_up_current",
     "schedule_automatic_current_command",
     "on_automatic_command_timer_timeout",
     "write_automatic_current",
@@ -85,6 +85,7 @@ class AutomaticTestController:
         object.__setattr__(self, "_pending_terminal_reason", "")
         object.__setattr__(self, "_output_shutdown_unconfirmed", False)
         object.__setattr__(self, "_pause_was_operator_requested", False)
+        object.__setattr__(self, "_pause_holds_current_until_operator", False)
         object.__setattr__(self, "_save_completed_while_paused", False)
         object.__setattr__(self, "_current_write_retry_key", None)
         object.__setattr__(self, "_current_write_retry_count", 0)
@@ -131,6 +132,7 @@ class AutomaticTestController:
         object.__setattr__(self, "_pending_terminal_reason", "")
         object.__setattr__(self, "_output_shutdown_unconfirmed", False)
         object.__setattr__(self, "_pause_was_operator_requested", False)
+        object.__setattr__(self, "_pause_holds_current_until_operator", False)
         object.__setattr__(self, "_save_completed_while_paused", False)
 
     def _set_terminal_outcome(
@@ -308,11 +310,27 @@ class AutomaticTestController:
             return False
 
         drop_percent = result.drop_w / result.reference_power_w * 100.0
+        confirmation_samples = ", ".join(
+            f"{sample:.3f}" for sample in result.confirmation_samples_w
+        )
         reason = (
             "功率异常下降："
             f"5 秒前 {result.reference_power_w:.3f} W，当前 {result.observed_power_w:.3f} W，"
             f"下降 {result.drop_w:.3f} W（{drop_percent:.1f}%），"
-            "超过 30% 保护阈值"
+            f"连续 {result.confirmation_count} 个样本超过 30% 保护阈值"
+        )
+        controller = getattr(self._host, "manual_ch341_controller", None)
+        background_busy = bool(self._host.power_supply_io_busy())
+        background_context = getattr(self._host, "power_supply_read_context", None)
+        controller_connected = bool(getattr(controller, "is_connected", False))
+        controller_fault = str(getattr(controller, "fault_reason", "") or "无")
+        diagnostic = (
+            f"5 秒参考={result.reference_power_w:.3f} W；"
+            f"连续超限样本=[{confirmation_samples}] W；"
+            f"后台输出电压读取={'运行中' if background_busy else '空闲'}；"
+            f"读取上下文={background_context!r}；"
+            f"控制器连接={controller_connected}；"
+            f"控制器故障={controller_fault}"
         )
         recorder = getattr(self.record_store, "record_invalid_attempt", None)
         if callable(recorder):
@@ -320,10 +338,11 @@ class AutomaticTestController:
                 recorder(
                     float(self.active_output_current_a or 0.0),
                     AttemptValidity.DEVICE_ERROR,
-                    reason,
+                    f"{reason}；诊断：{diagnostic}",
                 )
             except Exception as exc:
                 self.add_log(f"功率保护触发记录失败：{self._error_formatter(exc)}")
+        self.add_log(f"功率保护诊断：{diagnostic}")
         self.add_log(f"功率保护触发，正在立即断电：{reason}")
         self._host.emergency_stop_for_power_protection(reason)
         return True
@@ -355,6 +374,19 @@ class AutomaticTestController:
     def start_automatic_test(self) -> None:
         if self.automatic_test_state not in (AutomaticTestState.IDLE, AutomaticTestState.COMPLETED):
             return
+        manual_output_is_energized = getattr(
+            self._host,
+            "_manual_output_is_energized",
+            None,
+        )
+        if callable(manual_output_is_energized) and manual_output_is_energized():
+            QMessageBox.warning(
+                self._host,
+                "自动测试",
+                "手动电源仍在输出。请返回“详细配置”，先将电流设置为 0 A；"
+                "TDK 电源还需关闭输出，然后再启动自动测试。",
+            )
+            return
         if self.excel_save_thread is not None:
             self.statusBar().showMessage("请等待当前 Excel 保存完成")
             return
@@ -382,6 +414,16 @@ class AutomaticTestController:
         self.reset_stable_power_curve()
         self.reset_spectrum_curve()
         self.automatic_completion_record = None
+
+        if settings.use_spectrometer:
+            # Automatic tests must use the operator-configured integration time.
+            # Auto integration can still be used for manual acquisition, but it
+            # must not silently change the exposure during a current sweep.
+            self.auto_integration_check.setChecked(False)
+            reader = self.spectrometer_reader
+            use_fixed_integration_time = getattr(reader, "use_fixed_integration_time", None)
+            if callable(use_fixed_integration_time):
+                use_fixed_integration_time(self.integration_spin.value())
 
         self.automatic_orchestrator.start(
             settings,
@@ -430,29 +472,7 @@ class AutomaticTestController:
             return
         current_a = self.automatic_test_currents[self.automatic_test_current_index]
         self.set_automatic_test_state(AutomaticTestState.SETTING_CURRENT, f"正在设置 {current_a:.1f} A")
-        start_current_a = max(0.0, float(self.active_output_current_a or 0.0))
-        if current_a > start_current_a:
-            settings = self.automatic_test_settings
-            maximum_current_a = settings.maximum_current_a if settings is not None else 20.0
-            self.automatic_ramp_up_currents = deque(
-                build_ramp_up_currents(
-                    start_current_a,
-                    current_a,
-                    maximum_current_a=maximum_current_a,
-                )
-            )
-            self.schedule_next_automatic_ramp_up_current()
-        else:
-            self.automatic_ramp_up_currents.clear()
-            self.schedule_automatic_current_command(current_a, "test")
-
-    def schedule_next_automatic_ramp_up_current(self) -> None:
-        if self.automatic_test_state != AutomaticTestState.SETTING_CURRENT:
-            return
-        if not self.automatic_ramp_up_currents:
-            self.pause_automatic_test("自动升流序列无效")
-            return
-        self.schedule_automatic_current_command(self.automatic_ramp_up_currents.popleft(), "ramp_up")
+        self.schedule_automatic_current_command(current_a, "test")
 
     def schedule_automatic_current_command(self, current_a: float, kind: str) -> None:
         self.pending_automatic_current_a = float(current_a)
@@ -477,6 +497,12 @@ class AutomaticTestController:
         self.write_automatic_current(current_a, kind)
 
     def write_automatic_current(self, current_a: float, kind: str) -> None:
+        io_busy = getattr(self._host, "power_supply_io_busy", None)
+        if callable(io_busy) and io_busy():
+            self.pause_automatic_test(
+                "USB2XXX 上一条驱动调用仍未返回，未继续阻塞界面发送电流命令"
+            )
+            return
         if not self._manual_i2c_connected():
             label = self._power_supply_controller_label()
             self.pause_automatic_test(f"{label} 未连接")
@@ -497,6 +523,14 @@ class AutomaticTestController:
                 raise RuntimeError("电源未连接")
             power_supply.set_current(current_a)
         except Exception as exc:
+            _LOGGER.exception(
+                "自动设置输出电流失败 | current_a=%s | command_kind=%s",
+                current_a,
+                kind,
+            )
+            mark_driver_fault = getattr(self._host, "mark_usb2xxx_driver_fault_if_needed", None)
+            if callable(mark_driver_fault):
+                mark_driver_fault()
             raw_error = str(exc).strip()
             display_error = self._error_formatter(exc)
             if raw_error and raw_error != display_error:
@@ -554,16 +588,6 @@ class AutomaticTestController:
         if kind == "ramp_down":
             self.on_automatic_ramp_down_current_applied(current_a)
             return
-        if kind == "ramp_up":
-            self.active_output_current_a = current_a
-            self.set_current_spin.setValue(current_a)
-            if self.automatic_ramp_up_currents:
-                self.set_automatic_test_state(
-                    AutomaticTestState.SETTING_CURRENT,
-                    f"安全升流：输出电流已设为 {current_a:.1f} A",
-                )
-                self.schedule_next_automatic_ramp_up_current()
-                return
 
         self.cancel_auto_vout_read()
         self.set_current_spin.setValue(current_a)
@@ -670,6 +694,7 @@ class AutomaticTestController:
         reason: str,
         *,
         operator_requested: bool = False,
+        hold_current_until_operator: bool = False,
     ) -> None:
         if operator_requested and self.automatic_test_state == AutomaticTestState.SAVING_POINT:
             message = "当前测试点正在保存，保存完成后再暂停"
@@ -678,13 +703,17 @@ class AutomaticTestController:
             self.add_log(f"已忽略暂停请求：{message}")
             return
         object.__setattr__(self, "_pause_was_operator_requested", bool(operator_requested))
+        object.__setattr__(
+            self,
+            "_pause_holds_current_until_operator",
+            bool(hold_current_until_operator),
+        )
         self.automatic_orchestrator.pause(reason)
         self.automatic_device_start_timer.stop()
         self.automatic_point_timer.stop()
         self.automatic_command_timer.stop()
         self.automatic_ramp_down_timer.stop()
         self.automatic_pause_safety_timer.stop()
-        self.automatic_ramp_up_currents.clear()
         self._clear_current_write_retry()
         self.pending_automatic_current_a = None
         self.pending_automatic_command_kind = None
@@ -693,13 +722,23 @@ class AutomaticTestController:
         self.statusBar().showMessage(f"自动测试已暂停：{reason}")
         self.add_log(f"自动测试已暂停并保持当前电流：{reason}")
         settings = self.automatic_test_settings
-        if settings is not None and settings.pause_ramp_down_timeout_s > 0.0:
+        if (
+            not self._pause_holds_current_until_operator
+            and settings is not None
+            and settings.pause_ramp_down_timeout_s > 0.0
+        ):
             self.automatic_pause_safety_timer.start(
                 max(1, math.ceil(settings.pause_ramp_down_timeout_s * 1000.0))
             )
+        elif self._pause_holds_current_until_operator:
+            self.add_log("当前暂停由操作员处理，已禁用暂停超时自动下电")
 
     def on_automatic_pause_safety_timeout(self) -> None:
         if self.automatic_test_state != AutomaticTestState.PAUSED:
+            return
+        if self._pause_holds_current_until_operator:
+            self.automatic_pause_safety_timer.stop()
+            self.add_log("已忽略暂停超时信号，继续保持当前电流等待操作员处理")
             return
         self.add_log("暂停等待超时，开始自动安全下电")
         if self._pause_was_operator_requested:
@@ -725,6 +764,13 @@ class AutomaticTestController:
     def retry_automatic_test(self) -> None:
         if self.automatic_test_state != AutomaticTestState.PAUSED:
             return
+        resume_auto_integration = getattr(
+            self._host,
+            "resume_spectrometer_auto_integration",
+            None,
+        )
+        if callable(resume_auto_integration):
+            resume_auto_integration()
         paused_from_state = self.automatic_paused_from_state
         pause_reason = self.automatic_pause_reason
         if paused_from_state == AutomaticTestState.SAVING_POINT:
@@ -734,6 +780,7 @@ class AutomaticTestController:
             self.automatic_pause_safety_timer.stop()
             self.automatic_pause_reason = ""
             object.__setattr__(self, "_pause_was_operator_requested", False)
+            object.__setattr__(self, "_pause_holds_current_until_operator", False)
             if self._save_completed_while_paused:
                 object.__setattr__(self, "_save_completed_while_paused", False)
                 expected_current = self.automatic_test_currents[self.automatic_test_current_index]
@@ -762,6 +809,7 @@ class AutomaticTestController:
             self.automatic_pause_safety_timer.stop()
             self.automatic_pause_reason = ""
             object.__setattr__(self, "_pause_was_operator_requested", False)
+            object.__setattr__(self, "_pause_holds_current_until_operator", False)
         if paused_from_state == AutomaticTestState.RAMPING_DOWN:
             self.begin_automatic_ramp_down()
             return
@@ -878,7 +926,7 @@ class AutomaticTestController:
         self.automatic_command_timer.stop()
         self.automatic_ramp_down_timer.stop()
         self.automatic_pause_safety_timer.stop()
-        self.automatic_ramp_up_currents.clear()
+        object.__setattr__(self, "_pause_holds_current_until_operator", False)
         self.cancel_auto_vout_read()
         start_current_a = max(0.0, float(self.active_output_current_a or 0.0))
         try:
@@ -909,6 +957,7 @@ class AutomaticTestController:
         self.automatic_command_timer.stop()
         self.automatic_ramp_down_timer.stop()
         self.automatic_pause_safety_timer.stop()
+        object.__setattr__(self, "_pause_holds_current_until_operator", False)
         self.pending_automatic_current_a = None
         self.pending_automatic_command_kind = None
         self._clear_current_write_retry()
@@ -927,6 +976,7 @@ class AutomaticTestController:
                     raise RuntimeError("TDK 电源未连接")
                 power_supply.set_output_enabled(False)
             except Exception as exc:
+                _LOGGER.exception("自动测试完成时关闭 TDK 输出失败")
                 self._mark_output_shutdown_unconfirmed()
                 self.automatic_paused_from_state = AutomaticTestState.RAMPING_DOWN
                 self.pause_automatic_test(f"TDK 输出关闭失败：{self._error_formatter(exc)}")

@@ -73,6 +73,7 @@ class SpectrometerSettings:
     interval_ms: int
     device_id: int | None = None
     auto_integration_enabled: bool = False
+    average_frames: int = 1
 
 
 @dataclass(frozen=True)

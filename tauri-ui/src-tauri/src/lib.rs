@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 
-const LIVE_SNAPSHOT_INTERVAL_MS: u64 = 500;
-const PD_SNAPSHOT_INTERVAL_MS: u64 = 1000;
+const LIVE_SNAPSHOT_INTERVAL_MS: u64 = 200;
+const PD_SNAPSHOT_INTERVAL_MS: u64 = 500;
 use std::env;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -28,9 +28,33 @@ struct PythonBridge {
     stdin: BufWriter<ChildStdin>,
     stdout: BufReader<ChildStdout>,
     next_request_id: u64,
+    shutdown_confirmed: bool,
+    force_exit_requested: bool,
+}
+
+#[derive(Debug)]
+enum PythonBridgeError {
+    Backend(String),
+    Transport(String),
+}
+
+impl PythonBridgeError {
+    fn message(self) -> String {
+        match self {
+            Self::Backend(message) | Self::Transport(message) => message,
+        }
+    }
+
+    fn is_transport(&self) -> bool {
+        matches!(self, Self::Transport(_))
+    }
 }
 
 impl PythonBridge {
+    fn allow_forced_exit(&mut self) {
+        self.force_exit_requested = true;
+    }
+
     fn push_python_candidate(candidates: &mut Vec<PathBuf>, candidate: PathBuf) {
         if !candidates.iter().any(|existing| existing == &candidate) {
             candidates.push(candidate);
@@ -139,7 +163,7 @@ impl PythonBridge {
             .file_stem()
             .and_then(|value| value.to_str())
             .is_some_and(|value| value == "arp-python");
-        let mut command = Command::new(&python);
+        let mut command = Command::new(python);
         if !is_bundled_sidecar {
             command.args(["-u", "-m", "tauri_bridge"]);
         }
@@ -171,8 +195,12 @@ impl PythonBridge {
             stdin: BufWriter::new(stdin),
             stdout: BufReader::new(stdout),
             next_request_id: 1,
+            shutdown_confirmed: false,
+            force_exit_requested: false,
         };
-        let ping = bridge.request("system.ping", json!({}))?;
+        let ping = bridge
+            .request("system.ping", json!({}))
+            .map_err(PythonBridgeError::message)?;
         let mode = ping
             .get("mode")
             .and_then(Value::as_str)
@@ -211,13 +239,13 @@ impl PythonBridge {
         ))
     }
 
-    fn request(&mut self, method: &str, params: Value) -> Result<Value, String> {
-        if let Some(status) = self
-            .child
-            .try_wait()
-            .map_err(|error| format!("无法读取 Python 后端状态：{error}"))?
-        {
-            return Err(format!("Python 后端已退出：{status}"));
+    fn request(&mut self, method: &str, params: Value) -> Result<Value, PythonBridgeError> {
+        if let Some(status) = self.child.try_wait().map_err(|error| {
+            PythonBridgeError::Transport(format!("无法读取 Python 后端状态：{error}"))
+        })? {
+            return Err(PythonBridgeError::Transport(format!(
+                "Python 后端已退出：{status}"
+            )));
         }
 
         let request_id = format!("tauri-{}", self.next_request_id);
@@ -228,44 +256,59 @@ impl PythonBridge {
             "method": method,
             "params": params,
         });
-        serde_json::to_writer(&mut self.stdin, &request)
-            .map_err(|error| format!("无法编码 Python 请求：{error}"))?;
+        serde_json::to_writer(&mut self.stdin, &request).map_err(|error| {
+            PythonBridgeError::Transport(format!("无法编码 Python 请求：{error}"))
+        })?;
         self.stdin
             .write_all(b"\n")
             .and_then(|_| self.stdin.flush())
-            .map_err(|error| format!("无法发送 Python 请求：{error}"))?;
+            .map_err(|error| {
+                PythonBridgeError::Transport(format!("无法发送 Python 请求：{error}"))
+            })?;
 
         let mut line = String::new();
-        let bytes_read = self
-            .stdout
-            .read_line(&mut line)
-            .map_err(|error| format!("无法读取 Python 响应：{error}"))?;
+        let bytes_read = self.stdout.read_line(&mut line).map_err(|error| {
+            PythonBridgeError::Transport(format!("无法读取 Python 响应：{error}"))
+        })?;
         if bytes_read == 0 {
-            return Err("Python 后端在返回响应前关闭了输出通道".to_string());
+            return Err(PythonBridgeError::Transport(
+                "Python 后端在返回响应前关闭了输出通道".to_string(),
+            ));
         }
 
-        let response: Value = serde_json::from_str(&line)
-            .map_err(|error| format!("Python 响应不是有效 JSON：{error}"))?;
+        let response: Value = serde_json::from_str(&line).map_err(|error| {
+            PythonBridgeError::Transport(format!("Python 响应不是有效 JSON：{error}"))
+        })?;
         if response.get("id").and_then(Value::as_str) != Some(request_id.as_str()) {
-            return Err("Python 响应与请求编号不匹配".to_string());
+            return Err(PythonBridgeError::Transport(
+                "Python 响应与请求编号不匹配".to_string(),
+            ));
         }
         if response.get("ok").and_then(Value::as_bool) != Some(true) {
             let message = response
                 .pointer("/error/message")
                 .and_then(Value::as_str)
                 .unwrap_or("Python 后端返回未知错误");
-            return Err(message.to_string());
+            return Err(PythonBridgeError::Backend(message.to_string()));
         }
-        response
+        let result = response
             .get("result")
             .cloned()
-            .ok_or_else(|| "Python 响应缺少 result".to_string())
+            .ok_or_else(|| PythonBridgeError::Transport("Python 响应缺少 result".to_string()))?;
+        if method == "app.shutdown"
+            && result.get("shutdownConfirmed").and_then(Value::as_bool) == Some(true)
+        {
+            self.shutdown_confirmed = true;
+        }
+        Ok(result)
     }
 }
 
 impl Drop for PythonBridge {
     fn drop(&mut self) {
-        let _ = self.request("app.shutdown", json!({}));
+        if !self.shutdown_confirmed && !self.force_exit_requested {
+            let _ = self.request("app.shutdown", json!({}));
+        }
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
@@ -293,10 +336,15 @@ fn request_shared_bridge(
         .as_mut()
         .expect("bridge was initialized")
         .request(method, params);
-    if result.is_err() {
+    let reset_bridge = should_reset_bridge(&result);
+    if reset_bridge {
         *bridge_guard = None;
     }
-    result
+    result.map_err(PythonBridgeError::message)
+}
+
+fn should_reset_bridge(result: &Result<Value, PythonBridgeError>) -> bool {
+    result.as_ref().is_err_and(PythonBridgeError::is_transport)
 }
 
 fn update_stream_cursor(
@@ -319,16 +367,28 @@ fn update_stream_cursor(
 }
 
 fn snapshot_fingerprint(snapshot: &Value) -> Value {
-    let mut fingerprint = snapshot.clone();
-    if let Some(root) = fingerprint.as_object_mut() {
-        root.remove("capturedAt");
-        root.remove("measurements");
-        root.remove("seriesPatches");
+    let Some(root) = snapshot.as_object() else {
+        return snapshot.clone();
+    };
+    let mut fingerprint = serde_json::Map::with_capacity(root.len().saturating_sub(3));
+    for (key, value) in root {
+        if matches!(
+            key.as_str(),
+            "capturedAt" | "measurements" | "seriesPatches"
+        ) {
+            continue;
+        }
+        if key == "pd" {
+            let mut pd = value.clone();
+            if let Some(pd_object) = pd.as_object_mut() {
+                pd_object.remove("points");
+            }
+            fingerprint.insert(key.clone(), pd);
+        } else {
+            fingerprint.insert(key.clone(), value.clone());
+        }
     }
-    if let Some(pd) = fingerprint.get_mut("pd").and_then(Value::as_object_mut) {
-        pd.remove("points");
-    }
-    fingerprint
+    Value::Object(fingerprint)
 }
 
 fn stream_envelope(subscription_id: &str, message: Value) -> Value {
@@ -510,6 +570,24 @@ async fn bridge_disconnect(state: State<'_, BridgeState>) -> Result<(), String> 
 }
 
 #[tauri::command]
+async fn bridge_force_disconnect(state: State<'_, BridgeState>) -> Result<(), String> {
+    state.stream_generation.fetch_add(1, Ordering::SeqCst);
+    let shared_bridge = Arc::clone(&state.bridge);
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut bridge_guard = shared_bridge
+            .lock()
+            .map_err(|_| "Python 后端状态锁不可用".to_string())?;
+        if let Some(bridge) = bridge_guard.as_mut() {
+            bridge.allow_forced_exit();
+        }
+        *bridge_guard = None;
+        Ok(())
+    })
+    .await
+    .map_err(|error| format!("Python 后端强制断开任务异常结束：{error}"))?
+}
+
+#[tauri::command]
 fn open_directory(path: String) -> Result<(), String> {
     let trimmed = path.trim();
     if trimmed.is_empty() {
@@ -555,6 +633,7 @@ pub fn run() {
             bridge_subscribe,
             bridge_unsubscribe,
             bridge_disconnect,
+            bridge_force_disconnect,
             open_directory
         ])
         .run(tauri::generate_context!())
@@ -563,7 +642,18 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{snapshot_fingerprint, stream_envelope, PythonBridge};
+    use super::{
+        should_reset_bridge, snapshot_fingerprint, stream_envelope, PythonBridge, PythonBridgeError,
+    };
+
+    #[test]
+    fn backend_action_errors_do_not_restart_the_python_process() {
+        let backend_error = Err(PythonBridgeError::Backend("invalid settings".to_string()));
+        let transport_error = Err(PythonBridgeError::Transport("broken pipe".to_string()));
+
+        assert!(!should_reset_bridge(&backend_error));
+        assert!(should_reset_bridge(&transport_error));
+    }
 
     #[test]
     fn snapshot_fingerprint_ignores_transport_only_changes() {
@@ -584,6 +674,8 @@ mod tests {
         });
 
         assert_eq!(snapshot_fingerprint(&first), snapshot_fingerprint(&second));
+        assert!(first["measurements"].is_object());
+        assert!(first["pd"]["points"].is_array());
 
         let mut changed = second;
         changed["seriesRevisions"]["power"] = serde_json::json!(8);

@@ -7,6 +7,7 @@ export type SeriesRevisions = { power: number; stable: number; spectrum: number;
 export type SeriesCursors = { power?: number; pd?: number }
 
 export interface Notice {
+  id?: string
   level: "info" | "warning" | "error"
   title: string
   message: string
@@ -18,6 +19,7 @@ export interface DeviceSnapshot {
   detail: string
   connected?: boolean
   running?: boolean
+  detecting?: boolean
   ready?: boolean
   resources?: string[]
   outputEnabled?: boolean
@@ -29,6 +31,7 @@ export interface DeviceSnapshot {
   fwhmNm?: number | null
   smsrDb?: number | null
   saturated?: boolean
+  spectrumWindow?: { centerNm: number; halfRangeNm: number } | null
 }
 
 export interface AppConfiguration {
@@ -49,6 +52,7 @@ export interface AppConfiguration {
   integrationTimeUs: number
   autoIntegration: boolean
   spectrometerIntervalMs: number
+  spectrumAverageFrames: number
   stableWindowS: number
   stableToleranceW: number
   initialCurrentA: number
@@ -69,6 +73,7 @@ export interface BackendSnapshot {
     mode: BackendMode
     protocolVersion?: number
     pythonVersion: string
+    runtimeLogPath?: string
     notices?: Notice[]
   }
   configuration?: AppConfiguration
@@ -83,6 +88,7 @@ export interface BackendSnapshot {
     controlsEnabled: boolean
     canStart?: boolean
     canRetry?: boolean
+    canPause?: boolean
     canEnd?: boolean
     settingsError?: string
     currents?: number[]

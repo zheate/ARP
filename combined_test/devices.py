@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 import importlib.util
+import math
 import os
 import re
 import sys
 import threading
 import time
+from collections import deque
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+
+from .runtime_logging import get_runtime_logger
+
+
+_LOGGER = get_runtime_logger("devices")
 
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QWidget
@@ -30,27 +37,97 @@ from .models import (
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TOOLS_ROOT = REPO_ROOT / "tools"
 POWER_METER_PROBE_TIMEOUT_MS = 250
-AUTO_INTEGRATION_LOW_COUNTS = 8_000.0
-AUTO_INTEGRATION_HIGH_COUNTS = 14_000.0
-AUTO_INTEGRATION_TARGET_COUNTS = 11_000.0
+AUTO_INTEGRATION_LOW_FRACTION = 0.5
+AUTO_INTEGRATION_HIGH_FRACTION = 0.899
+AUTO_INTEGRATION_MAX_COUNTS = 64_000.0
+AUTO_INTEGRATION_MIN_US = 3_800
+AUTO_INTEGRATION_MAX_US = 300_000
+AUTO_INTEGRATION_MAX_ADJUSTMENTS = 10
 
 
-def next_auto_integration_time(
-    current_us: int,
-    peak_counts: float,
-    minimum_us: int,
-    maximum_us: int,
-) -> int:
-    """Return a bounded integration time that moves the peak into the target band."""
-    current = max(int(minimum_us), min(int(maximum_us), int(current_us)))
-    peak = float(peak_counts)
-    if AUTO_INTEGRATION_LOW_COUNTS <= peak <= AUTO_INTEGRATION_HIGH_COUNTS:
-        return current
-    if peak <= 0.0:
-        ratio = 2.0
-    else:
-        ratio = max(0.5, min(2.0, AUTO_INTEGRATION_TARGET_COUNTS / peak))
-    return max(int(minimum_us), min(int(maximum_us), round(current * ratio)))
+class SpectrumFrameAverager:
+    """Return a rolling mean only after a complete group of compatible frames."""
+
+    def __init__(self, frame_count: int) -> None:
+        self.frame_count = max(1, int(frame_count))
+        self.reset()
+
+    def reset(self) -> None:
+        self._wavelength: list[float] | None = None
+        self._frames: deque[list[float]] = deque()
+        self._sums: list[float] = []
+
+    def add(self, wavelength: Any, intensity: Any) -> tuple[list[float], list[float]] | None:
+        wavelength_values = [float(value) for value in wavelength]
+        intensity_values = [float(value) for value in intensity]
+        if not wavelength_values or len(wavelength_values) != len(intensity_values):
+            self.reset()
+            return None
+
+        if self._wavelength != wavelength_values:
+            self.reset()
+            self._wavelength = wavelength_values
+            self._sums = [0.0] * len(intensity_values)
+
+        if len(self._frames) == self.frame_count:
+            oldest = self._frames.popleft()
+            for index, value in enumerate(oldest):
+                self._sums[index] -= value
+
+        self._frames.append(intensity_values)
+        for index, value in enumerate(intensity_values):
+            self._sums[index] += value
+
+        if len(self._frames) < self.frame_count:
+            return None
+        divisor = float(len(self._frames))
+        return list(self._wavelength), [value / divisor for value in self._sums]
+
+
+class AutoIntegrationSearch:
+    """Binary-search integration time using the original Qt test thresholds."""
+
+    def __init__(self, minimum_us: int, maximum_us: int, full_scale_counts: float) -> None:
+        self.minimum_us = max(AUTO_INTEGRATION_MIN_US, int(minimum_us))
+        self.maximum_us = max(
+            self.minimum_us,
+            min(AUTO_INTEGRATION_MAX_US, int(maximum_us)),
+        )
+        self.full_scale_counts = max(1.0, min(AUTO_INTEGRATION_MAX_COUNTS, float(full_scale_counts)))
+        self.reset()
+
+    def reset(self) -> None:
+        self.lower_integration_us = self.minimum_us
+        self.upper_integration_us = self.maximum_us
+        self.adjustment_count = 0
+
+    @property
+    def lower_peak_counts(self) -> float:
+        return self.full_scale_counts * AUTO_INTEGRATION_LOW_FRACTION
+
+    @property
+    def upper_peak_counts(self) -> float:
+        return self.full_scale_counts * AUTO_INTEGRATION_HIGH_FRACTION
+
+    def evaluate(self, current_us: int, peak_counts: float) -> tuple[int, bool, bool]:
+        """Return ``(next_us, in_range, adjustment_failed)`` for one frame."""
+        current = max(self.minimum_us, min(self.maximum_us, int(current_us)))
+        peak = float(peak_counts)
+        if self.lower_peak_counts <= peak <= self.upper_peak_counts:
+            self.reset()
+            return current, True, False
+        if self.adjustment_count >= AUTO_INTEGRATION_MAX_ADJUSTMENTS:
+            return current, False, True
+
+        if peak > self.upper_peak_counts:
+            self.upper_integration_us = min(self.upper_integration_us, current)
+            next_us = int((current + self.lower_integration_us) / 2.0)
+        else:
+            self.lower_integration_us = max(self.lower_integration_us, current)
+            next_us = int((current + self.upper_integration_us) / 2.0)
+        self.adjustment_count += 1
+        next_us = max(self.minimum_us, min(self.maximum_us, next_us))
+        return next_us, False, False
 
 
 @lru_cache(maxsize=1)
@@ -75,9 +152,9 @@ def load_usb2xxx_controller_class() -> type:
         raise RuntimeError(f"无法加载 USB2XXX 控制器：{path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    controller_class = getattr(module, "USB2XXXI2CController", None)
+    controller_class = getattr(module, "USB2XXXProcessController", None)
     if controller_class is None:
-        raise RuntimeError(f"在 {path} 中未找到 USB2XXXI2CController")
+        raise RuntimeError(f"在 {path} 中未找到 USB2XXXProcessController")
     return controller_class
 
 
@@ -142,17 +219,16 @@ def open_spectrometer_device(spectrometer: Any, selected_device_id: int | None) 
     if selected_device_id is None:
         return int(spectrometer.open_first())
 
-    state = spectrometer.control.find_usb_devices()
-    if state == -1:
-        raise RuntimeError("OceanDirect 搜索 USB 光谱仪失败")
+    spectrometer.control.find_usb_devices()
     device_ids = [int(item) for item in spectrometer.control.get_device_ids()]
     if not device_ids:
-        raise RuntimeError("OceanDirect 未找到光谱仪，请检查 Ocean Insight 驱动。")
+        raise RuntimeError(
+            "OceanDirect 未检测到光谱仪。请确认设备已连接、未被其他程序占用，"
+            "然后重新插拔 USB 后重试。"
+        )
 
     device_id = selected_device_id if selected_device_id in device_ids else device_ids[0]
-    state = spectrometer.control.open_device(device_id)
-    if state == -1:
-        raise RuntimeError(f"无法打开设备 ID 为 {device_id} 的光谱仪")
+    spectrometer.control.open_device(device_id)
     spectrometer.device_id = device_id
     return int(device_id)
 
@@ -231,6 +307,7 @@ class PowerMeterDetectThread(QThread):
             if not self._stop_requested.is_set():
                 self.detected.emit(options)
         except Exception as exc:
+            _LOGGER.exception("功率计检测线程失败")
             self.failed.emit(str(exc))
 
 
@@ -354,6 +431,7 @@ class PowerMeterReaderThread(QThread):
                 else:
                     next_poll_at = time.monotonic()
         except Exception as exc:
+            _LOGGER.exception("功率计采集线程失败")
             self.failed.emit(str(exc))
         finally:
             self.is_ready = False
@@ -364,12 +442,35 @@ class PowerMeterReaderThread(QThread):
                     pass
 
 
+class PowerSupplyReadThread(QThread):
+    """Run one potentially blocking power-supply query off the Qt event loop."""
+
+    succeeded = Signal(float)
+    failed = Signal(str)
+
+    def __init__(self, read_value: Callable[[], float], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._read_value = read_value
+
+    def run(self) -> None:
+        try:
+            value = float(self._read_value())
+            if not math.isfinite(value):
+                raise RuntimeError("电源返回了无效数值")
+            self.succeeded.emit(value)
+        except Exception as exc:
+            _LOGGER.exception("电源后台读取线程失败")
+            self.failed.emit(f"{type(exc).__name__}: {exc}")
+
+
 class SpectrometerReaderThread(QThread):
     reading = Signal(object)
     status = Signal(str)
     ready = Signal()
     failed = Signal(str)
     integration_time_changed = Signal(int)
+    full_scale_changed = Signal(float)
+    auto_integration_failed = Signal(object)
 
     def __init__(self, settings: SpectrometerSettings, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -377,10 +478,42 @@ class SpectrometerReaderThread(QThread):
         self._stop_requested = threading.Event()
         self._latest_spectrum_lock = threading.Lock()
         self._latest_spectrum: tuple[Any, Any] | None = None
+        self._auto_integration_enabled = threading.Event()
+        if settings.auto_integration_enabled:
+            self._auto_integration_enabled.set()
+        self._resume_auto_integration_requested = threading.Event()
+        self._fixed_integration_lock = threading.Lock()
+        self._fixed_integration_time_us: int | None = None
+        self._fixed_integration_pending = threading.Event()
+        self._spectrum_averager = SpectrumFrameAverager(settings.average_frames)
+        self.full_scale_counts = AUTO_INTEGRATION_MAX_COUNTS
         self.is_ready = False
 
     def stop(self) -> None:
         self._stop_requested.set()
+
+    def enable_auto_integration(self) -> None:
+        self._auto_integration_enabled.set()
+        self._resume_auto_integration_requested.set()
+
+    def use_fixed_integration_time(self, integration_time_us: int) -> None:
+        """Disable auto integration and apply a fixed time on the reader thread."""
+        with self._fixed_integration_lock:
+            self._fixed_integration_time_us = int(integration_time_us)
+            self._fixed_integration_pending.set()
+        self._resume_auto_integration_requested.clear()
+
+    def _take_fixed_integration_time(self) -> int | None:
+        if not self._fixed_integration_pending.is_set():
+            return None
+        with self._fixed_integration_lock:
+            integration_time_us = self._fixed_integration_time_us
+            self._fixed_integration_time_us = None
+            self._fixed_integration_pending.clear()
+        return integration_time_us
+
+    def resume_auto_integration(self) -> None:
+        self._resume_auto_integration_requested.set()
 
     def take_latest_spectrum(self) -> tuple[Any, Any] | None:
         """Return the newest frame and discard any older, superseded frame."""
@@ -393,8 +526,33 @@ class SpectrometerReaderThread(QThread):
         # The GUI deliberately polls this one-slot mailbox. A queued Qt signal
         # per frame would retain every pair of arrays when plotting is slower
         # than acquisition and can grow memory without a bound.
+        # OceanDirect/native wrappers are allowed to reuse their output buffers.
+        # Keep an immutable snapshot so the following acquisition cannot mutate
+        # a frame while the GUI or Tauri bridge is still serializing it.
+        wavelength_copy = self._copy_spectrum_values(wavelength)
+        intensity_copy = self._copy_spectrum_values(intensity)
         with self._latest_spectrum_lock:
-            self._latest_spectrum = (wavelength, intensity)
+            self._latest_spectrum = (wavelength_copy, intensity_copy)
+
+    def _publish_averaged_spectrum(
+        self,
+        wavelength: Any,
+        intensity: Any,
+    ) -> tuple[list[float], list[float]] | None:
+        averaged = self._spectrum_averager.add(wavelength, intensity)
+        if averaged is not None:
+            self._publish_latest_spectrum(*averaged)
+        return averaged
+
+    @staticmethod
+    def _copy_spectrum_values(values: Any) -> Any:
+        copy_values = getattr(values, "copy", None)
+        if callable(copy_values):
+            return copy_values()
+        try:
+            return tuple(values)
+        except TypeError:
+            return values
 
     def run(self) -> None:
         spectrometer = None
@@ -406,50 +564,178 @@ class SpectrometerReaderThread(QThread):
                     f"缺少光谱仪依赖：{exc.name}。请检查项目环境和本地 OceanDirect 文件。"
                 ) from exc
 
-            spectrometer = OceanSpectrometer()
-            device_id = open_spectrometer_device(spectrometer, self.settings.device_id)
-            current_integration_us = self.settings.integration_time_us
-            spectrometer.set_integration_time(current_integration_us)
-            minimum_integration_us = int(
-                getattr(spectrometer, "get_minimum_integration_time", lambda: 1)()
-            )
-            maximum_integration_us = max(
-                minimum_integration_us,
-                min(
-                    300_000,
-                    int(getattr(spectrometer, "get_maximum_integration_time", lambda: 300_000)()),
-                ),
-            )
+            startup_error: Exception | None = None
+            for attempt in range(2):
+                try:
+                    spectrometer = OceanSpectrometer()
+                    device_id = open_spectrometer_device(spectrometer, self.settings.device_id)
+                    minimum_integration_us = int(
+                        getattr(spectrometer, "get_minimum_integration_time", lambda: 1)()
+                    )
+                    device_maximum_integration_us = max(
+                        minimum_integration_us,
+                        int(
+                            getattr(
+                                spectrometer,
+                                "get_maximum_integration_time",
+                                lambda: 10_000_000,
+                            )()
+                        ),
+                    )
+                    maximum_intensity = float(
+                        getattr(
+                            spectrometer,
+                            "get_maximum_intensity",
+                            lambda: AUTO_INTEGRATION_MAX_COUNTS,
+                        )()
+                    )
+                    self.full_scale_counts = (
+                        maximum_intensity
+                        if math.isfinite(maximum_intensity) and maximum_intensity > 0.0
+                        else AUTO_INTEGRATION_MAX_COUNTS
+                    )
+                    integration_search = AutoIntegrationSearch(
+                        minimum_integration_us,
+                        device_maximum_integration_us,
+                        self.full_scale_counts,
+                    )
+                    requested_fixed_integration_us = self._take_fixed_integration_time()
+                    if requested_fixed_integration_us is not None:
+                        self._auto_integration_enabled.clear()
+                    configured_integration_us = (
+                        int(self.settings.integration_time_us)
+                        if requested_fixed_integration_us is None
+                        else requested_fixed_integration_us
+                    )
+                    current_integration_us = (
+                        integration_search.minimum_us
+                        if self._auto_integration_enabled.is_set()
+                        else max(
+                            minimum_integration_us,
+                            min(configured_integration_us, device_maximum_integration_us),
+                        )
+                    )
+                    spectrometer.set_integration_time(current_integration_us)
+                    self.full_scale_changed.emit(self.full_scale_counts)
+                    break
+                except Exception as exc:
+                    startup_error = exc
+                    if spectrometer is not None:
+                        try:
+                            spectrometer.close()
+                        except Exception:
+                            pass
+                    spectrometer = None
+                    if attempt == 0 and not self._stop_requested.is_set():
+                        self.status.emit(
+                            "光谱仪首次启动失败，正在清理 OceanDirect 会话并自动重试…"
+                        )
+                        self._stop_requested.wait(0.5)
+                        if self._stop_requested.is_set():
+                            return
+                        continue
+                    raise RuntimeError(
+                        "OceanDirect 光谱仪启动失败（自动重试后仍失败）："
+                        f"{type(exc).__name__}: {exc}"
+                    ) from exc
+            if startup_error is not None and spectrometer is None:
+                raise RuntimeError(
+                    "OceanDirect 光谱仪启动失败："
+                    f"{type(startup_error).__name__}: {startup_error}"
+                ) from startup_error
             if self._stop_requested.is_set():
                 return
+            if current_integration_us != self.settings.integration_time_us:
+                self.integration_time_changed.emit(current_integration_us)
+                self.status.emit(
+                    f"光谱仪积分时间已调整到设备允许范围：{current_integration_us} us"
+                )
             self.status.emit(f"光谱仪已连接，设备 ID：{device_id}")
+            self.status.emit(f"光谱平均：{self._spectrum_averager.frame_count} 帧滚动平均")
             self.is_ready = True
             self.ready.emit()
 
+            auto_integration_waiting_for_operator = False
             while not self._stop_requested.is_set():
+                requested_fixed_integration_us = self._take_fixed_integration_time()
+                if requested_fixed_integration_us is not None:
+                    self._spectrum_averager.reset()
+                    self._auto_integration_enabled.clear()
+                    fixed_integration_us = max(
+                        minimum_integration_us,
+                        min(requested_fixed_integration_us, device_maximum_integration_us),
+                    )
+                    if fixed_integration_us != current_integration_us:
+                        spectrometer.set_integration_time(fixed_integration_us)
+                        current_integration_us = fixed_integration_us
+                        self.integration_time_changed.emit(current_integration_us)
+                        self.status.emit(
+                            f"光谱仪固定积分时间：{current_integration_us} us"
+                        )
+                    auto_integration_waiting_for_operator = False
                 wavelength, intensity = spectrometer.read_spectrum()
                 if self._stop_requested.is_set():
                     break
-                self._publish_latest_spectrum(wavelength, intensity)
-                if self.settings.auto_integration_enabled:
+                # A fixed-time request may arrive while the native read is in
+                # progress. Do not publish that now-stale frame.
+                if self._fixed_integration_pending.is_set():
+                    continue
+                if self._auto_integration_enabled.is_set():
+                    if self._resume_auto_integration_requested.is_set():
+                        self._resume_auto_integration_requested.clear()
+                        self._spectrum_averager.reset()
+                        integration_search.reset()
+                        auto_integration_waiting_for_operator = False
+                    if auto_integration_waiting_for_operator:
+                        self._publish_averaged_spectrum(wavelength, intensity)
+                        self._stop_requested.wait(self.settings.interval_ms / 1000.0)
+                        continue
                     try:
                         peak_counts = max(float(value) for value in intensity)
                     except (TypeError, ValueError):
                         peak_counts = 0.0
-                    adjusted_integration_us = next_auto_integration_time(
-                        current_integration_us,
-                        peak_counts,
-                        minimum_integration_us,
-                        maximum_integration_us,
-                    )
-                    if adjusted_integration_us != current_integration_us:
-                        current_integration_us = adjusted_integration_us
-                        spectrometer.set_integration_time(current_integration_us)
-                        self.integration_time_changed.emit(current_integration_us)
-                        self.status.emit(f"光谱仪自动积分时间：{current_integration_us} us")
+                    (
+                        adjusted_integration_us,
+                        intensity_in_range,
+                        adjustment_failed,
+                    ) = integration_search.evaluate(current_integration_us, peak_counts)
+                    if adjustment_failed:
+                        auto_integration_waiting_for_operator = True
+                        self._publish_averaged_spectrum(wavelength, intensity)
+                        self.auto_integration_failed.emit(
+                            {
+                                "peak_counts": peak_counts,
+                                "full_scale_counts": integration_search.full_scale_counts,
+                                "integration_time_us": current_integration_us,
+                                "adjustment_count": integration_search.adjustment_count,
+                            }
+                        )
                         self._stop_requested.wait(self.settings.interval_ms / 1000.0)
                         continue
-                stats = calculate_stats(wavelength, intensity)
+                    if not intensity_in_range:
+                        if adjusted_integration_us != current_integration_us:
+                            self._spectrum_averager.reset()
+                            current_integration_us = adjusted_integration_us
+                            spectrometer.set_integration_time(current_integration_us)
+                            self.integration_time_changed.emit(current_integration_us)
+                            self.status.emit(f"光谱仪自动积分时间：{current_integration_us} us")
+                            # This spectrum belongs to the previous integration
+                            # time. Publishing it after the setting changes makes
+                            # the UI show a stale saturated plateau under the new
+                            # integration value, so deliberately discard it.
+                        else:
+                            # At a device limit there is no newer setting to wait
+                            # for; keep the live spectrum visible so the operator
+                            # can adjust the receiver position.
+                            self._publish_averaged_spectrum(wavelength, intensity)
+                        self._stop_requested.wait(self.settings.interval_ms / 1000.0)
+                        continue
+                averaged = self._publish_averaged_spectrum(wavelength, intensity)
+                if averaged is None:
+                    self._stop_requested.wait(self.settings.interval_ms / 1000.0)
+                    continue
+                averaged_wavelength, averaged_intensity = averaged
+                stats = calculate_stats(averaged_wavelength, averaged_intensity)
                 self.reading.emit(
                     SpectrometerReading(
                         peak_wavelength_nm=stats.peak_wavelength_nm,
@@ -459,7 +745,10 @@ class SpectrometerReaderThread(QThread):
                 )
                 self._stop_requested.wait(self.settings.interval_ms / 1000.0)
         except Exception as exc:
-            self.failed.emit(str(exc))
+            _LOGGER.exception("光谱仪采集线程失败")
+            self.failed.emit(
+                f"OceanDirect 光谱仪采集失败：{type(exc).__name__}: {exc}"
+            )
         finally:
             self.is_ready = False
             if spectrometer is not None:

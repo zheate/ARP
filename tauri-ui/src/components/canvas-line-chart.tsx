@@ -27,8 +27,10 @@ type CanvasLineChartProps = {
   lines: CanvasChartLine[]
   xDomain?: [number, number]
   xTicks?: number[]
+  yDomain?: [number, number]
   annotations?: CanvasChartAnnotation[]
   ariaLabel: string
+  preserveAllPoints?: boolean
 }
 
 type ChartSize = { width: number; height: number }
@@ -48,6 +50,7 @@ type ChartLayout = {
 }
 
 const EMPTY_SIZE: ChartSize = { width: 0, height: 0 }
+const NUMERIC_ZERO_EPSILON = 1e-12
 
 function finiteValue(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null
@@ -57,13 +60,18 @@ function paddedExtent(values: number[], includeZero: boolean): [number, number] 
   if (!values.length) return [0, 1]
   let minimum = Math.min(...values)
   let maximum = Math.max(...values)
-  if (includeZero && minimum >= 0) minimum = 0
+  if (Math.abs(minimum) < NUMERIC_ZERO_EPSILON) minimum = 0
+  if (Math.abs(maximum) < NUMERIC_ZERO_EPSILON) maximum = 0
+  if (includeZero) {
+    if (minimum >= 0) minimum = 0
+    if (maximum <= 0) maximum = 0
+  }
   if (minimum === maximum) {
     const padding = Math.max(Math.abs(minimum) * 0.1, 1)
     return [minimum - padding, maximum + padding]
   }
   const padding = (maximum - minimum) * 0.08
-  return [minimum < 0 ? minimum - padding : minimum, maximum + padding]
+  return [minimum < 0 ? minimum - padding : minimum, maximum > 0 ? maximum + padding : maximum]
 }
 
 function niceStep(span: number, targetTickCount: number): number {
@@ -75,40 +83,64 @@ function niceStep(span: number, targetTickCount: number): number {
   return multiplier * magnitude
 }
 
+function nextNiceStep(step: number): number {
+  if (!Number.isFinite(step) || step <= 0) return 1
+  const magnitude = 10 ** Math.floor(Math.log10(step))
+  const normalized = step / magnitude
+  const multiplier = normalized < 1.5 ? 2 : normalized < 3.5 ? 5 : 10
+  return multiplier * magnitude
+}
+
 function createScale(minimum: number, maximum: number, targetTickCount = 5): AxisScale {
   const safeMinimum = Number.isFinite(minimum) ? minimum : 0
   const safeMaximum = Number.isFinite(maximum) ? maximum : safeMinimum + 1
   const normalizedMaximum = safeMaximum === safeMinimum ? safeMinimum + 1 : safeMaximum
-  const step = niceStep(normalizedMaximum - safeMinimum, targetTickCount)
-  const tickMinimum = Math.floor(safeMinimum / step) * step
-  const tickMaximum = Math.ceil(normalizedMaximum / step) * step
-  const ticks: number[] = []
-  const tickLimit = 24
-  for (let value = tickMinimum, index = 0; value <= tickMaximum + step * 0.25 && index < tickLimit; value += step, index += 1) {
-    ticks.push(Number(value.toPrecision(12)))
+  let step = niceStep(normalizedMaximum - safeMinimum, targetTickCount)
+  let tickMinimum = Math.floor(safeMinimum / step) * step
+  let tickMaximum = Math.ceil(normalizedMaximum / step) * step
+  const maximumTickCount = Math.max(4, targetTickCount + 1)
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const tickCount = Math.round((tickMaximum - tickMinimum) / step) + 1
+    if (tickCount <= maximumTickCount) break
+    step = nextNiceStep(step)
+    tickMinimum = Math.floor(safeMinimum / step) * step
+    tickMaximum = Math.ceil(normalizedMaximum / step) * step
   }
+  const tickCount = Math.min(24, Math.max(2, Math.round((tickMaximum - tickMinimum) / step) + 1))
+  const ticks = Array.from({ length: tickCount }, (_, index) => {
+    const value = Number((tickMinimum + index * step).toPrecision(12))
+    return Math.abs(value) < NUMERIC_ZERO_EPSILON ? 0 : value
+  })
   return { min: tickMinimum, max: tickMaximum, ticks }
 }
 
-function fixedScale(domain: [number, number], ticks?: number[]): AxisScale {
+function fixedScale(domain: [number, number], ticks?: number[], targetTickCount = 5, anchorBounds = false): AxisScale {
   let [minimum, maximum] = domain
   if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) return createScale(0, 1)
   if (minimum > maximum) [minimum, maximum] = [maximum, minimum]
   if (minimum === maximum) maximum = minimum + 1
+  const candidates = ticks ?? (anchorBounds
+    ? Array.from(
+      { length: Math.max(2, targetTickCount) },
+      (_, index) => minimum + ((maximum - minimum) * index) / Math.max(1, targetTickCount - 1),
+    )
+    : createScale(minimum, maximum, targetTickCount).ticks)
   return {
     min: minimum,
     max: maximum,
-    ticks: ticks?.filter((value) => value >= minimum && value <= maximum) ?? createScale(minimum, maximum, 6).ticks,
+    ticks: candidates.filter((value) => value >= minimum && value <= maximum),
   }
 }
 
 function formatTick(value: number, scale: AxisScale): string {
-  const absolute = Math.abs(value)
   const span = Math.abs(scale.max - scale.min)
-  if ((absolute >= 100_000 || (absolute > 0 && absolute < 0.001)) && span > 0) return value.toExponential(1)
   const step = scale.ticks.length > 1 ? Math.abs(scale.ticks[1] - scale.ticks[0]) : span
-  const digits = step >= 10 ? 0 : step >= 1 ? 1 : step >= 0.1 ? 2 : 3
-  return value.toFixed(digits).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1")
+  const normalizedValue = Math.abs(value) < Math.max(NUMERIC_ZERO_EPSILON, step * 1e-6) ? 0 : value
+  if (normalizedValue === 0) return "0"
+  const absolute = Math.abs(normalizedValue)
+  if ((absolute >= 100_000 || (absolute < 1e-6 && step < 1e-5)) && span > 0) return normalizedValue.toExponential(1)
+  const digits = step >= 10 ? 0 : step >= 1 ? 1 : step >= 0.1 ? 2 : step >= 0.01 ? 2 : step >= 0.001 ? 3 : step >= 0.0001 ? 4 : 6
+  return normalizedValue.toFixed(digits).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1")
 }
 
 function buildLayout(
@@ -118,12 +150,15 @@ function buildLayout(
   size: ChartSize,
   xDomain?: [number, number],
   xTicks?: number[],
+  yDomain?: [number, number],
 ): ChartLayout {
   const hasRightAxis = lines.some((line) => line.yAxisId === "right")
   const left = 52
   const right = hasRightAxis ? 50 : 16
-  const top = 30
+  const top = 10
   const bottom = 30
+  const plotHeight = Math.max(1, size.height - top - bottom)
+  const verticalTickTarget = Math.min(5, Math.max(2, Math.floor(plotHeight / 36)))
   const xValues = data.map((row) => finiteValue(row[xKey])).filter((value): value is number => value !== null)
   const automaticXExtent = paddedExtent(xValues, false)
   const x = xDomain ? fixedScale(xDomain, xTicks) : createScale(automaticXExtent[0], automaticXExtent[1], Math.max(3, Math.floor(size.width / 110)))
@@ -143,10 +178,10 @@ function buildLayout(
     top,
     bottom,
     plotWidth: Math.max(1, size.width - left - right),
-    plotHeight: Math.max(1, size.height - top - bottom),
+    plotHeight,
     x,
-    leftY: createScale(leftExtent[0], leftExtent[1]),
-    rightY: hasRightAxis ? createScale(rightExtent[0], rightExtent[1]) : null,
+    leftY: yDomain ? fixedScale(yDomain, undefined, verticalTickTarget, true) : createScale(leftExtent[0], leftExtent[1], verticalTickTarget),
+    rightY: hasRightAxis ? createScale(rightExtent[0], rightExtent[1], verticalTickTarget) : null,
   }
 }
 
@@ -340,7 +375,6 @@ function drawBaseChart(
     if (!Number.isFinite(annotation.x) || !Number.isFinite(annotation.y) || annotation.x < layout.x.min || annotation.x > layout.x.max) return
     const color = annotation.color || "#8298b8"
     const x = mapX(annotation.x, layout)
-    const y = mapY(annotation.y, layout.leftY, layout)
     context.save()
     context.strokeStyle = color
     context.fillStyle = color
@@ -351,9 +385,6 @@ function drawBaseChart(
     context.lineTo(x, layout.top + layout.plotHeight)
     context.stroke()
     context.setLineDash([])
-    context.beginPath()
-    context.arc(x, y, 3, 0, Math.PI * 2)
-    context.fill()
     context.globalAlpha = 0.95
     context.font = "10px 'Geist Variable', 'PingFang SC', sans-serif"
     context.textAlign = index % 2 === 0 ? "left" : "right"
@@ -364,33 +395,6 @@ function drawBaseChart(
   })
   context.restore()
 
-  context.textBaseline = "middle"
-  context.font = "11px 'Geist Variable', 'PingFang SC', sans-serif"
-  let legendX = layout.left
-  for (const line of lines) {
-    context.strokeStyle = line.color
-    context.lineWidth = 2
-    context.beginPath()
-    context.moveTo(legendX, 13)
-    context.lineTo(legendX + 16, 13)
-    context.stroke()
-    if (line.showPoints) {
-      drawPoint(
-        context,
-        legendX + 8,
-        13,
-        line.color,
-        line.pointShape ?? "circle",
-        Math.min(line.pointSize ?? 8, 7),
-        line.pointStyle,
-        chartBackground,
-      )
-    }
-    context.fillStyle = muted
-    context.textAlign = "left"
-    context.fillText(line.label, legendX + 21, 13)
-    legendX += 29 + context.measureText(line.label).width
-  }
 }
 
 function nearestRowIndex(data: NumericRow[], xKey: string, target: number): number {
@@ -455,11 +459,12 @@ function drawHover(
 
 function tooltipNumber(value: number): string {
   const absolute = Math.abs(value)
+  if (absolute < NUMERIC_ZERO_EPSILON) return "0"
   if (absolute >= 100_000 || (absolute > 0 && absolute < 0.001)) return value.toExponential(3)
   return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }
 
-export function CanvasLineChart({ data, xKey, lines, xDomain, xTicks, annotations = [], ariaLabel }: CanvasLineChartProps) {
+export function CanvasLineChart({ data, xKey, lines, xDomain, xTicks, yDomain, annotations = [], ariaLabel, preserveAllPoints = false }: CanvasLineChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const baseCanvasRef = useRef<HTMLCanvasElement>(null)
   const hoverCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -470,12 +475,21 @@ export function CanvasLineChart({ data, xKey, lines, xDomain, xTicks, annotation
   const [size, setSize] = useState<ChartSize>(EMPTY_SIZE)
   const [hover, setHover] = useState<HoverState>(null)
   const layout = useMemo(
-    () => buildLayout(data, xKey, lines, size, xDomain, xTicks),
-    [data, lines, size, xDomain, xKey, xTicks],
+    () => buildLayout(data, xKey, lines, size, xDomain, xTicks, yDomain),
+    [data, lines, size, xDomain, xKey, xTicks, yDomain],
+  )
+  const visibleData = useMemo(
+    () => data.filter((row) => {
+      const xValue = finiteValue(row[xKey])
+      return xValue !== null && xValue >= layout.x.min && xValue <= layout.x.max
+    }),
+    [data, layout.x.max, layout.x.min, xKey],
   )
   const displayData = useMemo(
-    () => downsampleRows(data, lines, Math.max(96, Math.floor(layout.plotWidth * 1.25))),
-    [data, layout.plotWidth, lines],
+    () => preserveAllPoints
+      ? visibleData
+      : downsampleRows(visibleData, lines, Math.max(96, Math.floor(layout.plotWidth * 1.25))),
+    [layout.plotWidth, lines, preserveAllPoints, visibleData],
   )
 
   useLayoutEffect(() => {
@@ -567,7 +581,7 @@ export function CanvasLineChart({ data, xKey, lines, xDomain, xTicks, annotation
       <canvas aria-hidden="true" className="pointer-events-none absolute inset-0 size-full" ref={hoverCanvasRef} />
       {hover && hoverRow && (
         <div
-          className="pointer-events-none absolute z-10 min-w-40 rounded-lg border border-[var(--plm-flat-border-strong)] bg-popover/95 px-3 py-2 text-xs text-popover-foreground shadow-md shadow-black/20 backdrop-blur-sm"
+          className="chart-tooltip-enter pointer-events-none absolute z-10 min-w-40 rounded-lg border border-[var(--plm-flat-border-strong)] bg-popover/95 px-3 py-2 text-xs text-popover-foreground shadow-md shadow-black/20 backdrop-blur-sm"
           ref={tooltipRef}
           role="tooltip"
           style={{ left: tooltipLeft, top: tooltipTop }}

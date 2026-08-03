@@ -64,6 +64,7 @@ from .devices import (
     POWER_METER_PROBE_TIMEOUT_MS,
     PowerMeterDetectThread,
     PowerMeterReaderThread,
+    PowerSupplyReadThread,
     SpectrometerReaderThread,
     extract_power_resource_name,
     load_legacy_ch341_controller_class,
@@ -82,6 +83,7 @@ from .models import (
     PowerMeterReading,
     PowerMeterSettings,
     SpectrometerOption,
+    SpectrumPeakAnnotation,
     SpectrometerReading,
     SpectrometerSettings,
 )
@@ -97,15 +99,25 @@ from .record_store import (
     RecordStore,
     SessionRecordStore,
 )
+from .runtime_logging import configure_runtime_logging, get_runtime_logger, runtime_log_path
 from .plot_types import PlotLayoutContext
 from .spectrum import (
     SPECTRUM_CENTER_LOCK_HALF_RANGE_NM,
     SPECTRUM_CENTER_LOCK_REQUIRED_SAMPLES,
     SPECTRUM_CENTER_LOCK_TOLERANCE_NM,
+    SPECTRUM_DEFAULT_FULL_SCALE_COUNTS,
     detect_spectrum_saturation,
+    find_spectrum_peak_annotations,
+    normalize_spectrum_full_scale,
 )
 from .excel_export import ExcelTestRecord, sanitize_sn
-from .spectrum_math import calculate_pib, calculate_smsr, calculate_stats
+from .spectrum_math import (
+    SmsrResult,
+    SpectrumStats,
+    calculate_pib,
+    calculate_smsr,
+    calculate_stats,
+)
 from .shipping_report import (
     generate_shipping_report,
     inspect_shipping_workbook,
@@ -133,6 +145,8 @@ POWER_SUPPLY_CONTROLLER_LABELS = {
     "tdk": "TDK",
 }
 AUTO_VOUT_AFTER_STABLE_S = 5.0
+AUTO_VOUT_READ_TIMEOUT_S = 15.0
+EMERGENCY_USB_ABORT_WAIT_MS = 2_000
 MIN_VOUT_READ_INTERVAL_S = 5.0
 POWER_SUPPLY_COMMAND_MIN_INTERVAL_S = MIN_POWER_SUPPLY_COMMAND_INTERVAL_S
 DEFAULT_SPECTROMETER_INTEGRATION_US = 10000
@@ -146,6 +160,7 @@ NAVIGATION_WIDTH = 148
 MANUAL_COLUMN_MIN_WIDTH = 360
 LEGACY_CURRENT_LIMIT_A = 20.0
 TDK_CURRENT_INPUT_MAX_A = math.inf
+_LOGGER = get_runtime_logger("window")
 
 
 def user_facing_error_message(error: BaseException | str) -> str:
@@ -173,9 +188,19 @@ def user_facing_error_message(error: BaseException | str) -> str:
         return "缺少设备驱动依赖。请使用项目指定的运行环境，并确认相关驱动已安装。"
     if "dll load failed" in normalized or "cannot load library" in normalized:
         return "设备驱动库加载失败。请确认设备驱动和所需 DLL 已正确安装。"
+    if "oceandirect" in normalized or "spectrometer" in normalized:
+        return (
+            f"光谱仪驱动操作失败：{message}\n"
+            "请确认只运行一个测试程序；若设备仍无法识别，请安全停止测试后重新插拔光谱仪 USB。"
+        )
     if any("\u4e00" <= character <= "\u9fff" for character in message):
         return message
-    return "设备操作失败。请检查设备连接、端口选择和驱动状态后重试。"
+    details = (
+        f"{type(error).__name__}: {message}"
+        if isinstance(error, BaseException)
+        else message
+    )
+    return f"设备操作失败：{details}\n请检查设备连接、端口选择和驱动状态后重试。"
 
 
 class MainWindow(QMainWindow):
@@ -186,6 +211,7 @@ class MainWindow(QMainWindow):
         headless: bool = False,
     ) -> None:
         super().__init__()
+        _LOGGER.info("初始化主窗口 | headless=%s | runtime_log=%s", headless, runtime_log_path())
         self.headless = bool(headless)
         self.input_settings = input_settings or QSettings("Changguang Huaxin", "Pump Driver Integrated Test")
         self.setWindowTitle("Power Test")
@@ -201,6 +227,12 @@ class MainWindow(QMainWindow):
         self.power_supply_controller_kind = "ch341"
         self.latest_spectrum_wavelength: Any | None = None
         self.latest_spectrum_intensity: Any | None = None
+        self.spectrum_full_scale_counts = SPECTRUM_DEFAULT_FULL_SCALE_COUNTS
+        self.spectrum_frame_revision = 0
+        self.latest_spectrum_analysis_revision = 0
+        self.latest_spectrum_stats: SpectrumStats | None = None
+        self.latest_spectrum_smsr_result: SmsrResult | None = None
+        self.latest_spectrum_peak_annotations: list[SpectrumPeakAnnotation] = []
         self.latest_spectrum_smsr_db: float | None = None
         self.spectrum_refresh_timer = QTimer(self)
         self.spectrum_refresh_timer.setInterval(SPECTRUM_UI_REFRESH_MS)
@@ -223,11 +255,21 @@ class MainWindow(QMainWindow):
         self.auto_vout_timer.setSingleShot(True)
         self.auto_vout_timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.auto_vout_timer.timeout.connect(self.on_auto_vout_timer_timeout)
+        self.power_supply_read_thread: PowerSupplyReadThread | None = None
+        self.power_supply_read_context: tuple[float, int] | None = None
+        self.auto_vout_read_watchdog = QTimer(self)
+        self.auto_vout_read_watchdog.setSingleShot(True)
+        self.auto_vout_read_watchdog.setTimerType(Qt.TimerType.PreciseTimer)
+        self.auto_vout_read_watchdog.timeout.connect(self.on_auto_vout_read_timeout)
         self.spectrum_center_candidate_nm: float | None = None
         self.spectrum_center_candidate_count = 0
+        self.spectrum_centroid_candidate_nm: float | None = None
+        self.spectrum_centroid_candidate_count = 0
         self.spectrum_center_locked_nm: float | None = None
         self.centroid_display_samples: deque[float] = deque(maxlen=5)
         self.latest_spectrum_saturated = False
+        self.spectrum_saturated_frame_count = 0
+        self.spectrum_saturation_alert_active = False
         self.latest_spectrum_peak_intensity = 0.0
         self.wavelength_stability_detector = WavelengthStabilityDetector(3.0, WAVELENGTH_STABILITY_TOLERANCE_NM)
         self.latest_wavelength_stable = False
@@ -277,7 +319,6 @@ class MainWindow(QMainWindow):
         self.pending_automatic_current_a: float | None = None
         self.pending_automatic_command_kind: str | None = None
         self.automatic_ramp_down_currents: deque[float] = deque()
-        self.automatic_ramp_up_currents: deque[float] = deque()
         self.automatic_ramp_down_timer = QTimer(self)
         self.automatic_ramp_down_timer.setSingleShot(True)
         self.automatic_ramp_down_timer.setTimerType(Qt.TimerType.PreciseTimer)
@@ -562,6 +603,9 @@ class MainWindow(QMainWindow):
             settings.value(prefix + "auto_integration_enabled", self.auto_integration_check.isChecked(), type=bool)
         )
         self.interval_spin.setValue(settings.value(prefix + "spectrometer_interval_ms", self.interval_spin.value(), type=int))
+        self.spectrum_average_spin.setValue(
+            settings.value(prefix + "spectrum_average_frames", self.spectrum_average_spin.value(), type=int)
+        )
         self.stable_window_spin.setValue(settings.value(prefix + "stable_window_s", self.stable_window_spin.value(), type=float))
         self.stable_tolerance_spin.setValue(0.15)
         self.auto_initial_current_spin.setValue(
@@ -722,6 +766,7 @@ class MainWindow(QMainWindow):
         settings.setValue(prefix + "integration_time_us", self.integration_spin.value())
         settings.setValue(prefix + "auto_integration_enabled", self.auto_integration_check.isChecked())
         settings.setValue(prefix + "spectrometer_interval_ms", self.interval_spin.value())
+        settings.setValue(prefix + "spectrum_average_frames", self.spectrum_average_spin.value())
         settings.setValue(prefix + "stable_window_s", self.stable_window_spin.value())
         settings.setValue(prefix + "auto_initial_current_a", self.auto_initial_current_spin.value())
         settings.setValue(prefix + "auto_target_current_a", self.auto_target_current_spin.value())
@@ -1785,8 +1830,10 @@ class MainWindow(QMainWindow):
         self.integration_spin.setSuffix(" us")
         details_form.addRow("积分时间", self.integration_spin)
 
-        self.auto_integration_check = QCheckBox("启用（目标 8k–14k）", self)
-        self.auto_integration_check.setToolTip("自动调整积分时间，使光谱峰值保持在 8000–14000 counts")
+        self.auto_integration_check = QCheckBox("启用（满量程 50%–89.9%）", self)
+        self.auto_integration_check.setToolTip(
+            "手动采集时可二分调整积分时间，最多调整 10 次；自动测试始终使用上方设置值"
+        )
         self.auto_integration_check.setChecked(False)
         details_form.addRow("自动积分", self.auto_integration_check)
 
@@ -1796,6 +1843,13 @@ class MainWindow(QMainWindow):
         self.interval_spin.setSingleStep(50)
         self.interval_spin.setSuffix(" ms")
         details_form.addRow("采样间隔", self.interval_spin)
+
+        self.spectrum_average_spin = QSpinBox(self)
+        self.spectrum_average_spin.setRange(1, 20)
+        self.spectrum_average_spin.setValue(5)
+        self.spectrum_average_spin.setSuffix(" 帧")
+        self.spectrum_average_spin.setToolTip("同一积分时间下对最近 N 帧逐像素取平均；1 表示不平均")
+        details_form.addRow("多帧平均", self.spectrum_average_spin)
 
         self.spectrometer_status_label = QLabel("已停止", self)
         spectrometer_run_actions = QHBoxLayout()
@@ -2608,6 +2662,7 @@ class MainWindow(QMainWindow):
             "integration_time_us": self.integration_spin.value(),
             "auto_integration_enabled": self.auto_integration_check.isChecked(),
             "spectrometer_interval_ms": self.interval_spin.value(),
+            "spectrum_average_frames": self.spectrum_average_spin.value(),
             "stable_window_s": self.stable_window_spin.value(),
             "initial_current_a": self.auto_initial_current_spin.value(),
             "target_current_a": self.auto_target_current_spin.value(),
@@ -2726,6 +2781,52 @@ class MainWindow(QMainWindow):
             "请检查被测器件和电源状态，确认安全后再重新测试。",
         )
 
+    def show_spectrum_saturation_alert(self, reason: str) -> None:
+        """Require acknowledgement after saturation pauses automatic energizing."""
+        current_a = self.active_output_current_a
+        current_text = "未知" if current_a is None else f"{current_a:.1f} A"
+        QMessageBox.warning(
+            self,
+            "光谱饱和",
+            "自动积分连续调整 10 次后仍无法使光谱进入目标强度区间，自动测试已暂停。\n\n"
+            f"当前电流保持在 {current_text}，程序不会继续升流。\n"
+            f"{reason}\n\n"
+            "请调整光谱接收器的位置；关闭本提示后将重新自动调整积分并重试当前测试点。"
+            "如需立即断电，请使用“紧急停止”。",
+        )
+
+    def pause_for_spectrum_saturation(self, reason: str) -> None:
+        """Pause energizing indefinitely until the operator retries or stops."""
+        self.pause_automatic_test(reason, hold_current_until_operator=True)
+        if (
+            self.automatic_test_state == AutomaticTestState.PAUSED
+            and not self.spectrum_saturation_alert_active
+        ):
+            self.spectrum_saturation_alert_active = True
+            self.show_spectrum_saturation_alert(reason)
+
+    def on_spectrometer_auto_integration_failed(self, details: object) -> None:
+        payload = details if isinstance(details, dict) else {}
+        peak_counts = float(payload.get("peak_counts", 0.0))
+        full_scale_counts = float(payload.get("full_scale_counts", 64_000.0))
+        integration_time_us = int(payload.get("integration_time_us", self.integration_spin.value()))
+        adjustment_count = int(payload.get("adjustment_count", 10))
+        reason = (
+            f"自动积分已调整 {adjustment_count} 次，峰值 {peak_counts:.0f} counts，"
+            f"目标为满量程 {full_scale_counts:.0f} counts 的 50%–89.9%；"
+            f"当前积分时间 {integration_time_us} us，请调整光谱接收器的位置"
+        )
+        if self.automatic_test_state not in (
+            AutomaticTestState.WAITING_STABLE,
+            AutomaticTestState.WAITING_VOLTAGE,
+        ):
+            self.add_log(reason)
+            return
+        self.latest_wavelength_stable = False
+        self.pause_for_spectrum_saturation(reason)
+        if not bool(getattr(self, "_dialogs_are_nonblocking", False)):
+            self.retry_automatic_test()
+
     def _execute_emergency_stop(
         self,
         *,
@@ -2736,6 +2837,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         """Apply the shared immediate hardware shutdown boundary."""
         automatic_active = self._automatic_workflow_is_active()
+        shutdown_target_current_a = float(self.active_output_current_a or 0.0)
         if automatic_active:
             self.automatic_controller._set_pending_terminal_outcome(
                 terminal_outcome,
@@ -2749,12 +2851,25 @@ class MainWindow(QMainWindow):
                 self.automatic_pause_safety_timer,
             ):
                 timer.stop()
-            self.automatic_ramp_up_currents.clear()
             self.automatic_ramp_down_currents.clear()
             self.pending_automatic_current_a = None
             self.pending_automatic_command_kind = None
 
-        self.cancel_auto_vout_read()
+        errors: list[str] = []
+        background_read_was_busy = self.power_supply_io_busy()
+        background_read_context = self.power_supply_read_context
+        if background_read_was_busy and self.power_supply_controller_kind == "usb2xxx":
+            read_stopped, read_detail = self.abort_background_power_supply_read_for_emergency(
+                action_label
+            )
+            self.add_log(
+                f"{action_label}后台读取处置：{read_detail}；"
+                f"原读取上下文={background_read_context!r}"
+            )
+            if not read_stopped:
+                errors.append(read_detail)
+        else:
+            self.cancel_auto_vout_read()
         power_supply = self.get_power_supply()
         is_tdk = self.power_supply_controller_kind == "tdk"
         power_supply_connected = bool(power_supply is not None and power_supply.connected)
@@ -2764,19 +2879,23 @@ class MainWindow(QMainWindow):
             and not self._manual_output_is_energized()
         )
         output_off_confirmed = not is_tdk
-        errors: list[str] = []
-
         if not power_supply_connected:
             if not current_zero_confirmed:
                 errors.append("电源未连接，无法确认输出电流已归零")
         else:
             assert power_supply is not None
-            try:
-                # Emergency commands deliberately bypass the routine command interval.
-                power_supply.set_current(0.0)
-                current_zero_confirmed = True
-            except Exception as exc:
-                errors.append(f"电流置零失败：{user_facing_error_message(exc)}")
+            if self.power_supply_io_busy():
+                errors.append(
+                    "USB2XXX 驱动调用仍未返回，未阻塞界面继续等待；"
+                    "无法发送电流置零命令"
+                )
+            else:
+                try:
+                    # Emergency commands deliberately bypass the routine command interval.
+                    power_supply.set_current(0.0)
+                    current_zero_confirmed = True
+                except Exception as exc:
+                    errors.append(f"电流置零失败：{user_facing_error_message(exc)}")
 
             if is_tdk:
                 try:
@@ -2789,6 +2908,30 @@ class MainWindow(QMainWindow):
                     errors.append(f"TDK 输出关闭失败：{user_facing_error_message(exc)}")
 
         supply_is_safe = output_off_confirmed if is_tdk else current_zero_confirmed
+        if action_label == "功率保护":
+            controller = self.manual_ch341_controller
+            operation_detail = str(
+                getattr(controller, "last_operation_detail", "") or "无"
+            )
+            driver_fault = str(getattr(controller, "fault_reason", "") or "无")
+            shutdown_detail = (
+                f"保护下电结果={'已确认安全' if supply_is_safe else '未确认'}；"
+                f"后台读取触发时={'运行中' if background_read_was_busy else '空闲'}；"
+                f"USB2XXX 最近操作={operation_detail}；"
+                f"USB2XXX 故障={driver_fault}；"
+                f"错误={' | '.join(errors) if errors else '无'}"
+            )
+            updater = getattr(
+                self.record_store,
+                "append_latest_invalid_attempt_reason",
+                None,
+            )
+            if callable(updater):
+                try:
+                    updater(shutdown_target_current_a, shutdown_detail)
+                except Exception as exc:
+                    self.add_log(f"功率保护下电诊断归档失败：{user_facing_error_message(exc)}")
+            self.add_log(f"功率保护下电诊断：{shutdown_detail}")
         if current_zero_confirmed or (is_tdk and output_off_confirmed):
             self.active_output_current_a = 0.0
             self.set_current_spin.setValue(0.0)
@@ -2977,12 +3120,48 @@ class MainWindow(QMainWindow):
         power_supply = self.get_power_supply()
         return power_supply is not None and power_supply.connected
 
+    def mark_usb2xxx_driver_fault_if_needed(self) -> bool:
+        """Expose a killed worker as a reconnectable, explicitly unsafe state."""
+        controller = self.manual_ch341_controller
+        if (
+            self.power_supply_controller_kind != "usb2xxx"
+            or controller is None
+            or bool(getattr(controller, "is_connected", False))
+        ):
+            return False
+        self.i2c_status_label.setText("驱动失联")
+        self.connect_i2c_button.setText("重新连接 USB2XXX")
+        reason = str(getattr(controller, "fault_reason", "") or "").strip()
+        if reason:
+            self.i2c_status_label.setToolTip(reason)
+        self.update_global_status()
+        return True
+
     def _selected_power_supply_kind(self) -> str:
         return str(self.power_supply_controller_combo.currentData() or "ch341")
 
     def _power_supply_controller_label(self, kind: str | None = None) -> str:
         selected = self._selected_power_supply_kind() if kind is None else str(kind)
         return POWER_SUPPLY_CONTROLLER_LABELS.get(selected, selected.upper())
+
+    def _discard_manual_power_supply_controller(self, reason: str) -> None:
+        """Drop a disconnected controller and explicitly stop its helper process."""
+
+        controller = self.manual_ch341_controller
+        if controller is None:
+            return
+        close_worker = getattr(controller, "close_worker", None)
+        try:
+            if callable(close_worker):
+                close_worker()
+                _LOGGER.info("USB2XXX 驱动子进程已释放 | reason=%s", reason)
+        except Exception as exc:
+            _LOGGER.exception("释放电源控制器后台进程失败 | reason=%s", reason)
+            self.add_log(
+                f"释放电源控制器后台进程失败（{reason}）：{user_facing_error_message(exc)}"
+            )
+        finally:
+            self.manual_ch341_controller = None
 
     def on_power_supply_controller_changed(self) -> None:
         selected_kind = self._selected_power_supply_kind()
@@ -3007,9 +3186,13 @@ class MainWindow(QMainWindow):
             return
         if selected_kind != previous_kind and self.manual_ch341_controller is not None:
             # A disconnected controller cannot be reused for another protocol.
-            # Keeping it here sends the next
-            # connection attempt through the previous controller's protocol.
-            self.manual_ch341_controller = None
+            # Explicitly stop USB2XXX's helper before dropping the reference;
+            # its pipe-reader threads otherwise keep the proxy alive and orphan
+            # the old worker when the operator later switches back to USB2XXX.
+            self._discard_manual_power_supply_controller(
+                f"控制器从 {self._power_supply_controller_label(previous_kind)} "
+                f"切换到 {self._power_supply_controller_label(selected_kind)}"
+            )
         self.power_supply_controller_kind = selected_kind
         is_tdk = selected_kind == "tdk"
         self.power_supply_details_form.setRowVisible(self.tdk_resource_row, is_tdk)
@@ -3046,6 +3229,7 @@ class MainWindow(QMainWindow):
             f"连接 {self._power_supply_controller_label(selected_kind)}"
         )
         self.i2c_status_label.setText("未连接")
+        self.i2c_status_label.setToolTip("")
         self.sync_tdk_output_controls(False)
         if hasattr(self, "power_supply_group"):
             self._reserve_group_height(self.power_supply_group)
@@ -3088,17 +3272,44 @@ class MainWindow(QMainWindow):
         label = self._power_supply_controller_label(self.power_supply_controller_kind)
         if self._manual_i2c_connected():
             try:
+                power_supply = self.get_power_supply()
+                if power_supply is None:
+                    raise RuntimeError(f"{label} 电源未连接")
                 if label == "TDK":
-                    controller.set_output_enabled(False)
-                controller.disconnect_device()
+                    power_supply.set_output_enabled(False)
+                else:
+                    # I2C supplies can retain the last programmed current after
+                    # their USB adapter is released.  Zero the supply first so
+                    # "安全断开" is a hardware shutdown boundary, not merely a
+                    # USB handle close.
+                    current_already_zero = (
+                        self.active_output_current_a is not None
+                        and float(self.active_output_current_a) <= 0.0
+                    )
+                    if current_already_zero:
+                        self.add_log(
+                            f"{label} 输出电流已确认是 0 A，跳过重复 I²C 置零并直接释放控制器"
+                        )
+                    else:
+                        power_supply.set_current(0.0)
+                    self.cancel_auto_vout_read()
+                    self.active_output_current_a = 0.0
+                    self.set_current_spin.setValue(0.0)
+                    self.pending_stable_point_current_a = None
+                    self.pending_stable_point_generation = None
+                    self.recorded_stable_point_current_a = None
+                    self.recorded_stable_point_generation = None
+                    self._refresh_manual_power_tab_lock(manual_action=True)
+                power_supply.disconnect()
             except Exception as exc:
                 QMessageBox.critical(self, label, f"安全断开失败。\n{user_facing_error_message(exc)}")
                 return
             if label == "TDK":
-                self.manual_ch341_controller = None
+                self._discard_manual_power_supply_controller("TDK 已安全断开")
                 self.active_output_current_a = 0.0
             self.connect_i2c_button.setText(f"连接 {label}")
             self.i2c_status_label.setText("未连接")
+            self.i2c_status_label.setToolTip("")
             self.sync_tdk_output_controls(False)
             self._refresh_manual_power_tab_lock()
             self.add_log(f"{label} 已断开")
@@ -3112,6 +3323,7 @@ class MainWindow(QMainWindow):
                 raise RuntimeError(str(detail))
             self.connect_i2c_button.setText(f"断开 {label}")
             self.i2c_status_label.setText("已连接")
+            self.i2c_status_label.setToolTip("")
             if label == "TDK":
                 output_enabled = bool(getattr(controller, "output_enabled", False))
                 self.sync_tdk_output_controls(output_enabled)
@@ -3122,7 +3334,7 @@ class MainWindow(QMainWindow):
             self.update_global_status()
         except Exception as exc:
             if label == "TDK" and not bool(getattr(controller, "is_connected", False)):
-                self.manual_ch341_controller = None
+                self._discard_manual_power_supply_controller("TDK 连接失败")
             QMessageBox.critical(self, label, user_facing_error_message(exc))
 
     def _require_manual_i2c_controller(self) -> Any | None:
@@ -3198,6 +3410,11 @@ class MainWindow(QMainWindow):
 
     def begin_power_supply_command(self, command_name: str) -> bool:
         """Reserve the CH341 bus so its I2C commands remain safely spaced."""
+        if self.power_supply_io_busy():
+            message = f"{command_name}被阻止；USB2XXX 上一条读取仍未返回"
+            self.statusBar().showMessage(message)
+            self.add_log(message)
+            return False
         if self.power_supply_controller_kind == "tdk":
             return True
         now = time.monotonic()
@@ -3232,6 +3449,10 @@ class MainWindow(QMainWindow):
                 self.schedule_auto_vout_read(delay_s=remaining_s)
             return
 
+        if automatic and self.power_supply_controller_kind == "usb2xxx":
+            self.start_automatic_output_voltage_read()
+            return
+
         voltage_v = self.execute_i2c_read([0xB4, 0x8B, 0x00, 0x00], "输出电压", "V")
         if voltage_v is not None:
             self.last_vout_read_monotonic_s = time.monotonic()
@@ -3250,6 +3471,138 @@ class MainWindow(QMainWindow):
         self.auto_vout_timer.stop()
         self.pending_auto_vout_current_a = None
         self.pending_auto_vout_generation = None
+        if self.power_supply_io_busy():
+            self.power_supply_read_context = None
+
+    def abort_background_power_supply_read_for_emergency(
+        self,
+        action_label: str,
+    ) -> tuple[bool, str]:
+        """Stop a USB2XXX read, then reconnect before the zero-current write."""
+
+        self.cancel_auto_vout_read()
+        thread = self.power_supply_read_thread
+        if thread is None or not thread.isRunning():
+            return True, "后台输出电压读取已停止"
+        controller = self.manual_ch341_controller
+        abort = getattr(controller, "abort_in_flight", None)
+        if not callable(abort):
+            return False, "后台输出电压读取仍在运行，控制器不支持强制中止"
+        reason = f"{action_label}：中止后台输出电压读取以优先发送电流归零命令"
+        if not bool(abort(reason)) and thread.isRunning():
+            return False, "未能终止 USB2XXX 后台输出电压读取"
+        if not thread.wait(EMERGENCY_USB_ABORT_WAIT_MS):
+            return False, (
+                f"USB2XXX 后台读取在中止后 {EMERGENCY_USB_ABORT_WAIT_MS} ms 内仍未退出"
+            )
+
+        connected, detail = controller.connect_device(0)
+        if not connected:
+            return False, f"后台读取已终止，但 USB2XXX 重新连接失败：{detail}"
+        return True, "后台读取已终止，USB2XXX 已重新连接，可发送电流归零命令"
+
+    def power_supply_io_busy(self) -> bool:
+        thread = self.power_supply_read_thread
+        return bool(thread is not None and thread.isRunning())
+
+    def start_automatic_output_voltage_read(self) -> None:
+        if self.power_supply_io_busy():
+            self.pause_automatic_test("USB2XXX 上一条电源读取仍未返回")
+            return
+        controller = self._require_manual_i2c_controller()
+        if controller is None:
+            self.pause_automatic_test("USB2XXX 未连接")
+            return
+        if not self.begin_power_supply_command("自动读取输出电压"):
+            self.schedule_auto_vout_read(delay_s=1.0)
+            return
+        power_supply = self.get_power_supply()
+        if power_supply is None:
+            self.pause_automatic_test("USB2XXX 电源未连接")
+            return
+        current_a = self.recorded_stable_point_current_a
+        generation = self.recorded_stable_point_generation
+        if current_a is None or generation is None:
+            self.pause_automatic_test("自动读取输出电压时稳定点已经失效")
+            return
+
+        self.power_supply_read_context = (float(current_a), int(generation))
+        thread = PowerSupplyReadThread(power_supply.read_output_voltage, self)
+        self.power_supply_read_thread = thread
+        thread.succeeded.connect(self.on_automatic_output_voltage_read)
+        thread.failed.connect(self.on_automatic_output_voltage_read_failed)
+        thread.finished.connect(self.on_power_supply_read_finished)
+        self.auto_vout_read_watchdog.start(round(AUTO_VOUT_READ_TIMEOUT_S * 1000.0))
+        self.set_automatic_test_state(
+            AutomaticTestState.WAITING_VOLTAGE,
+            f"正在后台读取 {current_a:.1f} A 输出电压",
+        )
+        self.add_log(f"开始后台读取 {current_a:.1f} A 输出电压；界面和采集保持响应")
+        thread.start()
+
+    def on_automatic_output_voltage_read(self, voltage_v: float) -> None:
+        source = self.sender()
+        if source is not None and source is not self.power_supply_read_thread:
+            return
+        context = self.power_supply_read_context
+        if context is None:
+            self.add_log(f"已忽略超时后返回的输出电压：{voltage_v:.2f} V")
+            return
+        current_a, generation = context
+        if (
+            self.automatic_test_state != AutomaticTestState.WAITING_VOLTAGE
+            or current_a != self.active_output_current_a
+            or current_a != self.recorded_stable_point_current_a
+            or generation != self.recorded_stable_point_generation
+        ):
+            self.add_log(f"稳定点已变化，忽略迟到的输出电压：{voltage_v:.2f} V")
+            return
+        self.last_vout_read_monotonic_s = time.monotonic()
+        self.add_log(f"输出电压: {voltage_v:.2f} V (后台 USB2XXX B4 8B 00 00)")
+        self.statusBar().showMessage(f"输出电压: {voltage_v:.2f} V")
+        self.record_efficiency_from_vout(float(voltage_v))
+
+    def on_automatic_output_voltage_read_failed(self, message: str) -> None:
+        source = self.sender()
+        if source is not None and source is not self.power_supply_read_thread:
+            return
+        self.add_log(f"USB2XXX 后台读取输出电压失败：{message}")
+        self.mark_usb2xxx_driver_fault_if_needed()
+        if self.automatic_test_state == AutomaticTestState.WAITING_VOLTAGE:
+            self.pause_automatic_test(
+                f"输出电压读取失败：{user_facing_error_message(message)}"
+            )
+
+    def on_auto_vout_read_timeout(self) -> None:
+        if not self.power_supply_io_busy():
+            return
+        self.power_supply_read_context = None
+        message = (
+            f"USB2XXX 输出电压读取超过 {AUTO_VOUT_READ_TIMEOUT_S:g} 秒，"
+            "驱动调用可能未返回；已保持界面和采集响应"
+        )
+        self.add_log(message)
+        if self.automatic_test_state == AutomaticTestState.WAITING_VOLTAGE:
+            self.pause_automatic_test(message)
+        QMessageBox.critical(
+            self,
+            "USB2XXX 通信超时",
+            f"{message}\n\n此时软件不会继续阻塞界面。请检查 USB2XXX 和电源面板；"
+            "如果电流无法通过软件归零，请立即从电源面板执行下电。",
+        )
+
+    def on_power_supply_read_finished(self) -> None:
+        source = self.sender()
+        if source is not None and source is not self.power_supply_read_thread:
+            source.deleteLater()
+            return
+        thread = self.power_supply_read_thread
+        self.auto_vout_read_watchdog.stop()
+        self.power_supply_read_thread = None
+        self.power_supply_read_context = None
+        if thread is not None:
+            thread.deleteLater()
+        self._continue_pending_close()
 
     def schedule_auto_vout_read(self, delay_s: float = AUTO_VOUT_AFTER_STABLE_S) -> None:
         current_a = self.recorded_stable_point_current_a
@@ -3337,6 +3690,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"{name}: {value:.2f} {unit}")
             return value
         except Exception as exc:
+            self.mark_usb2xxx_driver_fault_if_needed()
             if (
                 self.power_supply_controller_kind == "tdk"
                 and not bool(getattr(controller, "is_connected", False))
@@ -3398,7 +3752,24 @@ class MainWindow(QMainWindow):
             efficiency_percent / 100.0,
             raw_voltage_v=raw_voltage_v,
         )
-        self.automatic_controller.on_voltage_record_ready(current_a, queued, self.last_point_record_error)
+        record_saturation = (
+            not queued
+            and self.latest_spectrum_intensity is not None
+            and detect_spectrum_saturation(
+                self.latest_spectrum_intensity,
+                self.spectrum_full_scale_counts,
+            ).saturated
+        )
+        if record_saturation:
+            self.pause_for_spectrum_saturation(
+                self.last_point_record_error or "光谱饱和；请启用自动积分或缩短积分时间"
+            )
+        else:
+            self.automatic_controller.on_voltage_record_ready(
+                current_a,
+                queued,
+                self.last_point_record_error,
+            )
 
     def pause_automatic_point_if_waiting(self, reason: str) -> None:
         if self.automatic_test_state == AutomaticTestState.WAITING_VOLTAGE:
@@ -3507,7 +3878,10 @@ class MainWindow(QMainWindow):
                 integration_time_us=self.integration_spin.value(),
             )
             return False
-        saturation = detect_spectrum_saturation(self.latest_spectrum_intensity)
+        saturation = detect_spectrum_saturation(
+            self.latest_spectrum_intensity,
+            self.spectrum_full_scale_counts,
+        )
         if saturation.saturated:
             self.record_store.discard_pending(current_a)
             self.save_excel_button.setEnabled(
@@ -3733,6 +4107,7 @@ class MainWindow(QMainWindow):
             self.add_log(f"输出电流已设为 {self.set_current_spin.value():.1f} A")
             self.statusBar().showMessage(f"输出电流已设为 {self.set_current_spin.value():.1f} A")
         except Exception as exc:
+            self.mark_usb2xxx_driver_fault_if_needed()
             QMessageBox.critical(self, "设置电流", user_facing_error_message(exc))
 
     def refresh_power_meter_resources(self) -> None:
@@ -3930,6 +4305,7 @@ class MainWindow(QMainWindow):
             interval_ms=self.interval_spin.value(),
             device_id=self._selected_spectrometer_device_id(),
             auto_integration_enabled=self.auto_integration_check.isChecked(),
+            average_frames=self.spectrum_average_spin.value(),
         )
 
     def start_power_meter(self) -> None:
@@ -3982,11 +4358,18 @@ class MainWindow(QMainWindow):
             return
 
         self.reset_spectrum_curve()
+        self.spectrum_full_scale_counts = SPECTRUM_DEFAULT_FULL_SCALE_COUNTS
         self.add_log("正在启动光谱仪采集")
         self.spectrometer_reader = SpectrometerReaderThread(settings, self)
         self.spectrometer_reader.reading.connect(self.on_spectrometer_reading)
         self.spectrometer_reader.status.connect(self.on_status)
         self.spectrometer_reader.integration_time_changed.connect(self.on_integration_time_changed)
+        self.spectrometer_reader.full_scale_changed.connect(
+            self.on_spectrometer_full_scale_changed
+        )
+        self.spectrometer_reader.auto_integration_failed.connect(
+            self.on_spectrometer_auto_integration_failed
+        )
         self.spectrometer_reader.ready.connect(self.on_spectrometer_ready)
         self.spectrometer_reader.failed.connect(self.on_spectrometer_failed)
         self.spectrometer_reader.finished.connect(self.on_spectrometer_finished)
@@ -3996,6 +4379,21 @@ class MainWindow(QMainWindow):
 
     def on_integration_time_changed(self, integration_time_us: int) -> None:
         self.integration_spin.setValue(int(integration_time_us))
+        self.reset_wavelength_stability_window()
+
+    def on_spectrometer_full_scale_changed(self, full_scale_counts: float) -> None:
+        self.spectrum_full_scale_counts = normalize_spectrum_full_scale(full_scale_counts)
+        self.add_log(
+            f"光谱仪满量程：{self.spectrum_full_scale_counts:.0f} counts"
+        )
+
+    def resume_spectrometer_auto_integration(self) -> None:
+        reader = self.spectrometer_reader
+        resume = getattr(reader, "resume_auto_integration", None)
+        if callable(resume):
+            resume()
+        self.spectrum_saturation_alert_active = False
+        self.spectrum_saturated_frame_count = 0
         self.reset_wavelength_stability_window()
 
     def stop_spectrometer(self, wait_for_finish: bool = False) -> None:
@@ -4127,15 +4525,20 @@ class MainWindow(QMainWindow):
         )
 
     def on_spectrum_curve(self, wavelength: Any, intensity: Any) -> None:
-        self.latest_spectrum_wavelength = wavelength
-        self.latest_spectrum_intensity = intensity
-        saturation = detect_spectrum_saturation(intensity)
+        saturation = detect_spectrum_saturation(
+            intensity,
+            self.spectrum_full_scale_counts,
+        )
+        stats = calculate_stats(wavelength, intensity)
         try:
             self.latest_spectrum_peak_intensity = max(float(value) for value in intensity)
         except (TypeError, ValueError):
             self.latest_spectrum_peak_intensity = 0.0
         was_saturated = self.latest_spectrum_saturated
         self.latest_spectrum_saturated = saturation.saturated
+        self.spectrum_saturated_frame_count = (
+            self.spectrum_saturated_frame_count + 1 if saturation.saturated else 0
+        )
         try:
             has_enough_pib_samples = len(intensity) >= 3
         except TypeError:
@@ -4146,7 +4549,28 @@ class MainWindow(QMainWindow):
             else math.nan
         )
         smsr = calculate_smsr(wavelength, intensity) if not saturation.saturated else None
-        self.latest_spectrum_smsr_db = None if smsr is None else float(smsr.smsr_db)
+        annotations = (
+            find_spectrum_peak_annotations(
+                zip(wavelength, intensity),
+                stats=stats,
+                smsr_result=smsr,
+            )
+            if smsr is not None
+            else []
+        )
+        next_revision = self.spectrum_frame_revision + 1
+        self.latest_spectrum_wavelength = wavelength
+        self.latest_spectrum_intensity = intensity
+        self.latest_spectrum_stats = stats
+        self.latest_spectrum_smsr_result = smsr
+        self.latest_spectrum_peak_annotations = annotations
+        self.latest_spectrum_smsr_db = (
+            float(smsr.smsr_db)
+            if smsr is not None and math.isfinite(smsr.smsr_db)
+            else None
+        )
+        self.latest_spectrum_analysis_revision = next_revision
+        self.spectrum_frame_revision = next_revision
         self.live_plots.set_spectrum_metrics(
             pib=pib,
             smsr_db=math.nan if smsr is None else smsr.smsr_db,
@@ -4160,9 +4584,24 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(message)
             self.add_log(message)
         elif was_saturated and not saturation.saturated:
+            self.spectrum_saturation_alert_active = False
             self.statusBar().showMessage("光谱饱和状态已解除")
             self.add_log("光谱饱和状态已解除")
-        self.update_spectrum_curve(wavelength, intensity)
+        if (
+            saturation.saturated
+            and self.automatic_test_state
+            in (AutomaticTestState.WAITING_STABLE, AutomaticTestState.WAITING_VOLTAGE)
+            and self.automatic_controller.automatic_uses_spectrometer()
+            and not self.auto_integration_check.isChecked()
+        ):
+            self.latest_wavelength_stable = False
+            reason = (
+                f"光谱饱和（峰值 {saturation.peak_intensity:.0f} counts，连续 "
+                f"{saturation.consecutive_pixels} 个像素）；"
+                "请启用自动积分或缩短积分时间"
+            )
+            self.pause_for_spectrum_saturation(reason)
+        self.update_spectrum_curve(wavelength, intensity, annotations)
 
     def reset_curves(self) -> None:
         self.live_plots.reset_integrated_metrics()
@@ -4278,9 +4717,17 @@ class MainWindow(QMainWindow):
     def reset_spectrum_curve(self) -> None:
         self.centroid_display_samples.clear()
         self.latest_spectrum_saturated = False
+        self.spectrum_saturated_frame_count = 0
+        self.spectrum_saturation_alert_active = False
         self.latest_spectrum_smsr_db = None
+        self.latest_spectrum_smsr_result = None
+        self.latest_spectrum_peak_annotations = []
+        self.latest_spectrum_stats = None
+        self.latest_spectrum_analysis_revision = 0
         self.spectrum_center_candidate_nm = None
         self.spectrum_center_candidate_count = 0
+        self.spectrum_centroid_candidate_nm = None
+        self.spectrum_centroid_candidate_count = 0
         self.spectrum_center_locked_nm = None
         self.live_plots.reset_spectrum()
 
@@ -4298,45 +4745,106 @@ class MainWindow(QMainWindow):
     def update_power_curve(self, elapsed_s: float, power_w: float) -> None:
         self.live_plots.update_power(elapsed_s, power_w)
 
-    def update_spectrum_curve(self, wavelength: Any, intensity: Any) -> None:
-        self.live_plots.update_spectrum(wavelength, intensity, self.spectrum_center_locked_nm)
+    def update_spectrum_curve(
+        self,
+        wavelength: Any,
+        intensity: Any,
+        annotations: list[SpectrumPeakAnnotation] | None = None,
+    ) -> None:
+        frame_annotations = annotations
+        if (
+            frame_annotations is None
+            and wavelength is self.latest_spectrum_wavelength
+            and intensity is self.latest_spectrum_intensity
+            and self.latest_spectrum_analysis_revision == self.spectrum_frame_revision
+        ):
+            frame_annotations = self.latest_spectrum_peak_annotations
+        self.live_plots.update_spectrum(
+            wavelength,
+            intensity,
+            self.spectrum_center_locked_nm,
+            frame_annotations,
+        )
 
     def update_spectrum_center_lock(self, reading: SpectrometerReading) -> None:
-        if self.spectrum_center_locked_nm is not None:
-            return
+        locked_center: float | None = None
+        lock_reference = ""
+        current_lock = self.spectrum_center_locked_nm
+        if current_lock is not None:
+            peak_nm = float(reading.peak_wavelength_nm)
+            if (
+                not math.isfinite(peak_nm)
+                or abs(peak_nm - current_lock) <= SPECTRUM_CENTER_LOCK_HALF_RANGE_NM
+            ):
+                self.spectrum_center_candidate_nm = None
+                self.spectrum_center_candidate_count = 0
+                return
+            (
+                self.spectrum_center_candidate_nm,
+                self.spectrum_center_candidate_count,
+            ) = self._advance_spectrum_center_candidate(
+                peak_nm,
+                self.spectrum_center_candidate_nm,
+                self.spectrum_center_candidate_count,
+            )
+            if self.spectrum_center_candidate_count >= SPECTRUM_CENTER_LOCK_REQUIRED_SAMPLES:
+                locked_center = self.spectrum_center_candidate_nm
+                lock_reference = "新主峰"
+        else:
+            # A single-mode spectrum is best locked to its highest peak. In a
+            # multi-mode spectrum the winning peak can jump between modes even when
+            # the overall spectral center is stable, so track both references and
+            # lock to whichever first proves stable. Peak remains the preference
+            # when both reach the threshold on the same frame.
+            (
+                self.spectrum_center_candidate_nm,
+                self.spectrum_center_candidate_count,
+            ) = self._advance_spectrum_center_candidate(
+                reading.peak_wavelength_nm,
+                self.spectrum_center_candidate_nm,
+                self.spectrum_center_candidate_count,
+            )
+            (
+                self.spectrum_centroid_candidate_nm,
+                self.spectrum_centroid_candidate_count,
+            ) = self._advance_spectrum_center_candidate(
+                reading.centroid_nm,
+                self.spectrum_centroid_candidate_nm,
+                self.spectrum_centroid_candidate_count,
+            )
+            if self.spectrum_center_candidate_count >= SPECTRUM_CENTER_LOCK_REQUIRED_SAMPLES:
+                locked_center = self.spectrum_center_candidate_nm
+                lock_reference = "主峰"
+            elif self.spectrum_centroid_candidate_count >= SPECTRUM_CENTER_LOCK_REQUIRED_SAMPLES:
+                locked_center = self.spectrum_centroid_candidate_nm
+                lock_reference = "中心波长"
 
-        # The whole-spectrum centroid moves with baseline and broadband noise.
-        # The highest peak is the stable reference that users expect the ±20 nm
-        # view to follow; centroid remains a fallback for incomplete readings.
-        center_nm = reading.peak_wavelength_nm
-        if not math.isfinite(float(center_nm)):
-            center_nm = reading.centroid_nm
-        center = float(center_nm)
-        if not math.isfinite(center):
+        if locked_center is not None:
+            self.spectrum_center_locked_nm = locked_center
             self.spectrum_center_candidate_nm = None
             self.spectrum_center_candidate_count = 0
-            return
-
-        if (
-            self.spectrum_center_candidate_nm is None
-            or abs(center - self.spectrum_center_candidate_nm) > SPECTRUM_CENTER_LOCK_TOLERANCE_NM
-        ):
-            self.spectrum_center_candidate_nm = center
-            self.spectrum_center_candidate_count = 1
-        else:
-            self.spectrum_center_candidate_count += 1
-            count = self.spectrum_center_candidate_count
-            previous = self.spectrum_center_candidate_nm
-            self.spectrum_center_candidate_nm = previous + (center - previous) / count
-
-        if self.spectrum_center_candidate_count >= SPECTRUM_CENTER_LOCK_REQUIRED_SAMPLES:
-            self.spectrum_center_locked_nm = self.spectrum_center_candidate_nm
+            self.spectrum_centroid_candidate_nm = None
+            self.spectrum_centroid_candidate_count = 0
             self.on_status(
-                "光谱横轴已锁定："
+                f"光谱横轴已按{lock_reference}锁定："
                 f"{self.spectrum_center_locked_nm:.3f} nm ± {SPECTRUM_CENTER_LOCK_HALF_RANGE_NM:g} nm"
             )
             if self.latest_spectrum_wavelength is not None and self.latest_spectrum_intensity is not None:
                 self.update_spectrum_curve(self.latest_spectrum_wavelength, self.latest_spectrum_intensity)
+
+    @staticmethod
+    def _advance_spectrum_center_candidate(
+        raw_center_nm: float,
+        candidate_nm: float | None,
+        candidate_count: int,
+    ) -> tuple[float | None, int]:
+        center = float(raw_center_nm)
+        if not math.isfinite(center):
+            return None, 0
+        if candidate_nm is None or abs(center - candidate_nm) > SPECTRUM_CENTER_LOCK_TOLERANCE_NM:
+            return center, 1
+        next_count = candidate_count + 1
+        return candidate_nm + (center - candidate_nm) / next_count, next_count
 
     def copy_spectrum_csv(self) -> None:
         if self.latest_spectrum_wavelength is None or self.latest_spectrum_intensity is None:
@@ -4483,11 +4991,13 @@ class MainWindow(QMainWindow):
         self.integration_spin.setEnabled(not running)
         self.auto_integration_check.setEnabled(not running)
         self.interval_spin.setEnabled(not running)
+        self.spectrum_average_spin.setEnabled(not running)
         self.update_global_status()
 
     def add_log(self, message: str) -> None:
         timestamp = datetime.now().strftime("%H:%M:%S")
         self.log_text.setText(f"[{timestamp}] {message}")
+        _LOGGER.info("界面运行记录 | %s", message)
 
     def resizeEvent(self, event: Any) -> None:
         super().resizeEvent(event)
@@ -4517,6 +5027,7 @@ class MainWindow(QMainWindow):
             self._thread_is_running(thread)
             for thread in (
                 self.excel_save_thread,
+                self.power_supply_read_thread,
                 self.power_meter_detect_thread,
                 self.power_meter_reader,
                 self.spectrometer_reader,
@@ -4582,6 +5093,7 @@ class MainWindow(QMainWindow):
             return
 
         for thread in (
+            self.power_supply_read_thread,
             self.power_meter_detect_thread,
             self.power_meter_reader,
             self.spectrometer_reader,
@@ -4656,7 +5168,52 @@ class MainWindow(QMainWindow):
             controller.disconnect_device()
         except Exception as exc:
             self.add_log(f"退出时释放 TDK 串口失败：{user_facing_error_message(exc)}")
-        self.manual_ch341_controller = None
+        self._discard_manual_power_supply_controller("程序退出时释放 TDK 控制器")
+        return True
+
+    def _shutdown_i2c_for_close(self, event: QCloseEvent) -> bool:
+        """Zero and release an I2C-controlled supply before closing the app."""
+        controller = self.manual_ch341_controller
+        if controller is None:
+            return True
+        label = self._power_supply_controller_label(self.power_supply_controller_kind)
+        power_supply = ControllerPowerSupply(controller)
+        current_already_zero = (
+            self.active_output_current_a is not None
+            and float(self.active_output_current_a) <= 0.0
+        )
+        try:
+            if power_supply.connected and not current_already_zero:
+                power_supply.set_current(0.0)
+            elif not power_supply.connected and not current_already_zero:
+                raise RuntimeError(
+                    f"{label} 已失去连接，无法确认输出电流已经归零"
+                )
+        except Exception as exc:
+            QMessageBox.critical(
+                self,
+                f"{label} 安全下电失败",
+                "程序将保持打开，无法确认电源电流已经归零。\n"
+                f"{user_facing_error_message(exc)}",
+            )
+            event.ignore()
+            return False
+
+        # Once the zero-current command succeeds, a USB handle-release error
+        # must not trap application exit; process teardown releases the handle.
+        # Keep it visible in the log instead of claiming a clean release.
+        try:
+            power_supply.disconnect()
+        except Exception as exc:
+            self.add_log(
+                f"退出时释放 {label} 控制器失败：{user_facing_error_message(exc)}"
+            )
+
+        self.active_output_current_a = 0.0
+        self.set_current_spin.setValue(0.0)
+        self._discard_manual_power_supply_controller(
+            f"程序退出时释放 {label} 控制器"
+        )
         return True
 
     def closeEvent(self, event: QCloseEvent) -> None:
@@ -4680,6 +5237,9 @@ class MainWindow(QMainWindow):
             if self.power_supply_controller_kind == "tdk":
                 if not self._shutdown_tdk_for_close(event):
                     return
+            elif self.power_supply_controller_kind == "usb2xxx":
+                if not self._shutdown_i2c_for_close(event):
+                    return
             else:
                 try:
                     self.manual_ch341_controller.disconnect_device()
@@ -4689,6 +5249,7 @@ class MainWindow(QMainWindow):
 
 
 def main() -> int:
+    configure_runtime_logging(process_role="qt-backend")
     app = QApplication(sys.argv)
     lock_directory = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.TempLocation)
     instance_lock = QLockFile(

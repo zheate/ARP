@@ -7,17 +7,20 @@ from collections import deque
 from typing import Any, Iterable
 
 from .models import SpectrumPeakAnnotation, SpectrumSaturationResult
+from .spectrum_math import SmsrResult, SpectrumStats, calculate_smsr, calculate_stats
 
 
 SPECTRUM_CENTER_LOCK_REQUIRED_SAMPLES = 5
 SPECTRUM_CENTER_LOCK_TOLERANCE_NM = 1.0
 SPECTRUM_CENTER_LOCK_HALF_RANGE_NM = 20.0
 SPECTRUM_PEAK_ORDINAL_LABELS = ("P1", "P2", "P3")
-SPECTRUM_PEAK_MIN_SEPARATION_NM = 0.3
-SPECTRUM_PEAK_MIN_PROMINENCE_FRACTION = 0.01
-SPECTRUM_SATURATION_MIN_INTENSITY = 16000.0
-SPECTRUM_SATURATION_PLATEAU_FRACTION = 0.995
+SPECTRUM_DEFAULT_FULL_SCALE_COUNTS = 64_000.0
+SPECTRUM_SATURATION_FULL_SCALE_FRACTION = 0.995
 SPECTRUM_SATURATION_MIN_CONSECUTIVE_PIXELS = 3
+SPECTRUM_Y_AXIS_MINIMUM_UPPER_COUNTS = 1_000.0
+SPECTRUM_Y_AXIS_HEADROOM_FRACTION = 0.1
+SPECTRUM_Y_AXIS_SHRINK_TRIGGER_FRACTION = 0.55
+SPECTRUM_Y_AXIS_SHRINK_REQUIRED_FRAMES = 6
 
 
 def _spectrum_floats(values: Iterable[Any]) -> list[float]:
@@ -29,23 +32,36 @@ def _spectrum_floats(values: Iterable[Any]) -> list[float]:
     return result
 
 
-def detect_spectrum_saturation(intensity: Iterable[Any]) -> SpectrumSaturationResult:
+def normalize_spectrum_full_scale(full_scale_counts: Any) -> float:
+    try:
+        value = float(full_scale_counts)
+    except (TypeError, ValueError):
+        return SPECTRUM_DEFAULT_FULL_SCALE_COUNTS
+    if not math.isfinite(value) or value <= 0.0:
+        return SPECTRUM_DEFAULT_FULL_SCALE_COUNTS
+    return value
+
+
+def detect_spectrum_saturation(
+    intensity: Iterable[Any],
+    full_scale_counts: Any = SPECTRUM_DEFAULT_FULL_SCALE_COUNTS,
+) -> SpectrumSaturationResult:
     values = _spectrum_floats(intensity)
     finite_values = [value for value in values if math.isfinite(value)]
     if not finite_values:
         return SpectrumSaturationResult(False, math.nan, 0)
     peak_intensity = max(finite_values)
-    if peak_intensity < SPECTRUM_SATURATION_MIN_INTENSITY:
+    saturation_floor = (
+        normalize_spectrum_full_scale(full_scale_counts)
+        * SPECTRUM_SATURATION_FULL_SCALE_FRACTION
+    )
+    if peak_intensity < saturation_floor:
         return SpectrumSaturationResult(False, peak_intensity, 0)
 
-    plateau_floor = max(
-        SPECTRUM_SATURATION_MIN_INTENSITY,
-        peak_intensity * SPECTRUM_SATURATION_PLATEAU_FRACTION,
-    )
     longest_run = 0
     current_run = 0
     for value in values:
-        if math.isfinite(value) and value >= plateau_floor:
+        if math.isfinite(value) and value >= saturation_floor:
             current_run += 1
             longest_run = max(longest_run, current_run)
         else:
@@ -55,6 +71,74 @@ def detect_spectrum_saturation(intensity: Iterable[Any]) -> SpectrumSaturationRe
         peak_intensity=peak_intensity,
         consecutive_pixels=longest_run,
     )
+
+
+def _nice_axis_step(span: float, target_tick_count: int = 5) -> float:
+    if not math.isfinite(span) or span <= 0.0:
+        return 1.0
+    raw_step = span / max(1, target_tick_count)
+    magnitude = 10.0 ** math.floor(math.log10(raw_step))
+    normalized = raw_step / magnitude
+    if normalized <= 1.0:
+        multiplier = 1.0
+    elif normalized <= 2.0:
+        multiplier = 2.0
+    elif normalized <= 5.0:
+        multiplier = 5.0
+    else:
+        multiplier = 10.0
+    return multiplier * magnitude
+
+
+def spectrum_y_axis_upper_limit(peak_intensity: Any) -> float:
+    try:
+        peak = max(0.0, float(peak_intensity))
+    except (TypeError, ValueError):
+        peak = 0.0
+    if not math.isfinite(peak):
+        peak = 0.0
+    target = max(
+        SPECTRUM_Y_AXIS_MINIMUM_UPPER_COUNTS,
+        peak * (1.0 + SPECTRUM_Y_AXIS_HEADROOM_FRACTION),
+    )
+    step = _nice_axis_step(target)
+    return max(
+        SPECTRUM_Y_AXIS_MINIMUM_UPPER_COUNTS,
+        math.ceil(target / step) * step,
+    )
+
+
+def stabilize_spectrum_y_axis_upper_limit(
+    peak_intensity: Any,
+    current_upper_limit: Any,
+    low_frame_count: int,
+) -> tuple[float, int]:
+    """Expand immediately, but shrink only after a sustained large drop."""
+    desired_upper_limit = spectrum_y_axis_upper_limit(peak_intensity)
+    try:
+        current = float(current_upper_limit)
+    except (TypeError, ValueError):
+        current = math.nan
+    if not math.isfinite(current) or current <= 0.0:
+        return desired_upper_limit, 0
+    if desired_upper_limit > current:
+        return desired_upper_limit, 0
+
+    try:
+        peak = max(0.0, float(peak_intensity))
+    except (TypeError, ValueError):
+        peak = 0.0
+    if not math.isfinite(peak):
+        peak = 0.0
+    if (
+        desired_upper_limit < current
+        and peak <= current * SPECTRUM_Y_AXIS_SHRINK_TRIGGER_FRACTION
+    ):
+        next_low_frame_count = max(0, int(low_frame_count)) + 1
+        if next_low_frame_count >= SPECTRUM_Y_AXIS_SHRINK_REQUIRED_FRAMES:
+            return desired_upper_limit, 0
+        return current, next_low_frame_count
+    return current, 0
 
 
 def _centered_window_minimums(values: list[float], radius: int) -> list[float]:
@@ -84,6 +168,9 @@ def _centered_window_minimums(values: list[float], radius: int) -> list[float]:
 def find_spectrum_peak_annotations(
     points: Iterable[tuple[Any, Any]],
     limit: int = 3,
+    *,
+    stats: SpectrumStats | None = None,
+    smsr_result: SmsrResult | None = None,
 ) -> list[SpectrumPeakAnnotation]:
     clean_points: list[tuple[float, float]] = []
     for x_raw, y_raw in points:
@@ -94,66 +181,26 @@ def find_spectrum_peak_annotations(
     clean_points.sort(key=lambda item: item[0])
     if len(clean_points) < 3 or limit <= 0:
         return []
-
-    y_values = [item[1] for item in clean_points]
-    baseline = min(y_values)
-    y_range = max(y_values) - baseline
-    if y_range <= 0:
-        return []
-
-    neighborhood = max(2, len(clean_points) // 200)
-    local_floors = _centered_window_minimums(y_values, neighborhood)
-    min_prominence = y_range * SPECTRUM_PEAK_MIN_PROMINENCE_FRACTION
-    candidates: list[tuple[int, float, float]] = []
-    for index in range(1, len(clean_points) - 1):
-        y = y_values[index]
-        if y <= y_values[index - 1] or y < y_values[index + 1]:
-            continue
-        if y - local_floors[index] >= min_prominence:
-            candidates.append((index, clean_points[index][0], y))
-
-    selected: list[tuple[int, float, float]] = []
-    annotation_limit = min(limit, len(SPECTRUM_PEAK_ORDINAL_LABELS))
-    for candidate in sorted(candidates, key=lambda item: item[2], reverse=True):
-        if all(abs(candidate[1] - item[1]) >= SPECTRUM_PEAK_MIN_SEPARATION_NM for item in selected):
-            selected.append(candidate)
-        if len(selected) >= annotation_limit:
-            break
-
-    return [
-        SpectrumPeakAnnotation(
-            label=SPECTRUM_PEAK_ORDINAL_LABELS[rank],
-            centroid_nm=_calculate_local_peak_centroid(clean_points, index, baseline),
-            peak_wavelength_nm=peak_wavelength_nm,
-            peak_intensity=peak_intensity,
+    wavelength = [item[0] for item in clean_points]
+    intensity = [item[1] for item in clean_points]
+    frame_stats = stats or calculate_stats(wavelength, intensity)
+    mode_result = smsr_result or calculate_smsr(wavelength, intensity)
+    annotation_limit = min(
+        limit,
+        len(SPECTRUM_PEAK_ORDINAL_LABELS),
+        len(mode_result.peaks),
+    )
+    annotations: list[SpectrumPeakAnnotation] = []
+    for rank, peak in enumerate(mode_result.peaks[:annotation_limit]):
+        wavelength_nm = peak.wavelength_nm
+        if rank == 0 and math.isfinite(frame_stats.peak_wavelength_nm):
+            wavelength_nm = frame_stats.peak_wavelength_nm
+        annotations.append(
+            SpectrumPeakAnnotation(
+                label=SPECTRUM_PEAK_ORDINAL_LABELS[rank],
+                centroid_nm=wavelength_nm,
+                peak_wavelength_nm=wavelength_nm,
+                peak_intensity=peak.intensity,
+            )
         )
-        for rank, (index, peak_wavelength_nm, peak_intensity) in enumerate(selected)
-    ]
-
-
-def _calculate_local_peak_centroid(
-    points: list[tuple[float, float]],
-    peak_index: int,
-    baseline: float,
-) -> float:
-    peak_intensity = points[peak_index][1]
-    threshold = baseline + (peak_intensity - baseline) * 0.5
-
-    left = peak_index
-    while left > 0 and points[left - 1][1] >= threshold:
-        left -= 1
-    right = peak_index
-    while right < len(points) - 1 and points[right + 1][1] >= threshold:
-        right += 1
-
-    peak_points = points[left : right + 1]
-    local_baseline = min(item[1] for item in peak_points)
-    weighted_sum = 0.0
-    weight_total = 0.0
-    for wavelength_nm, intensity in peak_points:
-        weight = max(0.0, intensity - local_baseline)
-        weighted_sum += wavelength_nm * weight
-        weight_total += weight
-    if weight_total <= 0:
-        return points[peak_index][0]
-    return weighted_sum / weight_total
+    return annotations
