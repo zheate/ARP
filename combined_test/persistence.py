@@ -12,22 +12,42 @@ from PySide6.QtCore import QThread, Signal
 
 from .core import CSV_HEADER, CombinedMeasurement, record_to_row, spectrum_curve_to_rows
 from .excel_export import ExcelTestRecord, save_test_records
+from .runtime_logging import get_runtime_logger
+
+
+_LOGGER = get_runtime_logger("persistence")
 
 
 class ExcelSaveThread(QThread):
     saved = Signal(float)
     failed = Signal(str)
 
-    def __init__(self, path: Path, records: list[ExcelTestRecord], parent: Any | None = None) -> None:
+    def __init__(
+        self,
+        path: Path,
+        records: list[ExcelTestRecord],
+        parent: Any | None = None,
+        *,
+        session: Any | None = None,
+        attempts: tuple[Any, ...] = (),
+    ) -> None:
         super().__init__(parent)
         self.path = Path(path)
         self.records = list(records)
+        self.session = session
+        self.attempts = tuple(attempts)
 
     def run(self) -> None:
         started = time.monotonic()
         try:
-            save_test_records(self.path, self.records)
+            save_test_records(
+                self.path,
+                self.records,
+                session=self.session,
+                attempts=self.attempts,
+            )
         except Exception as exc:
+            _LOGGER.exception("Excel 后台保存失败 | path=%s", self.path)
             self.failed.emit(str(exc))
             return
         self.saved.emit(time.monotonic() - started)

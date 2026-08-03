@@ -1,5 +1,16 @@
 # Agent Notes
 
+## Default Implementation Target
+
+- Unless the user explicitly says otherwise, make code and UI changes in the Tauri version (`tauri-ui` and its related Tauri integration) and do not modify the Qt version.
+
+## Verification Policy
+
+- Only run relevant tests automatically for important or high-risk changes.
+- For explanations, analysis, code inspection, and small low-risk changes, do not run tests unless the user explicitly asks for them.
+- Before running the full test suite, packaging, or any long-running build or verification command, obtain the user's consent.
+- When tests are skipped under this policy, state briefly that the change has not been test-verified.
+
 ## Combined Test App
 
 - Run from this workspace with the Python environment that can load the scripts runner compiled modules:
@@ -24,6 +35,25 @@
 - `combined_test/models.py` contains the immutable data passed between those modules.
 - `tools/` contains standalone device diagnostics and the legacy CH341 controller.
 - `tests/` contains the full test suite.
+
+## UI Card Alignment Requirements
+
+- UI cards must be strictly aligned on a shared layout grid. Cards in the same row must share the same top edge, and cards intended to form a row or column must have consistent widths, heights, gaps, and outer margins.
+- Card content must use consistent internal padding. Headings, labels, inputs, dropdowns, buttons, status rows, and chart areas must align to the same left and right content columns; do not use arbitrary offsets or one-off spacing to compensate for misalignment.
+- Keep equivalent controls in equivalent positions across device cards. When a card contains a selector and an action button, use the same order, alignment, and spacing everywhere.
+- Alignment must remain correct when cards resize, when text or status messages change, and at the supported window sizes and display scaling factors. No card may clip, overlap, or create unintended horizontal overflow.
+- Before considering a UI change complete, verify the rendered/live interface visually at the relevant window sizes and check the card edges and control baselines, not only the code or automated tests.
+
+## Tauri Device Settings Dialog Interaction
+
+- The three automatic-test device cards open separate settings dialogs: power supply, power meter, and spectrometer. Keep each dialog tied to the existing shared configuration and Python-owned device commands.
+- Locking page scroll while a dialog is open must not change the surrounding layout. Use a stable scrollbar gutter and preserve/restore the body's original overflow and padding; verify that the card and dialog positions are unchanged before and after opening.
+- Device resource selectors inside these dialogs must be clickable in the Tauri/WebView runtime. Prefer a local in-dialog dropdown layer anchored to the trigger over a portal-based selector that only receives focus without opening in the target runtime. The dropdown must not change the dialog height when it opens.
+- Escape should close an open dropdown first, then close the dialog. Clicking an option must update the shared configuration and close the dropdown without closing the dialog.
+- Buttons must not visibly jump when clicked. Do not add a generic active-state translate/press offset such as `translate-y-px`; retain color and focus feedback instead. In particular, the `识别`/device-refresh controls must keep a stable position and width while the refresh command is pending.
+- Dialog footer buttons must keep fixed widths and must not reuse the global device-command pending state as a save-progress label or disabled visual state. Only a locally initiated save may change `保存设置` to `保存中…`; clicking `识别` must not change the footer labels, colors, dimensions, or positions. Block concurrent saves in the handler and with accessibility state without visually restyling the footer during an unrelated device command.
+- Device commands inside a settings dialog must use an internal command lock to prevent duplicate or concurrent requests without toggling every visible control into a disabled color state. Clicking `识别` must not make the acquisition, zeroing, save, or close controls flash between enabled and disabled styles.
+- After changing these interactions, verify all three dialog selectors and at least one `识别` action in the live preview/runtime, including layout stability and Escape/close behavior.
 
 The local spectrometer wrapper is loaded lazily and cached after its first successful import. Device detection and acquisition therefore share one loaded wrapper instead of re-executing the GUI-heavy `spectrometer_mvp.py` module.
 
@@ -69,4 +99,4 @@ Run standalone diagnostics from the repository root with `python -m tools.power_
 - `Save Excel` snapshots all queued points, rebuilds the workbook once on an `ExcelSaveThread`, and atomically replaces the target file so the GUI remains responsive during large saves.
 - PIB uses trapezoidal spectral-power integration: 974.5-977.5 nm divided by the fixed 956-996 nm pump-laser analysis band.
 - SMSR uses `10 * log10(main peak / highest resolved side-mode peak)` within 956-996 nm; saturated or unresolved spectra report no SMSR value.
-- Spectrum saturation is flagged when at least 3 consecutive pixels are at or above 16000 counts and within 99.5% of the frame maximum; saturated points show a red warning and are not queued for Excel.
+- Spectrum saturation is flagged when at least 3 consecutive pixels are at or above 99.5% of the device-reported full scale; saturated points show a red warning and are not queued for Excel.

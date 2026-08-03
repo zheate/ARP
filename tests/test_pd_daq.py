@@ -8,9 +8,10 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from matplotlib.colors import to_hex
-from PySide6.QtGui import QColor, QPalette
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import QApplication, QFormLayout, QWidget
 
+from combined_test.theme import build_dark_palette
 from combined_test.window import MainWindow
 import tools.pd_daq_mvp as pd_daq_module
 from tools.pd_daq_mvp import (
@@ -180,13 +181,7 @@ class PdDaqPanelUiTests(unittest.TestCase):
     def test_plot_colors_follow_dark_qt_palette(self) -> None:
         app = QApplication.instance() or QApplication([])
         panel = PdDaqPanel(auto_refresh=False)
-        palette = QPalette()
-        palette.setColor(QPalette.ColorRole.Window, QColor("#202020"))
-        palette.setColor(QPalette.ColorRole.Base, QColor("#282828"))
-        palette.setColor(QPalette.ColorRole.Text, QColor("#f0f0f0"))
-        palette.setColor(QPalette.ColorRole.Highlight, QColor("#308cc6"))
-        palette.setColor(QPalette.ColorRole.Mid, QColor("#606060"))
-        panel.setPalette(palette)
+        panel.setPalette(build_dark_palette())
         app.processEvents()
         palette = panel.palette()
 
@@ -229,7 +224,7 @@ class MainWindowPdIntegrationTests(unittest.TestCase):
         self.assertGreaterEqual(window.central_shell.layout().indexOf(window.main_tabs), 0)
         self.assertEqual(
             [window.main_tabs.tabText(index) for index in range(window.main_tabs.count())],
-            ["自动测试", "手动调试", "当前记录", "PD 采集"],
+            ["自动测试", "手动调试", "PD 采集"],
         )
         self.assertEqual(window.pd_panel.device_combo.count(), 0)
         window.close()

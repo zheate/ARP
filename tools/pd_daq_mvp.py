@@ -38,21 +38,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.figure import Figure
-from matplotlib.font_manager import FontProperties
-from matplotlib.ticker import EngFormatter, MaxNLocator
+from combined_test.theme import FontRole, font_for_role
+
 
 DEFAULT_SAMPLE_RATE_HZ = 1_000.0
 DEFAULT_BLOCK_SIZE = 100
 DEFAULT_HISTORY_S = 60.0
 MAX_PLOT_POINTS_PER_SECOND = 200
 PLOT_BUFFER_POINTS = int(DEFAULT_HISTORY_S * MAX_PLOT_POINTS_PER_SECOND) + 1_000
-
-PD_AXIS_FONT = FontProperties(
-    family="Microsoft YaHei" if sys.platform == "win32" else "PingFang SC",
-)
-
 
 @dataclass(frozen=True)
 class DaqDeviceInfo:
@@ -359,8 +352,15 @@ class PdDaqPanel(QWidget):
     acquisition_finished = Signal()
     running_changed = Signal(bool)
 
-    def __init__(self, parent: QWidget | None = None, auto_refresh: bool = True) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        auto_refresh: bool = True,
+        *,
+        headless: bool = False,
+    ) -> None:
         super().__init__(parent)
+        self.headless = bool(headless)
         self.reader: PdAcquisitionThread | None = None
         self._reader_failed = False
         self.driver_label = ""
@@ -525,6 +525,7 @@ class PdDaqPanel(QWidget):
         values_layout = QGridLayout()
         self.current_value_label = QLabel("--", self)
         self.current_value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.current_value_label.setFont(font_for_role(FontRole.METRIC))
         self.voltage_label = QLabel("电压：-- V", self)
         self.mean_label = QLabel("批次均值：--", self)
         self.std_label = QLabel("标准差：--", self)
@@ -538,17 +539,33 @@ class PdDaqPanel(QWidget):
         values_layout.addWidget(self.count_label, 0, 3, 2, 1)
         live_layout.addLayout(values_layout)
 
-        self.figure = Figure(figsize=(8, 4), dpi=100, layout="constrained")
-        self.canvas = FigureCanvas(self.figure)
+        if self.headless:
+            self.figure = None
+            self.canvas = QWidget(self)
+            self.axis = None
+            self.line = None
+        else:
+            from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+            from matplotlib.figure import Figure
+            from matplotlib.font_manager import FontProperties
+            from matplotlib.ticker import EngFormatter, MaxNLocator
+
+            axis_font = FontProperties(
+                family="Microsoft YaHei" if sys.platform == "win32" else "PingFang SC",
+            )
+            self.figure = Figure(figsize=(8, 4), dpi=100, layout="constrained")
+            self.canvas = FigureCanvas(self.figure)
+            self.axis = self.figure.add_subplot(111)
+            (self.line,) = self.axis.plot([], [], color="#2f79bd", linewidth=1.25)
+            self.axis.set_xlabel("时间 (s)", fontproperties=axis_font)
+            self.axis.set_ylabel("PD 值", fontproperties=axis_font)
+            self.axis.yaxis.set_major_locator(MaxNLocator(nbins=6, min_n_ticks=4))
+            self.axis.yaxis.set_major_formatter(EngFormatter(unit="V", places=3, sep=" "))
+            self.axis.grid(True, alpha=0.25)
+            self._axis_font = axis_font
         self.canvas.setAccessibleName("PD 实时趋势图")
-        self.axis = self.figure.add_subplot(111)
-        (self.line,) = self.axis.plot([], [], color="#2f79bd", linewidth=1.25)
-        self.axis.set_xlabel("时间 (s)", fontproperties=PD_AXIS_FONT)
-        self.axis.set_ylabel("PD 值", fontproperties=PD_AXIS_FONT)
-        self.axis.yaxis.set_major_locator(MaxNLocator(nbins=6, min_n_ticks=4))
-        self.axis.yaxis.set_major_formatter(EngFormatter(unit="V", places=3, sep=" "))
-        self.axis.grid(True, alpha=0.25)
-        self._sync_plot_theme()
+        if not self.headless:
+            self._sync_plot_theme()
         live_layout.addWidget(self.canvas, 1)
         root.addWidget(live_group, 1)
 
@@ -589,7 +606,7 @@ class PdDaqPanel(QWidget):
 
     def changeEvent(self, event: QEvent) -> None:
         super().changeEvent(event)
-        if event.type() == QEvent.Type.PaletteChange and hasattr(self, "figure"):
+        if event.type() == QEvent.Type.PaletteChange and getattr(self, "figure", None) is not None:
             self._sync_plot_theme()
 
     def refresh_devices(self) -> None:
@@ -703,14 +720,18 @@ class PdDaqPanel(QWidget):
             return
         self.plot_times.clear()
         self.plot_values.clear()
-        self.line.set_data([], [])
-        self.canvas.draw_idle()
+        if self.line is not None and self.axis is not None:
+            self.line.set_data([], [])
+            self.canvas.draw_idle()
         self.current_value_label.setText("--")
         self.count_label.setText("已采样：0 点")
-        self.axis.set_ylabel("PD 值")
-        self.axis.yaxis.set_major_formatter(
-            EngFormatter(unit=settings.unit, places=3, sep=" ")
-        )
+        if self.axis is not None:
+            from matplotlib.ticker import EngFormatter
+
+            self.axis.set_ylabel("PD 值", fontproperties=self._axis_font)
+            self.axis.yaxis.set_major_formatter(
+                EngFormatter(unit=settings.unit, places=3, sep=" ")
+            )
         self._reader_failed = False
         self.reader = PdAcquisitionThread(settings, self)
         self.reader.block_ready.connect(self._on_block_ready)
@@ -756,7 +777,7 @@ class PdDaqPanel(QWidget):
             self.plot_times.popleft()
             self.plot_values.popleft()
         now = time.monotonic()
-        if now - self.last_plot_draw_s >= 0.1:
+        if now - self.last_plot_draw_s >= 0.1 and self.line is not None and self.axis is not None:
             self.line.set_data(self.plot_times, self.plot_values)
             self.axis.relim()
             self.axis.set_ylim(0.0, positive_axis_upper(self.plot_values))
@@ -811,6 +832,11 @@ class PdDaqPanel(QWidget):
                 QMessageBox.warning(self, "正在停止", "采集任务仍在安全停止，请稍后再关闭。")
                 event.ignore()
                 return
+        # Matplotlib implements draw_idle() with a zero-delay Qt callback. A
+        # panel can be closed before that callback runs, so clear the pending
+        # flag before Qt deletes the underlying canvas object.
+        if hasattr(self.canvas, "_draw_pending"):
+            self.canvas._draw_pending = False
         super().closeEvent(event)
 
 

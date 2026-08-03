@@ -1,0 +1,7 @@
+{
+  "name": "arp",
+  "private": true,
+  "scripts": {
+    "start": "npm --prefix tauri-ui start"
+  }
+}

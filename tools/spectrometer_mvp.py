@@ -88,28 +88,28 @@ class OceanSpectrometer:
             control.shutdown()
 
     def open_first(self) -> int:
-        state = self.control.find_usb_devices()
-        if state == -1:
-            raise RuntimeError("OceanDirect failed to search USB spectrometers")
+        self.control.find_usb_devices()
         device_ids = self.control.get_device_ids()
         if not device_ids:
-            raise RuntimeError("OceanDirect found 0 spectrometers. Check the Ocean Insight driver.")
+            raise RuntimeError(
+                "OceanDirect 未检测到光谱仪。请确认 OceanHR4 已连接、未被其他程序占用，"
+                "然后重新插拔 USB 后重试。"
+            )
         self.device_id = int(device_ids[0])
-        state = self.control.open_device(self.device_id)
-        if state == -1:
-            raise RuntimeError(f"Failed to open spectrometer device id {self.device_id}")
+        self.control.open_device(self.device_id)
         return self.device_id
 
     def set_integration_time(self, integration_time_us: int) -> None:
-        state = self.control.set_integration_time(integration_time_us)
-        if state == -1:
-            raise RuntimeError(f"Failed to set integration time: {integration_time_us} us")
+        self.control.set_integration_time(integration_time_us)
 
     def get_minimum_integration_time(self) -> int:
         return self.control.get_minimum_integration_time()
 
     def get_maximum_integration_time(self) -> int:
         return self.control.get_maximum_integration_time()
+
+    def get_maximum_intensity(self) -> float:
+        return float(self.control.get_maximum_intensity())
 
     def read_spectrum(self) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
         wavelength = self.control.get_wavelength()
@@ -258,6 +258,7 @@ class MainWindow(QMainWindow):
         self.fwhm_label = QLabel("FWHM: -- nm", self)
         self.lock_db_label = QLabel("Locked dB: -- nm / main -- / side -- / -- dB", self)
         for label in (self.peak_label, self.centroid_label, self.fwhm_label, self.lock_db_label):
+            label.setStyleSheet("font-size: 20px; font-weight: 600;")
             stats_row.addWidget(label)
         stats_row.addStretch(1)
 

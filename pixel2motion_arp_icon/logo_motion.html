@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ARP Icon Motion</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg: #eef0f2;
+      --surface: #f5f5f3;
+      --border: rgba(0,0,0,0.08);
+      --text-primary: #0d0d0d;
+      --text-secondary: #777;
+      --text-tertiary: #aaa;
+      --accent: #e64036;
+      --speed-progress: 9%;
+    }
+
+    html, body {
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+    }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2rem;
+      padding: 2rem;
+    }
+
+    #logo-root {
+      width: min(92vw, 358.4px);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      overflow: visible;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #logo-root svg {
+      width: 100%;
+      height: auto;
+      display: block;
+      overflow: visible;
+      text-rendering: geometricPrecision;
+    }
+
+    .atomic-motions {
+      display: flex;
+      gap: 1.5rem;
+      align-items: flex-end;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .atom {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .atom-stage {
+      width: 74px;
+      height: 74px;
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .atom-stage img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      transition: transform 260ms cubic-bezier(0.34,1.56,0.64,1);
+      transform-origin: center;
+    }
+
+    .atom-label {
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-tertiary);
+      white-space: nowrap;
+    }
+
+    .principles {
+      max-width: 760px;
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .pill {
+      font-size: 11px;
+      line-height: 1;
+      padding: 5px 10px;
+      border: 0.5px solid var(--border);
+      border-radius: 999px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+
+    .pill.active {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    button {
+      font: 12px/1.2 inherit;
+      letter-spacing: 0.04em;
+      padding: 8px 18px;
+      border: 0.5px solid var(--border);
+      border-radius: 999px;
+      background: transparent;
+      color: var(--text-primary);
+      cursor: pointer;
+    }
+
+    button.primary {
+      color: var(--bg);
+      background: var(--text-primary);
+      border-color: var(--text-primary);
+    }
+
+    .speed-control {
+      width: min(340px, 80vw);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 6px 12px;
+      border: 0.5px solid var(--border);
+      border-radius: 999px;
+      color: var(--text-secondary);
+    }
+
+    .speed-caption,
+    .speed-value {
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .speed-value {
+      min-width: 46px;
+      text-align: right;
+      color: var(--text-primary);
+      text-transform: none;
+      font-variant-numeric: tabular-nums;
+    }
+
+    input[type="range"] {
+      flex: 1;
+      min-width: 120px;
+      height: 24px;
+      appearance: none;
+      -webkit-appearance: none;
+      background: transparent;
+      cursor: grab;
+      accent-color: var(--accent);
+    }
+
+    input[type="range"]::-webkit-slider-runnable-track {
+      height: 3px;
+      border-radius: 999px;
+      background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--speed-progress), var(--border) var(--speed-progress), var(--border) 100%);
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      margin-top: -6.5px;
+      border-radius: 50%;
+      border: 2px solid var(--bg);
+      background: var(--accent);
+      box-shadow: 0 1px 6px rgba(0,0,0,0.18);
+    }
+
+    .footer {
+      font-size: 11px;
+      color: var(--text-tertiary);
+      text-align: center;
+      line-height: 1.7;
+    }
+
+    .p2m-chromeless .atomic-motions,
+    .p2m-chromeless .principles,
+    .p2m-chromeless .controls,
+    .p2m-chromeless .footer {
+      display: none;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * {
+        animation: none !important;
+        transition: none !important;
+      }
+    }
+
+    @media (prefers-reduced-motion: no-preference) {
+      :root {
+        --p2m-duration: 1500ms;
+        --p2m-ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+        --p2m-ease-settle: cubic-bezier(0.4, 0, 0.2, 1);
+        --p2m-ease-narrative: cubic-bezier(0.34, 0, 0.14, 1);
+        --p2m-squash: 0;
+        --p2m-overshoot: 1;
+      }
+
+      #logo {
+        transform-box: fill-box;
+        transform-origin: center;
+      }
+
+      #background,
+      #mark,
+      #outer-mark,
+      #stem,
+      #crossbars,
+      #target-ring,
+      #dot {
+        transform-box: fill-box;
+        transform-origin: center;
+      }
+
+      #outer-mark-path,
+      #crossbar-left,
+      #crossbar-right,
+      #ring-top,
+      #ring-bottom {
+        stroke-dasharray: 1 1;
+        stroke-dashoffset: 0;
+      }
+
+      #background {
+        animation: p2m-background var(--p2m-duration) cubic-bezier(0.4, 0, 0.2, 1) both;
+      }
+
+      #outer-mark {
+        animation: p2m-outer var(--p2m-duration) cubic-bezier(0.34, 0, 0.14, 1) both;
+      }
+
+      #outer-mark-path {
+        animation: p2m-draw var(--p2m-duration) cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+
+      #stem {
+        animation: p2m-stem var(--p2m-duration) cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+
+      #crossbars {
+        animation: p2m-crossbars var(--p2m-duration) cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+
+      #crossbar-left,
+      #crossbar-right {
+        animation: p2m-draw var(--p2m-duration) cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+
+      #target-ring {
+        animation: p2m-ring var(--p2m-duration) cubic-bezier(0.34, 0, 0.14, 1) both;
+      }
+
+      #ring-top,
+      #ring-bottom {
+        animation: p2m-draw var(--p2m-duration) cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+
+      #dot {
+        animation: p2m-dot var(--p2m-duration) cubic-bezier(0.34, 0, 0.14, 1) both;
+      }
+
+      @keyframes p2m-background {
+        0% { opacity: 0; transform: scale(0.965); }
+        16% { opacity: 1; transform: scale(0.985); }
+        100% { opacity: 1; transform: scale(1); }
+      }
+
+      @keyframes p2m-outer {
+        0% { opacity: 0; transform: translateY(10px) scale(0.975); }
+        18% { opacity: 0; transform: translateY(7px) scale(0.975); }
+        32% { opacity: 1; transform: translateY(0) scale(1); }
+        72% { opacity: 1; transform: translateY(-1px) scale(1.005); }
+        100% { opacity: 1; transform: translateY(0) scale(1); }
+      }
+
+      @keyframes p2m-draw {
+        0%, 27% { stroke-dashoffset: 1; }
+        66% { stroke-dashoffset: 0; }
+        100% { stroke-dashoffset: 0; }
+      }
+
+      @keyframes p2m-stem {
+        0%, 22% { opacity: 0; transform: translateY(10px) scaleY(0.94); }
+        45% { opacity: 1; transform: translateY(0) scaleY(1); }
+        74% { opacity: 1; transform: translateY(-1px) scaleY(1.005); }
+        100% { opacity: 1; transform: translateY(0) scaleY(1); }
+      }
+
+      @keyframes p2m-crossbars {
+        0%, 39% { opacity: 0; transform: scaleX(0.9); }
+        58% { opacity: 1; transform: scaleX(1.015); }
+        100% { opacity: 1; transform: scaleX(1); }
+      }
+
+      @keyframes p2m-ring {
+        0%, 47% { opacity: 0; transform: scale(0.95); }
+        72% { opacity: 1; transform: scale(1.012); }
+        100% { opacity: 1; transform: scale(1); }
+      }
+
+      @keyframes p2m-dot {
+        0%, 60% { opacity: 0; transform: translateY(5px) scale(0.78); }
+        76% { opacity: 1; transform: translateY(-2px) scale(1.045); }
+        88% { opacity: 1; transform: translateY(0) scale(0.985); }
+        100% { opacity: 1; transform: translateY(0) scale(1); }
+      }
+    }
+  </style>
+</head>
+<body>
+  <main id="logo-root" aria-label="Animated logo" data-p2m-duration="1500"></main>
+
+  <section class="atomic-motions" aria-label="Atomic motion studies">
+    <div class="atom" data-atom="hover"><div class="atom-stage"></div><span class="atom-label">Hover</span></div>
+    <div class="atom" data-atom="pulse"><div class="atom-stage"></div><span class="atom-label">Pulse</span></div>
+    <div class="atom" data-atom="arc"><div class="atom-stage"></div><span class="atom-label">Arc</span></div>
+    <div class="atom" data-atom="press"><div class="atom-stage"></div><span class="atom-label">Press</span></div>
+  </section>
+
+  <div class="principles" id="principlesRow">
+    <span class="pill" data-p="squashstretch">Squash &amp; stretch</span>
+    <span class="pill" data-p="anticipation">Anticipation</span>
+    <span class="pill" data-p="staging">Staging</span>
+    <span class="pill" data-p="followthrough">Follow through</span>
+    <span class="pill" data-p="overlap">Overlapping</span>
+    <span class="pill" data-p="slowinout">Slow in / out</span>
+    <span class="pill" data-p="arc">Arc</span>
+    <span class="pill" data-p="secondary">Secondary action</span>
+    <span class="pill" data-p="timing">Timing</span>
+    <span class="pill" data-p="appeal">Appeal</span>
+  </div>
+
+  <div class="controls">
+    <button class="primary" id="btnReplay" type="button">Replay</button>
+    <button id="btnSlow" type="button">Slow motion</button>
+    <label class="speed-control" for="speedSlider">
+      <span class="speed-caption">Speed</span>
+      <input id="speedSlider" type="range" min="0.25" max="2.5" step="0.05" value="0.45" aria-label="Animation speed">
+      <span class="speed-value" id="speedValue">0.45x</span>
+    </label>
+  </div>
+
+  <p class="footer">Click the main logo to replay | Drag speed | Try atomic motions</p>
+
+  <script>
+    const SVG_NS = "http://www.w3.org/2000/svg";
+    const LOGO = {"tag":"svg","attrs":{"width":"512","height":"512","viewBox":"0 0 512 512","role":"img","aria-labelledby":"title desc"},"children":[{"tag":"title","attrs":{"id":"title"},"children":[],"text":"ARP instrument icon"},{"tag":"desc","attrs":{"id":"desc"},"children":[],"text":"A cream A-shaped instrument mark with a target and orange center dot on a dark rounded square."},{"tag":"defs","attrs":{},"children":[{"tag":"linearGradient","attrs":{"id":"bg-gradient","x1":"0","y1":"0","x2":"1","y2":"1"},"children":[{"tag":"stop","attrs":{"offset":"0","stop-color":"#3f4247"},"children":[]},{"tag":"stop","attrs":{"offset":"1","stop-color":"#5b5e64"},"children":[]}]},{"tag":"radialGradient","attrs":{"id":"dot-gradient","cx":"35%","cy":"28%","r":"75%"},"children":[{"tag":"stop","attrs":{"offset":"0","stop-color":"#ffc45c"},"children":[]},{"tag":"stop","attrs":{"offset":"0.62","stop-color":"#f6a82d"},"children":[]},{"tag":"stop","attrs":{"offset":"1","stop-color":"#d98118"},"children":[]}]},{"tag":"filter","attrs":{"id":"soft-shadow","x":"-20%","y":"-20%","width":"140%","height":"150%","color-interpolation-filters":"sRGB"},"children":[{"tag":"feDropShadow","attrs":{"dx":"0","dy":"5","stdDeviation":"4","flood-color":"#11151a","flood-opacity":"0.36"},"children":[]}]},{"tag":"filter","attrs":{"id":"dot-shadow","x":"-40%","y":"-40%","width":"180%","height":"200%","color-interpolation-filters":"sRGB"},"children":[{"tag":"feDropShadow","attrs":{"dx":"0","dy":"4","stdDeviation":"3","flood-color":"#11151a","flood-opacity":"0.52"},"children":[]}]},{"tag":"clipPath","attrs":{"id":"icon-clip"},"children":[{"tag":"rect","attrs":{"x":"8","y":"8","width":"496","height":"496","rx":"70"},"children":[]}]}]},{"tag":"g","attrs":{"id":"logo"},"children":[{"tag":"g","attrs":{"id":"background"},"children":[{"tag":"rect","attrs":{"id":"background-field","x":"8","y":"8","width":"496","height":"496","rx":"70","fill":"url(#bg-gradient)"},"children":[]},{"tag":"rect","attrs":{"id":"background-edge","x":"9","y":"9","width":"494","height":"494","rx":"69","fill":"none","stroke":"#ece8e0","stroke-opacity":"0.72","stroke-width":"2"},"children":[]}]},{"tag":"g","attrs":{"id":"mark","fill":"none","stroke":"#f3ede3","stroke-linecap":"round","stroke-linejoin":"round","filter":"url(#soft-shadow)"},"children":[{"tag":"g","attrs":{"id":"outer-mark"},"children":[{"tag":"path","attrs":{"id":"outer-mark-path","pathLength":"1","d":"M116 375 L215 125 C223 104 238 91 256 91 C274 91 289 104 297 125 L396 375","stroke-width":"45"},"children":[]}]},{"tag":"g","attrs":{"id":"stem"},"children":[{"tag":"path","attrs":{"id":"stem-top","d":"M256 176 V228","stroke-width":"24","stroke-linecap":"butt"},"children":[]},{"tag":"path","attrs":{"id":"stem-bottom","d":"M256 328 V393","stroke-width":"24","stroke-linecap":"butt"},"children":[]},{"tag":"rect","attrs":{"id":"base","x":"191","y":"385","width":"130","height":"29","rx":"14.5","fill":"#f3ede3","stroke":"none"},"children":[]}]},{"tag":"g","attrs":{"id":"crossbars"},"children":[{"tag":"path","attrs":{"id":"crossbar-left","pathLength":"1","d":"M151 276 H204","stroke-width":"22"},"children":[]},{"tag":"path","attrs":{"id":"crossbar-right","pathLength":"1","d":"M308 276 H361","stroke-width":"22"},"children":[]}]},{"tag":"g","attrs":{"id":"target-ring"},"children":[{"tag":"path","attrs":{"id":"ring-top","pathLength":"1","d":"M201 276 C201 244 225 220 256 220 C287 220 311 244 311 276","stroke-width":"21"},"children":[]},{"tag":"path","attrs":{"id":"ring-bottom","pathLength":"1","d":"M311 290 C311 322 287 346 256 346 C225 346 201 322 201 290","stroke-width":"21"},"children":[]}]}]},{"tag":"g","attrs":{"id":"dot","filter":"url(#dot-shadow)"},"children":[{"tag":"circle","attrs":{"id":"dot-shadow-core","cx":"256","cy":"283","r":"22","fill":"#11151a","fill-opacity":"0.24","transform":"translate(0 3)"},"children":[]},{"tag":"circle","attrs":{"id":"dot-core","cx":"256","cy":"283","r":"21","fill":"url(#dot-gradient)"},"children":[]},{"tag":"circle","attrs":{"id":"dot-highlight","cx":"249","cy":"276","r":"6","fill":"#fff1bd","fill-opacity":"0.28"},"children":[]}]}]}]};
+    const SVG_TEXT = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"512\" height=\"512\" viewBox=\"0 0 512 512\" role=\"img\" aria-labelledby=\"title desc\"><style>:root,svg{--bg:#ffffff;--surface:#f5f5f3;--text-primary:#0d0d0d;--text-secondary:#777;--text-tertiary:#aaa;--logo-wordmark:#363e47;--accent:#e64036;--red:#e64036;--red-bright:#ff493f;}<\/style>\n  <title id=\"title\">ARP instrument icon<\/title>\n  <desc id=\"desc\">A cream A-shaped instrument mark with a target and orange center dot on a dark rounded square.<\/desc>\n  <defs>\n    <linearGradient id=\"bg-gradient\" x1=\"0\" y1=\"0\" x2=\"1\" y2=\"1\">\n      <stop offset=\"0\" stop-color=\"#3f4247\"/>\n      <stop offset=\"1\" stop-color=\"#5b5e64\"/>\n    <\/linearGradient>\n    <radialGradient id=\"dot-gradient\" cx=\"35%\" cy=\"28%\" r=\"75%\">\n      <stop offset=\"0\" stop-color=\"#ffc45c\"/>\n      <stop offset=\"0.62\" stop-color=\"#f6a82d\"/>\n      <stop offset=\"1\" stop-color=\"#d98118\"/>\n    <\/radialGradient>\n    <filter id=\"soft-shadow\" x=\"-20%\" y=\"-20%\" width=\"140%\" height=\"150%\" color-interpolation-filters=\"sRGB\">\n      <feDropShadow dx=\"0\" dy=\"5\" stdDeviation=\"4\" flood-color=\"#11151a\" flood-opacity=\"0.36\"/>\n    <\/filter>\n    <filter id=\"dot-shadow\" x=\"-40%\" y=\"-40%\" width=\"180%\" height=\"200%\" color-interpolation-filters=\"sRGB\">\n      <feDropShadow dx=\"0\" dy=\"4\" stdDeviation=\"3\" flood-color=\"#11151a\" flood-opacity=\"0.52\"/>\n    <\/filter>\n    <clipPath id=\"icon-clip\">\n      <rect x=\"8\" y=\"8\" width=\"496\" height=\"496\" rx=\"70\"/>\n    <\/clipPath>\n  <\/defs>\n\n  <g id=\"logo\">\n    <g id=\"background\">\n      <rect id=\"background-field\" x=\"8\" y=\"8\" width=\"496\" height=\"496\" rx=\"70\" fill=\"url(#bg-gradient)\"/>\n      <rect id=\"background-edge\" x=\"9\" y=\"9\" width=\"494\" height=\"494\" rx=\"69\" fill=\"none\" stroke=\"#ece8e0\" stroke-opacity=\"0.72\" stroke-width=\"2\"/>\n    <\/g>\n\n    <g id=\"mark\" fill=\"none\" stroke=\"#f3ede3\" stroke-linecap=\"round\" stroke-linejoin=\"round\" filter=\"url(#soft-shadow)\">\n      <g id=\"outer-mark\">\n        <path id=\"outer-mark-path\" pathLength=\"1\" d=\"M116 375 L215 125 C223 104 238 91 256 91 C274 91 289 104 297 125 L396 375\" stroke-width=\"45\"/>\n      <\/g>\n\n      <g id=\"stem\">\n        <path id=\"stem-top\" d=\"M256 176 V228\" stroke-width=\"24\" stroke-linecap=\"butt\"/>\n        <path id=\"stem-bottom\" d=\"M256 328 V393\" stroke-width=\"24\" stroke-linecap=\"butt\"/>\n        <rect id=\"base\" x=\"191\" y=\"385\" width=\"130\" height=\"29\" rx=\"14.5\" fill=\"#f3ede3\" stroke=\"none\"/>\n      <\/g>\n\n      <g id=\"crossbars\">\n        <path id=\"crossbar-left\" pathLength=\"1\" d=\"M151 276 H204\" stroke-width=\"22\"/>\n        <path id=\"crossbar-right\" pathLength=\"1\" d=\"M308 276 H361\" stroke-width=\"22\"/>\n      <\/g>\n\n      <g id=\"target-ring\">\n        <path id=\"ring-top\" pathLength=\"1\" d=\"M201 276 C201 244 225 220 256 220 C287 220 311 244 311 276\" stroke-width=\"21\"/>\n        <path id=\"ring-bottom\" pathLength=\"1\" d=\"M311 290 C311 322 287 346 256 346 C225 346 201 322 201 290\" stroke-width=\"21\"/>\n      <\/g>\n    <\/g>\n\n    <g id=\"dot\" filter=\"url(#dot-shadow)\">\n      <circle id=\"dot-shadow-core\" cx=\"256\" cy=\"283\" r=\"22\" fill=\"#11151a\" fill-opacity=\"0.24\" transform=\"translate(0 3)\"/>\n      <circle id=\"dot-core\" cx=\"256\" cy=\"283\" r=\"21\" fill=\"url(#dot-gradient)\"/>\n      <circle id=\"dot-highlight\" cx=\"249\" cy=\"276\" r=\"6\" fill=\"#fff1bd\" fill-opacity=\"0.28\"/>\n    <\/g>\n  <\/g>\n<\/svg>\n";
+    const SVG_URI = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(SVG_TEXT);
+    const DURATION = 1500;
+
+    let playbackRate = 0.45;
+    let pulseRaf = null;
+    let arcRaf = null;
+    window.__p2mReady = false;
+
+    function createSvgNode(node) {
+      const element = document.createElementNS(SVG_NS, node.tag);
+      for (const [name, value] of Object.entries(node.attrs || {})) {
+        element.setAttribute(name, value);
+      }
+      if (node.text) {
+        element.appendChild(document.createTextNode(node.text));
+      }
+      for (const child of node.children || []) {
+        element.appendChild(createSvgNode(child));
+      }
+      return element;
+    }
+
+    function heroAnimations() {
+      const root = document.getElementById("logo-root");
+      if (root.getAnimations) return root.getAnimations({ subtree: true });
+      return document.getAnimations().filter(animation => {
+        const target = animation.effect && animation.effect.target;
+        return target && root.contains(target);
+      });
+    }
+
+    function applyPlaybackRate() {
+      for (const animation of heroAnimations()) {
+        if (animation.updatePlaybackRate) animation.updatePlaybackRate(playbackRate);
+        else animation.playbackRate = playbackRate;
+      }
+    }
+
+    function renderHero() {
+      const root = document.getElementById("logo-root");
+      root.replaceChildren(createSvgNode(LOGO));
+      const svg = root.querySelector("svg");
+      if (svg) {
+        svg.removeAttribute("width");
+        svg.removeAttribute("height");
+        svg.style.width = "100%";
+        svg.style.height = "auto";
+        svg.style.overflow = "visible";
+      }
+      requestAnimationFrame(() => requestAnimationFrame(applyPlaybackRate));
+    }
+
+    function flashPills(...names) {
+      document.querySelectorAll(".pill").forEach(pill => pill.classList.remove("active"));
+      names.forEach(name => {
+        const pill = document.querySelector(`[data-p="${name}"]`);
+        if (pill) pill.classList.add("active");
+      });
+    }
+
+    function cyclePrinciples() {
+      const phases = [
+        ["staging", "timing"],
+        ["anticipation", "squashstretch"],
+        ["arc", "slowinout"],
+        ["overlap", "followthrough"],
+        ["appeal"]
+      ];
+      let i = 0;
+      flashPills(...phases[0]);
+      return setInterval(() => {
+        i = (i + 1) % phases.length;
+        flashPills(...phases[i]);
+      }, Math.max(240, DURATION / phases.length / Math.max(playbackRate, 0.25)));
+    }
+
+    let pillTimer = null;
+    function replayMain() {
+      clearInterval(pillTimer);
+      renderHero();
+      pillTimer = cyclePrinciples();
+      setTimeout(() => {
+        clearInterval(pillTimer);
+        document.querySelectorAll(".pill").forEach(pill => pill.classList.remove("active"));
+      }, DURATION / Math.max(playbackRate, 0.25) + 600);
+    }
+
+    function formatSpeed(rate) {
+      return `${rate.toFixed(2)}x`;
+    }
+
+    function updateSpeedUI() {
+      const slider = document.getElementById("speedSlider");
+      const value = Number(slider.value);
+      const min = Number(slider.min);
+      const max = Number(slider.max);
+      const progress = ((value - min) / (max - min)) * 100;
+      document.getElementById("speedValue").textContent = formatSpeed(value);
+      slider.style.setProperty("--speed-progress", `${progress}%`);
+      const slow = value <= 0.251;
+      const btnSlow = document.getElementById("btnSlow");
+      btnSlow.textContent = slow ? "Normal speed" : "Slow motion";
+      btnSlow.style.background = slow ? "var(--surface)" : "";
+      btnSlow.style.borderColor = slow ? "var(--text-secondary)" : "";
+    }
+
+    function setPlaybackRate(rate, replay = false) {
+      const slider = document.getElementById("speedSlider");
+      const min = Number(slider.min);
+      const max = Number(slider.max);
+      playbackRate = Math.min(max, Math.max(min, Number(rate)));
+      slider.value = String(playbackRate);
+      updateSpeedUI();
+      applyPlaybackRate();
+      if (replay) replayMain();
+    }
+
+    function setupAtomImages() {
+      document.querySelectorAll(".atom-stage").forEach(stage => {
+        const img = new Image();
+        img.src = SVG_URI;
+        img.alt = "";
+        stage.appendChild(img);
+      });
+    }
+
+    function setupAtoms() {
+      const hover = document.querySelector('[data-atom="hover"] img');
+      const pulse = document.querySelector('[data-atom="pulse"] img');
+      const arc = document.querySelector('[data-atom="arc"] img');
+      const press = document.querySelector('[data-atom="press"] img');
+
+      hover.parentElement.addEventListener("mouseenter", () => {
+        flashPills("squashstretch", "appeal");
+        hover.style.transform = "scale(1.08) rotate(-1.5deg)";
+      });
+      hover.parentElement.addEventListener("mouseleave", () => {
+        hover.style.transform = "scale(1)";
+      });
+
+      function pulseTick(ts) {
+        const p = (Math.sin(ts / 900) + 1) / 2;
+        pulse.style.transform = `scale(${1 + 0.1 * p})`;
+        pulseRaf = requestAnimationFrame(pulseTick);
+      }
+      if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        pulseRaf = requestAnimationFrame(pulseTick);
+      }
+
+      let arcAngle = -14;
+      let arcVel = 0;
+      function arcTick() {
+        arcVel += (0 - arcAngle) * 0.08;
+        arcVel *= 0.86;
+        arcAngle += arcVel;
+        arc.style.transform = `rotate(${arcAngle}deg)`;
+        arcRaf = requestAnimationFrame(arcTick);
+      }
+      arc.parentElement.addEventListener("mouseenter", () => {
+        flashPills("arc", "anticipation", "appeal");
+        cancelAnimationFrame(arcRaf);
+        arcAngle = 28;
+        arcVel = 0;
+        arcTick();
+      });
+      arc.parentElement.addEventListener("mouseleave", () => {
+        arcAngle = 0;
+      });
+
+      press.parentElement.addEventListener("mousedown", () => {
+        flashPills("squashstretch", "anticipation");
+        press.style.transform = "scaleX(1.10) scaleY(0.88)";
+      });
+      ["mouseup", "mouseleave"].forEach(ev => {
+        press.parentElement.addEventListener(ev, () => {
+          press.style.transform = "scale(1)";
+        });
+      });
+    }
+
+    function applyQaMode() {
+      const params = new URLSearchParams(location.search);
+      const seekMs = params.get("t");
+      const staticMode = params.get("static");
+      if (seekMs === null && staticMode === null) {
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          applyPlaybackRate();
+          window.__p2mReady = true;
+        }));
+        return;
+      }
+
+      document.documentElement.classList.add("p2m-chromeless");
+      cancelAnimationFrame(pulseRaf);
+      cancelAnimationFrame(arcRaf);
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        for (const animation of heroAnimations()) {
+          if (staticMode !== null) {
+            try {
+              animation.finish();
+            } catch (err) {
+              animation.cancel();
+            }
+          } else {
+            animation.pause();
+            animation.currentTime = Number(seekMs);
+          }
+        }
+        window.__p2mReady = true;
+      }));
+    }
+
+    document.getElementById("btnReplay").addEventListener("click", replayMain);
+    document.getElementById("logo-root").addEventListener("click", replayMain);
+    document.getElementById("speedSlider").addEventListener("input", event => {
+      setPlaybackRate(event.target.value, false);
+    });
+    document.getElementById("btnSlow").addEventListener("click", () => {
+      const slow = Number(document.getElementById("speedSlider").value) <= 0.251;
+      setPlaybackRate(slow ? 0.45 : 0.25, true);
+    });
+
+    setupAtomImages();
+    setupAtoms();
+    setPlaybackRate(0.45, false);
+    renderHero();
+    applyQaMode();
+  </script>
+</body>
+</html>

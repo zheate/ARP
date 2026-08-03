@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from statistics import median
 from typing import Iterable
 
+import numpy as np
 from scipy.signal import find_peaks
 
 
@@ -28,31 +29,51 @@ class SpectrumStats:
 
 
 @dataclass(frozen=True)
+class SpectrumModePeak:
+    wavelength_nm: float
+    intensity: float
+
+
+@dataclass(frozen=True)
 class SmsrResult:
     smsr_db: float
     main_wavelength_nm: float
     main_intensity: float
     side_wavelength_nm: float
     side_intensity: float
+    peaks: tuple[SpectrumModePeak, ...] = ()
 
 
 def _as_float_lists(x: Iterable[float], y: Iterable[float]) -> tuple[list[float], list[float]]:
-    x_values = [float(value) for value in x]
-    y_values = [float(value) for value in y]
+    try:
+        x_values = [float(value) for value in x]
+        y_values = [float(value) for value in y]
+    except (TypeError, ValueError, OverflowError):
+        return [], []
     if not x_values or len(x_values) != len(y_values):
         return [], []
-    pairs = [(x_value, y_value) for x_value, y_value in zip(x_values, y_values) if math.isfinite(x_value) and math.isfinite(y_value)]
-    if not pairs:
+    if not all(
+        math.isfinite(x_value) and math.isfinite(y_value)
+        for x_value, y_value in zip(x_values, y_values)
+    ):
         return [], []
-    return [item[0] for item in pairs], [item[1] for item in pairs]
+    return x_values, y_values
 
 
 def calculate_central(x: Iterable[float], y: Iterable[float]) -> float:
     x_values, y_values = _as_float_lists(x, y)
-    if not x_values:
+    if len(x_values) < 3:
         return math.nan
-    peak_index = max(range(len(y_values)), key=y_values.__getitem__)
-    return x_values[peak_index]
+    return _calculate_central_values(x_values, y_values)
+
+
+def _calculate_central_values(x_values: list[float], y_values: list[float]) -> float:
+    crossings = _absolute_half_max_crossings(x_values, y_values)
+    if crossings is None:
+        return math.nan
+    left, right = crossings
+    central = (left + right) / 2.0
+    return central if math.isfinite(central) else math.nan
 
 
 def calculate_centroid(x: Iterable[float], y: Iterable[float]) -> float:
@@ -63,33 +84,37 @@ def calculate_centroid(x: Iterable[float], y: Iterable[float]) -> float:
 
 
 def _calculate_centroid_values(x_values: list[float], y_values: list[float]) -> float:
-    peak_index = max(range(len(y_values)), key=y_values.__getitem__)
-    baseline = min(y_values)
-    peak = y_values[peak_index]
-    if peak <= baseline:
+    if not x_values or len(x_values) != len(y_values):
         return math.nan
+    x_array = np.asarray(x_values, dtype=float)
+    y_array = np.asarray(y_values, dtype=float)
+    peak_index = int(y_array.argmax())
+    move_length = 7
 
-    # A whole-spectrum centroid is dominated by broadband offset and detector
-    # noise, so its displayed value can jump even while the laser peak is
-    # visually stationary. Restrict the centroid to the contiguous dominant
-    # peak lobe and subtract its baseline before weighting.
-    threshold = baseline + (peak - baseline) * 0.1
-    left = peak_index
-    while left > 0 and y_values[left - 1] >= threshold:
-        left -= 1
-    right = peak_index
-    while right < len(y_values) - 1 and y_values[right + 1] >= threshold:
-        right += 1
+    left_index = 0
+    for index in range(peak_index - move_length + 1):
+        if float(np.std(y_array[index : index + move_length])) > 200.0:
+            break
+        left_index = index
 
-    weighted_sum = 0.0
-    weight_total = 0.0
-    for index in range(left, right + 1):
-        weight = max(0.0, y_values[index] - baseline)
-        weighted_sum += x_values[index] * weight
-        weight_total += weight
-    if weight_total <= 0.0:
+    right_index = len(y_values) - 1
+    for index in range(len(y_values), peak_index + move_length, -1):
+        if float(np.std(y_array[index - move_length : index])) > 200.0:
+            break
+        # The compiled scripts_runner implementation keeps the final sample
+        # inside the quiet window, which is one position before its scan cursor.
+        right_index = index - 1
+
+    if not (0 <= left_index <= peak_index <= right_index < len(y_values)):
         return math.nan
-    return weighted_sum / weight_total
+    noise = (y_array[left_index] + y_array[right_index]) / 2.0
+    centroid_x = x_array[left_index : right_index + 1]
+    centroid_y = y_array[left_index : right_index + 1] - noise
+    weight_total = float(centroid_y.sum())
+    if not math.isfinite(weight_total) or abs(weight_total) < 0.01:
+        return math.nan
+    centroid = float((centroid_x * centroid_y).sum() / weight_total)
+    return centroid if math.isfinite(centroid) else math.nan
 
 
 def calculate_fwhm(x: Iterable[float], y: Iterable[float]) -> float:
@@ -102,37 +127,65 @@ def calculate_fwhm(x: Iterable[float], y: Iterable[float]) -> float:
 def _calculate_fwhm_values(x_values: list[float], y_values: list[float]) -> float:
     if len(x_values) < 3:
         return math.nan
-
-    peak_index = max(range(len(y_values)), key=y_values.__getitem__)
-    peak = y_values[peak_index]
-    baseline = min(y_values)
-    if peak <= baseline:
+    crossings = _absolute_half_max_crossings(x_values, y_values)
+    if crossings is None:
         return math.nan
-    half = baseline + (peak - baseline) / 2.0
+    left, right = crossings
+    fwhm = right - left
+    return fwhm if math.isfinite(fwhm) else math.nan
 
-    left = _interpolate_crossing(x_values, y_values, peak_index, -1, half)
-    right = _interpolate_crossing(x_values, y_values, peak_index, 1, half)
+
+def _absolute_half_max_crossings(
+    x_values: list[float],
+    y_values: list[float],
+) -> tuple[float, float] | None:
+    if len(x_values) < 3 or len(x_values) != len(y_values):
+        return None
+    half_maximum = max(y_values) / 2.0
+    crossing_indices = [
+        index
+        for index in range(len(y_values) - 1)
+        if (y_values[index] - half_maximum)
+        * (y_values[index + 1] - half_maximum)
+        <= 0.0
+    ]
+    if len(crossing_indices) < 2:
+        return None
+    left = _legacy_linear_crossing(
+        x_values,
+        y_values,
+        crossing_indices[0],
+        half_maximum,
+    )
+    right = _legacy_linear_crossing(
+        x_values,
+        y_values,
+        crossing_indices[-1],
+        half_maximum,
+    )
     if left is None or right is None:
-        return math.nan
-    return abs(right - left)
+        return None
+    return left, right
 
 
-def _interpolate_crossing(x_values: list[float], y_values: list[float], start: int, step: int, target: float) -> float | None:
-    previous_index = start
-    index = start + step
-    while 0 <= index < len(y_values):
-        previous_y = y_values[previous_index]
-        y = y_values[index]
-        if (previous_y >= target and y <= target) or (previous_y <= target and y >= target):
-            previous_x = x_values[previous_index]
-            x = x_values[index]
-            if y == previous_y:
-                return x
-            fraction = (target - previous_y) / (y - previous_y)
-            return previous_x + fraction * (x - previous_x)
-        previous_index = index
-        index += step
-    return None
+def _legacy_linear_crossing(
+    x_values: list[float],
+    y_values: list[float],
+    left_index: int,
+    target: float,
+) -> float | None:
+    x1 = x_values[left_index]
+    x2 = x_values[left_index + 1]
+    y1 = y_values[left_index]
+    y2 = y_values[left_index + 1]
+    if x2 == x1 or y2 == y1:
+        return None
+    slope = (y2 - y1) / (x2 - x1)
+    if not math.isfinite(slope) or slope == 0.0:
+        return None
+    intercept = y1 - slope * x1
+    crossing = (target - intercept) / slope
+    return crossing if math.isfinite(crossing) else None
 
 
 def calculate_stats(wavelength: Iterable[float], intensity: Iterable[float]) -> SpectrumStats:
@@ -142,7 +195,7 @@ def calculate_stats(wavelength: Iterable[float], intensity: Iterable[float]) -> 
 
     peak_index = max(range(len(intensity_values)), key=intensity_values.__getitem__)
     return SpectrumStats(
-        peak_wavelength_nm=wavelength_values[peak_index],
+        peak_wavelength_nm=_calculate_central_values(wavelength_values, intensity_values),
         peak_intensity=intensity_values[peak_index],
         centroid_nm=_calculate_centroid_values(wavelength_values, intensity_values),
         fwhm_nm=_calculate_fwhm_values(wavelength_values, intensity_values),
@@ -280,7 +333,7 @@ def calculate_smsr(
         return empty
 
     points = sorted(
-        (wavelength_nm, max(0.0, value))
+        (wavelength_nm, value)
         for wavelength_nm, value in zip(wavelength_values, intensity_values)
         if analysis_lower_nm <= wavelength_nm <= analysis_upper_nm
     )
@@ -288,7 +341,7 @@ def calculate_smsr(
         return empty
     analysis_wavelength = [point[0] for point in points]
     analysis_intensity = [point[1] for point in points]
-    baseline = min(analysis_intensity)
+    baseline = median(analysis_intensity)
     corrected_intensity = [max(0.0, value - baseline) for value in analysis_intensity]
     maximum_intensity = max(corrected_intensity)
     if maximum_intensity <= 0.0:
@@ -297,7 +350,9 @@ def calculate_smsr(
     # Use a robust estimate of the background spread. A fixed percentage of
     # the main peak would incorrectly discard otherwise valid high-SMSR side
     # modes (for example a side mode 40 dB below the main mode).
-    noise_sigma = 1.4826 * median(abs(value - baseline) for value in analysis_intensity)
+    noise_sigma = 1.4826 * median(
+        abs(value - baseline) for value in analysis_intensity
+    )
     numerical_floor = max(math.ulp(maximum_intensity) * 10.0, 1e-12)
     significance_threshold = max(noise_sigma * noise_sigma_multiplier, numerical_floor)
 
@@ -318,26 +373,37 @@ def calculate_smsr(
         prominence=significance_threshold,
         width=minimum_peak_width_samples,
     )
-    if len(peak_indices) < 2:
+    if len(peak_indices) < 1:
         return empty
 
     ordered_peaks = sorted(peak_indices, key=lambda index: corrected_intensity[index], reverse=True)
     main_index = int(ordered_peaks[0])
-    main_fwhm_nm = _calculate_fwhm_values(analysis_wavelength, corrected_intensity)
-    main_lobe_exclusion_nm = minimum_peak_distance_nm
-    if math.isfinite(main_fwhm_nm):
-        main_lobe_exclusion_nm = max(main_lobe_exclusion_nm, main_fwhm_nm)
     side_candidates = [
         int(index)
         for index in ordered_peaks[1:]
         if abs(analysis_wavelength[int(index)] - analysis_wavelength[main_index])
-        >= main_lobe_exclusion_nm
+        >= minimum_peak_distance_nm
     ]
+    trusted_indices = [main_index, *side_candidates]
+    trusted_peaks = tuple(
+        SpectrumModePeak(
+            wavelength_nm=analysis_wavelength[index],
+            intensity=corrected_intensity[index],
+        )
+        for index in trusted_indices
+    )
+    main_intensity = corrected_intensity[main_index]
     if not side_candidates:
-        return empty
+        return SmsrResult(
+            smsr_db=math.nan,
+            main_wavelength_nm=analysis_wavelength[main_index],
+            main_intensity=main_intensity,
+            side_wavelength_nm=math.nan,
+            side_intensity=math.nan,
+            peaks=trusted_peaks,
+        )
 
     side_index = side_candidates[0]
-    main_intensity = corrected_intensity[main_index]
     side_intensity = corrected_intensity[side_index]
     if main_intensity <= 0.0 or side_intensity <= 0.0:
         return empty
@@ -347,4 +413,5 @@ def calculate_smsr(
         main_intensity=main_intensity,
         side_wavelength_nm=analysis_wavelength[side_index],
         side_intensity=side_intensity,
+        peaks=trusted_peaks,
     )

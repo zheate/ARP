@@ -5,11 +5,88 @@ from combined_test.automation import (
     AutomaticTestOrchestrator,
     AutomaticTestSettings,
     AutomaticTestState,
+    PowerDropProtectionDetector,
     build_ramp_down_currents,
-    build_ramp_up_currents,
     build_test_currents,
     validate_automatic_test_settings,
 )
+
+
+class PowerDropProtectionDetectorTests(unittest.TestCase):
+    def test_protection_waits_until_five_second_window_is_covered(self) -> None:
+        detector = PowerDropProtectionDetector()
+
+        self.assertFalse(detector.observe(100.0, 0.0).triggered)
+        self.assertFalse(detector.observe(60.0, 4.99).triggered)
+        self.assertIsNone(detector.reference_power_w)
+
+    def test_drop_must_exceed_thirty_percent_for_three_consecutive_samples(self) -> None:
+        detector = PowerDropProtectionDetector()
+        detector.observe(100.0, 0.0)
+
+        self.assertFalse(detector.observe(70.0, 5.0).triggered)
+        self.assertFalse(detector.observe(69.9, 5.1).triggered)
+        self.assertFalse(detector.observe(69.8, 5.2).triggered)
+        result = detector.observe(69.7, 5.3)
+
+        self.assertTrue(result.triggered)
+        self.assertEqual(result.reference_power_w, 100.0)
+        self.assertAlmostEqual(result.drop_w, 30.3)
+        self.assertAlmostEqual(result.threshold_w, 30.0)
+        self.assertEqual(result.confirmation_count, 3)
+        self.assertEqual(result.confirmation_samples_w, (69.9, 69.8, 69.7))
+        self.assertFalse(detector.observe(60.0, 5.4).triggered)
+
+    def test_single_low_sample_does_not_trip_and_normal_sample_resets_confirmation(self) -> None:
+        detector = PowerDropProtectionDetector()
+        detector.observe(100.0, 0.0)
+
+        first_drop = detector.observe(60.0, 5.1)
+        recovered = detector.observe(95.0, 5.2)
+        next_drop = detector.observe(60.0, 5.3)
+
+        self.assertFalse(first_drop.triggered)
+        self.assertEqual(first_drop.confirmation_count, 1)
+        self.assertFalse(recovered.triggered)
+        self.assertEqual(recovered.confirmation_count, 0)
+        self.assertFalse(next_drop.triggered)
+        self.assertEqual(next_drop.confirmation_count, 1)
+
+    def test_brief_high_sample_is_not_used_as_the_reference(self) -> None:
+        detector = PowerDropProtectionDetector()
+        detector.observe(100.0, 0.0)
+        detector.observe(200.0, 2.0)
+
+        result = detector.observe(90.0, 5.0)
+
+        self.assertFalse(result.triggered)
+        self.assertEqual(result.reference_power_w, 100.0)
+        self.assertAlmostEqual(result.drop_w, 10.0)
+
+    def test_rolling_window_advances_and_reset_clears_history(self) -> None:
+        detector = PowerDropProtectionDetector()
+        detector.observe(100.0, 0.0)
+        detector.observe(110.0, 5.0)
+        detector.observe(200.0, 6.0)
+
+        result = detector.observe(150.0, 11.0)
+        self.assertFalse(result.triggered)
+        self.assertEqual(result.reference_power_w, 200.0)
+        detector.reset()
+
+        self.assertIsNone(detector.reference_power_w)
+        self.assertFalse(detector.observe(0.0, 12.0).triggered)
+
+    def test_drop_to_zero_is_protected_at_very_low_power(self) -> None:
+        detector = PowerDropProtectionDetector()
+        detector.observe(0.05, 0.0)
+
+        self.assertFalse(detector.observe(0.0, 5.0).triggered)
+        self.assertFalse(detector.observe(0.0, 5.1).triggered)
+        result = detector.observe(0.0, 5.2)
+
+        self.assertTrue(result.triggered)
+        self.assertAlmostEqual(result.threshold_w, 0.015)
 
 
 class AutomaticCurrentSequenceTests(unittest.TestCase):
@@ -36,10 +113,6 @@ class AutomaticCurrentSequenceTests(unittest.TestCase):
         self.assertEqual(build_ramp_down_currents(20.0, 5.0), (15.0, 10.0, 5.0, 0.0))
         self.assertEqual(build_ramp_down_currents(12.0, 5.0), (7.0, 2.0, 0.0))
 
-    def test_ramp_up_inserts_one_amp_safety_steps_and_includes_target(self) -> None:
-        self.assertEqual(build_ramp_up_currents(0.0, 3.5), (1.0, 2.0, 3.0, 3.5))
-        self.assertEqual(build_ramp_up_currents(3.0, 3.0), ())
-
     def test_tdk_sequences_have_no_software_current_ceiling(self) -> None:
         settings = AutomaticTestSettings(
             initial_current_a=25.0,
@@ -50,10 +123,6 @@ class AutomaticCurrentSequenceTests(unittest.TestCase):
         )
 
         self.assertEqual(build_test_currents(settings), (25.0, 27.0, 29.0, 30.0))
-        self.assertEqual(
-            build_ramp_up_currents(20.0, 23.0, maximum_current_a=None),
-            (21.0, 22.0, 23.0),
-        )
         self.assertEqual(
             build_ramp_down_currents(30.0, 7.0, maximum_current_a=None),
             (23.0, 16.0, 9.0, 2.0, 0.0),

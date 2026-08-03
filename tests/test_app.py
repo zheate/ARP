@@ -8,6 +8,7 @@ import types
 import unittest
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import patch
 
 from PySide6.QtCore import QEvent, QSettings, Qt
 from PySide6.QtGui import QCloseEvent
@@ -34,6 +35,7 @@ from combined_test.models import (
     PowerMeterReading,
     PowerMeterSettings,
     SpectrometerOption,
+    SpectrumPeakAnnotation,
     SpectrometerReading,
     SpectrometerSettings,
 )
@@ -94,7 +96,7 @@ class MainWindowTests(unittest.TestCase):
         window.stable_power_points[10.0] = 80.0
         queued_points: list[tuple[float, float, float, float]] = []
         window.queue_excel_test_point = (  # type: ignore[method-assign]
-            lambda current, voltage, power, efficiency: queued_points.append(
+            lambda current, voltage, power, efficiency, **_kwargs: queued_points.append(
                 (current, voltage, power, efficiency)
             )
             or False
@@ -140,6 +142,11 @@ class MainWindowTests(unittest.TestCase):
             "其他程序占用",
             combined_test_window.user_facing_error_message("Access is denied"),
         )
+        ocean_error = combined_test_window.user_facing_error_message(
+            "OceanDirect open_device(2) failed, errcode 7: device busy"
+        )
+        self.assertIn("光谱仪驱动操作失败", ocean_error)
+        self.assertIn("errcode 7", ocean_error)
 
     def test_power_meter_error_popup_uses_translated_message(self) -> None:
         app = QApplication.instance() or QApplication([])
@@ -245,8 +252,6 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertFalse(window.start_automatic_test_button.isEnabled())
         self.assertIn("SN", window.preflight_blocker_label.text())
-        self.assertEqual(window.preflight_labels["sn"].property("checklistState"), "error")
-        self.assertEqual(window.preflight_blocker_label.property("checklistState"), "error")
 
         class ConnectedController:
             is_connected = True
@@ -257,8 +262,6 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertFalse(window.start_automatic_test_button.isEnabled())
         self.assertIn("测试站别", window.preflight_blocker_label.text())
-        self.assertEqual(window.preflight_labels["sn"].property("checklistState"), "ready")
-        self.assertEqual(window.preflight_labels["station"].property("checklistState"), "error")
 
         window.test_station_field.setText("老化站 1")
         window.refresh_preflight_checklist()
@@ -266,8 +269,6 @@ class MainWindowTests(unittest.TestCase):
         self.assertTrue(window.start_automatic_test_button.isEnabled())
         self.assertIn("配置已完成", window.preflight_blocker_label.text())
         self.assertIn("共 20 点", window.preflight_sequence_label.text())
-        self.assertEqual(window.preflight_labels["station"].property("checklistState"), "ready")
-        self.assertEqual(window.preflight_blocker_label.property("checklistState"), "ready")
         window.manual_ch341_controller = None
         window.close()
 
@@ -344,8 +345,14 @@ class MainWindowTests(unittest.TestCase):
                 return True, "OK"
 
         class ReaderStub:
+            def __init__(self) -> None:
+                self.fixed_integration_times: list[int] = []
+
             def reset_stability_window(self) -> int:
                 return 1
+
+            def use_fixed_integration_time(self, integration_time_us: int) -> None:
+                self.fixed_integration_times.append(integration_time_us)
 
             def stop(self) -> None:
                 pass
@@ -358,15 +365,25 @@ class MainWindowTests(unittest.TestCase):
             controller = FakeController()
             window.manual_ch341_controller = controller
             window.power_meter_reader = ReaderStub()  # type: ignore[assignment]
-            window.spectrometer_reader = ReaderStub()  # type: ignore[assignment]
+            spectrum_reader = ReaderStub()
+            window.spectrometer_reader = spectrum_reader  # type: ignore[assignment]
+            window.integration_spin.setValue(25_000)
+            window.auto_integration_check.setChecked(True)
             window.sn_field.setText("AUTO-001")
             window.test_station_field.setText("老化站 1")
             window.output_dir_field.setText(temp_dir)
 
             window.start_automatic_test()
 
+            self.assertFalse(window.auto_integration_check.isChecked())
+            self.assertEqual(spectrum_reader.fixed_integration_times, [25_000])
             self.assertEqual(window.automatic_test_state, AutomaticTestState.STARTING)
             self.assertIsNotNone(window.excel_workbook_path)
+            self.assertIsNotNone(window.record_store.current_session)
+            self.assertEqual(
+                window.excel_workbook_path,
+                window.record_store.current_session.workbook_path,
+            )
             self.assertEqual(
                 window.excel_workbook_path.parent,
                 Path(temp_dir) / "AUTO-001" / "老化站 1",
@@ -546,8 +563,10 @@ class MainWindowTests(unittest.TestCase):
         app = QApplication.instance() or QApplication([])
         with tempfile.TemporaryDirectory() as temp_dir:
             window = MainWindow(QSettings(str(Path(temp_dir) / "inputs.ini"), QSettings.Format.IniFormat))
-            window.excel_workbook_path = Path(temp_dir) / "SN001_2026_07_10_14_30_25.xlsx"
-            window.test_session_station = "老化站 1"
+            window.sn_field.setText("SN001")
+            window.test_station_field.setText("老化站 1")
+            window.output_dir_field.setText(temp_dir)
+            window.begin_test_session()
             window.latest_spectrum_wavelength = [974.0, 975.0, 976.0, 977.0, 978.0]
             window.latest_spectrum_intensity = [0.0, 5000.0, 10000.0, 5000.0, 0.0]
 
@@ -570,7 +589,10 @@ class MainWindowTests(unittest.TestCase):
         app = QApplication.instance() or QApplication([])
         with tempfile.TemporaryDirectory() as temp_dir:
             window = MainWindow(QSettings(str(Path(temp_dir) / "inputs.ini"), QSettings.Format.IniFormat))
-            window.excel_workbook_path = Path(temp_dir) / "AUTO_2026_07_11_12_00_00.xlsx"
+            window.sn_field.setText("AUTO")
+            window.test_station_field.setText("老化站 1")
+            window.output_dir_field.setText(temp_dir)
+            window.begin_test_session(require_station=True)
             window.latest_spectrum_wavelength = [974.0, 975.0, 976.0, 977.0, 978.0]
             window.latest_spectrum_intensity = [0.0, 5000.0, 10000.0, 5000.0, 0.0]
             window.active_output_current_a = 3.0
@@ -584,6 +606,7 @@ class MainWindowTests(unittest.TestCase):
             self.assertEqual(window.automatic_test_state, AutomaticTestState.SAVING_POINT)
             self.assertIsNotNone(window.excel_save_thread)
             self.assertTrue(window.excel_save_thread.wait(5000))
+            self.assertFalse((Path(temp_dir) / "index.sqlite3").exists())
             window.automatic_test_state = AutomaticTestState.IDLE
             window.close()
 
@@ -616,6 +639,7 @@ class MainWindowTests(unittest.TestCase):
         window.manual_ch341_controller = FakeController()
         window.power_meter_reader = ReaderStub()  # type: ignore[assignment]
         window.pending_excel_records[3.0] = record
+        window.excel_recorded_currents.add(3.0)
         window.excel_save_thread = types.SimpleNamespace(records=[record], path=Path("auto.xlsx"))  # type: ignore[assignment]
         window.automatic_test_state = AutomaticTestState.SAVING_POINT
         window.automatic_test_currents = (3.0, 4.0)
@@ -664,6 +688,7 @@ class MainWindowTests(unittest.TestCase):
         controller = FakeController()
         window.manual_ch341_controller = controller
         window.pending_excel_records[20.0] = record
+        window.excel_recorded_currents.add(20.0)
         window.excel_save_thread = types.SimpleNamespace(records=[record], path=Path("auto.xlsx"))  # type: ignore[assignment]
         window.automatic_test_state = AutomaticTestState.SAVING_POINT
         window.automatic_test_currents = (20.0,)
@@ -1222,7 +1247,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertGreaterEqual(window.central_shell.layout().indexOf(window.main_tabs), 0)
         self.assertEqual(
             [window.main_tabs.tabText(index) for index in range(window.main_tabs.count())],
-            ["自动测试", "手动调试", "当前记录", "PD 采集"],
+            ["自动测试", "手动调试", "PD 采集"],
         )
         self.assertEqual(window.main_tabs.currentIndex(), window.automatic_tab_index)
         self.assertEqual(window.automatic_stack.count(), 3)
@@ -1233,14 +1258,21 @@ class MainWindowTests(unittest.TestCase):
         self.assertTrue(hasattr(window, "monitor_panel"))
         window.close()
 
-    def test_main_window_uses_native_tab_navigation(self) -> None:
+    def test_main_window_uses_left_navigation_while_retaining_internal_tabs(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
 
-        self.assertFalse(window.main_tabs.tabBar().isHidden())
-        window.main_tabs.setCurrentIndex(window.manual_tab_index)
+        self.assertTrue(window.main_tabs.tabBar().isHidden())
+        self.assertEqual(window.navigation_panel.minimumWidth(), 148)
+        self.assertEqual(window.navigation_panel.maximumWidth(), 148)
+        self.assertEqual(
+            [button.text() for button in window.navigation_buttons.values()],
+            ["自动测试", "手动调试", "PD 采集"],
+        )
+
+        window.navigation_buttons[window.manual_tab_index].click()
         self.assertEqual(window.main_tabs.currentIndex(), window.manual_tab_index)
-        self.assertFalse(hasattr(window, "navigation_panel"))
+        self.assertEqual(window.page_title_label.text(), "手动调试")
         window.close()
 
     def test_prepare_page_owns_routine_device_selection_without_tab_jump(self) -> None:
@@ -1388,14 +1420,15 @@ class MainWindowTests(unittest.TestCase):
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
 
-        self.assertEqual(window.global_psu_status_indicator.text(), "○")
-        self.assertEqual(window.global_power_meter_status_indicator.text(), "○")
-        self.assertEqual(window.global_spectrometer_status_indicator.text(), "○")
+        semantic = combined_test_window.semantic_colors_for_palette(window.palette())
+        self.assertIn(semantic.secondary_text, window.global_psu_status_indicator.styleSheet())
+        self.assertIn(semantic.secondary_text, window.global_power_meter_status_indicator.styleSheet())
+        self.assertIn(semantic.secondary_text, window.global_spectrometer_status_indicator.styleSheet())
 
         window.automatic_test_state = AutomaticTestState.PAUSED
         window.active_output_current_a = 6.0
         window.update_global_status()
-        self.assertEqual(window.global_psu_status_indicator.text(), "!")
+        self.assertIn(semantic.error_text, window.global_psu_status_indicator.styleSheet())
         self.assertIn("最近输出 6.0 A", window.global_psu_status_label.text())
         window.automatic_test_state = AutomaticTestState.IDLE
         window.active_output_current_a = None
@@ -1411,42 +1444,24 @@ class MainWindowTests(unittest.TestCase):
         window.spectrometer_reader = ReadyReader()  # type: ignore[assignment]
         window.update_global_status()
 
-        self.assertEqual(window.global_psu_status_indicator.text(), "√")
-        self.assertEqual(window.global_power_meter_status_indicator.text(), "√")
-        self.assertEqual(window.global_spectrometer_status_indicator.text(), "√")
+        self.assertIn(semantic.success_text, window.global_psu_status_indicator.styleSheet())
+        self.assertIn(semantic.success_text, window.global_power_meter_status_indicator.styleSheet())
+        self.assertIn(semantic.success_text, window.global_spectrometer_status_indicator.styleSheet())
         object.__setattr__(window.automatic_controller, "_output_shutdown_unconfirmed", True)
         window.active_output_current_a = 0.0
         window.update_global_status()
-        self.assertEqual(window.global_psu_status_indicator.text(), "!")
+        self.assertIn(semantic.error_text, window.global_psu_status_indicator.styleSheet())
         self.assertIn("输出状态未确认", window.global_psu_status_label.text())
         object.__setattr__(window.automatic_controller, "_output_shutdown_unconfirmed", False)
         window._power_meter_fault_message = "VISA timeout"
         window._spectrometer_fault_message = "USB disconnected"
         window.update_global_status()
-        self.assertEqual(window.global_power_meter_status_indicator.text(), "!")
-        self.assertEqual(window.global_spectrometer_status_indicator.text(), "!")
+        self.assertIn(semantic.error_text, window.global_power_meter_status_indicator.styleSheet())
+        self.assertIn(semantic.error_text, window.global_spectrometer_status_indicator.styleSheet())
         self.assertEqual(window.global_power_meter_status_label.text(), "功率计：故障")
         self.assertEqual(window.global_spectrometer_status_label.text(), "光谱仪：故障")
         window.power_meter_reader = None
         window.spectrometer_reader = None
-        window.close()
-
-    def test_native_status_symbols_are_not_clipped(self) -> None:
-        app = QApplication.instance() or QApplication([])
-        window = MainWindow()
-        window.show()
-        app.processEvents()
-
-        for indicator in (
-            window.global_psu_status_indicator,
-            window.global_power_meter_status_indicator,
-            window.global_spectrometer_status_indicator,
-            window.i2c_status_indicator,
-            window.tdk_output_status_indicator,
-        ):
-            with self.subTest(indicator=indicator.accessibleName()):
-                self.assertGreaterEqual(indicator.width(), indicator.fontMetrics().horizontalAdvance(indicator.text()))
-                self.assertGreaterEqual(indicator.height(), indicator.fontMetrics().height())
         window.close()
 
     def test_log_shows_only_the_latest_line(self) -> None:
@@ -1579,7 +1594,6 @@ class MainWindowTests(unittest.TestCase):
                     window.return_to_prepare_button,
                 ),
             ),
-            (window.records_page, (window.records_empty_state,)),
             (
                 window.pd_panel,
                 (
@@ -1596,8 +1610,6 @@ class MainWindowTests(unittest.TestCase):
             if page in (window.automatic_run_page, window.automatic_result_page):
                 window.main_tabs.setCurrentIndex(window.automatic_tab_index)
                 window.automatic_stack.setCurrentWidget(page)
-            elif page is window.records_page:
-                window.main_tabs.setCurrentIndex(window.records_tab_index)
             else:
                 window.main_tabs.setCurrentIndex(window.pd_tab_index)
             app.processEvents()
@@ -1629,6 +1641,8 @@ class MainWindowTests(unittest.TestCase):
 
         expected_order = (
             window.sn_field,
+            window.product_model_field,
+            window.batch_field,
             window.test_station_field,
             window.output_dir_field,
             window.browse_button,
@@ -1651,31 +1665,22 @@ class MainWindowTests(unittest.TestCase):
             self.assertTrue(candidate is following or following.isAncestorOf(candidate))
         window.close()
 
-    def test_native_status_row_shows_the_idle_state_once(self) -> None:
+    def test_idle_header_does_not_repeat_a_standby_status(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
         window.show()
         app.processEvents()
 
-        self.assertEqual(window.global_status_label.text(), "测试待机")
-        self.assertFalse(window.global_status_label.isHidden())
+        self.assertEqual(window.global_status_label.text(), "")
+        self.assertTrue(window.global_status_label.isHidden())
         visible_header_texts = {
             label.text() for label in window.page_header.findChildren(QLabel) if label.isVisible()
         }
-        self.assertIn("测试待机", visible_header_texts)
+        self.assertNotIn("测试待机", visible_header_texts)
         self.assertNotIn("准备测试", visible_header_texts)
         window.close()
 
-    def test_records_page_exposes_a_clear_empty_state(self) -> None:
-        app = QApplication.instance() or QApplication([])
-        window = MainWindow()
-
-        self.assertEqual(window.records_empty_title.text(), "还没有测试记录")
-        self.assertFalse(window.records_empty_state.isHidden())
-        self.assertTrue(window.records_session_panel.isHidden())
-        window.close()
-
-    def test_task_and_record_controls_follow_their_workflow_modes(self) -> None:
+    def test_task_controls_follow_their_workflow_modes(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
         task_form = self._group(window, "1. 测试任务").layout()
@@ -1688,31 +1693,20 @@ class MainWindowTests(unittest.TestCase):
         ):
             self._form_row_containing_widget(task_form, widget)
 
-        self.assertTrue(window.records_page.isAncestorOf(window.save_excel_button))
-        self.assertTrue(window.records_page.isAncestorOf(window.records_open_button))
-        self.assertLess(window.records_tab_index, window.pd_tab_index)
+        self.assertFalse(hasattr(window, "records_page"))
+        self.assertTrue(window.save_excel_button.isHidden())
         self.assertTrue(window.manual_page.isAncestorOf(self._group(window, "电源")))
         window.close()
 
-    def test_buttons_keep_the_native_style(self) -> None:
+    def test_button_roles_use_native_default_and_one_destructive_color(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
 
         self.assertTrue(window.start_automatic_test_button.isDefault())
         self.assertFalse(hasattr(window, "start_all_button"))
-        for button in (
-            window.stop_all_button,
-            window.stop_power_meter_button,
-            window.stop_spectrometer_button,
-            window.apply_current_button,
-            window.connect_i2c_button,
-            window.detect_power_meter_button,
-            window.start_power_meter_button,
-            window.detect_spectrometer_button,
-            window.start_spectrometer_button,
-            window.save_excel_button,
-        ):
-            self.assertEqual(button.styleSheet(), "")
+        self.assertEqual(window.stop_all_button.styleSheet(), window.stop_power_meter_button.styleSheet())
+        self.assertEqual(window.stop_all_button.styleSheet(), window.stop_spectrometer_button.styleSheet())
+        self.assertIn("color:", window.stop_all_button.styleSheet())
         for button in (
             window.apply_current_button,
             window.connect_i2c_button,
@@ -1720,7 +1714,6 @@ class MainWindowTests(unittest.TestCase):
             window.start_power_meter_button,
             window.detect_spectrometer_button,
             window.start_spectrometer_button,
-            window.save_excel_button,
         ):
             self.assertGreaterEqual(button.minimumHeight(), 28)
         window.close()
@@ -1826,8 +1819,8 @@ class MainWindowTests(unittest.TestCase):
             self.assertFalse(dialog.isModal())
             self.assertFalse(window.manual_scroll_content.isAncestorOf(content))
             self.assertTrue(dialog.isAncestorOf(content))
-            self.assertEqual(button.font().toString(), app.font().toString())
-            self.assertEqual(dialog.font().toString(), app.font().toString())
+            self.assertEqual(button.font().pointSizeF(), 9.0)
+            self.assertEqual(dialog.font().pointSizeF(), 10.0)
             self.assertEqual(
                 group.sizePolicy().verticalPolicy(),
                 QSizePolicy.Policy.Maximum,
@@ -1872,7 +1865,7 @@ class MainWindowTests(unittest.TestCase):
             )
         window.close()
 
-    def test_manual_tdk_power_card_stays_compact_and_uses_native_font(self) -> None:
+    def test_manual_tdk_power_card_stays_compact_and_uses_body_font(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
         window.main_tabs.setCurrentIndex(window.manual_tab_index)
@@ -1883,7 +1876,7 @@ class MainWindowTests(unittest.TestCase):
         window.show()
         app.processEvents()
 
-        self.assertEqual(window.manual_page.font().toString(), app.font().toString())
+        self.assertEqual(window.manual_page.font().pointSizeF(), 10.0)
         self.assertEqual(
             window.power_supply_group.sizePolicy().verticalPolicy(),
             QSizePolicy.Policy.Maximum,
@@ -2011,7 +2004,7 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(tuple(window.power_curve_axis.get_xlim()), (0.0, 10.0))
         self.assertEqual(tuple(window.power_curve_axis.get_ylim()), (-0.01, 0.01))
         self.assertEqual(tuple(window.spectrum_curve_axis.get_xlim()), (0.0, 1.0))
-        self.assertEqual(tuple(window.spectrum_curve_axis.get_ylim()), (0.0, 1.0))
+        self.assertEqual(tuple(window.spectrum_curve_axis.get_ylim()), (0.0, 1000.0))
         self.assertEqual(window.power_curve_axis.get_title(), "")
         self.assertEqual(window.stable_power_axis.get_title(), "")
         self.assertEqual(window.spectrum_curve_axis.get_title(), "")
@@ -2111,7 +2104,7 @@ class MainWindowTests(unittest.TestCase):
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
         wavelength = [973.0, 973.5, 974.0, 974.5, 975.0]
-        saturated_intensity = [0.0, 16000.0, 16020.0, 16010.0, 0.0]
+        saturated_intensity = [0.0, 64_000.0, 64_000.0, 64_000.0, 0.0]
 
         window.on_spectrum_curve(wavelength, saturated_intensity)
         window.on_spectrometer_reading(SpectrometerReading(974.0, 974.0, 1.0))
@@ -2146,16 +2139,21 @@ class MainWindowTests(unittest.TestCase):
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
         window.latest_spectrum_wavelength = [973.0, 973.5, 974.0, 974.5, 975.0]
-        window.latest_spectrum_intensity = [0.0, 16000.0, 16020.0, 16010.0, 0.0]
+        window.latest_spectrum_intensity = [0.0, 64_000.0, 64_000.0, 64_000.0, 0.0]
         window.active_output_current_a = 10.0
         window.stable_power_points[10.0] = 200.0
+        window.automatic_test_settings = window.collect_automatic_test_settings()
         window.automatic_test_state = AutomaticTestState.WAITING_VOLTAGE
+        alerts: list[str] = []
+        window.show_spectrum_saturation_alert = alerts.append  # type: ignore[method-assign]
 
         window.record_efficiency_from_vout(50.0)
 
         self.assertEqual(window.automatic_test_state, AutomaticTestState.PAUSED)
         self.assertEqual(window.active_output_current_a, 10.0)
         self.assertIn("光谱饱和", window.automatic_test_status_label.text())
+        self.assertFalse(window.automatic_pause_safety_timer.isActive())
+        self.assertEqual(len(alerts), 1)
         window.automatic_test_state = AutomaticTestState.IDLE
         window.close()
 
@@ -2198,24 +2196,77 @@ class MainWindowTests(unittest.TestCase):
         self.assertAlmostEqual(x_max, 993.0)
         window.close()
 
+    def test_manual_multimode_spectrum_locks_x_axis_to_stable_centroid(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+
+        for peak_nm in (970.0, 973.0, 976.0, 971.0, 975.0):
+            window.on_spectrometer_reading(
+                SpectrometerReading(
+                    peak_wavelength_nm=peak_nm,
+                    centroid_nm=975.2,
+                    fwhm_nm=5.7,
+                )
+            )
+        window.on_spectrum_curve(
+            [700.0, 955.2, 975.2, 995.2, 1150.0],
+            [0.0, 10.0, 8000.0, 10.0, 0.0],
+        )
+
+        self.assertAlmostEqual(window.spectrum_center_locked_nm or 0.0, 975.2)
+        x_min, x_max = window.spectrum_curve_axis.get_xlim()
+        self.assertAlmostEqual(x_min, 955.2)
+        self.assertAlmostEqual(x_max, 995.2)
+        window.close()
+
+    def test_spectrum_x_axis_relocks_to_stable_peak_outside_dark_noise_window(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.spectrum_center_locked_nm = 913.0
+
+        for _ in range(combined_test_spectrum.SPECTRUM_CENTER_LOCK_REQUIRED_SAMPLES - 1):
+            window.update_spectrum_center_lock(
+                SpectrometerReading(
+                    peak_wavelength_nm=973.2,
+                    centroid_nm=913.0,
+                    fwhm_nm=0.5,
+                )
+            )
+            self.assertAlmostEqual(window.spectrum_center_locked_nm or 0.0, 913.0)
+
+        window.update_spectrum_center_lock(
+            SpectrometerReading(
+                peak_wavelength_nm=973.2,
+                centroid_nm=913.0,
+                fwhm_nm=0.5,
+            )
+        )
+
+        self.assertAlmostEqual(window.spectrum_center_locked_nm or 0.0, 973.2)
+        window.close()
+
     def test_spectrum_curve_marks_top_three_peak_centroids(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
-        wavelength = [850.0, 851.0, 852.0, 853.0, 854.0, 855.0, 856.0, 857.0, 858.0, 859.0, 860.0, 861.0, 862.0]
-        intensity = [0.0, 5.0, 80.0, 5.0, 0.0, 10.0, 300.0, 10.0, 0.0, 20.0, 200.0, 20.0, 0.0]
+        wavelength = [956.0 + index * 0.1 for index in range(401)]
+        intensity = [float((index % 5) - 2) for index in range(401)]
+        intensity[59:62] = [48.0, 80.0, 48.0]
+        intensity[199:202] = [180.0, 300.0, 180.0]
+        intensity[269:272] = [60.0, 100.0, 60.0]
+        intensity[198] = intensity[202] = 0.0
 
         window.update_spectrum_curve(wavelength, intensity)
 
         self.assertEqual(
             [(item.label, round(item.centroid_nm, 3)) for item in window.spectrum_peak_annotations],
-            [("P1", 856.0), ("P2", 860.0), ("P3", 852.0)],
+            [("P1", 976.0), ("P2", 983.0), ("P3", 962.0)],
         )
         annotation_text = "\n".join(
             artist.get_text() for artist in window.spectrum_peak_annotation_artists if hasattr(artist, "get_text")
         )
-        self.assertIn("P1 856.000 nm", annotation_text)
-        self.assertIn("P2 860.000 nm", annotation_text)
-        self.assertIn("P3 852.000 nm", annotation_text)
+        self.assertIn("P1 976.000 nm", annotation_text)
+        self.assertIn("P2 983.000 nm", annotation_text)
+        self.assertIn("P3 962.000 nm", annotation_text)
         window.close()
 
     def test_spectrum_peak_labels_stay_inside_plot_area_for_tall_peaks(self) -> None:
@@ -2223,8 +2274,12 @@ class MainWindowTests(unittest.TestCase):
         window = MainWindow()
         wavelength = [877.0, 878.0, 879.0, 880.0, 881.0]
         intensity = [0.0, 15000.0, 50.0, 1000.0, 0.0]
+        annotations = [
+            SpectrumPeakAnnotation("P1", 878.0, 878.0, 15_000.0),
+            SpectrumPeakAnnotation("P2", 880.0, 880.0, 1_000.0),
+        ]
 
-        window.update_spectrum_curve(wavelength, intensity)
+        window.update_spectrum_curve(wavelength, intensity, annotations)
 
         _, y_max = window.spectrum_curve_axis.get_ylim()
         label_artists = [artist for artist in window.spectrum_peak_annotation_artists if hasattr(artist, "get_text")]
@@ -2235,7 +2290,7 @@ class MainWindowTests(unittest.TestCase):
             self.assertEqual(artist.get_bbox_patch(), None)
         window.close()
 
-    def test_spectrum_y_axis_rescales_when_peak_intensity_drops(self) -> None:
+    def test_spectrum_y_axis_holds_range_during_short_peak_drop(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
         wavelength = [850.0, 878.5, 906.0]
@@ -2245,8 +2300,8 @@ class MainWindowTests(unittest.TestCase):
         window.update_spectrum_curve(wavelength, [0.0, 12000.0, 0.0])
         second_limits = tuple(window.spectrum_curve_axis.get_ylim())
 
-        self.assertEqual(second_limits[0], 0.0)
-        self.assertLess(second_limits[1], first_limits[1])
+        self.assertEqual(first_limits, (0.0, 20000.0))
+        self.assertEqual(second_limits, first_limits)
         window.close()
 
     def test_spectrum_y_axis_expands_when_peak_increases(self) -> None:
@@ -2259,7 +2314,8 @@ class MainWindowTests(unittest.TestCase):
         window.update_spectrum_curve(wavelength, [0.0, 16000.0, 0.0])
         _second_min, second_max = window.spectrum_curve_axis.get_ylim()
 
-        self.assertGreater(second_max, first_max)
+        self.assertEqual(first_max, 15000.0)
+        self.assertEqual(second_max, 20000.0)
         window.close()
 
     def test_spectrum_y_axis_starts_at_zero_for_nonnegative_intensities(self) -> None:
@@ -2279,8 +2335,13 @@ class MainWindowTests(unittest.TestCase):
         window = MainWindow()
         wavelength = [868.0, 869.0, 870.0, 871.0, 871.7, 872.4, 877.5, 878.5, 879.5]
         intensity = [0.0, 0.0, 1200.0, 0.0, 900.0, 0.0, 0.0, 15000.0, 0.0]
+        annotations = [
+            SpectrumPeakAnnotation("P1", 878.5, 878.5, 15_000.0),
+            SpectrumPeakAnnotation("P2", 870.0, 870.0, 1_200.0),
+            SpectrumPeakAnnotation("P3", 871.7, 871.7, 900.0),
+        ]
 
-        window.update_spectrum_curve(wavelength, intensity)
+        window.update_spectrum_curve(wavelength, intensity, annotations)
 
         y_min, y_max = window.spectrum_curve_axis.get_ylim()
         y_span = y_max - y_min
@@ -2299,8 +2360,13 @@ class MainWindowTests(unittest.TestCase):
         window = MainWindow()
         wavelength = [848.0, 868.8, 869.272, 869.8, 869.9, 870.247, 870.8, 877.5, 878.518, 879.5, 908.0]
         intensity = [0.0, 0.0, 300.0, 0.0, 0.0, 400.0, 0.0, 0.0, 7800.0, 0.0, 0.0]
+        annotations = [
+            SpectrumPeakAnnotation("P1", 878.518, 878.518, 7_800.0),
+            SpectrumPeakAnnotation("P2", 870.247, 870.247, 400.0),
+            SpectrumPeakAnnotation("P3", 869.272, 869.272, 300.0),
+        ]
 
-        window.update_spectrum_curve(wavelength, intensity)
+        window.update_spectrum_curve(wavelength, intensity, annotations)
 
         x_min, x_max = window.spectrum_curve_axis.get_xlim()
         x_span = x_max - x_min
@@ -2319,8 +2385,13 @@ class MainWindowTests(unittest.TestCase):
         window = MainWindow()
         wavelength = [848.0, 868.8, 869.272, 869.8, 869.9, 870.247, 870.8, 877.5, 878.518, 879.5, 908.0]
         intensity = [0.0, 0.0, 300.0, 0.0, 0.0, 400.0, 0.0, 0.0, 7800.0, 0.0, 0.0]
+        annotations = [
+            SpectrumPeakAnnotation("P1", 878.518, 878.518, 7_800.0),
+            SpectrumPeakAnnotation("P2", 870.247, 870.247, 400.0),
+            SpectrumPeakAnnotation("P3", 869.272, 869.272, 300.0),
+        ]
 
-        window.update_spectrum_curve(wavelength, intensity)
+        window.update_spectrum_curve(wavelength, intensity, annotations)
 
         centroids = {item.label: item.centroid_nm for item in window.spectrum_peak_annotations}
         text_positions = {
@@ -2417,6 +2488,10 @@ class MainWindowTests(unittest.TestCase):
                 QSettings(str(Path(temp_dir) / "inputs.ini"), QSettings.Format.IniFormat)
             )
             window.auto_use_spectrometer_check.setChecked(False)
+            window.sn_field.setText("LIV-ONLY")
+            window.test_station_field.setText("老化站 1")
+            window.output_dir_field.setText(temp_dir)
+            window.begin_test_session(require_station=True)
             window.automatic_test_settings = window.collect_automatic_test_settings()
             window.automatic_test_state = AutomaticTestState.WAITING_STABLE
             window.active_output_current_a = 3.0
@@ -2539,21 +2614,19 @@ class MainWindowTests(unittest.TestCase):
         window.automatic_test_state = AutomaticTestState.IDLE
         window.close()
 
-    def test_manual_output_voltage_read_displays_value_without_recording_efficiency(self) -> None:
+    def test_manual_output_voltage_read_does_not_record_efficiency(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
         efficiency_values: list[float] = []
         window.execute_i2c_read = lambda *_args: 29.656  # type: ignore[method-assign]
         window.record_efficiency_from_vout = efficiency_values.append  # type: ignore[method-assign]
 
-        window.read_output_voltage_button.click()
-        app.processEvents()
+        window.read_output_voltage()
 
-        self.assertEqual(window.manual_output_voltage_label.text(), "输出电压：29.66 V")
         self.assertEqual(efficiency_values, [])
         window.close()
 
-    def test_automatic_output_voltage_read_keeps_efficiency_flow_separate(self) -> None:
+    def test_automatic_output_voltage_read_records_efficiency(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
         efficiency_values: list[float] = []
@@ -2563,7 +2636,201 @@ class MainWindowTests(unittest.TestCase):
         window.read_output_voltage(automatic=True)
 
         self.assertEqual(efficiency_values, [29.656])
-        self.assertEqual(window.manual_output_voltage_label.text(), "输出电压：-- V")
+        window.close()
+
+    def test_usb2xxx_automatic_voltage_read_does_not_block_qt_event_loop(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        read_started = threading.Event()
+        release_read = threading.Event()
+
+        class BlockingUSB2XXXController:
+            is_connected = True
+
+            def i2c_write_read(
+                self,
+                _address: int,
+                _command: list[int],
+                _length: int,
+            ) -> tuple[bool, list[int]]:
+                read_started.set()
+                release_read.wait(2.0)
+                return True, [0x5A, 0x4D, 29, 50]
+
+        window = MainWindow()
+        window.manual_ch341_controller = BlockingUSB2XXXController()
+        window.power_supply_controller_kind = "usb2xxx"
+        window.automatic_test_state = AutomaticTestState.WAITING_VOLTAGE
+        window.active_output_current_a = 10.0
+        window.recorded_stable_point_current_a = 10.0
+        window.recorded_stable_point_generation = 7
+        recorded_voltages: list[float] = []
+        window.record_efficiency_from_vout = recorded_voltages.append  # type: ignore[method-assign]
+
+        started_at = combined_test_window.time.monotonic()
+        window.read_output_voltage(automatic=True)
+        elapsed_s = combined_test_window.time.monotonic() - started_at
+
+        self.assertLess(elapsed_s, 0.5)
+        self.assertTrue(read_started.wait(0.5))
+        self.assertTrue(window.power_supply_io_busy())
+        window.run_event_label.setText("Qt event loop remains responsive")
+        app.processEvents()
+        self.assertEqual(window.run_event_label.text(), "Qt event loop remains responsive")
+
+        release_read.set()
+        thread = window.power_supply_read_thread
+        self.assertIsNotNone(thread)
+        assert thread is not None
+        self.assertTrue(thread.wait(1000))
+        for _ in range(5):
+            app.processEvents()
+        self.assertEqual(recorded_voltages, [29.5])
+        window.manual_ch341_controller = None
+        window.automatic_test_state = AutomaticTestState.IDLE
+        window.close()
+
+    def test_power_protection_aborts_background_read_before_zero_current_write(self) -> None:
+        QApplication.instance() or QApplication([])
+        read_started = threading.Event()
+        release_read = threading.Event()
+        events: list[object] = []
+
+        class AbortableUSB2XXXController:
+            is_connected = True
+            fault_reason = None
+
+            def i2c_write_read(
+                self,
+                _address: int,
+                _command: list[int],
+                _length: int,
+            ) -> tuple[bool, list[int]]:
+                events.append("read")
+                read_started.set()
+                release_read.wait(2.0)
+                return True, [0x5A, 0x4D, 29, 50]
+
+            def abort_in_flight(self, reason: str) -> bool:
+                events.append(("abort", reason))
+                self.is_connected = False
+                release_read.set()
+                return True
+
+            def connect_device(self, _index: int) -> tuple[bool, dict[str, str]]:
+                events.append("connect")
+                self.is_connected = True
+                self.fault_reason = None
+                return True, {"controller": "USB2XXX"}
+
+            def i2c_write(
+                self,
+                _address: int,
+                command: list[int],
+            ) -> tuple[bool, str]:
+                events.append(("write", command))
+                return True, "写入成功"
+
+        window = MainWindow()
+        controller = AbortableUSB2XXXController()
+        window.manual_ch341_controller = controller
+        window.power_supply_controller_kind = "usb2xxx"
+        window.automatic_test_state = AutomaticTestState.WAITING_VOLTAGE
+        window.active_output_current_a = 10.0
+        window.recorded_stable_point_current_a = 10.0
+        window.recorded_stable_point_generation = 7
+        window.show_power_protection_alert = lambda _reason: None  # type: ignore[method-assign]
+
+        window.read_output_voltage(automatic=True)
+        self.assertTrue(read_started.wait(0.5))
+        window.automatic_test_state = AutomaticTestState.IDLE
+        window.emergency_stop_for_power_protection("测试功率下降")
+
+        abort_index = next(index for index, event in enumerate(events) if isinstance(event, tuple) and event[0] == "abort")
+        connect_index = events.index("connect")
+        write_index = next(index for index, event in enumerate(events) if isinstance(event, tuple) and event[0] == "write")
+        self.assertLess(abort_index, connect_index)
+        self.assertLess(connect_index, write_index)
+        self.assertEqual(events[write_index], ("write", [0xB4, 0xFF, 0x00, 0x00]))
+        self.assertEqual(window.active_output_current_a, 0.0)
+
+        window.manual_ch341_controller = None
+        window.close()
+
+    def test_usb2xxx_worker_fault_is_exposed_as_reconnectable(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FailedUSB2XXXController:
+            is_connected = False
+            fault_reason = "USB2XXX i2c_write_read 调用超过 12 秒，已终止驱动子进程"
+
+        window = MainWindow()
+        window.manual_ch341_controller = FailedUSB2XXXController()
+        window.power_supply_controller_kind = "usb2xxx"
+
+        self.assertTrue(window.mark_usb2xxx_driver_fault_if_needed())
+        self.assertEqual(window.i2c_status_label.text(), "驱动失联")
+        self.assertEqual(window.connect_i2c_button.text(), "重新连接 USB2XXX")
+        self.assertIn("已终止", window.i2c_status_label.toolTip())
+
+        window.manual_ch341_controller = None
+        window.close()
+
+    def test_saturated_spectrum_pauses_before_automatic_voltage_read(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.auto_integration_check.setChecked(False)
+        window.automatic_test_state = AutomaticTestState.WAITING_STABLE
+        window.active_output_current_a = 10.0
+        alerts: list[str] = []
+        window.show_spectrum_saturation_alert = alerts.append  # type: ignore[method-assign]
+
+        window.on_spectrum_curve(
+            [974.0, 975.0, 976.0, 977.0, 978.0],
+            [100.0, 64_000.0, 64_000.0, 64_000.0, 100.0],
+        )
+
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.PAUSED)
+        self.assertEqual(window.active_output_current_a, 10.0)
+        self.assertIn("光谱饱和", window.automatic_test_status_label.text())
+        self.assertFalse(window.automatic_pause_safety_timer.isActive())
+        self.assertFalse(window.auto_vout_timer.isActive())
+        self.assertEqual(len(alerts), 1)
+        self.assertIn("连续 3 个像素", alerts[0])
+
+        window.on_spectrum_curve(
+            [974.0, 975.0, 976.0, 977.0, 978.0],
+            [100.0, 64_000.0, 64_000.0, 64_000.0, 100.0],
+        )
+        self.assertEqual(len(alerts), 1)
+        window.automatic_test_state = AutomaticTestState.IDLE
+        window.close()
+
+    def test_auto_integration_failure_pauses_without_ramp_down_timeout(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window._dialogs_are_nonblocking = True
+        window.automatic_test_settings = window.collect_automatic_test_settings()
+        window.automatic_test_state = AutomaticTestState.WAITING_STABLE
+        window.active_output_current_a = 10.0
+        alerts: list[str] = []
+        window.show_spectrum_saturation_alert = alerts.append  # type: ignore[method-assign]
+
+        window.on_spectrometer_auto_integration_failed(
+            {
+                "peak_counts": 62_000.0,
+                "full_scale_counts": 64_000.0,
+                "integration_time_us": 3_800,
+                "adjustment_count": 10,
+            }
+        )
+
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.PAUSED)
+        self.assertEqual(window.active_output_current_a, 10.0)
+        self.assertFalse(window.automatic_pause_safety_timer.isActive())
+        self.assertEqual(len(alerts), 1)
+        self.assertIn("调整 10 次", alerts[0])
+        self.assertIn("50%–89.9%", alerts[0])
+        window.automatic_test_state = AutomaticTestState.IDLE
         window.close()
 
     def test_tdk_voltage_read_uses_rs232_label_without_i2c_frame(self) -> None:
@@ -2656,19 +2923,13 @@ class MainWindowTests(unittest.TestCase):
         window = MainWindow()
         controller = FakeController()
         window.manual_ch341_controller = controller
-        self.assertEqual(window.active_current_label.text(), "未确认")
         window.set_current_spin.setValue(3.2)
-        self.assertEqual(window.active_current_label.text(), "未确认")
 
         window.apply_output_current()
 
         self.assertEqual(controller.writes, [[0xB4, 0xFF, 3, 20]])
         self.assertEqual(window.active_output_current_a, 3.2)
-        self.assertEqual(window.active_current_label.text(), "3.2 A")
         self.assertIn("3.2 A", window.log_text.text())
-
-        window.set_current_spin.setValue(4.4)
-        self.assertEqual(window.active_current_label.text(), "3.2 A")
         window.close()
 
     def test_manual_nonzero_current_locks_other_tabs_until_current_returns_to_zero(self) -> None:
@@ -2694,12 +2955,8 @@ class MainWindowTests(unittest.TestCase):
         self.assertTrue(window.manual_power_tab_lock_active)
         self.assertEqual(window.main_tabs.currentIndex(), window.manual_tab_index)
         self.assertTrue(window.main_tabs.isTabEnabled(window.manual_tab_index))
-        for index in (
-            window.automatic_tab_index,
-            window.records_tab_index,
-        ):
-            self.assertFalse(window.main_tabs.isTabEnabled(index))
-            self.assertIn("0 A", window.main_tabs.tabToolTip(index))
+        self.assertFalse(window.main_tabs.isTabEnabled(window.automatic_tab_index))
+        self.assertIn("0 A", window.main_tabs.tabToolTip(window.automatic_tab_index))
         self.assertTrue(window.main_tabs.isTabEnabled(window.pd_tab_index))
         self.assertIn("加电期间", window.main_tabs.tabToolTip(window.pd_tab_index))
         window.main_tabs.setCurrentIndex(window.pd_tab_index)
@@ -2712,6 +2969,30 @@ class MainWindowTests(unittest.TestCase):
         self.assertFalse(window.manual_power_tab_lock_active)
         for index in range(window.main_tabs.count()):
             self.assertTrue(window.main_tabs.isTabEnabled(index))
+        window.close()
+
+    def test_automatic_test_cannot_start_while_manual_output_is_energized(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FakeController:
+            is_connected = True
+
+        window = MainWindow()
+        window.manual_ch341_controller = FakeController()
+        window.active_output_current_a = 3.2
+        warnings: list[tuple[str, str]] = []
+
+        with patch.object(
+            QMessageBox,
+            "warning",
+            side_effect=lambda _parent, title, message: warnings.append((title, message)),
+        ):
+            window.start_automatic_test()
+
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.IDLE)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("先将电流设置为 0 A", warnings[0][1])
+        window.manual_ch341_controller = None
         window.close()
 
     def test_automatic_current_command_waits_for_guard_instead_of_pausing(self) -> None:
@@ -2750,8 +3031,8 @@ class MainWindowTests(unittest.TestCase):
             combined_test_window.time.monotonic() - POWER_SUPPLY_COMMAND_MIN_INTERVAL_S - 0.1
         )
         window.on_automatic_command_timer_timeout()
-        self.assertEqual(controller.writes, [[0xB4, 0xFF, 0x01, 0x00]])
-        self.assertEqual(window.automatic_test_state, AutomaticTestState.SETTING_CURRENT)
+        self.assertEqual(controller.writes, [[0xB4, 0xFF, 0x04, 0x00]])
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.WAITING_STABLE)
         window.automatic_test_state = AutomaticTestState.IDLE
         window.power_meter_reader = None
         window.close()
@@ -2959,11 +3240,34 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertEqual(window.integration_spin.value(), 10000)
         self.assertEqual(window.collect_spectrometer_settings().integration_time_us, 10000)
+        self.assertFalse(window.auto_integration_check.isChecked())
+        self.assertFalse(window.collect_spectrometer_settings().auto_integration_enabled)
+        self.assertEqual(window.spectrum_average_spin.value(), 5)
+        self.assertEqual(window.collect_spectrometer_settings().average_frames, 5)
+        window.close()
 
-    def test_auto_integration_moves_toward_target_and_respects_limits(self) -> None:
-        self.assertEqual(combined_test_devices.next_auto_integration_time(10_000, 1_000, 1_000, 300_000), 20_000)
-        self.assertEqual(combined_test_devices.next_auto_integration_time(10_000, 11_000, 1_000, 300_000), 10_000)
-        self.assertEqual(combined_test_devices.next_auto_integration_time(10_000, 16_000, 1_000, 300_000), 6_875)
+    def test_auto_integration_uses_original_full_scale_binary_search(self) -> None:
+        search = combined_test_devices.AutoIntegrationSearch(1_000, 1_000_000, 65_535)
+
+        self.assertEqual(search.minimum_us, 3_800)
+        self.assertEqual(search.maximum_us, 300_000)
+        self.assertEqual(search.full_scale_counts, 64_000.0)
+        self.assertEqual(search.evaluate(3_800, 10_000), (151_900, False, False))
+
+        search.reset()
+        self.assertEqual(search.evaluate(100_000, 60_000), (51_900, False, False))
+        self.assertEqual(search.evaluate(51_900, 40_000), (51_900, True, False))
+
+    def test_auto_integration_fails_only_after_ten_unsuccessful_adjustments(self) -> None:
+        search = combined_test_devices.AutoIntegrationSearch(3_800, 300_000, 64_000)
+        current_us = 3_800
+
+        for _ in range(10):
+            current_us, in_range, failed = search.evaluate(current_us, 64_000)
+            self.assertFalse(in_range)
+            self.assertFalse(failed)
+
+        self.assertEqual(search.evaluate(current_us, 64_000), (current_us, False, True))
 
     def test_weak_spectrum_is_not_queued_for_excel(self) -> None:
         app = QApplication.instance() or QApplication([])
@@ -3211,19 +3515,25 @@ class MainWindowTests(unittest.TestCase):
 
 class SpectrumPeakAnnotationTests(unittest.TestCase):
     def test_find_spectrum_peak_annotations_returns_top_three_centroids_by_peak_height(self) -> None:
-        wavelength = [850.0, 851.0, 852.0, 853.0, 854.0, 855.0, 856.0, 857.0, 858.0, 859.0, 860.0, 861.0, 862.0]
-        intensity = [0.0, 5.0, 80.0, 5.0, 0.0, 10.0, 300.0, 10.0, 0.0, 20.0, 200.0, 20.0, 0.0]
+        wavelength = [956.0 + index * 0.1 for index in range(401)]
+        intensity = [float((index % 5) - 2) for index in range(401)]
+        intensity[59:62] = [48.0, 80.0, 48.0]
+        intensity[199:202] = [180.0, 300.0, 180.0]
+        intensity[269:272] = [120.0, 200.0, 120.0]
+        intensity[198] = intensity[202] = 0.0
 
         annotations = combined_test_spectrum.find_spectrum_peak_annotations(list(zip(wavelength, intensity)))
 
         self.assertEqual(
             [(item.label, round(item.centroid_nm, 3), round(item.peak_intensity, 1)) for item in annotations],
-            [("P1", 856.0, 300.0), ("P2", 860.0, 200.0), ("P3", 852.0, 80.0)],
+            [("P1", 979.473, 300.0), ("P2", 983.0, 200.0), ("P3", 962.0, 80.0)],
         )
 
     def test_saturation_detector_requires_a_consecutive_near_full_scale_plateau(self) -> None:
-        saturated = combined_test_spectrum.detect_spectrum_saturation([0.0, 16000.0, 16020.0, 16010.0, 0.0])
-        spike = combined_test_spectrum.detect_spectrum_saturation([0.0, 17000.0, 0.0])
+        saturated = combined_test_spectrum.detect_spectrum_saturation(
+            [0.0, 64_000.0, 64_000.0, 64_000.0, 0.0]
+        )
+        spike = combined_test_spectrum.detect_spectrum_saturation([0.0, 64_000.0, 0.0])
 
         self.assertTrue(saturated.saturated)
         self.assertEqual(saturated.consecutive_pixels, 3)

@@ -77,20 +77,14 @@ class TdkWindowTests(unittest.TestCase):
             controller = window.manual_ch341_controller
             self.assertIsInstance(controller, FakeTdkController)
             self.assertTrue(controller.is_connected)
-            self.assertEqual(window.connect_i2c_button.text(), "断开")
+            self.assertEqual(window.connect_i2c_button.text(), "断开 TDK")
             self.assertFalse(window.read_temperature_button.isEnabled())
-            self.assertEqual(window.connect_i2c_button.styleSheet(), "")
-            self.assertEqual(window.apply_tdk_voltage_button.styleSheet(), "")
-            self.assertEqual(window.apply_current_button.styleSheet(), "")
-            self.assertEqual(window.tdk_output_button.styleSheet(), "")
-            self.assertTrue(window.connect_i2c_button.autoRaise())
-            self.assertTrue(window.apply_tdk_voltage_button.autoRaise())
-            self.assertTrue(window.apply_current_button.autoRaise())
-            self.assertTrue(window.tdk_output_button.autoRaise())
 
             window.tdk_voltage_spin.setValue(24.5)
+            window.last_power_supply_command_monotonic_s = window_module.time.monotonic()
             window.apply_tdk_output_voltage()
             self.assertEqual(controller.voltages, [24.5])
+            self.assertEqual(window.power_supply_command_interval_remaining_s(), 0.0)
 
             window.toggle_tdk_output()
             self.assertTrue(controller.output_enabled)
@@ -102,9 +96,17 @@ class TdkWindowTests(unittest.TestCase):
             self.assertEqual(window.set_current_spin.value(), 0.0)
             self.assertEqual(window.active_output_current_a, 0.0)
             self.assertEqual(window.tdk_output_status_label.text(), "输出开启")
-            self.assertEqual(window.tdk_output_button.text(), "关闭")
+            self.assertEqual(window.tdk_output_button.text(), "关闭输出")
             self.assertEqual(window.prepare_tdk_output_button.text(), "关闭输出")
-            self.assertEqual(window.tdk_output_button.styleSheet(), "")
+
+            window.active_output_current_a = 5.0
+            window.toggle_tdk_output()
+            self.assertFalse(controller.output_enabled)
+            self.assertEqual(window.active_output_current_a, 0.0)
+
+            window.active_output_current_a = 5.0
+            window.connect_i2c_device()
+            self.assertEqual(window.active_output_current_a, 0.0)
 
             window.close()
             self.assertFalse(controller.output_enabled)
@@ -124,19 +126,17 @@ class TdkWindowTests(unittest.TestCase):
             window.connect_i2c_device()
             window.main_tabs.setCurrentIndex(window.manual_tab_index)
 
+            window.last_power_supply_command_monotonic_s = None
             window.toggle_tdk_output()
 
             self.assertTrue(window.manual_power_tab_lock_active)
             self.assertTrue(window.main_tabs.isTabEnabled(window.manual_tab_index))
-            for index in (
-                window.automatic_tab_index,
-                window.records_tab_index,
-            ):
-                self.assertFalse(window.main_tabs.isTabEnabled(index))
+            self.assertFalse(window.main_tabs.isTabEnabled(window.automatic_tab_index))
             self.assertTrue(window.main_tabs.isTabEnabled(window.pd_tab_index))
             window.main_tabs.setCurrentIndex(window.pd_tab_index)
             self.assertEqual(window.main_tabs.currentIndex(), window.pd_tab_index)
 
+            window.last_power_supply_command_monotonic_s = None
             window.toggle_tdk_output()
 
             self.assertFalse(window.manual_power_tab_lock_active)
@@ -165,6 +165,7 @@ class TdkWindowTests(unittest.TestCase):
             controller.measured_current_a = 0.2
             window.set_current_spin.setValue(5.0)
 
+            window.last_power_supply_command_monotonic_s = None
             window.toggle_tdk_output()
 
             self.assertFalse(controller.output_enabled)
@@ -177,15 +178,6 @@ class TdkWindowTests(unittest.TestCase):
         finally:
             window_module.QMessageBox.critical = old_critical  # type: ignore[method-assign]
             window_module.TdkLambdaPowerSupply = old_controller
-
-    def test_tdk_commands_ignore_legacy_command_interval(self) -> None:
-        window = self.make_window()
-        window.power_supply_controller_kind = "tdk"
-        window.last_power_supply_command_monotonic_s = window_module.time.monotonic()
-
-        self.assertEqual(window.power_supply_command_interval_remaining_s(), 0.0)
-        self.assertTrue(window.begin_power_supply_command("TDK test command"))
-        window.close()
 
     def test_controller_mode_shows_only_its_relevant_rows(self) -> None:
         window = self.make_window()
@@ -235,6 +227,9 @@ class TdkWindowTests(unittest.TestCase):
                 self.was_disconnected = True
                 return True
 
+            def i2c_write(self, _address: int, _command: list[int]) -> tuple[bool, str]:
+                return True, "ok"
+
         old_tdk_controller = window_module.TdkLambdaPowerSupply
         old_ch341_loader = window_module.load_legacy_ch341_controller_class
         window_module.TdkLambdaPowerSupply = FakeTdkController  # type: ignore[assignment]
@@ -265,6 +260,31 @@ class TdkWindowTests(unittest.TestCase):
         finally:
             window_module.TdkLambdaPowerSupply = old_tdk_controller
             window_module.load_legacy_ch341_controller_class = old_ch341_loader
+
+    def test_switching_from_faulted_usb2xxx_to_tdk_closes_old_worker(self) -> None:
+        class FaultedUSB2XXXController:
+            is_connected = False
+
+            def __init__(self) -> None:
+                self.close_worker_calls = 0
+
+            def close_worker(self) -> None:
+                self.close_worker_calls += 1
+
+        window = self.make_window()
+        usb2xxx_index = window.power_supply_controller_combo.findData("usb2xxx")
+        tdk_index = window.power_supply_controller_combo.findData("tdk")
+        window.power_supply_controller_combo.setCurrentIndex(usb2xxx_index)
+        controller = FaultedUSB2XXXController()
+        window.manual_ch341_controller = controller
+        window.power_supply_controller_kind = "usb2xxx"
+
+        window.power_supply_controller_combo.setCurrentIndex(tdk_index)
+
+        self.assertEqual(controller.close_worker_calls, 1)
+        self.assertIsNone(window.manual_ch341_controller)
+        self.assertEqual(window.power_supply_controller_kind, "tdk")
+        window.close()
 
     def test_tdk_connection_locks_controller_and_serial_selection(self) -> None:
         window = self.make_window()
@@ -468,6 +488,117 @@ class TdkWindowTests(unittest.TestCase):
         self.assertTrue(controller.is_connected)
         self.assertIs(window.manual_ch341_controller, controller)
         window.manual_ch341_controller = None
+        window.close()
+
+    def test_usb2xxx_mode_uses_usb2xxx_controller_and_labels(self) -> None:
+        class FakeUSB2XXXController:
+            def __init__(self) -> None:
+                self.is_connected = False
+                self.speed = None
+                self.events: list[object] = []
+
+            def set_i2c_speed(self, speed: int) -> bool:
+                self.speed = speed
+                return True
+
+            def connect_device(self, _index: int = 0) -> tuple[bool, dict[str, str]]:
+                self.is_connected = True
+                return True, {"controller": "USB2XXX", "serial": "310027B4"}
+
+            def disconnect_device(self) -> bool:
+                self.events.append("disconnect")
+                self.is_connected = False
+                return True
+
+            def i2c_write(self, address: int, command: list[int]) -> tuple[bool, str]:
+                self.events.append(("write", address, command))
+                return True, "ok"
+
+        old_loader = window_module.load_usb2xxx_controller_class
+        window_module.load_usb2xxx_controller_class = (  # type: ignore[assignment]
+            lambda: FakeUSB2XXXController
+        )
+        try:
+            window = self.make_window()
+            usb2xxx_index = window.power_supply_controller_combo.findData("usb2xxx")
+            self.assertGreaterEqual(usb2xxx_index, 0)
+            window.power_supply_controller_combo.setCurrentIndex(usb2xxx_index)
+
+            self.assertEqual(window.connect_i2c_button.text(), "连接 USB2XXX")
+            window.connect_i2c_device()
+
+            controller = window.manual_ch341_controller
+            self.assertIsInstance(controller, FakeUSB2XXXController)
+            self.assertTrue(controller.is_connected)
+            self.assertEqual(controller.speed, window_module.DEFAULT_I2C_SPEED)
+            self.assertEqual(window.power_supply_controller_kind, "usb2xxx")
+            self.assertEqual(window.connect_i2c_button.text(), "断开 USB2XXX")
+            window.active_output_current_a = 5.0
+            window.connect_i2c_device()
+            self.assertEqual(
+                controller.events,
+                [("write", 0x41, [0xB4, 0xFF, 0x00, 0x00]), "disconnect"],
+            )
+            self.assertEqual(window.active_output_current_a, 0.0)
+            self.assertEqual(window.set_current_spin.value(), 0.0)
+            self.assertEqual(window.connect_i2c_button.text(), "连接 USB2XXX")
+            window.close()
+            self.assertFalse(controller.is_connected)
+        finally:
+            window_module.load_usb2xxx_controller_class = old_loader
+
+    def test_close_stays_open_when_disconnected_usb2xxx_cannot_be_zeroed(self) -> None:
+        class DisconnectedUSB2XXXController:
+            is_connected = False
+
+            def disconnect_device(self) -> bool:
+                return True
+
+        window = self.make_window()
+        window.manual_ch341_controller = DisconnectedUSB2XXXController()
+        window.power_supply_controller_kind = "usb2xxx"
+        window.active_output_current_a = 5.0
+        event = QCloseEvent()
+        notices: list[str] = []
+        old_critical = window_module.QMessageBox.critical
+        try:
+            window_module.QMessageBox.critical = (  # type: ignore[method-assign]
+                lambda _parent, _title, message, *_args, **_kwargs: notices.append(str(message))
+            )
+            window.closeEvent(event)
+        finally:
+            window_module.QMessageBox.critical = old_critical  # type: ignore[method-assign]
+
+        self.assertFalse(event.isAccepted())
+        self.assertTrue(any("无法确认输出电流已经归零" in message for message in notices))
+        window.manual_ch341_controller = None
+        window.close()
+
+    def test_usb2xxx_disconnect_skips_redundant_write_after_confirmed_zero(self) -> None:
+        class ZeroedUSB2XXXController:
+            is_connected = True
+
+            def __init__(self) -> None:
+                self.disconnected = False
+
+            def i2c_write(self, _address: int, _command: list[int]) -> tuple[bool, str]:
+                raise AssertionError("confirmed 0 A must not issue another I2C command")
+
+            def disconnect_device(self) -> bool:
+                self.is_connected = False
+                self.disconnected = True
+                return True
+
+        window = self.make_window()
+        controller = ZeroedUSB2XXXController()
+        window.manual_ch341_controller = controller
+        window.power_supply_controller_kind = "usb2xxx"
+        window.active_output_current_a = 0.0
+
+        window.connect_i2c_device()
+
+        self.assertTrue(controller.disconnected)
+        self.assertEqual(window.i2c_status_label.text(), "未连接")
         window.close()
 
 

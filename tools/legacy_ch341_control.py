@@ -6,6 +6,7 @@ import time
 from datetime import datetime
 import ctypes
 import ctypes.wintypes
+import sys
 
 class CH341I2CController:
     def __init__(self):
@@ -18,7 +19,7 @@ class CH341I2CController:
                 self.ch341_dll = ctypes.WinDLL("CH341DLL.dll")
                 self.dll_version = "32-bit"
             except Exception as e:
-                print(f"无法加载CH341 DLL: {e}")
+                print(f"无法加载CH341 DLL: {e}", file=sys.stderr)
                 self.ch341_dll = None
                 self.dll_version = None
         

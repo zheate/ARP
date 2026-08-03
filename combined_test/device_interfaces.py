@@ -80,7 +80,7 @@ class SpectrumMeter(Protocol):
 
 
 class ControllerPowerSupply:
-    """Semantic adapter for both legacy CH341 and TDK compatibility controllers."""
+    """Semantic adapter for CH341, USB2XXX, and TDK compatibility controllers."""
 
     def __init__(self, controller: Any, address: int = DEFAULT_POWER_SUPPLY_ADDRESS) -> None:
         self.controller = controller
@@ -139,4 +139,6 @@ class ControllerPowerSupply:
         )
 
     def disconnect(self) -> None:
-        self.controller.disconnect_device()
+        disconnected = self.controller.disconnect_device()
+        if disconnected is False:
+            raise RuntimeError("释放电源控制器失败，无法确认设备已经断开")
