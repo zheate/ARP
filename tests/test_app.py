@@ -2119,7 +2119,7 @@ class MainWindowTests(unittest.TestCase):
         window.on_spectrum_curve(wavelength, [0.0, 100.0, 200.0, 100.0, 0.0])
         self.assertFalse(window.latest_spectrum_saturated)
         self.assertFalse(window.live_plots.spectrum_saturation_text.get_visible())
-        self.assertEqual(window.live_plots.spectrum_pib_text.get_text(), "PIB   -- %")
+        self.assertEqual(window.live_plots.spectrum_pib_text.get_text(), "PIB   16.67 %")
         window.close()
 
     def test_spectrum_curve_displays_smsr_from_main_and_highest_side_mode(self) -> None:
@@ -2636,143 +2636,6 @@ class MainWindowTests(unittest.TestCase):
         window.read_output_voltage(automatic=True)
 
         self.assertEqual(efficiency_values, [29.656])
-        window.close()
-
-    def test_usb2xxx_automatic_voltage_read_does_not_block_qt_event_loop(self) -> None:
-        app = QApplication.instance() or QApplication([])
-        read_started = threading.Event()
-        release_read = threading.Event()
-
-        class BlockingUSB2XXXController:
-            is_connected = True
-
-            def i2c_write_read(
-                self,
-                _address: int,
-                _command: list[int],
-                _length: int,
-            ) -> tuple[bool, list[int]]:
-                read_started.set()
-                release_read.wait(2.0)
-                return True, [0x5A, 0x4D, 29, 50]
-
-        window = MainWindow()
-        window.manual_ch341_controller = BlockingUSB2XXXController()
-        window.power_supply_controller_kind = "usb2xxx"
-        window.automatic_test_state = AutomaticTestState.WAITING_VOLTAGE
-        window.active_output_current_a = 10.0
-        window.recorded_stable_point_current_a = 10.0
-        window.recorded_stable_point_generation = 7
-        recorded_voltages: list[float] = []
-        window.record_efficiency_from_vout = recorded_voltages.append  # type: ignore[method-assign]
-
-        started_at = combined_test_window.time.monotonic()
-        window.read_output_voltage(automatic=True)
-        elapsed_s = combined_test_window.time.monotonic() - started_at
-
-        self.assertLess(elapsed_s, 0.5)
-        self.assertTrue(read_started.wait(0.5))
-        self.assertTrue(window.power_supply_io_busy())
-        window.run_event_label.setText("Qt event loop remains responsive")
-        app.processEvents()
-        self.assertEqual(window.run_event_label.text(), "Qt event loop remains responsive")
-
-        release_read.set()
-        thread = window.power_supply_read_thread
-        self.assertIsNotNone(thread)
-        assert thread is not None
-        self.assertTrue(thread.wait(1000))
-        for _ in range(5):
-            app.processEvents()
-        self.assertEqual(recorded_voltages, [29.5])
-        window.manual_ch341_controller = None
-        window.automatic_test_state = AutomaticTestState.IDLE
-        window.close()
-
-    def test_power_protection_aborts_background_read_before_zero_current_write(self) -> None:
-        QApplication.instance() or QApplication([])
-        read_started = threading.Event()
-        release_read = threading.Event()
-        events: list[object] = []
-
-        class AbortableUSB2XXXController:
-            is_connected = True
-            fault_reason = None
-
-            def i2c_write_read(
-                self,
-                _address: int,
-                _command: list[int],
-                _length: int,
-            ) -> tuple[bool, list[int]]:
-                events.append("read")
-                read_started.set()
-                release_read.wait(2.0)
-                return True, [0x5A, 0x4D, 29, 50]
-
-            def abort_in_flight(self, reason: str) -> bool:
-                events.append(("abort", reason))
-                self.is_connected = False
-                release_read.set()
-                return True
-
-            def connect_device(self, _index: int) -> tuple[bool, dict[str, str]]:
-                events.append("connect")
-                self.is_connected = True
-                self.fault_reason = None
-                return True, {"controller": "USB2XXX"}
-
-            def i2c_write(
-                self,
-                _address: int,
-                command: list[int],
-            ) -> tuple[bool, str]:
-                events.append(("write", command))
-                return True, "写入成功"
-
-        window = MainWindow()
-        controller = AbortableUSB2XXXController()
-        window.manual_ch341_controller = controller
-        window.power_supply_controller_kind = "usb2xxx"
-        window.automatic_test_state = AutomaticTestState.WAITING_VOLTAGE
-        window.active_output_current_a = 10.0
-        window.recorded_stable_point_current_a = 10.0
-        window.recorded_stable_point_generation = 7
-        window.show_power_protection_alert = lambda _reason: None  # type: ignore[method-assign]
-
-        window.read_output_voltage(automatic=True)
-        self.assertTrue(read_started.wait(0.5))
-        window.automatic_test_state = AutomaticTestState.IDLE
-        window.emergency_stop_for_power_protection("测试功率下降")
-
-        abort_index = next(index for index, event in enumerate(events) if isinstance(event, tuple) and event[0] == "abort")
-        connect_index = events.index("connect")
-        write_index = next(index for index, event in enumerate(events) if isinstance(event, tuple) and event[0] == "write")
-        self.assertLess(abort_index, connect_index)
-        self.assertLess(connect_index, write_index)
-        self.assertEqual(events[write_index], ("write", [0xB4, 0xFF, 0x00, 0x00]))
-        self.assertEqual(window.active_output_current_a, 0.0)
-
-        window.manual_ch341_controller = None
-        window.close()
-
-    def test_usb2xxx_worker_fault_is_exposed_as_reconnectable(self) -> None:
-        app = QApplication.instance() or QApplication([])
-
-        class FailedUSB2XXXController:
-            is_connected = False
-            fault_reason = "USB2XXX i2c_write_read 调用超过 12 秒，已终止驱动子进程"
-
-        window = MainWindow()
-        window.manual_ch341_controller = FailedUSB2XXXController()
-        window.power_supply_controller_kind = "usb2xxx"
-
-        self.assertTrue(window.mark_usb2xxx_driver_fault_if_needed())
-        self.assertEqual(window.i2c_status_label.text(), "驱动失联")
-        self.assertEqual(window.connect_i2c_button.text(), "重新连接 USB2XXX")
-        self.assertIn("已终止", window.i2c_status_label.toolTip())
-
-        window.manual_ch341_controller = None
         window.close()
 
     def test_saturated_spectrum_pauses_before_automatic_voltage_read(self) -> None:
@@ -3875,6 +3738,20 @@ class PowerMeterCommandFormattingTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             power_meter_mvp.parse_laserpoint_serial("OK;")
 
+    def test_laserpoint_serial_query_retries_one_stale_response(self) -> None:
+        class FakeInstrument:
+            def __init__(self) -> None:
+                self.responses = iter(["??", "#S222483"])
+                self.queries: list[str] = []
+
+            def query(self, command: str) -> str:
+                self.queries.append(command)
+                return next(self.responses)
+
+        instrument = FakeInstrument()
+        self.assertEqual(power_meter_mvp.query_laserpoint_serial(instrument), "222483")
+        self.assertEqual(instrument.queries, ["*SERNU", "*SERNU"])
+
     def test_laserpoint_adapter_uses_scripts_runner_serial_protocol(self) -> None:
         class FakeInstrument:
             def __init__(self) -> None:
@@ -3888,9 +3765,19 @@ class PowerMeterCommandFormattingTests(unittest.TestCase):
                 self.flow_control = None
                 self.queries: list[str] = []
                 self.writes: list[str] = []
+                self.reads: list[str] = []
+                self.pending_replies: list[str] = []
+
+            @property
+            def bytes_in_buffer(self) -> int:
+                if not self.pending_replies:
+                    return 0
+                return len(self.pending_replies[0].encode("ascii"))
 
             def query(self, command: str) -> str:
                 self.queries.append(command)
+                if self.pending_replies:
+                    return self.read()
                 return {
                     "*SERNU": "123456",
                     "*OUTPM": "1.25",
@@ -3898,6 +3785,18 @@ class PowerMeterCommandFormattingTests(unittest.TestCase):
 
             def write(self, command: str) -> None:
                 self.writes.append(command)
+                self.pending_replies.append(
+                    {
+                        "*POWER": "#ok",
+                        "*SETX1 3": "#ok",
+                        "*SETLAM00976": "#LAMBDA00976",
+                    }[command]
+                )
+
+            def read(self) -> str:
+                reply = self.pending_replies.pop(0)
+                self.reads.append(reply)
+                return reply
 
             def close(self) -> None:
                 pass
@@ -3936,6 +3835,7 @@ class PowerMeterCommandFormattingTests(unittest.TestCase):
                 ["*SERNU", "*OUTPM"],
             )
             self.assertEqual(instrument.writes, ["*POWER", "*SETX1 3", "*SETLAM00976"])
+            self.assertEqual(instrument.reads, ["#ok", "#ok", "#LAMBDA00976"])
         finally:
             power_meter_mvp.acquire_visa_resource_manager = original_acquire
             power_meter_mvp.release_visa_resource_manager = original_release

@@ -340,7 +340,7 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
   const psu = snapshot?.devices.powerSupply
   return (
     <div className="space-y-3">
-      <Field label="控制器"><NativeSelect value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="usb2xxx">USB2XXX I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
+      <Field label="控制器"><NativeSelect value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
       {config.powerSupplyKind === "tdk" && <Field label="TDK 串口"><Input value={config.tdkResource} onChange={(e) => update("tdkResource", e.target.value)} /></Field>}
       {config.powerSupplyKind === "tdk" && <NumberField label="输出电压 (V)" value={config.tdkVoltageV} onChange={(v) => update("tdkVoltageV", v)} step="0.1" />}
       <NumberField label="设定电流 (A)" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
@@ -738,9 +738,9 @@ const ChartPanel = memo(function ChartPanel({ title, data, xKey, lines, empty = 
   preserveAllPoints?: boolean
 }) {
   return (
-    <Card aria-label={title} className={`shadow-none ${stretch ? "h-full min-h-0" : ""}`}>
+    <Card aria-label={title} className={`pb-1 shadow-none ${stretch ? "h-full min-h-0" : ""}`}>
       <CardHeader className="flex min-h-9 flex-row items-center justify-between gap-3 pb-2"><ChartLegend lines={lines} />{headerRight}</CardHeader>
-      <CardContent className={`${stretch ? "min-h-0 flex-1" : heightClassName || (data.length === 0 ? "h-40" : "h-56")} px-3 pb-3`}>
+      <CardContent className={`${stretch ? "min-h-0 flex-1" : heightClassName || (data.length === 0 ? "h-40" : "h-56")} px-3 pb-0`}>
         {data.length === 0 ? (
           <div className="grid h-full place-items-center rounded-lg bg-background/30 text-sm text-muted-foreground/70">{empty}</div>
         ) : (
@@ -836,14 +836,27 @@ const powerEfficiencyLines: CanvasChartLine[] = [
 ]
 
 const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; stretch?: boolean; heightClassName?: string }) {
+  const stableData = (snapshot?.measurements?.stable ?? []) as Array<Record<string, number | null>>
+  const currentDomain = useMemo<[number, number] | undefined>(() => {
+    const currents = stableData
+      .map((row) => row.currentA)
+      .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+    if (!currents.length) return undefined
+    const maximumCurrent = Math.max(...currents)
+    if (maximumCurrent <= 0) return undefined
+    const rightPadding = Math.max(0.25, Math.min(1, maximumCurrent * 0.04))
+    return [0, maximumCurrent + rightPadding]
+  }, [stableData])
+
   return (
     <ChartPanel
-      data={(snapshot?.measurements?.stable ?? []) as Array<Record<string, number | null>>}
+      data={stableData}
       empty="完成稳定测试点后显示功率 / 效率"
       lines={powerEfficiencyLines}
       stretch={stretch}
       heightClassName={heightClassName}
       title="功率 / 效率"
+      xDomain={currentDomain}
       xKey="currentA"
     />
   )
@@ -2147,7 +2160,7 @@ function ManualPage({ snapshot, config, update, active, pending, run }: {
     <div className="manual-page space-y-4">
       <section className="grid grid-cols-3 gap-4">
         <Card size="sm" className="shadow-none"><CardHeader><CardTitle className="text-base">电源控制</CardTitle></CardHeader><CardContent className="manual-control-content">
-          <Field label="控制器"><NativeSelect value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="usb2xxx">USB2XXX I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
+          <Field label="控制器"><NativeSelect value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
           {config.powerSupplyKind === "tdk" && <Field label="TDK 串口"><Input value={config.tdkResource} onChange={(e) => update("tdkResource", e.target.value)} /></Field>}
           {config.powerSupplyKind === "tdk" && <NumberField label="输出电压 (V)" value={config.tdkVoltageV} onChange={(v) => update("tdkVoltageV", v)} step="0.1" />}
           <NumberField label="设定电流 (A)" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
@@ -2202,9 +2215,9 @@ function ManualPage({ snapshot, config, update, active, pending, run }: {
         </CardContent></Card>
       </section>
       <section className="grid grid-cols-2 gap-4">
-        <PowerRealtimeChart heightClassName="h-48" snapshot={snapshot} />
-        <PowerEfficiencyChart heightClassName="h-48" snapshot={snapshot} />
-        <div className="col-span-2"><SpectrumRealtimeChart heightClassName="h-48" snapshot={snapshot} /></div>
+        <PowerRealtimeChart heightClassName="h-56" snapshot={snapshot} />
+        <PowerEfficiencyChart heightClassName="h-56" snapshot={snapshot} />
+        <div className="col-span-2"><SpectrumRealtimeChart heightClassName="h-56" snapshot={snapshot} /></div>
       </section>
     </div>
   )

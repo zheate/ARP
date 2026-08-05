@@ -156,7 +156,7 @@ function buildLayout(
   const left = 52
   const right = hasRightAxis ? 50 : 16
   const top = 10
-  const bottom = 30
+  const bottom = 24
   const plotHeight = Math.max(1, size.height - top - bottom)
   const verticalTickTarget = Math.min(5, Math.max(2, Math.floor(plotHeight / 36)))
   const xValues = data.map((row) => finiteValue(row[xKey])).filter((value): value is number => value !== null)

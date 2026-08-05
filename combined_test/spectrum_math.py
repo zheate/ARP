@@ -8,7 +8,7 @@ from statistics import median
 from typing import Iterable
 
 import numpy as np
-from scipy.signal import find_peaks
+from scipy.signal import find_peaks, medfilt
 
 
 PIB_CENTER_NM = 976.0
@@ -207,97 +207,80 @@ def calculate_pib(
     intensity: Iterable[float],
     center_nm: float = PIB_CENTER_NM,
     half_range_nm: float = PIB_HALF_RANGE_NM,
-    analysis_lower_nm: float = PIB_ANALYSIS_LOWER_NM,
-    analysis_upper_nm: float = PIB_ANALYSIS_UPPER_NM,
 ) -> float:
-    """Return integrated power in band over the fixed laser analysis band."""
+    """Return the Scripts Runner compatible power-in-band ratio.
+
+    The spectrum is median-filtered, cropped to the signal region detected
+    around its strongest peak, and corrected by the mean of the two boundary
+    samples. The numerator is the trapezoidal integral inside
+    ``center_nm +/- half_range_nm`` and the denominator is the trapezoidal
+    integral over that background-corrected signal region.
+    """
     wavelength_values, intensity_values = _as_float_lists(wavelength, intensity)
     if not wavelength_values:
         return math.nan
-    if (
-        not math.isfinite(center_nm)
-        or not math.isfinite(half_range_nm)
-        or half_range_nm < 0
-        or not math.isfinite(analysis_lower_nm)
-        or not math.isfinite(analysis_upper_nm)
-        or analysis_lower_nm >= analysis_upper_nm
-    ):
-        raise ValueError("PIB 中心、半范围和分析波段必须为有效有限数值")
+    if not math.isfinite(center_nm) or not math.isfinite(half_range_nm) or half_range_nm < 0:
+        raise ValueError("PIB 中心和半范围必须为有效有限数值")
 
-    points = sorted(zip(wavelength_values, intensity_values))
-    sorted_wavelength = [point[0] for point in points]
-    sorted_intensity = [max(0.0, point[1]) for point in points]
-    lower_nm = center_nm - half_range_nm
-    upper_nm = center_nm + half_range_nm
-    if lower_nm < analysis_lower_nm or upper_nm > analysis_upper_nm:
-        raise ValueError("PIB 目标波段必须位于分析波段内")
-    if sorted_wavelength[0] > analysis_lower_nm or sorted_wavelength[-1] < analysis_upper_nm:
-        return math.nan
+    x_array = np.asarray(wavelength_values, dtype=float)
+    y_array = np.asarray(medfilt(np.asarray(intensity_values, dtype=float)), dtype=float)
+    peak_index = int(y_array.argmax())
+    move_length = 7
 
-    total_intensity = _integrate_band(
-        sorted_wavelength,
-        sorted_intensity,
-        analysis_lower_nm,
-        analysis_upper_nm,
-    )
-    if not math.isfinite(total_intensity) or total_intensity <= 0.0:
-        return math.nan
+    left_index = 0
+    for index in range(peak_index - move_length + 1):
+        if float(np.std(y_array[index : index + move_length])) > 200.0:
+            break
+        left_index = index
 
-    band_intensity = _integrate_band(
-        sorted_wavelength,
-        sorted_intensity,
-        lower_nm,
-        upper_nm,
-    )
-    return band_intensity / total_intensity
+    right_index = len(y_array) - 1
+    for index in range(len(y_array), peak_index + move_length, -1):
+        if float(np.std(y_array[index - move_length : index])) > 200.0:
+            break
+        right_index = index - 1
 
-
-def _integrate_band(
-    wavelength: list[float],
-    intensity: list[float],
-    lower_nm: float,
-    upper_nm: float,
-) -> float:
-    """Integrate a sampled spectrum with linearly interpolated band edges."""
-    if len(wavelength) < 2 or lower_nm >= upper_nm:
+    signal_wavelength = x_array[left_index : right_index + 1]
+    if signal_wavelength.size < 2:
         return 0.0
-    lower = max(float(lower_nm), wavelength[0])
-    upper = min(float(upper_nm), wavelength[-1])
-    if lower >= upper:
+    noise = (y_array[left_index] + y_array[right_index]) / 2.0
+    signal_intensity = y_array[left_index : right_index + 1] - noise
+    spacing = signal_wavelength[1:] - signal_wavelength[:-1]
+
+    if center_nm < 1e-6:
+        center_nm = _calculate_central_values(
+            signal_wavelength.tolist(),
+            signal_intensity.tolist(),
+        )
+        if not math.isfinite(center_nm):
+            return math.nan
+
+    lower_index = int(
+        np.argmin(np.abs(signal_wavelength - (center_nm - half_range_nm)))
+    )
+    upper_index = int(
+        np.argmin(np.abs(signal_wavelength - (center_nm + half_range_nm)))
+    )
+    band_start = min(lower_index, upper_index)
+    band_stop = max(lower_index, upper_index) + 1
+    band_wavelength = signal_wavelength[band_start:band_stop]
+    band_intensity_values = signal_intensity[band_start:band_stop]
+
+    total_intensity = float(
+        np.sum(spacing * (signal_intensity[:-1] + signal_intensity[1:]) / 2.0)
+    )
+    if abs(total_intensity) < 1e-6:
         return 0.0
 
-    band_wavelength = [lower]
-    band_intensity = [_interpolate(wavelength, intensity, lower)]
-    for wavelength_nm, value in zip(wavelength, intensity):
-        if lower < wavelength_nm < upper:
-            band_wavelength.append(wavelength_nm)
-            band_intensity.append(value)
-    band_wavelength.append(upper)
-    band_intensity.append(_interpolate(wavelength, intensity, upper))
-
-    return sum(
-        (band_intensity[index] + band_intensity[index + 1])
-        * (band_wavelength[index + 1] - band_wavelength[index])
-        / 2.0
-        for index in range(len(band_wavelength) - 1)
+    band_spacing = band_wavelength[1:] - band_wavelength[:-1]
+    band_intensity = float(
+        np.sum(
+            band_spacing
+            * (band_intensity_values[:-1] + band_intensity_values[1:])
+            / 2.0
+        )
     )
-
-
-def _interpolate(wavelength: list[float], intensity: list[float], target_nm: float) -> float:
-    if target_nm <= wavelength[0]:
-        return intensity[0]
-    if target_nm >= wavelength[-1]:
-        return intensity[-1]
-    for index in range(1, len(wavelength)):
-        if wavelength[index] < target_nm:
-            continue
-        left_wavelength = wavelength[index - 1]
-        right_wavelength = wavelength[index]
-        if right_wavelength == left_wavelength:
-            return intensity[index]
-        fraction = (target_nm - left_wavelength) / (right_wavelength - left_wavelength)
-        return intensity[index - 1] + fraction * (intensity[index] - intensity[index - 1])
-    return intensity[-1]
+    pib = band_intensity / total_intensity
+    return 1.0 if pib > 1.0 else pib
 
 
 def calculate_smsr(

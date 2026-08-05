@@ -121,6 +121,18 @@ def parse_laserpoint_serial(raw: str) -> str:
     return match.group(1)
 
 
+def query_laserpoint_serial(inst: pyvisa.resources.Resource) -> str:
+    """Read the serial number, recovering from one stale response frame."""
+    raw = inst.query("*SERNU")
+    try:
+        return parse_laserpoint_serial(raw)
+    except RuntimeError:
+        # Auto-detection tries the Caihuang protocol first.  A PCPlug V3 can
+        # leave that protocol error in its input buffer, so the first SERNU
+        # query consumes the stale frame and the second returns the serial.
+        return parse_laserpoint_serial(inst.query("*SERNU"))
+
+
 def parse_laserpoint_power_w(raw: str) -> float:
     """Parse the numeric OUTPM response, tolerating a short textual prefix."""
     text = raw.strip().rstrip(";").strip()
@@ -251,7 +263,7 @@ class LaserPointPowerMeter:
             normalized_resource = normalize_resource(resource)
             inst = rm.open_resource(normalized_resource)
             configure_laserpoint(inst, timeout_ms=timeout_ms)
-            serial_number = parse_laserpoint_serial(inst.query("*SERNU"))
+            serial_number = query_laserpoint_serial(inst)
             return ProbeResult(
                 normalized_resource,
                 LaserPointPowerMeter.device_type,
@@ -269,14 +281,27 @@ class LaserPointPowerMeter:
             release_visa_resource_manager(rm)
 
     def test(self) -> str:
-        self.serial_number = parse_laserpoint_serial(self.inst.query("*SERNU"))
+        self.serial_number = query_laserpoint_serial(self.inst)
         return "OK"
 
     def _setting_command(self, command: str) -> None:
-        # scripts_runner's compiled driver sends these setters without waiting
-        # for a reply. Waiting here would turn a successful write-only command
-        # into a VISA timeout on the supported LaserPoint controller.
         self.inst.write(command)
+        # PCPlug V3 acknowledges setters (for example ``#ok;`` and
+        # ``#LAMBDA00940;``).  Consume that acknowledgement so it cannot be
+        # mistaken for the following OUTPM response.  Some older controllers
+        # are write-only, so only read when VISA reports buffered bytes.
+        deadline = time.monotonic() + 0.15
+        while time.monotonic() < deadline:
+            try:
+                buffered = int(self.inst.bytes_in_buffer)
+            except (AttributeError, NotImplementedError):
+                return
+            if buffered > 0:
+                reply = self.inst.read().strip()
+                if reply.lstrip("#").startswith("?"):
+                    raise RuntimeError(f"LaserPoint 设置命令失败：{command} -> {reply}")
+                return
+            time.sleep(0.005)
 
     def set_power_mode(self) -> None:
         self._setting_command("*POWER")

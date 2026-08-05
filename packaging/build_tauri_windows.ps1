@@ -44,10 +44,8 @@ $pyInstallerArgs = @(
     "--hidden-import", "PySide6.QtPdf",
     "--hidden-import", "combined_test.ocean_direct_adapter",
     "--hidden-import", "tools.pd_daq_mvp",
-    "--hidden-import", "tools.usb2xxx_control",
     "--add-data", "$(Join-Path $projectRoot 'tools\spectrometer_mvp.py');tools",
-    "--add-data", "$(Join-Path $projectRoot 'tools\legacy_ch341_control.py');tools",
-    "--add-data", "$(Join-Path $projectRoot 'tools\usb2xxx_control.py');tools"
+    "--add-data", "$(Join-Path $projectRoot 'tools\legacy_ch341_control.py');tools"
 )
 
 if (Test-Path -LiteralPath $qtFontLicense) {
@@ -67,17 +65,6 @@ if (Test-Path -LiteralPath $ch341Dll) {
     $pyInstallerArgs += @("--add-binary", "$ch341Dll;.")
 }
 
-$usb2xxxRoot = Join-Path $projectRoot "local_drivers\usb2xxx"
-if (
-    (Test-Path -LiteralPath (Join-Path $usb2xxxRoot "USB2XXX.dll")) -and
-    (Test-Path -LiteralPath (Join-Path $usb2xxxRoot "libusb-1.0.dll"))
-) {
-    $pyInstallerArgs += @("--add-binary", "$(Join-Path $usb2xxxRoot 'USB2XXX.dll');.")
-    $pyInstallerArgs += @("--add-binary", "$(Join-Path $usb2xxxRoot 'libusb-1.0.dll');.")
-}
-else {
-    Write-Warning "USB2XXX.dll/libusb-1.0.dll were not found; USB2XXX support will not be bundled."
-}
 $pyInstallerArgs += (Join-Path $PSScriptRoot "tauri_bridge_entry.py")
 
 & $condaExe @pyInstallerArgs

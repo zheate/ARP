@@ -12,7 +12,7 @@ import time
 from collections import deque
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .runtime_logging import get_runtime_logger
 
@@ -141,20 +141,6 @@ def load_legacy_ch341_controller_class() -> type:
     controller_class = getattr(module, "CH341I2CController", None)
     if controller_class is None:
         raise RuntimeError(f"在 {path} 中未找到 CH341I2CController")
-    return controller_class
-
-
-@lru_cache(maxsize=1)
-def load_usb2xxx_controller_class() -> type:
-    path = TOOLS_ROOT / "usb2xxx_control.py"
-    spec = importlib.util.spec_from_file_location("usb2xxx_control", path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"无法加载 USB2XXX 控制器：{path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    controller_class = getattr(module, "USB2XXXProcessController", None)
-    if controller_class is None:
-        raise RuntimeError(f"在 {path} 中未找到 USB2XXXProcessController")
     return controller_class
 
 
@@ -440,27 +426,6 @@ class PowerMeterReaderThread(QThread):
                     meter.close()
                 except Exception:
                     pass
-
-
-class PowerSupplyReadThread(QThread):
-    """Run one potentially blocking power-supply query off the Qt event loop."""
-
-    succeeded = Signal(float)
-    failed = Signal(str)
-
-    def __init__(self, read_value: Callable[[], float], parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._read_value = read_value
-
-    def run(self) -> None:
-        try:
-            value = float(self._read_value())
-            if not math.isfinite(value):
-                raise RuntimeError("电源返回了无效数值")
-            self.succeeded.emit(value)
-        except Exception as exc:
-            _LOGGER.exception("电源后台读取线程失败")
-            self.failed.emit(f"{type(exc).__name__}: {exc}")
 
 
 class SpectrometerReaderThread(QThread):
