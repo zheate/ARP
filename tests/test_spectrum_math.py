@@ -2,6 +2,8 @@ import math
 import unittest
 from unittest.mock import patch
 
+import numpy as np
+
 from combined_test import spectrum_math
 from combined_test.spectrum_math import (
     calculate_central,
@@ -130,19 +132,39 @@ class SpectrumMathTests(unittest.TestCase):
         bad = calculate_stats([1.0], [1.0, 2.0])
         self.assertTrue(math.isnan(bad.peak_wavelength_nm))
 
-    def test_pib_integrates_974_5_to_977_5_over_fixed_956_to_996_analysis_band(self) -> None:
-        pib = calculate_pib(
-            [950.0, 956.0, 974.5, 976.0, 977.5, 996.0, 1000.0],
-            [1000.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1000.0],
+    def test_pib_matches_scripts_runner_signal_region_and_background_correction(self) -> None:
+        wavelength = np.arange(956.0, 996.0001, 0.1)
+        intensity = (
+            100.0
+            + 5000.0 * np.exp(-0.5 * ((wavelength - 976.0) / 0.35) ** 2)
+            + 1000.0 * np.exp(-0.5 * ((wavelength - 980.0) / 0.35) ** 2)
         )
 
-        self.assertAlmostEqual(pib, 3.0 / 40.0)
+        pib = calculate_pib(wavelength, intensity)
 
-    def test_pib_returns_nan_when_total_intensity_is_zero(self) -> None:
-        self.assertTrue(math.isnan(calculate_pib([975.0, 976.0, 977.0], [0.0, 0.0, 0.0])))
+        self.assertAlmostEqual(pib, 0.8379997813298735)
 
-    def test_pib_returns_nan_when_analysis_band_is_not_fully_covered(self) -> None:
-        self.assertTrue(math.isnan(calculate_pib([974.5, 976.0, 977.5], [1.0, 2.0, 1.0])))
+    def test_pib_uses_fixed_976_nm_band_instead_of_following_a_shifted_peak(self) -> None:
+        wavelength = np.arange(956.0, 996.0001, 0.1)
+        intensity = 100.0 + 5000.0 * np.exp(
+            -0.5 * ((wavelength - 982.0) / 0.35) ** 2
+        )
+
+        self.assertEqual(calculate_pib(wavelength, intensity), 0.0)
+
+    def test_pib_returns_zero_when_total_intensity_is_zero(self) -> None:
+        self.assertEqual(calculate_pib([975.0, 976.0, 977.0], [0.0, 0.0, 0.0]), 0.0)
+
+    def test_pib_returns_nan_for_empty_input(self) -> None:
+        self.assertTrue(math.isnan(calculate_pib([], [])))
+
+    def test_pib_supports_scripts_runner_dynamic_center_when_requested(self) -> None:
+        wavelength = np.arange(956.0, 996.0001, 0.1)
+        intensity = 100.0 + 5000.0 * np.exp(
+            -0.5 * ((wavelength - 982.0) / 0.35) ** 2
+        )
+
+        self.assertEqual(calculate_pib(wavelength, intensity, center_nm=0.0), 1.0)
 
     def test_smsr_uses_main_peak_over_highest_other_local_peak(self) -> None:
         wavelength = [973.0 + index * 0.1 for index in range(41)]

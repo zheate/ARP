@@ -2119,7 +2119,7 @@ class MainWindowTests(unittest.TestCase):
         window.on_spectrum_curve(wavelength, [0.0, 100.0, 200.0, 100.0, 0.0])
         self.assertFalse(window.latest_spectrum_saturated)
         self.assertFalse(window.live_plots.spectrum_saturation_text.get_visible())
-        self.assertEqual(window.live_plots.spectrum_pib_text.get_text(), "PIB   -- %")
+        self.assertEqual(window.live_plots.spectrum_pib_text.get_text(), "PIB   16.67 %")
         window.close()
 
     def test_spectrum_curve_displays_smsr_from_main_and_highest_side_mode(self) -> None:
@@ -3875,6 +3875,20 @@ class PowerMeterCommandFormattingTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             power_meter_mvp.parse_laserpoint_serial("OK;")
 
+    def test_laserpoint_serial_query_retries_one_stale_response(self) -> None:
+        class FakeInstrument:
+            def __init__(self) -> None:
+                self.responses = iter(["??", "#S222483"])
+                self.queries: list[str] = []
+
+            def query(self, command: str) -> str:
+                self.queries.append(command)
+                return next(self.responses)
+
+        instrument = FakeInstrument()
+        self.assertEqual(power_meter_mvp.query_laserpoint_serial(instrument), "222483")
+        self.assertEqual(instrument.queries, ["*SERNU", "*SERNU"])
+
     def test_laserpoint_adapter_uses_scripts_runner_serial_protocol(self) -> None:
         class FakeInstrument:
             def __init__(self) -> None:
@@ -3888,9 +3902,19 @@ class PowerMeterCommandFormattingTests(unittest.TestCase):
                 self.flow_control = None
                 self.queries: list[str] = []
                 self.writes: list[str] = []
+                self.reads: list[str] = []
+                self.pending_replies: list[str] = []
+
+            @property
+            def bytes_in_buffer(self) -> int:
+                if not self.pending_replies:
+                    return 0
+                return len(self.pending_replies[0].encode("ascii"))
 
             def query(self, command: str) -> str:
                 self.queries.append(command)
+                if self.pending_replies:
+                    return self.read()
                 return {
                     "*SERNU": "123456",
                     "*OUTPM": "1.25",
@@ -3898,6 +3922,18 @@ class PowerMeterCommandFormattingTests(unittest.TestCase):
 
             def write(self, command: str) -> None:
                 self.writes.append(command)
+                self.pending_replies.append(
+                    {
+                        "*POWER": "#ok",
+                        "*SETX1 3": "#ok",
+                        "*SETLAM00976": "#LAMBDA00976",
+                    }[command]
+                )
+
+            def read(self) -> str:
+                reply = self.pending_replies.pop(0)
+                self.reads.append(reply)
+                return reply
 
             def close(self) -> None:
                 pass
@@ -3936,6 +3972,7 @@ class PowerMeterCommandFormattingTests(unittest.TestCase):
                 ["*SERNU", "*OUTPM"],
             )
             self.assertEqual(instrument.writes, ["*POWER", "*SETX1 3", "*SETLAM00976"])
+            self.assertEqual(instrument.reads, ["#ok", "#ok", "#LAMBDA00976"])
         finally:
             power_meter_mvp.acquire_visa_resource_manager = original_acquire
             power_meter_mvp.release_visa_resource_manager = original_release
