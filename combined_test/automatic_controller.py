@@ -320,15 +320,11 @@ class AutomaticTestController:
             f"连续 {result.confirmation_count} 个样本超过 30% 保护阈值"
         )
         controller = getattr(self._host, "manual_ch341_controller", None)
-        background_busy = bool(self._host.power_supply_io_busy())
-        background_context = getattr(self._host, "power_supply_read_context", None)
         controller_connected = bool(getattr(controller, "is_connected", False))
         controller_fault = str(getattr(controller, "fault_reason", "") or "无")
         diagnostic = (
             f"5 秒参考={result.reference_power_w:.3f} W；"
             f"连续超限样本=[{confirmation_samples}] W；"
-            f"后台输出电压读取={'运行中' if background_busy else '空闲'}；"
-            f"读取上下文={background_context!r}；"
             f"控制器连接={controller_connected}；"
             f"控制器故障={controller_fault}"
         )
@@ -497,12 +493,6 @@ class AutomaticTestController:
         self.write_automatic_current(current_a, kind)
 
     def write_automatic_current(self, current_a: float, kind: str) -> None:
-        io_busy = getattr(self._host, "power_supply_io_busy", None)
-        if callable(io_busy) and io_busy():
-            self.pause_automatic_test(
-                "USB2XXX 上一条驱动调用仍未返回，未继续阻塞界面发送电流命令"
-            )
-            return
         if not self._manual_i2c_connected():
             label = self._power_supply_controller_label()
             self.pause_automatic_test(f"{label} 未连接")
@@ -528,9 +518,6 @@ class AutomaticTestController:
                 current_a,
                 kind,
             )
-            mark_driver_fault = getattr(self._host, "mark_usb2xxx_driver_fault_if_needed", None)
-            if callable(mark_driver_fault):
-                mark_driver_fault()
             raw_error = str(exc).strip()
             display_error = self._error_formatter(exc)
             if raw_error and raw_error != display_error:

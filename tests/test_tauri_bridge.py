@@ -558,16 +558,6 @@ class LegacyWindowBackendCurrentLimitTests(unittest.TestCase):
         self.assertEqual(backend.window.set_current_spin.value, 25.0)
         self.assertTrue(backend.window.applied)
 
-    def test_usb2xxx_uses_same_20_a_protocol_limit(self) -> None:
-        backend = self.make_backend("usb2xxx")
-
-        with self.assertRaisesRegex(ValueError, "USB2XXX 最大电流不能超过 20 A"):
-            backend._set_current({"currentA": 20.1})
-
-        self.assertIsNone(backend.window.set_current_spin.value)
-        self.assertFalse(backend.window.applied)
-
-
 class LegacyWindowBackendPowerMeterTests(unittest.TestCase):
     def test_resource_selection_uses_qt_discovery_identity(self) -> None:
         class Combo:
@@ -644,18 +634,6 @@ class LegacyWindowBackendShutdownTests(unittest.TestCase):
         backend = self.make_backend(active_current_a=0.0, output_enabled=False)
 
         self.assertEqual(backend._shutdown(), {"shutdownConfirmed": True})
-
-    def test_safe_shutdown_discards_usb2xxx_worker_before_confirmation(self) -> None:
-        backend = self.make_backend(active_current_a=0.0, output_enabled=False)
-        backend.window.power_supply_controller_kind = "usb2xxx"
-        discard_reasons: list[str] = []
-        backend.window._discard_manual_power_supply_controller = discard_reasons.append
-
-        result = backend._shutdown()
-
-        self.assertEqual(result, {"shutdownConfirmed": True})
-        self.assertEqual(discard_reasons, ["Tauri 后端已确认安全退出"])
-
 
 class LegacyWindowBackendShippingBatchTests(unittest.TestCase):
     @staticmethod

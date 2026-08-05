@@ -64,11 +64,9 @@ from .devices import (
     POWER_METER_PROBE_TIMEOUT_MS,
     PowerMeterDetectThread,
     PowerMeterReaderThread,
-    PowerSupplyReadThread,
     SpectrometerReaderThread,
     extract_power_resource_name,
     load_legacy_ch341_controller_class,
-    load_usb2xxx_controller_class,
     load_spectrometer_components,
     normalize_power_resource_name,
     open_spectrometer_device,
@@ -141,12 +139,9 @@ DEFAULT_I2C_ADDRESS = 0x41
 DEFAULT_I2C_SPEED = 0  # 20 KHz
 POWER_SUPPLY_CONTROLLER_LABELS = {
     "ch341": "CH341",
-    "usb2xxx": "USB2XXX",
     "tdk": "TDK",
 }
 AUTO_VOUT_AFTER_STABLE_S = 5.0
-AUTO_VOUT_READ_TIMEOUT_S = 15.0
-EMERGENCY_USB_ABORT_WAIT_MS = 2_000
 MIN_VOUT_READ_INTERVAL_S = 5.0
 POWER_SUPPLY_COMMAND_MIN_INTERVAL_S = MIN_POWER_SUPPLY_COMMAND_INTERVAL_S
 DEFAULT_SPECTROMETER_INTEGRATION_US = 10000
@@ -255,12 +250,6 @@ class MainWindow(QMainWindow):
         self.auto_vout_timer.setSingleShot(True)
         self.auto_vout_timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.auto_vout_timer.timeout.connect(self.on_auto_vout_timer_timeout)
-        self.power_supply_read_thread: PowerSupplyReadThread | None = None
-        self.power_supply_read_context: tuple[float, int] | None = None
-        self.auto_vout_read_watchdog = QTimer(self)
-        self.auto_vout_read_watchdog.setSingleShot(True)
-        self.auto_vout_read_watchdog.setTimerType(Qt.TimerType.PreciseTimer)
-        self.auto_vout_read_watchdog.timeout.connect(self.on_auto_vout_read_timeout)
         self.spectrum_center_candidate_nm: float | None = None
         self.spectrum_center_candidate_count = 0
         self.spectrum_centroid_candidate_nm: float | None = None
@@ -1082,7 +1071,6 @@ class MainWindow(QMainWindow):
         self.prepare_power_supply_combo.setAccessibleName("自动测试电源控制器")
         self.prepare_power_supply_combo.setMaximumWidth(360)
         self.prepare_power_supply_combo.addItem("CH341 I²C", "ch341")
-        self.prepare_power_supply_combo.addItem("USB2XXX I²C", "usb2xxx")
         self.prepare_power_supply_combo.addItem("TDK RS232", "tdk")
         self.prepare_psu_button = QPushButton("连接", self)
         self.prepare_psu_button.clicked.connect(self.connect_i2c_device)
@@ -1358,7 +1346,6 @@ class MainWindow(QMainWindow):
         self.power_supply_controller_combo.setAccessibleName("电源控制器")
         self.power_supply_controller_combo.setMaximumWidth(360)
         self.power_supply_controller_combo.addItem("CH341 I²C", "ch341")
-        self.power_supply_controller_combo.addItem("USB2XXX I²C", "usb2xxx")
         self.power_supply_controller_combo.addItem("TDK RS232", "tdk")
         self.power_supply_controller_combo.setSizeAdjustPolicy(
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
@@ -2856,20 +2843,7 @@ class MainWindow(QMainWindow):
             self.pending_automatic_command_kind = None
 
         errors: list[str] = []
-        background_read_was_busy = self.power_supply_io_busy()
-        background_read_context = self.power_supply_read_context
-        if background_read_was_busy and self.power_supply_controller_kind == "usb2xxx":
-            read_stopped, read_detail = self.abort_background_power_supply_read_for_emergency(
-                action_label
-            )
-            self.add_log(
-                f"{action_label}后台读取处置：{read_detail}；"
-                f"原读取上下文={background_read_context!r}"
-            )
-            if not read_stopped:
-                errors.append(read_detail)
-        else:
-            self.cancel_auto_vout_read()
+        self.cancel_auto_vout_read()
         power_supply = self.get_power_supply()
         is_tdk = self.power_supply_controller_kind == "tdk"
         power_supply_connected = bool(power_supply is not None and power_supply.connected)
@@ -2884,18 +2858,12 @@ class MainWindow(QMainWindow):
                 errors.append("电源未连接，无法确认输出电流已归零")
         else:
             assert power_supply is not None
-            if self.power_supply_io_busy():
-                errors.append(
-                    "USB2XXX 驱动调用仍未返回，未阻塞界面继续等待；"
-                    "无法发送电流置零命令"
-                )
-            else:
-                try:
-                    # Emergency commands deliberately bypass the routine command interval.
-                    power_supply.set_current(0.0)
-                    current_zero_confirmed = True
-                except Exception as exc:
-                    errors.append(f"电流置零失败：{user_facing_error_message(exc)}")
+            try:
+                # Emergency commands deliberately bypass the routine command interval.
+                power_supply.set_current(0.0)
+                current_zero_confirmed = True
+            except Exception as exc:
+                errors.append(f"电流置零失败：{user_facing_error_message(exc)}")
 
             if is_tdk:
                 try:
@@ -2916,9 +2884,8 @@ class MainWindow(QMainWindow):
             driver_fault = str(getattr(controller, "fault_reason", "") or "无")
             shutdown_detail = (
                 f"保护下电结果={'已确认安全' if supply_is_safe else '未确认'}；"
-                f"后台读取触发时={'运行中' if background_read_was_busy else '空闲'}；"
-                f"USB2XXX 最近操作={operation_detail}；"
-                f"USB2XXX 故障={driver_fault}；"
+                f"控制器最近操作={operation_detail}；"
+                f"控制器故障={driver_fault}；"
                 f"错误={' | '.join(errors) if errors else '无'}"
             )
             updater = getattr(
@@ -3120,23 +3087,6 @@ class MainWindow(QMainWindow):
         power_supply = self.get_power_supply()
         return power_supply is not None and power_supply.connected
 
-    def mark_usb2xxx_driver_fault_if_needed(self) -> bool:
-        """Expose a killed worker as a reconnectable, explicitly unsafe state."""
-        controller = self.manual_ch341_controller
-        if (
-            self.power_supply_controller_kind != "usb2xxx"
-            or controller is None
-            or bool(getattr(controller, "is_connected", False))
-        ):
-            return False
-        self.i2c_status_label.setText("驱动失联")
-        self.connect_i2c_button.setText("重新连接 USB2XXX")
-        reason = str(getattr(controller, "fault_reason", "") or "").strip()
-        if reason:
-            self.i2c_status_label.setToolTip(reason)
-        self.update_global_status()
-        return True
-
     def _selected_power_supply_kind(self) -> str:
         return str(self.power_supply_controller_combo.currentData() or "ch341")
 
@@ -3145,23 +3095,11 @@ class MainWindow(QMainWindow):
         return POWER_SUPPLY_CONTROLLER_LABELS.get(selected, selected.upper())
 
     def _discard_manual_power_supply_controller(self, reason: str) -> None:
-        """Drop a disconnected controller and explicitly stop its helper process."""
+        """Drop a disconnected controller before another protocol is selected."""
 
-        controller = self.manual_ch341_controller
-        if controller is None:
-            return
-        close_worker = getattr(controller, "close_worker", None)
-        try:
-            if callable(close_worker):
-                close_worker()
-                _LOGGER.info("USB2XXX 驱动子进程已释放 | reason=%s", reason)
-        except Exception as exc:
-            _LOGGER.exception("释放电源控制器后台进程失败 | reason=%s", reason)
-            self.add_log(
-                f"释放电源控制器后台进程失败（{reason}）：{user_facing_error_message(exc)}"
-            )
-        finally:
-            self.manual_ch341_controller = None
+        if self.manual_ch341_controller is not None:
+            _LOGGER.info("电源控制器已释放 | reason=%s", reason)
+        self.manual_ch341_controller = None
 
     def on_power_supply_controller_changed(self) -> None:
         selected_kind = self._selected_power_supply_kind()
@@ -3186,9 +3124,6 @@ class MainWindow(QMainWindow):
             return
         if selected_kind != previous_kind and self.manual_ch341_controller is not None:
             # A disconnected controller cannot be reused for another protocol.
-            # Explicitly stop USB2XXX's helper before dropping the reference;
-            # its pipe-reader threads otherwise keep the proxy alive and orphan
-            # the old worker when the operator later switches back to USB2XXX.
             self._discard_manual_power_supply_controller(
                 f"控制器从 {self._power_supply_controller_label(previous_kind)} "
                 f"切换到 {self._power_supply_controller_label(selected_kind)}"
@@ -3257,10 +3192,6 @@ class MainWindow(QMainWindow):
                 resource = self.tdk_resource_combo.currentText().strip()
                 self.manual_ch341_controller = TdkLambdaPowerSupply(resource)
                 self.power_supply_controller_kind = "tdk"
-            elif selected_kind == "usb2xxx":
-                controller_class = load_usb2xxx_controller_class()
-                self.manual_ch341_controller = controller_class()
-                self.power_supply_controller_kind = "usb2xxx"
             else:
                 controller_class = load_legacy_ch341_controller_class()
                 self.manual_ch341_controller = controller_class()
@@ -3410,11 +3341,6 @@ class MainWindow(QMainWindow):
 
     def begin_power_supply_command(self, command_name: str) -> bool:
         """Reserve the CH341 bus so its I2C commands remain safely spaced."""
-        if self.power_supply_io_busy():
-            message = f"{command_name}被阻止；USB2XXX 上一条读取仍未返回"
-            self.statusBar().showMessage(message)
-            self.add_log(message)
-            return False
         if self.power_supply_controller_kind == "tdk":
             return True
         now = time.monotonic()
@@ -3449,10 +3375,6 @@ class MainWindow(QMainWindow):
                 self.schedule_auto_vout_read(delay_s=remaining_s)
             return
 
-        if automatic and self.power_supply_controller_kind == "usb2xxx":
-            self.start_automatic_output_voltage_read()
-            return
-
         voltage_v = self.execute_i2c_read([0xB4, 0x8B, 0x00, 0x00], "输出电压", "V")
         if voltage_v is not None:
             self.last_vout_read_monotonic_s = time.monotonic()
@@ -3471,138 +3393,6 @@ class MainWindow(QMainWindow):
         self.auto_vout_timer.stop()
         self.pending_auto_vout_current_a = None
         self.pending_auto_vout_generation = None
-        if self.power_supply_io_busy():
-            self.power_supply_read_context = None
-
-    def abort_background_power_supply_read_for_emergency(
-        self,
-        action_label: str,
-    ) -> tuple[bool, str]:
-        """Stop a USB2XXX read, then reconnect before the zero-current write."""
-
-        self.cancel_auto_vout_read()
-        thread = self.power_supply_read_thread
-        if thread is None or not thread.isRunning():
-            return True, "后台输出电压读取已停止"
-        controller = self.manual_ch341_controller
-        abort = getattr(controller, "abort_in_flight", None)
-        if not callable(abort):
-            return False, "后台输出电压读取仍在运行，控制器不支持强制中止"
-        reason = f"{action_label}：中止后台输出电压读取以优先发送电流归零命令"
-        if not bool(abort(reason)) and thread.isRunning():
-            return False, "未能终止 USB2XXX 后台输出电压读取"
-        if not thread.wait(EMERGENCY_USB_ABORT_WAIT_MS):
-            return False, (
-                f"USB2XXX 后台读取在中止后 {EMERGENCY_USB_ABORT_WAIT_MS} ms 内仍未退出"
-            )
-
-        connected, detail = controller.connect_device(0)
-        if not connected:
-            return False, f"后台读取已终止，但 USB2XXX 重新连接失败：{detail}"
-        return True, "后台读取已终止，USB2XXX 已重新连接，可发送电流归零命令"
-
-    def power_supply_io_busy(self) -> bool:
-        thread = self.power_supply_read_thread
-        return bool(thread is not None and thread.isRunning())
-
-    def start_automatic_output_voltage_read(self) -> None:
-        if self.power_supply_io_busy():
-            self.pause_automatic_test("USB2XXX 上一条电源读取仍未返回")
-            return
-        controller = self._require_manual_i2c_controller()
-        if controller is None:
-            self.pause_automatic_test("USB2XXX 未连接")
-            return
-        if not self.begin_power_supply_command("自动读取输出电压"):
-            self.schedule_auto_vout_read(delay_s=1.0)
-            return
-        power_supply = self.get_power_supply()
-        if power_supply is None:
-            self.pause_automatic_test("USB2XXX 电源未连接")
-            return
-        current_a = self.recorded_stable_point_current_a
-        generation = self.recorded_stable_point_generation
-        if current_a is None or generation is None:
-            self.pause_automatic_test("自动读取输出电压时稳定点已经失效")
-            return
-
-        self.power_supply_read_context = (float(current_a), int(generation))
-        thread = PowerSupplyReadThread(power_supply.read_output_voltage, self)
-        self.power_supply_read_thread = thread
-        thread.succeeded.connect(self.on_automatic_output_voltage_read)
-        thread.failed.connect(self.on_automatic_output_voltage_read_failed)
-        thread.finished.connect(self.on_power_supply_read_finished)
-        self.auto_vout_read_watchdog.start(round(AUTO_VOUT_READ_TIMEOUT_S * 1000.0))
-        self.set_automatic_test_state(
-            AutomaticTestState.WAITING_VOLTAGE,
-            f"正在后台读取 {current_a:.1f} A 输出电压",
-        )
-        self.add_log(f"开始后台读取 {current_a:.1f} A 输出电压；界面和采集保持响应")
-        thread.start()
-
-    def on_automatic_output_voltage_read(self, voltage_v: float) -> None:
-        source = self.sender()
-        if source is not None and source is not self.power_supply_read_thread:
-            return
-        context = self.power_supply_read_context
-        if context is None:
-            self.add_log(f"已忽略超时后返回的输出电压：{voltage_v:.2f} V")
-            return
-        current_a, generation = context
-        if (
-            self.automatic_test_state != AutomaticTestState.WAITING_VOLTAGE
-            or current_a != self.active_output_current_a
-            or current_a != self.recorded_stable_point_current_a
-            or generation != self.recorded_stable_point_generation
-        ):
-            self.add_log(f"稳定点已变化，忽略迟到的输出电压：{voltage_v:.2f} V")
-            return
-        self.last_vout_read_monotonic_s = time.monotonic()
-        self.add_log(f"输出电压: {voltage_v:.2f} V (后台 USB2XXX B4 8B 00 00)")
-        self.statusBar().showMessage(f"输出电压: {voltage_v:.2f} V")
-        self.record_efficiency_from_vout(float(voltage_v))
-
-    def on_automatic_output_voltage_read_failed(self, message: str) -> None:
-        source = self.sender()
-        if source is not None and source is not self.power_supply_read_thread:
-            return
-        self.add_log(f"USB2XXX 后台读取输出电压失败：{message}")
-        self.mark_usb2xxx_driver_fault_if_needed()
-        if self.automatic_test_state == AutomaticTestState.WAITING_VOLTAGE:
-            self.pause_automatic_test(
-                f"输出电压读取失败：{user_facing_error_message(message)}"
-            )
-
-    def on_auto_vout_read_timeout(self) -> None:
-        if not self.power_supply_io_busy():
-            return
-        self.power_supply_read_context = None
-        message = (
-            f"USB2XXX 输出电压读取超过 {AUTO_VOUT_READ_TIMEOUT_S:g} 秒，"
-            "驱动调用可能未返回；已保持界面和采集响应"
-        )
-        self.add_log(message)
-        if self.automatic_test_state == AutomaticTestState.WAITING_VOLTAGE:
-            self.pause_automatic_test(message)
-        QMessageBox.critical(
-            self,
-            "USB2XXX 通信超时",
-            f"{message}\n\n此时软件不会继续阻塞界面。请检查 USB2XXX 和电源面板；"
-            "如果电流无法通过软件归零，请立即从电源面板执行下电。",
-        )
-
-    def on_power_supply_read_finished(self) -> None:
-        source = self.sender()
-        if source is not None and source is not self.power_supply_read_thread:
-            source.deleteLater()
-            return
-        thread = self.power_supply_read_thread
-        self.auto_vout_read_watchdog.stop()
-        self.power_supply_read_thread = None
-        self.power_supply_read_context = None
-        if thread is not None:
-            thread.deleteLater()
-        self._continue_pending_close()
 
     def schedule_auto_vout_read(self, delay_s: float = AUTO_VOUT_AFTER_STABLE_S) -> None:
         current_a = self.recorded_stable_point_current_a
@@ -3690,7 +3480,6 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"{name}: {value:.2f} {unit}")
             return value
         except Exception as exc:
-            self.mark_usb2xxx_driver_fault_if_needed()
             if (
                 self.power_supply_controller_kind == "tdk"
                 and not bool(getattr(controller, "is_connected", False))
@@ -4107,7 +3896,6 @@ class MainWindow(QMainWindow):
             self.add_log(f"输出电流已设为 {self.set_current_spin.value():.1f} A")
             self.statusBar().showMessage(f"输出电流已设为 {self.set_current_spin.value():.1f} A")
         except Exception as exc:
-            self.mark_usb2xxx_driver_fault_if_needed()
             QMessageBox.critical(self, "设置电流", user_facing_error_message(exc))
 
     def refresh_power_meter_resources(self) -> None:
@@ -5027,7 +4815,6 @@ class MainWindow(QMainWindow):
             self._thread_is_running(thread)
             for thread in (
                 self.excel_save_thread,
-                self.power_supply_read_thread,
                 self.power_meter_detect_thread,
                 self.power_meter_reader,
                 self.spectrometer_reader,
@@ -5093,7 +4880,6 @@ class MainWindow(QMainWindow):
             return
 
         for thread in (
-            self.power_supply_read_thread,
             self.power_meter_detect_thread,
             self.power_meter_reader,
             self.spectrometer_reader,
@@ -5171,51 +4957,6 @@ class MainWindow(QMainWindow):
         self._discard_manual_power_supply_controller("程序退出时释放 TDK 控制器")
         return True
 
-    def _shutdown_i2c_for_close(self, event: QCloseEvent) -> bool:
-        """Zero and release an I2C-controlled supply before closing the app."""
-        controller = self.manual_ch341_controller
-        if controller is None:
-            return True
-        label = self._power_supply_controller_label(self.power_supply_controller_kind)
-        power_supply = ControllerPowerSupply(controller)
-        current_already_zero = (
-            self.active_output_current_a is not None
-            and float(self.active_output_current_a) <= 0.0
-        )
-        try:
-            if power_supply.connected and not current_already_zero:
-                power_supply.set_current(0.0)
-            elif not power_supply.connected and not current_already_zero:
-                raise RuntimeError(
-                    f"{label} 已失去连接，无法确认输出电流已经归零"
-                )
-        except Exception as exc:
-            QMessageBox.critical(
-                self,
-                f"{label} 安全下电失败",
-                "程序将保持打开，无法确认电源电流已经归零。\n"
-                f"{user_facing_error_message(exc)}",
-            )
-            event.ignore()
-            return False
-
-        # Once the zero-current command succeeds, a USB handle-release error
-        # must not trap application exit; process teardown releases the handle.
-        # Keep it visible in the log instead of claiming a clean release.
-        try:
-            power_supply.disconnect()
-        except Exception as exc:
-            self.add_log(
-                f"退出时释放 {label} 控制器失败：{user_facing_error_message(exc)}"
-            )
-
-        self.active_output_current_a = 0.0
-        self.set_current_spin.setValue(0.0)
-        self._discard_manual_power_supply_controller(
-            f"程序退出时释放 {label} 控制器"
-        )
-        return True
-
     def closeEvent(self, event: QCloseEvent) -> None:
         if self.automatic_test_state not in (AutomaticTestState.IDLE, AutomaticTestState.COMPLETED):
             event.ignore()
@@ -5236,9 +4977,6 @@ class MainWindow(QMainWindow):
         if self.manual_ch341_controller is not None:
             if self.power_supply_controller_kind == "tdk":
                 if not self._shutdown_tdk_for_close(event):
-                    return
-            elif self.power_supply_controller_kind == "usb2xxx":
-                if not self._shutdown_i2c_for_close(event):
                     return
             else:
                 try:

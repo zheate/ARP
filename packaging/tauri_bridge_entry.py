@@ -9,10 +9,6 @@ if str(PROJECT_ROOT) not in sys.path:
 
 
 if __name__ == "__main__":
-    if "--usb2xxx-worker" in sys.argv:
-        from tools.usb2xxx_control import usb2xxx_worker_main
-
-        raise SystemExit(usb2xxx_worker_main())
     from tauri_bridge.__main__ import main
 
     raise SystemExit(main())

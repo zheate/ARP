@@ -40,7 +40,7 @@ export interface AppConfiguration {
   batch: string
   station: string
   outputDir: string
-  powerSupplyKind: "ch341" | "usb2xxx" | "tdk"
+  powerSupplyKind: "ch341" | "tdk"
   tdkResource: string
   setCurrentA: number
   tdkVoltageV: number

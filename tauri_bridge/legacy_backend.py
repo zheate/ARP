@@ -606,8 +606,7 @@ class LegacyWindowBackend:
             raise ValueError("电流必须是大于或等于 0 A 的有限数值")
         controller_kind = self.window._selected_power_supply_kind()
         if controller_kind != "tdk" and current_a > 20.0:
-            label = "USB2XXX" if controller_kind == "usb2xxx" else "CH341"
-            raise ValueError(f"{label} 最大电流不能超过 20 A")
+            raise ValueError("CH341 最大电流不能超过 20 A")
         self.window.set_current_spin.setValue(current_a)
         self.window.apply_output_current()
 
@@ -992,11 +991,7 @@ class LegacyWindowBackend:
                     "label": (
                         "TDK RS232"
                         if window._selected_power_supply_kind() == "tdk"
-                        else (
-                            "USB2XXX I²C"
-                            if window._selected_power_supply_kind() == "usb2xxx"
-                            else "CH341 I²C"
-                        )
+                        else "CH341 I²C"
                     ),
                     "detail": window.i2c_status_label.text(),
                     "connected": power_connected,

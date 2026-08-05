@@ -30,14 +30,14 @@ class RuntimeLoggingTests(unittest.TestCase):
             assert path is not None
             self.assertEqual(runtime_log_path(), path)
 
-            get_runtime_logger("test").info("USB2XXX 通信异常：测试消息")
+            get_runtime_logger("test").info("I2C 通信异常：测试消息")
             for handler in get_runtime_logger().handlers:
                 handler.flush()
 
             text = path.read_text(encoding="utf-8")
             self.assertIn("运行日志已启动", text)
             self.assertIn("role=test-backend", text)
-            self.assertIn("USB2XXX 通信异常：测试消息", text)
+            self.assertIn("I2C 通信异常：测试消息", text)
             self.assertIn("thread=MainThread", text)
             shutdown_runtime_logging()
 

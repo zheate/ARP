@@ -598,13 +598,13 @@ class DeviceInterfaceTests(unittest.TestCase):
 
             updated = store.append_latest_invalid_attempt_reason(
                 10.0,
-                "USB2XXX 状态码 -2；保护下电未确认",
+                "I2C 通信失败；保护下电未确认",
             )
 
             self.assertTrue(updated)
             attempts = store.list_attempts(session_id)
             self.assertIn("功率下降保护", attempts[-1].invalid_reason)
-            self.assertIn("USB2XXX 状态码 -2", attempts[-1].invalid_reason)
+            self.assertIn("I2C 通信失败", attempts[-1].invalid_reason)
             self.assertIn("保护下电未确认", attempts[-1].invalid_reason)
 
 
