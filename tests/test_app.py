@@ -471,7 +471,7 @@ class MainWindowTests(unittest.TestCase):
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
 
-        window.on_power_meter_reading(PowerMeterReading(1.0, 150.0, False, 0.2, 1.0))
+        window.on_power_meter_reading(PowerMeterReading(1.0, 150.0, False, 0.2, 1.0, 150.0))
 
         self.assertTrue(window.stable_tolerance_spin.isReadOnly())
         self.assertEqual(window.stable_tolerance_spin.value(), 0.30)
@@ -486,6 +486,7 @@ class MainWindowTests(unittest.TestCase):
                 True,
                 0.4,
                 3.0,
+                150.0,
                 stable_tolerance_w=0.45,
             )
         )
@@ -2078,7 +2079,7 @@ class MainWindowTests(unittest.TestCase):
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
 
-        raw_reading = PowerMeterReading(0.2, 1.0074, False, 0.01, 0.2)
+        raw_reading = PowerMeterReading(0.2, 1.0074, False, 0.01, 0.2, 1.0074)
         window.update_power_curve(0.0, 1.0004)
         window.update_power_curve(0.1, 1.0044)
         window.on_power_meter_reading(raw_reading)
@@ -2428,21 +2429,53 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(settings.spectrometer_device_id, 321)
         window.close()
 
-    def test_stable_power_schedules_one_automatic_vout_read_after_five_seconds(self) -> None:
+    def test_stable_power_uses_window_median_and_schedules_one_vout_read(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
+        window.automatic_test_currents = (3.0, 4.0)
+        window.automatic_test_current_index = 0
+        window.automatic_test_state = AutomaticTestState.WAITING_STABLE
+        window.latest_wavelength_stable = True
         window.active_output_current_a = 3.0
         window.pending_stable_point_current_a = 3.0
         window.pending_stable_point_generation = 7
 
         window.on_power_meter_reading(
-            PowerMeterReading(1.0, 10.0, True, 0.01, 3.0, stability_generation=7)
+            PowerMeterReading(1.0, 10.2, True, 0.01, 3.0, 10.0, stability_generation=7)
         )
 
+        self.assertEqual(window.stable_power_points[3.0], 10.0)
+        window.on_power_meter_reading(
+            PowerMeterReading(1.2, 10.4, True, 0.01, 3.0, 10.1, stability_generation=7)
+        )
+        self.assertEqual(window.stable_power_points[3.0], 10.1)
         self.assertEqual(window.pending_auto_vout_current_a, 3.0)
         self.assertEqual(window.pending_auto_vout_generation, 7)
         self.assertTrue(window.auto_vout_timer.isActive())
         self.assertGreaterEqual(window.auto_vout_timer.remainingTime(), 4900)
+        window.automatic_test_state = AutomaticTestState.IDLE
+        window.close()
+
+    def test_final_current_requires_ten_seconds_of_continuous_stability(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.automatic_test_currents = (3.0, 4.0)
+        window.automatic_test_current_index = 1
+        window.automatic_test_state = AutomaticTestState.WAITING_STABLE
+        window.latest_wavelength_stable = True
+        window.active_output_current_a = 4.0
+        window.pending_stable_point_current_a = 4.0
+        window.pending_stable_point_generation = 8
+
+        window.on_power_meter_reading(
+            PowerMeterReading(1.0, 12.0, True, 0.01, 3.0, 12.0, stability_generation=8)
+        )
+
+        self.assertEqual(window.pending_auto_vout_current_a, 4.0)
+        self.assertTrue(window.auto_vout_timer.isActive())
+        self.assertGreaterEqual(window.auto_vout_timer.remainingTime(), 9900)
+        self.assertIn("10.0 秒", window.statusBar().currentMessage())
+        window.automatic_test_state = AutomaticTestState.IDLE
         window.close()
 
     def test_automatic_test_moves_to_voltage_wait_after_power_becomes_stable(self) -> None:
@@ -2456,7 +2489,7 @@ class MainWindowTests(unittest.TestCase):
         window.pending_stable_point_generation = 7
 
         window.on_power_meter_reading(
-            PowerMeterReading(1.0, 10.0, True, 0.01, 3.0, stability_generation=7)
+            PowerMeterReading(1.0, 10.0, True, 0.01, 3.0, 10.0, stability_generation=7)
         )
 
         self.assertEqual(window.automatic_test_state, AutomaticTestState.WAITING_VOLTAGE)
@@ -2473,7 +2506,7 @@ class MainWindowTests(unittest.TestCase):
         window.pending_stable_point_generation = 7
 
         window.on_power_meter_reading(
-            PowerMeterReading(1.0, 10.0, True, 0.01, 3.0, stability_generation=7)
+            PowerMeterReading(1.0, 10.0, True, 0.01, 3.0, 10.0, stability_generation=7)
         )
 
         self.assertEqual(window.automatic_test_state, AutomaticTestState.WAITING_STABLE)
@@ -2499,7 +2532,7 @@ class MainWindowTests(unittest.TestCase):
             window.pending_stable_point_generation = 7
 
             window.on_power_meter_reading(
-                PowerMeterReading(1.0, 75.0, True, 0.01, 3.0, stability_generation=7)
+                PowerMeterReading(1.0, 75.0, True, 0.01, 3.0, 75.0, stability_generation=7)
             )
 
             self.assertEqual(window.automatic_test_state, AutomaticTestState.WAITING_VOLTAGE)
@@ -2531,11 +2564,11 @@ class MainWindowTests(unittest.TestCase):
         window.pending_stable_point_current_a = 3.0
         window.pending_stable_point_generation = 7
         window.on_power_meter_reading(
-            PowerMeterReading(1.0, 10.0, True, 0.01, 3.0, stability_generation=7)
+            PowerMeterReading(1.0, 10.0, True, 0.01, 3.0, 10.0, stability_generation=7)
         )
 
         window.on_power_meter_reading(
-            PowerMeterReading(1.2, 10.5, False, 0.20, 3.0, stability_generation=7)
+            PowerMeterReading(1.2, 10.5, False, 0.20, 3.0, 10.5, stability_generation=7)
         )
 
         self.assertIsNone(window.pending_auto_vout_current_a)
@@ -2549,14 +2582,14 @@ class MainWindowTests(unittest.TestCase):
         window.pending_stable_point_current_a = 3.0
         window.pending_stable_point_generation = 7
         window.on_power_meter_reading(
-            PowerMeterReading(1.0, 10.0, True, 0.01, 3.0, stability_generation=7)
+            PowerMeterReading(1.0, 10.0, True, 0.01, 3.0, 10.0, stability_generation=7)
         )
         window.on_power_meter_reading(
-            PowerMeterReading(1.2, 10.5, False, 0.20, 3.0, stability_generation=7)
+            PowerMeterReading(1.2, 10.5, False, 0.20, 3.0, 10.5, stability_generation=7)
         )
 
         window.on_power_meter_reading(
-            PowerMeterReading(4.5, 10.0, True, 0.01, 3.0, stability_generation=7)
+            PowerMeterReading(4.5, 10.0, True, 0.01, 3.0, 10.0, stability_generation=7)
         )
 
         self.assertEqual(window.pending_auto_vout_current_a, 3.0)
@@ -2570,15 +2603,66 @@ class MainWindowTests(unittest.TestCase):
         window.active_output_current_a = 3.0
         window.recorded_stable_point_current_a = 3.0
         window.recorded_stable_point_generation = 7
-        window.pending_auto_vout_current_a = 3.0
-        window.pending_auto_vout_generation = 7
-        window.latest_power_meter_reading = PowerMeterReading(1.0, 10.0, True, 0.01, 3.0, stability_generation=7)
+        window.on_power_meter_reading(
+            PowerMeterReading(1.0, 10.0, True, 0.01, 3.0, 10.0, stability_generation=7)
+        )
+        window.on_power_meter_reading(
+            PowerMeterReading(1.3, 10.0, True, 0.01, 3.0, 10.0, stability_generation=7)
+        )
         automatic_calls: list[bool] = []
         window.read_output_voltage = lambda automatic=False: automatic_calls.append(automatic)
 
         window.on_auto_vout_timer_timeout()
 
         self.assertEqual(automatic_calls, [True])
+        window.close()
+
+    def test_automatic_vout_read_rejects_a_stale_stability_snapshot(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.active_output_current_a = 3.0
+        window.automatic_test_state = AutomaticTestState.WAITING_VOLTAGE
+        window.recorded_stable_point_current_a = 3.0
+        window.recorded_stable_point_generation = 7
+        window.on_power_meter_reading(
+            PowerMeterReading(1.0, 10.0, True, 0.01, 3.0, 10.0, stability_generation=7)
+        )
+        window.power_meter_interval_spin.setValue(5000)
+        automatic_calls: list[bool] = []
+        window.read_output_voltage = lambda automatic=False: automatic_calls.append(automatic)
+
+        window.on_auto_vout_timer_timeout()
+
+        self.assertEqual(automatic_calls, [])
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.WAITING_STABLE)
+        window.automatic_test_state = AutomaticTestState.IDLE
+        window.close()
+
+    def test_automatic_vout_read_requires_a_new_spectrum_sample_during_hold(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.active_output_current_a = 3.0
+        window.automatic_test_state = AutomaticTestState.WAITING_VOLTAGE
+        window.recorded_stable_point_current_a = 3.0
+        window.recorded_stable_point_generation = 7
+        window.latest_wavelength_stable = True
+        window.latest_spectrum_reading_received_monotonic_s = (
+            combined_test_window.time.monotonic()
+        )
+        window.on_power_meter_reading(
+            PowerMeterReading(1.0, 10.0, True, 0.01, 3.0, 10.0, stability_generation=7)
+        )
+        window.on_power_meter_reading(
+            PowerMeterReading(1.3, 10.0, True, 0.01, 3.0, 10.0, stability_generation=7)
+        )
+        automatic_calls: list[bool] = []
+        window.read_output_voltage = lambda automatic=False: automatic_calls.append(automatic)
+
+        window.on_auto_vout_timer_timeout()
+
+        self.assertEqual(automatic_calls, [])
+        self.assertEqual(window.automatic_test_state, AutomaticTestState.WAITING_STABLE)
+        window.automatic_test_state = AutomaticTestState.IDLE
         window.close()
 
     def test_automatic_voltage_read_failure_pauses_current_point(self) -> None:
@@ -3330,16 +3414,28 @@ class MainWindowTests(unittest.TestCase):
             window.active_output_current_a = 3.0
             window.recorded_stable_point_current_a = 3.0
             window.recorded_stable_point_generation = 7
-            window.pending_auto_vout_current_a = 3.0
-            window.pending_auto_vout_generation = 7
             window.latest_wavelength_stable = False
-            window.latest_power_meter_reading = PowerMeterReading(
-                1.0,
-                10.0,
-                True,
-                0.01,
-                3.0,
-                stability_generation=7,
+            window.on_power_meter_reading(
+                PowerMeterReading(
+                    1.0,
+                    10.0,
+                    True,
+                    0.01,
+                    3.0,
+                    10.0,
+                    stability_generation=7,
+                )
+            )
+            window.on_power_meter_reading(
+                PowerMeterReading(
+                    1.3,
+                    10.0,
+                    True,
+                    0.01,
+                    3.0,
+                    10.0,
+                    stability_generation=7,
+                )
             )
             reads: list[bool] = []
             window.read_output_voltage = lambda automatic=False: reads.append(automatic)  # type: ignore[method-assign]

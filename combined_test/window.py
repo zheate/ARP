@@ -142,6 +142,7 @@ POWER_SUPPLY_CONTROLLER_LABELS = {
     "tdk": "TDK",
 }
 AUTO_VOUT_AFTER_STABLE_S = 5.0
+FINAL_AUTO_VOUT_AFTER_STABLE_S = 10.0
 MIN_VOUT_READ_INTERVAL_S = 5.0
 POWER_SUPPLY_COMMAND_MIN_INTERVAL_S = MIN_POWER_SUPPLY_COMMAND_INTERVAL_S
 DEFAULT_SPECTROMETER_INTEGRATION_US = 10000
@@ -242,8 +243,12 @@ class MainWindow(QMainWindow):
         self.recorded_stable_point_current_a: float | None = None
         self.recorded_stable_point_generation: int | None = None
         self.latest_power_meter_reading: PowerMeterReading | None = None
+        self.latest_power_reading_received_monotonic_s: float | None = None
+        self.latest_spectrum_reading_received_monotonic_s: float | None = None
         self.pending_auto_vout_current_a: float | None = None
         self.pending_auto_vout_generation: int | None = None
+        self.pending_auto_vout_power_elapsed_s: float | None = None
+        self.pending_auto_vout_spectrum_received_monotonic_s: float | None = None
         self.last_vout_read_monotonic_s: float | None = None
         self.last_power_supply_command_monotonic_s: float | None = None
         self.auto_vout_timer = QTimer(self)
@@ -3393,8 +3398,10 @@ class MainWindow(QMainWindow):
         self.auto_vout_timer.stop()
         self.pending_auto_vout_current_a = None
         self.pending_auto_vout_generation = None
+        self.pending_auto_vout_power_elapsed_s = None
+        self.pending_auto_vout_spectrum_received_monotonic_s = None
 
-    def schedule_auto_vout_read(self, delay_s: float = AUTO_VOUT_AFTER_STABLE_S) -> None:
+    def schedule_auto_vout_read(self, delay_s: float | None = None) -> None:
         current_a = self.recorded_stable_point_current_a
         generation = self.recorded_stable_point_generation
         if (
@@ -3405,9 +3412,30 @@ class MainWindow(QMainWindow):
         ):
             return
 
+        if delay_s is None:
+            is_final_point = (
+                self.automatic_test_state
+                in (AutomaticTestState.WAITING_STABLE, AutomaticTestState.WAITING_VOLTAGE)
+                and bool(self.automatic_test_currents)
+                and self.automatic_test_current_index == len(self.automatic_test_currents) - 1
+            )
+            delay_s = (
+                FINAL_AUTO_VOUT_AFTER_STABLE_S
+                if is_final_point
+                else AUTO_VOUT_AFTER_STABLE_S
+            )
         delay_s = max(float(delay_s), self.vout_read_interval_remaining_s())
         self.pending_auto_vout_current_a = current_a
         self.pending_auto_vout_generation = generation
+        reading = self.latest_power_meter_reading
+        self.pending_auto_vout_power_elapsed_s = (
+            reading.elapsed_s
+            if reading is not None and reading.stability_generation == generation
+            else None
+        )
+        self.pending_auto_vout_spectrum_received_monotonic_s = (
+            self.latest_spectrum_reading_received_monotonic_s
+        )
         self.auto_vout_timer.start(max(1, math.ceil(delay_s * 1000.0)))
         self.statusBar().showMessage(f"功率已稳定；将在 {delay_s:.1f} 秒后自动读取输出电压")
         self.add_log(f"{current_a:.3f} A 时功率已稳定；将在 {delay_s:.1f} 秒后自动读取输出电压")
@@ -3415,9 +3443,38 @@ class MainWindow(QMainWindow):
     def on_auto_vout_timer_timeout(self) -> None:
         current_a = self.pending_auto_vout_current_a
         generation = self.pending_auto_vout_generation
+        initial_power_elapsed_s = self.pending_auto_vout_power_elapsed_s
+        initial_spectrum_received_s = self.pending_auto_vout_spectrum_received_monotonic_s
         self.pending_auto_vout_current_a = None
         self.pending_auto_vout_generation = None
+        self.pending_auto_vout_power_elapsed_s = None
+        self.pending_auto_vout_spectrum_received_monotonic_s = None
         reading = self.latest_power_meter_reading
+        now = time.monotonic()
+        power_max_age_s = max(1.0, self.power_meter_interval_spin.value() / 1000.0 * 3.0)
+        power_is_fresh = (
+            self.latest_power_reading_received_monotonic_s is not None
+            and now - self.latest_power_reading_received_monotonic_s <= power_max_age_s
+        )
+        power_has_progressed = (
+            reading is not None
+            and initial_power_elapsed_s is not None
+            and reading.elapsed_s > initial_power_elapsed_s
+        )
+        requires_spectrum = (
+            self.automatic_test_state == AutomaticTestState.WAITING_VOLTAGE
+            and self.automatic_controller.automatic_uses_spectrometer()
+        )
+        spectrum_max_age_s = max(1.0, self.interval_spin.value() / 1000.0 * 3.0)
+        spectrum_is_fresh = (
+            self.latest_spectrum_reading_received_monotonic_s is not None
+            and now - self.latest_spectrum_reading_received_monotonic_s <= spectrum_max_age_s
+        )
+        spectrum_has_progressed = (
+            initial_spectrum_received_s is not None
+            and self.latest_spectrum_reading_received_monotonic_s is not None
+            and self.latest_spectrum_reading_received_monotonic_s > initial_spectrum_received_s
+        )
         if (
             current_a is None
             or generation is None
@@ -3427,13 +3484,27 @@ class MainWindow(QMainWindow):
             or reading is None
             or not reading.stable
             or reading.stability_generation != generation
+            or not power_is_fresh
+            or not power_has_progressed
             or (
-                self.automatic_test_state == AutomaticTestState.WAITING_VOLTAGE
-                and self.automatic_controller.automatic_uses_spectrometer()
-                and not self.latest_wavelength_stable
+                requires_spectrum
+                and (
+                    not self.latest_wavelength_stable
+                    or not spectrum_is_fresh
+                    or not spectrum_has_progressed
+                )
             )
         ):
-            self.add_log("当前测试点不再稳定，已取消自动读取输出电压")
+            if not power_is_fresh or not power_has_progressed:
+                reason = "功率采样已中断"
+            elif requires_spectrum and (not spectrum_is_fresh or not spectrum_has_progressed):
+                reason = "光谱采样已中断"
+            else:
+                reason = "当前测试点不再稳定"
+            if self.automatic_test_state == AutomaticTestState.WAITING_VOLTAGE:
+                self.invalidate_automatic_stability(reason)
+            else:
+                self.add_log(f"{reason}，已取消自动读取输出电压")
             return
         self.read_output_voltage(automatic=True)
 
@@ -4223,6 +4294,7 @@ class MainWindow(QMainWindow):
 
     def on_power_meter_reading(self, reading: PowerMeterReading) -> None:
         self.latest_power_meter_reading = reading
+        self.latest_power_reading_received_monotonic_s = time.monotonic()
         if self.automatic_controller.on_automatic_power_sample(
             reading.power_w,
             reading.elapsed_s,
@@ -4257,6 +4329,7 @@ class MainWindow(QMainWindow):
         self.capture_stable_power_point(reading)
 
     def on_spectrometer_reading(self, reading: SpectrometerReading) -> None:
+        self.latest_spectrum_reading_received_monotonic_s = time.monotonic()
         if math.isfinite(reading.centroid_nm):
             result = self.wavelength_stability_detector.add_sample(time.monotonic(), reading.centroid_nm)
             was_stable = self.latest_wavelength_stable
@@ -4453,7 +4526,8 @@ class MainWindow(QMainWindow):
             self.add_log("0 A 已稳定；已跳过功率和效率点")
             return
 
-        self.stable_power_points[current_a] = float(reading.power_w)
+        stable_power_w = float(reading.stable_median_w)
+        self.stable_power_points[current_a] = stable_power_w
         self.efficiency_points.pop(current_a, None)
         self.efficiency_voltage_points.pop(current_a, None)
         self.pending_stable_point_current_a = None
@@ -4463,16 +4537,18 @@ class MainWindow(QMainWindow):
         self.update_stable_power_curve()
         if require_spectrum_stability:
             self.statusBar().showMessage(
-                f"已记录 {current_a:.3f} A 联合稳定点：{reading.power_w:.3f} W，"
+                f"已记录 {current_a:.3f} A 联合稳定点：{stable_power_w:.3f} W，"
                 f"波长跨度 {self.latest_wavelength_span_nm:.3f} nm"
             )
             self.add_log(
-                f"功率与波长稳定点：{current_a:.3f} A，{reading.power_w:.3f} W，"
+                f"功率与波长稳定点：{current_a:.3f} A，{stable_power_w:.3f} W，"
                 f"波长跨度 {self.latest_wavelength_span_nm:.3f} nm"
             )
         else:
-            self.statusBar().showMessage(f"已记录 {current_a:.3f} A 时的稳定功率：{reading.power_w:.3f} W")
-            self.add_log(f"稳定功率点：{current_a:.3f} A，{reading.power_w:.3f} W")
+            self.statusBar().showMessage(
+                f"已记录 {current_a:.3f} A 时的稳定功率：{stable_power_w:.3f} W"
+            )
+            self.add_log(f"稳定功率点：{current_a:.3f} A，{stable_power_w:.3f} W")
         self.schedule_auto_vout_read()
         self.automatic_controller.on_stable_power_captured(current_a)
 
@@ -4486,7 +4562,7 @@ class MainWindow(QMainWindow):
         ):
             return
 
-        self.stable_power_points[current_a] = float(reading.power_w)
+        self.stable_power_points[current_a] = float(reading.stable_median_w)
         self.update_efficiency_point(current_a)
         self.update_stable_power_curve()
 

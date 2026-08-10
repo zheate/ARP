@@ -19,6 +19,7 @@ from combined_test.spectrum import (
     SPECTRUM_CENTER_LOCK_HALF_RANGE_NM,
     find_spectrum_peak_annotations,
 )
+from combined_test.test_history import TestHistoryRecord, find_test_history
 from combined_test.shipping_report import (
     ShippingReportRequest,
     generate_shipping_report,
@@ -195,6 +196,7 @@ class LegacyWindowBackend:
         self._pd_cache_key: tuple[Any, ...] | None = None
         self._pd_cache_payload: list[dict[str, float]] = []
         self._series_revisions = {"power": 0, "stable": 0, "spectrum": 0, "pd": 0}
+        self._test_reference: TestHistoryRecord | None = None
         self._install_nonblocking_dialogs()
 
     def _bump_series_revision(self, name: str) -> None:
@@ -477,10 +479,11 @@ class LegacyWindowBackend:
             "spectrometer.stop": lambda _p: self.window.stop_spectrometer(),
             "spectrometer.saveCsv": self._save_spectrum_csv,
             "automatic.start": self._start_automatic,
+            "automatic.references": self._list_automatic_references,
             "automatic.pause": lambda _p: self._pause_automatic(),
             "automatic.retry": lambda _p: self.window.retry_automatic_test(),
             "automatic.end": lambda _p: self.window.end_automatic_test(),
-            "automatic.reset": lambda _p: self.window.reset_automatic_test(),
+            "automatic.reset": lambda _p: self._reset_automatic(),
             "shippingReport.inspect": self._inspect_shipping_report,
             "shippingReport.batchInspect": self._inspect_shipping_report_batch,
             "shippingReport.batchGenerateItem": self._generate_shipping_report_batch_item,
@@ -499,7 +502,7 @@ class LegacyWindowBackend:
             raise KeyError(method)
         self.notices.clear()
         result = action(params)
-        if method != "shippingReport.preview":
+        if method not in {"automatic.references", "shippingReport.preview"}:
             self.window.save_input_settings()
         return self.snapshot() if result is None else result
 
@@ -652,8 +655,39 @@ class LegacyWindowBackend:
         if self.window.power_meter_detect_thread is not None:
             raise ValueError("功率计正在识别，请等待识别完成后再开始自动测试")
         self._configure(params)
+        self._select_test_reference(params)
         self.window.start_automatic_test()
         self._connect_spectrum_capture()
+
+    def _history_records(self, params: dict[str, Any]) -> tuple[TestHistoryRecord, ...]:
+        output_dir = str(params.get("outputDir", self.window.output_dir_field.text())).strip()
+        sn = str(params.get("sn", self.window.sn_field.text())).strip()
+        return find_test_history(output_dir, sn) if output_dir and sn else ()
+
+    def _list_automatic_references(self, params: dict[str, Any]) -> dict[str, Any]:
+        return {"items": [record.summary_payload() for record in self._history_records(params)]}
+
+    def _select_test_reference(self, params: dict[str, Any]) -> None:
+        selection = str(params.get("referencePath", "latest")).strip()
+        if selection == "none":
+            self._test_reference = None
+            return
+        records = self._history_records(params)
+        if selection in {"", "latest"}:
+            self._test_reference = records[0] if records else None
+            return
+        selected_path = str(Path(selection).expanduser().resolve())
+        selected = next(
+            (record for record in records if str(record.inspection.source_path) == selected_path),
+            None,
+        )
+        if selected is None:
+            raise ValueError("选择的历史测试记录已不存在或不属于当前壳体 SN")
+        self._test_reference = selected
+
+    def _reset_automatic(self) -> None:
+        self._test_reference = None
+        self.window.reset_automatic_test()
 
     def _pause_automatic(self) -> None:
         state = _enum_value(self.window.automatic_orchestrator.state)
@@ -1056,6 +1090,11 @@ class LegacyWindowBackend:
                 "pauseReason": automatic.pause_reason,
                 "terminalOutcome": _enum_value(window.automatic_controller.terminal_outcome),
                 "terminalReason": window.automatic_controller.terminal_reason,
+                "reference": (
+                    self._test_reference.reference_payload()
+                    if self._test_reference is not None
+                    else None
+                ),
             },
             "measurements": measurements,
             "pd": {

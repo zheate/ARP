@@ -59,6 +59,13 @@ class AutomaticTestControllerLifecycleTests(unittest.TestCase):
         finally:
             QMessageBox.information = original_information  # type: ignore[method-assign]
 
+    def test_point_timeout_accounts_for_the_final_ten_second_hold(self) -> None:
+        self.window.stable_window_spin.setValue(3.0)
+        self.window.auto_point_timeout_spin.setValue(12.9)
+
+        with self.assertRaisesRegex(ValueError, "13.0"):
+            self.window.collect_automatic_test_settings()
+
     def test_operator_pause_during_save_is_rejected_and_save_can_complete(self) -> None:
         result_details = self._prepare_zero_current_terminal_path(AutomaticTestState.SAVING_POINT)
         self.window.record_store.recorded_currents.add(8.0)
@@ -163,16 +170,16 @@ class AutomaticTestControllerLifecycleTests(unittest.TestCase):
         self.window.set_current_spin.setValue(8.0)
 
         self.window.on_power_meter_reading(
-            PowerMeterReading(1.0, 100.0, False, 5.0, 0.1)
+            PowerMeterReading(1.0, 100.0, False, 5.0, 0.1, 100.0)
         )
         self.window.on_power_meter_reading(
-            PowerMeterReading(6.0, 69.0, False, 31.0, 5.0)
+            PowerMeterReading(6.0, 69.0, False, 31.0, 5.0, 69.0)
         )
         self.window.on_power_meter_reading(
-            PowerMeterReading(6.1, 68.5, False, 31.5, 5.1)
+            PowerMeterReading(6.1, 68.5, False, 31.5, 5.1, 68.5)
         )
         self.window.on_power_meter_reading(
-            PowerMeterReading(6.2, 68.0, False, 32.0, 5.2)
+            PowerMeterReading(6.2, 68.0, False, 32.0, 5.2, 68.0)
         )
 
         self.assertEqual(controller.writes, [[0xB4, 0xFF, 0x00, 0x00]])
@@ -212,16 +219,16 @@ class AutomaticTestControllerLifecycleTests(unittest.TestCase):
         self.window.set_current_spin.setValue(5.0)
 
         self.window.on_power_meter_reading(
-            PowerMeterReading(1.0, 50.0, False, 5.0, 0.1)
+            PowerMeterReading(1.0, 50.0, False, 5.0, 0.1, 50.0)
         )
         self.window.on_power_meter_reading(
-            PowerMeterReading(6.0, 34.0, False, 16.0, 5.0)
+            PowerMeterReading(6.0, 34.0, False, 16.0, 5.0, 34.0)
         )
         self.window.on_power_meter_reading(
-            PowerMeterReading(6.1, 33.5, False, 16.5, 5.1)
+            PowerMeterReading(6.1, 33.5, False, 16.5, 5.1, 33.5)
         )
         self.window.on_power_meter_reading(
-            PowerMeterReading(6.2, 33.0, False, 17.0, 5.2)
+            PowerMeterReading(6.2, 33.0, False, 17.0, 5.2, 33.0)
         )
 
         self.assertEqual(controller.commands, ["current:0", "output:0"])

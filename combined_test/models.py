@@ -83,6 +83,7 @@ class PowerMeterReading:
     stable: bool
     stable_span_w: float
     stable_window_s: float
+    stable_median_w: float
     stability_generation: int = 0
     stable_tolerance_w: float = math.nan
 

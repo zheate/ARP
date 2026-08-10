@@ -33,7 +33,7 @@ import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { useBackendSnapshot } from "@/hooks/use-backend-snapshot"
-import { sendBackendRequest, type AppConfiguration, type BackendSnapshot, type DeviceSnapshot, type ShippingReportBatchGenerationResult, type ShippingReportBatchInspection, type ShippingReportBatchItem, type ShippingReportFieldDefinition, type ShippingReportGenerationResult, type ShippingReportPointSuggestion, type ShippingReportPreviewResult, type ShippingReportType, type ShippingWorkbookInspection, type SpectrumAxisMode } from "@/lib/backend"
+import { sendBackendRequest, type AppConfiguration, type BackendSnapshot, type DeviceSnapshot, type ShippingReportBatchGenerationResult, type ShippingReportBatchInspection, type ShippingReportBatchItem, type ShippingReportFieldDefinition, type ShippingReportGenerationResult, type ShippingReportPointSuggestion, type ShippingReportPreviewResult, type ShippingReportType, type ShippingWorkbookInspection, type SpectrumAxisMode, type TestHistoryCandidate } from "@/lib/backend"
 
 type Page = "automatic" | "manual" | "pd" | "shipping"
 
@@ -53,6 +53,9 @@ const PLM_CHART_SERIES = {
   green: "#70a58a",
   blue: "#8298b8",
 } as const
+const HISTORY_CHART_SERIES = {
+  power: "rgba(168, 171, 176, 0.46)",
+} as const
 
 const navigation = [
   { id: "automatic" as const, label: "自动测试", icon: CircleGauge },
@@ -61,11 +64,31 @@ const navigation = [
   { id: "shipping" as const, label: "出货报告", icon: FileText },
 ]
 
+const AUTOMATIC_STAGE_LABELS: Record<string, string> = {
+  starting: "启动并确认设备",
+  setting_current: "设置输出电流",
+  waiting_voltage: "读取输出电压",
+  saving_point: "保存测试点",
+  ramping_down: "安全下电",
+  paused: "测试已暂停",
+  completed: "测试完成",
+}
+
 const pageShortcuts: Page[] = ["automatic", "manual", "pd", "shipping"]
 const FIT_TO_VIEWPORT_PAGES: ReadonlySet<Page> = new Set(["automatic", "manual"])
 const MIN_PAGE_ZOOM = 0.45
+const INFO_TOAST_DURATION_MS = 3000
 
 type SpectrumYAxisState = { domain: [number, number]; compactFrameCount: number }
+
+function powerYAxisDomain(values: Array<number | null | undefined>): [number, number] | undefined {
+  const finiteValues = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+  if (finiteValues.length === 0) return undefined
+  const minimum = Math.min(...finiteValues)
+  const maximum = Math.max(...finiteValues)
+  const padding = minimum === maximum ? Math.max(Math.abs(minimum) * 0.1, 0.001) : (maximum - minimum) * 0.12
+  return [minimum >= 0 ? Math.max(0, minimum - padding) : minimum - padding, maximum <= 0 ? 0 : maximum + padding]
+}
 
 function spectrumYAxisDomain(values: number[]): [number, number] {
   if (values.length === 0) return [0, 1]
@@ -804,17 +827,43 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch 
   const powerStable = powerMeter?.running === true && powerMeter.stable === true
   const powerStabilityLabel = powerMeter?.running ? (powerStable ? "已稳定" : "稳定中") : "未采集"
   const powerStabilityColor = PLM_CHART_SERIES.clay
+  const reference = snapshot?.automaticTest.reference
+  const currentA = snapshot?.automaticTest.currentA
+  const referencePoint = reference?.points.find((point) => (
+    typeof currentA === "number" && Math.abs(point.currentA - currentA) < 1e-9
+  ))
+  const referencePowerW = referencePoint?.powerW
+  const chartData = useMemo<Array<Record<string, number | null>>>(() => {
+    if (typeof referencePowerW !== "number") return powerData
+    return [
+      { elapsedS: powerTimeDomain[0], powerW: null, referencePowerW },
+      ...powerData.map((point) => ({ ...point, referencePowerW })),
+      { elapsedS: powerTimeDomain[1], powerW: null, referencePowerW },
+    ]
+  }, [powerData, powerTimeDomain, referencePowerW])
+  const powerYDomain = powerYAxisDomain(chartData.flatMap((row) => (
+    typeof row.elapsedS === "number" && row.elapsedS >= powerTimeDomain[0]
+      ? [row.powerW, row.referencePowerW]
+      : []
+  )))
+  const lines: CanvasChartLine[] = [
+    { key: "powerW", label: "本次功率 (W)", color: powerStabilityColor },
+    ...(typeof referencePowerW === "number"
+      ? [{ key: "referencePowerW", label: `历史参考 · ${reference?.station || "未填写站别"}`, color: HISTORY_CHART_SERIES.power, lineWidth: 1.2 }]
+      : []),
+  ]
 
   return (
     <ChartPanel
       title="功率实时"
-      data={powerData}
+      data={chartData}
       xKey="elapsedS"
-      lines={[{ key: "powerW", label: "功率 (W)", color: powerStabilityColor }]}
+      lines={lines}
       stretch={stretch}
       heightClassName={heightClassName}
       xDomain={powerTimeDomain}
       xTicks={powerTimeTicks}
+      yDomain={powerYDomain}
       headerRight={<div className="flex items-center gap-3"><div className={`flex items-center gap-1.5 text-sm font-medium ${powerStable ? "text-[var(--app-success)]" : powerMeter?.running ? "text-[var(--app-validation)]" : "text-muted-foreground"}`}><span className={`size-2 rounded-full ${powerStable ? "bg-[var(--app-success)]" : powerMeter?.running ? "bg-[var(--app-validation)]" : "bg-muted-foreground/45"}`} />{powerStabilityLabel}</div><p className="text-lg font-semibold tabular-nums">{formatNumber(latestPowerW, " W")}</p></div>}
     />
   )
@@ -823,16 +872,21 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch 
   const nextPower = next.snapshot?.measurements?.power
   const previousMeter = previous.snapshot?.devices.powerMeter
   const nextMeter = next.snapshot?.devices.powerMeter
+  const previousReference = previous.snapshot?.automaticTest.reference
+  const nextReference = next.snapshot?.automaticTest.reference
   return previous.stretch === next.stretch
     && previous.heightClassName === next.heightClassName
     && sameRows(previousPower, nextPower, ["elapsedS", "powerW"])
     && previousMeter?.running === nextMeter?.running
     && previousMeter?.stable === nextMeter?.stable
+    && previous.snapshot?.automaticTest.currentA === next.snapshot?.automaticTest.currentA
+    && previousReference?.sourcePath === nextReference?.sourcePath
+    && sameRows(previousReference?.points, nextReference?.points, ["currentA", "powerW"])
 })
 
 const powerEfficiencyLines: CanvasChartLine[] = [
-  { key: "powerW", label: "功率 (W)", color: PLM_CHART_SERIES.clay, showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 1.7 },
-  { key: "efficiencyPercent", label: "效率 (%)", color: PLM_CHART_SERIES.tan, yAxisId: "right", showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 1.7 },
+  { key: "powerW", label: "本次功率 (W)", color: PLM_CHART_SERIES.clay, showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 1.7 },
+  { key: "efficiencyPercent", label: "本次效率 (%)", color: PLM_CHART_SERIES.tan, yAxisId: "right", showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 1.7 },
 ]
 
 const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; stretch?: boolean; heightClassName?: string }) {
@@ -1202,6 +1256,15 @@ function App() {
     ...(!active && snapshot ? [{ key: "runtime-warning", level: "warning" as const, title: "运行环境提示", message: "当前 Python 环境未加载 PySide6/设备驱动，因此控制功能暂不可用。请使用项目指定环境启动。" }] : []),
   ]
   const [dismissedNotifications, setDismissedNotifications] = useState<Set<string>>(new Set())
+  const autoDismissNotificationKeys = notifications.filter((notification) => notification.level === "info").map((notification) => notification.key)
+  const autoDismissNotificationKey = autoDismissNotificationKeys.join("\n")
+  useEffect(() => {
+    if (!autoDismissNotificationKey) return
+    const timer = window.setTimeout(() => {
+      setDismissedNotifications((current) => new Set([...current, ...autoDismissNotificationKeys]))
+    }, INFO_TOAST_DURATION_MS)
+    return () => window.clearTimeout(timer)
+  }, [autoDismissNotificationKey])
   const visibleNotifications = notifications.filter((notification) => !dismissedNotifications.has(notification.key))
   const powerProtectionNotification = visibleNotifications.find((notification) => notification.title === "功率保护")
   const spectrumSaturationNotification = visibleNotifications.find((notification) => notification.title === "光谱饱和")
@@ -1244,7 +1307,7 @@ function App() {
               <p aria-live="polite" className="mt-1 flex min-h-4 items-center gap-1.5 text-xs text-muted-foreground">
                 {commandPending
                   ? <><LoaderCircle className="size-3 animate-spin text-primary" />{pendingCommandLabel(pendingCommand)}</>
-                  : snapshot?.status?.message ?? (loading ? "正在连接 Python 后端" : "等待后端")}
+                  : page === "automatic" ? null : snapshot?.status?.message ?? (loading ? "正在连接 Python 后端" : "等待后端")}
               </p>
             </div>
             <div className="flex items-center gap-2">
@@ -2056,10 +2119,48 @@ function AutomaticPage({ snapshot, config, update, active, controlsLocked, pendi
 }) {
   const auto = snapshot?.automaticTest
   const running = auto && !["idle", "completed", "paused"].includes(auto.state)
+  const testStarted = Boolean(auto && auto.state !== "idle")
+  const ready = readyCount === readyTotal
+  const stageLabel = auto?.state === "waiting_stable"
+    ? config.useSpectrometer ? "等待功率与波长稳定" : "等待功率稳定"
+    : auto ? AUTOMATIC_STAGE_LABELS[auto.state] || auto.detail || "测试进行中" : "准备状态"
   const showingRampDownCurrent = auto?.state === "ramping_down" || auto?.state === "completed"
   const displayedCurrentA = showingRampDownCurrent ? snapshot?.devices.powerSupply.activeCurrentA : auto?.currentA
   const [openSettings, setOpenSettings] = useState<DeviceSettingsKind | null>(null)
+  const [historyItems, setHistoryItems] = useState<TestHistoryCandidate[]>([])
+  const [referencePath, setReferencePath] = useState("latest")
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState("")
   const closeSettings = () => setOpenSettings(null)
+  const loadHistory = useCallback(async () => {
+    if (!config.outputDir.trim() || !config.sn.trim()) {
+      setHistoryItems([])
+      return
+    }
+    setHistoryLoading(true)
+    setHistoryError("")
+    try {
+      const result = await sendBackendRequest<{ items: TestHistoryCandidate[] }>("automatic.references", {
+        outputDir: config.outputDir,
+        sn: config.sn,
+      })
+      setHistoryItems(result.items)
+      setReferencePath((current) => (
+        current === "latest" || current === "none" || result.items.some((item) => item.sourcePath === current)
+          ? current
+          : "latest"
+      ))
+    } catch (reason) {
+      setHistoryError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setHistoryLoading(false)
+    }
+  }, [config.outputDir, config.sn])
+  useEffect(() => {
+    setHistoryItems([])
+    setReferencePath("latest")
+    setHistoryError("")
+  }, [config.outputDir, config.sn])
   useEffect(() => {
     if (controlsLocked) setOpenSettings(null)
   }, [controlsLocked])
@@ -2074,9 +2175,25 @@ function AutomaticPage({ snapshot, config, update, active, controlsLocked, pendi
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(320px,0.75fr)_minmax(520px,1.5fr)]">
         <Card className="min-w-0 shadow-none">
           <CardContent className="grid grid-cols-2 gap-x-4 gap-y-5 pb-6">
-            <Field label="输出目录" className="col-span-2"><Input disabled={controlsLocked} value={config.outputDir} onChange={(e) => update("outputDir", e.target.value)} /></Field>
-            <Field label="壳体 SN"><Input disabled={controlsLocked} value={config.sn} onChange={(e) => update("sn", e.target.value)} /></Field>
+            <Field label="输出目录" className="col-span-2"><Input disabled={controlsLocked} value={config.outputDir} onBlur={() => void loadHistory()} onChange={(e) => update("outputDir", e.target.value)} /></Field>
+            <Field label="壳体 SN"><Input disabled={controlsLocked} value={config.sn} onBlur={() => void loadHistory()} onChange={(e) => update("sn", e.target.value)} /></Field>
             <Field label="测试站别"><Input disabled={controlsLocked} value={config.station} onChange={(e) => update("station", e.target.value)} /></Field>
+            <Field className="col-span-2" label="历史参考">
+              <div className="flex gap-2">
+                <NativeSelect disabled={controlsLocked || historyLoading} value={referencePath} onChange={setReferencePath}>
+                  <option value="latest">上一次同 SN 完整测试（默认）</option>
+                  {historyItems.map((item) => {
+                    const rawTime = item.startedAtUtc || new Date(item.modifiedAtMs).toISOString()
+                    const timestamp = new Date(rawTime)
+                    const timeLabel = Number.isNaN(timestamp.getTime()) ? rawTime : timestamp.toLocaleString()
+                    return <option key={item.sourcePath} value={item.sourcePath}>{timeLabel} · {item.station || "未填写站别"} · {item.pointCount} 点</option>
+                  })}
+                  <option value="none">不显示历史参考</option>
+                </NativeSelect>
+                <Button aria-label="刷新同壳体历史记录" disabled={controlsLocked || historyLoading || !config.outputDir.trim() || !config.sn.trim()} onClick={() => void loadHistory()} size="icon" type="button" variant="outline"><RefreshCw className={`size-4 ${historyLoading ? "animate-spin" : ""}`} /></Button>
+              </div>
+              <p className={`mt-1.5 text-xs ${historyError ? "text-[var(--app-warning)]" : "text-muted-foreground"}`}>{historyError || (historyItems.length ? `找到 ${historyItems.length} 次完整测试；默认使用最上一次。` : "填写输出目录和 SN 后，可刷新并选择历史记录。")}</p>
+            </Field>
             <Separator className="col-span-2 my-2" />
             <NumberField disabled={controlsLocked} label="起始电流 (A)" value={config.initialCurrentA} onChange={(v) => update("initialCurrentA", v)} max={currentInputMaximum(config, snapshot)} />
             <NumberField disabled={controlsLocked} label="目标电流 (A)" value={config.targetCurrentA} onChange={(v) => update("targetCurrentA", v)} max={currentInputMaximum(config, snapshot)} />
@@ -2085,12 +2202,8 @@ function AutomaticPage({ snapshot, config, update, active, controlsLocked, pendi
             <NumberField disabled={controlsLocked} label="下电步长 (A)" value={config.rampDownStepA} onChange={(v) => update("rampDownStepA", v)} max={currentInputMaximum(config, snapshot)} />
             <NumberField disabled={controlsLocked} label="下电间隔 (s)" value={config.rampDownIntervalS} onChange={(v) => update("rampDownIntervalS", v)} step="0.1" />
             <label className={`col-span-2 flex items-center gap-3 py-1 text-sm ${controlsLocked ? "cursor-not-allowed text-muted-foreground opacity-55" : ""}`}><input checked={config.useSpectrometer} disabled={controlsLocked} onChange={(e) => update("useSpectrometer", e.target.checked)} type="checkbox" />同时采集光谱并判断波长稳定</label>
-            <div className="col-span-2 rounded-lg border border-border bg-background/35 p-4">
-              <div className="flex justify-between text-sm"><b>准备状态</b><span>{readyCount} / {readyTotal}</span></div><Progress className="mt-3 h-1.5" value={readyCount / readyTotal * 100} />
-              <p className="mt-3 text-xs text-muted-foreground">{auto?.settingsError || auto?.detail || "等待配置"}</p>
-            </div>
             <div className="col-span-2 grid grid-cols-2 gap-3">
-              <Button disabled={!active || pending || controlsLocked || !auto?.canStart} onClick={() => void run("automatic.start", config as unknown as Record<string, unknown>)}><Play className="size-4" />开始自动测试</Button>
+              <Button disabled={!active || pending || controlsLocked || !auto?.canStart} onClick={() => void run("automatic.start", { ...config, referencePath })}><Play className="size-4" />开始自动测试</Button>
               {auto?.canRetry && <Button disabled={!active || pending} onClick={() => void run("automatic.retry")} variant="outline"><RotateCcw className="size-4" />修复后重试</Button>}
               <Button disabled={!active || pending || !auto?.canEnd} onClick={() => void run("automatic.end")} variant="destructive"><Square className="size-4" />结束并安全下电</Button>
             </div>
@@ -2099,16 +2212,15 @@ function AutomaticPage({ snapshot, config, update, active, controlsLocked, pendi
         <div className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)_minmax(0,1fr)] gap-4">
           <Card className="shadow-none">
             <CardContent className="grid grid-cols-[1fr_auto] items-center gap-4 py-4">
-              <div><div className="flex items-center gap-2"><StatusDot state={auto?.state === "paused" ? "error" : running ? "connected" : "disconnected"} /><b className="text-sm">{auto?.detail || "未开始"}</b></div><Progress className="mt-3 h-2" value={progress} /><p className="mt-2 text-xs text-muted-foreground">测试点 {Math.max(0, (auto?.currentIndex ?? -1) + 1)} / {auto?.currents?.length ?? 0}</p></div>
-              <div className="text-right"><p className="text-2xl font-semibold">{formatNumber(displayedCurrentA, " A", 1)}</p><p className="text-xs text-muted-foreground">当前电流</p></div>
+              <div><div className="flex items-center gap-2"><StatusDot state={auto?.state === "paused" ? "error" : running || ready ? "connected" : "disconnected"} /><b className="text-sm">{testStarted ? stageLabel : auto?.settingsError || "准备状态"}</b></div><Progress aria-label={testStarted ? "自动测试总进度" : "设备准备进度"} className="mt-3 h-2" value={testStarted ? progress : readyCount / readyTotal * 100} /><p className="mt-2 text-xs text-muted-foreground">{testStarted ? `测试点 ${Math.max(0, (auto?.currentIndex ?? -1) + 1)} / ${auto?.currents?.length ?? 0}` : auto?.detail || "等待配置"}</p></div>
+              <div className="text-right"><p className="text-2xl font-semibold">{testStarted ? formatNumber(displayedCurrentA, " A", 1) : `${readyCount} / ${readyTotal}`}</p><p className="text-xs text-muted-foreground">{testStarted ? "当前电流" : "设备就绪"}</p></div>
             </CardContent>
           </Card>
           <PowerRealtimeChart snapshot={snapshot} stretch />
-          {config.useSpectrometer
-            ? <SpectrumRealtimeChart snapshot={snapshot} stretch />
-            : <PowerEfficiencyChart snapshot={snapshot} stretch />}
+          <PowerEfficiencyChart snapshot={snapshot} stretch />
         </div>
       </section>
+      {config.useSpectrometer && <section><SpectrumRealtimeChart heightClassName="h-56" snapshot={snapshot} /></section>}
     </>
   )
 }

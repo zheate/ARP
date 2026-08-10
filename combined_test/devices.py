@@ -406,6 +406,7 @@ class PowerMeterReaderThread(QThread):
                         stable=stability.stable,
                         stable_span_w=stability.span_w,
                         stable_window_s=stability.window_s,
+                        stable_median_w=stability.median_w,
                         stability_generation=generation,
                         stable_tolerance_w=active_tolerance_w,
                     )

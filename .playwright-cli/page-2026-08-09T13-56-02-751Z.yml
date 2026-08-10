@@ -1,0 +1,130 @@
+- generic [ref=e4]:
+  - complementary [ref=e5]:
+    - paragraph [ref=e6]: 工作区
+    - navigation [ref=e7]:
+      - button "自动测试" [ref=e8] [cursor=pointer]
+      - button "详细配置" [disabled] [ref=e14]
+      - button "PD 采集" [ref=e17] [cursor=pointer]
+      - button "出货报告" [disabled] [ref=e21]
+  - main [ref=e26]:
+    - generic [ref=e27]:
+      - generic [ref=e28]:
+        - generic [ref=e29]:
+          - generic [ref=e30]:
+            - heading "自动测试" [level=1] [ref=e31]
+            - generic [ref=e32]: 控制器已接入
+          - paragraph [ref=e33]: 等待后端
+        - generic [ref=e34]:
+          - button [disabled]: 保存设置
+          - button "刷新" [disabled]
+          - button "紧急停止" [ref=e35] [cursor=pointer]
+      - alert [ref=e36]:
+        - generic [ref=e39]:
+          - paragraph [ref=e40]: 示例数据
+          - paragraph [ref=e41]: 当前显示的是图表预览数据，不会连接真实仪器。
+        - button "关闭提示" [disabled] [ref=e42]
+      - generic [ref=e46]:
+        - generic [ref=e47]:
+          - button "打开电源设置" [disabled] [ref=e48]:
+            - generic [ref=e53]:
+              - generic [ref=e54]: 电源
+              - paragraph [ref=e57]: TDK RS232 · 示例
+          - button "打开功率计设置" [disabled] [ref=e58]:
+            - generic [ref=e64]:
+              - generic [ref=e65]: 功率计
+              - paragraph [ref=e68]: ASRL3::INSTR · 示例
+          - button "打开光谱仪设置" [disabled] [ref=e69]:
+            - generic [ref=e78]:
+              - generic [ref=e79]: 光谱仪
+              - paragraph [ref=e82]: Ocean Insight · 示例
+        - generic [ref=e83]:
+          - generic [ref=e85]:
+            - generic [ref=e86]:
+              - generic [ref=e87]: 输出目录
+              - textbox [disabled]
+            - generic [ref=e88]:
+              - generic [ref=e89]: 壳体 SN
+              - textbox [disabled]: DEMO-001
+            - generic [ref=e90]:
+              - generic [ref=e91]: 测试站别
+              - textbox [disabled]: 预览工位
+            - generic [ref=e92]:
+              - generic [ref=e93]: 历史参考
+              - generic [ref=e94]:
+                - combobox [disabled] [ref=e96]:
+                  - generic [ref=e97]: 上一次同 SN 完整测试（默认）
+                - button "刷新同壳体历史记录" [disabled]
+              - paragraph [ref=e100]: 填写输出目录和 SN 后，可刷新并选择历史记录。
+            - generic [ref=e101]:
+              - generic [ref=e102]: 起始电流 (A)
+              - spinbutton [disabled]: "2"
+            - generic [ref=e103]:
+              - generic [ref=e104]: 目标电流 (A)
+              - spinbutton [disabled]: "12"
+            - generic [ref=e105]:
+              - generic [ref=e106]: 电流间隔 (A)
+              - spinbutton [disabled]: "2"
+            - generic [ref=e107]:
+              - generic [ref=e108]: 单点超时 (s)
+              - spinbutton [disabled]: "120"
+            - generic [ref=e109]:
+              - generic [ref=e110]: 下电步长 (A)
+              - spinbutton [disabled]: "5"
+            - generic [ref=e111]:
+              - generic [ref=e112]: 下电间隔 (s)
+              - spinbutton [disabled]: "1.1"
+            - generic [ref=e113]:
+              - checkbox "同时采集光谱并判断波长稳定" [checked] [disabled] [ref=e114]
+              - text: 同时采集光谱并判断波长稳定
+            - generic [ref=e115]:
+              - generic [ref=e116]:
+                - generic [ref=e117]: 准备状态
+                - generic [ref=e118]: 3 / 3
+              - progressbar [ref=e119]
+              - paragraph [ref=e121]: 示例数据预览
+            - generic [ref=e122]:
+              - button "开始自动测试" [disabled]
+              - button "结束并安全下电" [ref=e123] [cursor=pointer]
+          - generic [ref=e124]:
+            - generic [ref=e126]:
+              - generic [ref=e127]:
+                - generic [ref=e128]: 示例数据预览
+                - progressbar [ref=e131]
+                - paragraph [ref=e133]: 测试点 4 / 6
+              - generic [ref=e134]:
+                - paragraph [ref=e135]: 8.0 A
+                - paragraph [ref=e136]: 当前电流
+            - generic "功率实时" [ref=e137]:
+              - generic [ref=e138]:
+                - generic "图例" [ref=e139]:
+                  - generic [ref=e140]: 本次功率 (W)
+                  - generic [ref=e143]: 历史参考 · 老化站 1
+                - generic [ref=e146]:
+                  - generic [ref=e147]: 已稳定
+                  - paragraph [ref=e149]: 0.860 W
+              - generic [ref=e151]:
+                - img "功率实时曲线" [ref=e152]
+                - generic [ref=e153]: 本次功率 (W)、历史参考 · 老化站 1
+            - generic "功率 / 效率" [ref=e154]:
+              - generic "图例" [ref=e156]:
+                - generic [ref=e157]: 本次功率 (W)
+                - generic [ref=e161]: 本次效率 (%)
+              - generic [ref=e166]:
+                - img "功率 / 效率曲线" [ref=e167]
+                - generic [ref=e168]: 本次功率 (W)、本次效率 (%)
+        - generic "光谱" [ref=e170]:
+          - generic [ref=e171]:
+            - generic "图例" [ref=e172]: 强度
+            - generic [ref=e176]:
+              - generic [ref=e177]:
+                - paragraph [ref=e178]: 976.200 nm
+                - paragraph [ref=e179]: 中心波长
+              - generic [ref=e180]:
+                - paragraph [ref=e181]: 0.420 nm
+                - paragraph [ref=e182]: FWHM
+              - generic [ref=e183]:
+                - paragraph [ref=e184]: "--"
+                - paragraph [ref=e185]: SMSR
+          - generic [ref=e187]:
+            - img "光谱曲线" [ref=e188]
+            - generic [ref=e189]: 强度

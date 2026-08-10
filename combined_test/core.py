@@ -34,6 +34,7 @@ class StabilityResult:
     span_w: float
     window_s: float
     sample_count: int
+    median_w: float
 
 
 @dataclass(frozen=True)
@@ -55,15 +56,16 @@ class PowerStabilityDetector:
     """Conservative time-window detector with noise and drift protection.
 
     A stable result requires enough continuously sampled data, an acceptable
-    robust peak-to-peak span, and no meaningful shift between the beginning
-    and end of the window.  One isolated interior spike may be ignored, but a
-    new endpoint or a sustained level change is never treated as a spike.
+    robust peak-to-peak span, and no meaningful fitted drift or shift between
+    the beginning and end of the window. One isolated interior spike may be
+    ignored, but a new endpoint or a sustained level change is never treated
+    as a spike.
     """
 
     MIN_SAMPLE_COUNT = 5
     MAX_SAMPLE_GAP_FRACTION = 0.5
     MAX_CENTER_SHIFT_FRACTION = 0.5
-    REQUIRED_CONFIRMATIONS = 2
+    MAX_FITTED_DRIFT_FRACTION = 0.25
     EXIT_TOLERANCE_MULTIPLIER = 1.5
 
     def __init__(self, window_s: float, tolerance_w: float) -> None:
@@ -74,7 +76,6 @@ class PowerStabilityDetector:
         self.window_s = float(window_s)
         self.tolerance_w = float(tolerance_w)
         self._samples: Deque[tuple[float, float]] = deque()
-        self._stable_confirmations = 0
         self._stable_latched = False
 
     @property
@@ -85,7 +86,6 @@ class PowerStabilityDetector:
 
     def reset(self) -> None:
         self._samples.clear()
-        self._stable_confirmations = 0
         self._stable_latched = False
 
     def _remove_isolated_spike(
@@ -113,15 +113,20 @@ class PowerStabilityDetector:
         _deviation, spike_index = max(candidates)
         return samples[:spike_index] + samples[spike_index + 1 :]
 
-    def _unstable_result(self, span: float, covered_s: float) -> StabilityResult:
-        self._stable_confirmations = 0
+    def _unstable_result(
+        self,
+        span: float,
+        covered_s: float,
+        median_w: float = math.nan,
+    ) -> StabilityResult:
         self._stable_latched = False
-        return StabilityResult(False, span, covered_s, len(self._samples))
+        return StabilityResult(False, span, covered_s, len(self._samples), median_w)
 
     def add_sample(self, elapsed_s: float, power_w: float) -> StabilityResult:
         elapsed = float(elapsed_s)
         power = float(power_w)
         if not math.isfinite(elapsed) or not math.isfinite(power):
+            self.reset()
             return self._unstable_result(math.inf, 0.0)
 
         if self._samples and elapsed < self._samples[-1][0]:
@@ -148,34 +153,49 @@ class PowerStabilityDetector:
         filtered_samples = self._remove_isolated_spike(samples, active_tolerance_w)
         powers = [sample[1] for sample in filtered_samples]
         span = max(powers) - min(powers) if powers else math.inf
+        median_w = median(powers) if powers else math.nan
         covered_s = self._samples[-1][0] - self._samples[0][0] if len(self._samples) >= 2 else 0.0
         if covered_s < self.window_s or len(filtered_samples) < self.MIN_SAMPLE_COUNT:
-            return self._unstable_result(span, covered_s)
+            return self._unstable_result(span, covered_s, median_w)
 
         gaps = [
             samples[index][0] - samples[index - 1][0]
             for index in range(1, len(samples))
         ]
         if gaps and max(gaps) > self.window_s * self.MAX_SAMPLE_GAP_FRACTION:
-            return self._unstable_result(span, covered_s)
+            return self._unstable_result(span, covered_s, median_w)
 
         section_size = max(2, len(filtered_samples) // 3)
         beginning_center = median(sample[1] for sample in filtered_samples[:section_size])
         ending_center = median(sample[1] for sample in filtered_samples[-section_size:])
         center_shift = abs(ending_center - beginning_center)
+        mean_elapsed = math.fsum(sample[0] for sample in filtered_samples) / len(filtered_samples)
+        mean_power = math.fsum(sample[1] for sample in filtered_samples) / len(filtered_samples)
+        elapsed_variance = math.fsum(
+            (sample[0] - mean_elapsed) ** 2 for sample in filtered_samples
+        )
+        fitted_slope = (
+            math.fsum(
+                (sample[0] - mean_elapsed) * (sample[1] - mean_power)
+                for sample in filtered_samples
+            )
+            / elapsed_variance
+            if elapsed_variance > 0.0
+            else math.inf
+        )
         comparison_margin = max(1e-12, active_tolerance_w * 1e-12)
         candidate_stable = (
             span <= active_tolerance_w + comparison_margin
             and center_shift
             <= active_tolerance_w * self.MAX_CENTER_SHIFT_FRACTION + comparison_margin
+            and abs(fitted_slope) * self.window_s
+            <= self.tolerance_w * self.MAX_FITTED_DRIFT_FRACTION + comparison_margin
         )
         if not candidate_stable:
-            return self._unstable_result(span, covered_s)
+            return self._unstable_result(span, covered_s, median_w)
 
-        if not self._stable_latched:
-            self._stable_confirmations += 1
-            self._stable_latched = self._stable_confirmations >= self.REQUIRED_CONFIRMATIONS
-        return StabilityResult(self._stable_latched, span, covered_s, len(self._samples))
+        self._stable_latched = True
+        return StabilityResult(True, span, covered_s, len(self._samples), median_w)
 
 
 class WavelengthStabilityDetector(PowerStabilityDetector):

@@ -24,7 +24,7 @@ from .device_interfaces import PowerMeter, PowerSupply, SpectrumMeter
 from .record_store import AttemptValidity, RecordStore, SessionStatus
 from .runtime_logging import get_runtime_logger
 
-AUTO_VOUT_AFTER_STABLE_S = 5.0
+FINAL_AUTO_VOUT_AFTER_STABLE_S = 10.0
 AUTOMATIC_DEVICE_START_TIMEOUT_S = 15.0
 _LOGGER = get_runtime_logger("automatic_controller")
 
@@ -364,7 +364,7 @@ class AutomaticTestController:
         return validate_automatic_test_settings(
             settings,
             stable_window_s=self.stable_window_spin.value(),
-            post_stable_delay_s=AUTO_VOUT_AFTER_STABLE_S,
+            post_stable_delay_s=FINAL_AUTO_VOUT_AFTER_STABLE_S,
         )
 
     def start_automatic_test(self) -> None:

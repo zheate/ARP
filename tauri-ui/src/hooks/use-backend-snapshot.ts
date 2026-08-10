@@ -70,7 +70,7 @@ const DEMO_SNAPSHOT: BackendSnapshot = {
     spectrometer: { state: "connected", label: "光谱仪", detail: "Ocean Insight · 示例", connected: true, running: true, ready: true, resources: ["自动选择第一台 Ocean Insight"], peakWavelengthNm: 976.2, centroidNm: 976.2, fwhmNm: 0.42, smsrDb: null, spectrumWindow: { centerNm: 976.2, halfRangeNm: 20 } },
   },
   automaticTest: {
-    state: "running",
+    state: "waiting_stable",
     detail: "示例数据预览",
     controlsEnabled: false,
     canStart: false,
@@ -80,6 +80,23 @@ const DEMO_SNAPSHOT: BackendSnapshot = {
     currentIndex: 3,
     currentA: 8,
     progress: 0.67,
+    reference: {
+      sourcePath: "/preview/DEMO-001/老化站 1/2026_07_18_14_30.xlsx",
+      station: "老化站 1",
+      startedAtUtc: "2026-07-18T06:30:00.000Z",
+      modifiedAtMs: 1752810600000,
+      pointCount: 6,
+      minimumCurrentA: 2,
+      maximumCurrentA: 12,
+      points: [
+        { currentA: 2, powerW: 0.11 },
+        { currentA: 4, powerW: 0.25 },
+        { currentA: 6, powerW: 0.4 },
+        { currentA: 8, powerW: 0.57 },
+        { currentA: 10, powerW: 0.71 },
+        { currentA: 12, powerW: 0.84 },
+      ],
+    },
   },
   measurements: {
     power: [

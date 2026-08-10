@@ -65,6 +65,20 @@ export interface AppConfiguration {
   useSpectrometer: boolean
 }
 
+export interface TestHistoryCandidate {
+  sourcePath: string
+  station: string
+  startedAtUtc: string
+  modifiedAtMs: number
+  pointCount: number
+  minimumCurrentA: number
+  maximumCurrentA: number
+}
+
+export interface TestHistoryReference extends TestHistoryCandidate {
+  points: Array<{ currentA: number; powerW: number }>
+}
+
 export interface BackendSnapshot {
   capturedAt: string
   seriesRevisions?: SeriesRevisions
@@ -98,6 +112,7 @@ export interface BackendSnapshot {
     pauseReason?: string
     terminalOutcome?: string | null
     terminalReason?: string
+    reference?: TestHistoryReference | null
   }
   measurements?: {
     power: Array<{ elapsedS: number; powerW: number }>
