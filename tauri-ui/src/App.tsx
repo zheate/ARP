@@ -1,4 +1,5 @@
 import { Children, isValidElement, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react"
+import { createPortal } from "react-dom"
 import {
   BarChart3,
   ChevronDown,
@@ -37,6 +38,10 @@ import { sendBackendRequest, type AppConfiguration, type BackendSnapshot, type D
 
 type Page = "automatic" | "manual" | "pd" | "shipping"
 
+function DialogPortal({ children }: { children: ReactNode }) {
+  return createPortal(children, document.body)
+}
+
 const I2C_CURRENT_LIMIT_A = 20
 const POWER_PLOT_HISTORY_S = 60
 const POWER_TIME_TICK_INTERVAL_S = 10
@@ -64,20 +69,16 @@ const navigation = [
   { id: "shipping" as const, label: "出货报告", icon: FileText },
 ]
 
-const AUTOMATIC_STAGE_LABELS: Record<string, string> = {
-  starting: "启动并确认设备",
-  setting_current: "设置输出电流",
-  waiting_voltage: "读取输出电压",
-  saving_point: "保存测试点",
-  ramping_down: "安全下电",
-  paused: "测试已暂停",
-  completed: "测试完成",
-}
-
 const pageShortcuts: Page[] = ["automatic", "manual", "pd", "shipping"]
-const FIT_TO_VIEWPORT_PAGES: ReadonlySet<Page> = new Set(["automatic", "manual"])
 const MIN_PAGE_ZOOM = 0.45
+const FIT_VIEWPORT_BUFFER_PX = 6
+const SHARED_PAGE_REFERENCE_HEIGHT_PX = 1200
 const INFO_TOAST_DURATION_MS = 3000
+
+function sharedPageZoom(viewportHeight: number): number {
+  const heightRatio = Math.max(1, viewportHeight - FIT_VIEWPORT_BUFFER_PX) / SHARED_PAGE_REFERENCE_HEIGHT_PX
+  return Math.max(MIN_PAGE_ZOOM, Math.min(1, heightRatio))
+}
 
 type SpectrumYAxisState = { domain: [number, number]; compactFrameCount: number }
 
@@ -197,7 +198,17 @@ function pendingCommandLabel(method: string | null): string {
   return "正在处理操作"
 }
 
-function Field({ label, children, className = "" }: { label: string; children: ReactNode; className?: string }) {
+type FieldLayout = "stacked" | "inline"
+
+function Field({ label, children, className = "", layout = "stacked" }: { label: string; children: ReactNode; className?: string; layout?: FieldLayout }) {
+  if (layout === "inline") {
+    return (
+      <div className={`manual-inline-field ${className}`}>
+        <Label className="manual-inline-field-label">{label}：</Label>
+        <div className="manual-inline-field-control">{children}</div>
+      </div>
+    )
+  }
   return (
     <div className={`space-y-1.5 ${className}`}>
       <Label>{label}</Label>
@@ -362,25 +373,48 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
 }) {
   const psu = snapshot?.devices.powerSupply
   return (
-    <div className="space-y-3">
-      <Field label="控制器"><NativeSelect value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
-      {config.powerSupplyKind === "tdk" && <Field label="TDK 串口"><Input value={config.tdkResource} onChange={(e) => update("tdkResource", e.target.value)} /></Field>}
-      {config.powerSupplyKind === "tdk" && <NumberField label="输出电压 (V)" value={config.tdkVoltageV} onChange={(v) => update("tdkVoltageV", v)} step="0.1" />}
-      <NumberField label="设定电流 (A)" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
-      {config.powerSupplyKind === "tdk" ? <div className="grid grid-cols-2 gap-2">
-        <Button disabled={!active || pending} onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接 TDK"}</Button>
-        <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setVoltage", { voltageV: config.tdkVoltageV }, true)} variant="outline">设置电压</Button>
-        <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled ? "关闭输出" : "开启输出"}</Button>
-        <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
-      </div> : <>
-        <div className="grid grid-cols-2 gap-2"><Button disabled={!active || pending} onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接电源"}</Button><Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button></div>
-        <div className="grid grid-cols-2 gap-2">
-          <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline">读取输出电压</Button>
-          <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline">读取输出电流</Button>
-          <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "inputVoltage" })} size="sm" variant="outline">读取输入电压</Button>
-          <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "temperature" })} size="sm" variant="outline">读取模块温度</Button>
+    <div className="power-settings-layout">
+      <section className="power-settings-section">
+        <div className="power-settings-section-heading">
+          <p className="power-settings-section-title">手动控制</p>
+          <p className="power-settings-section-description">连接设备并执行输出控制与状态读取</p>
         </div>
-      </>}
+        <div className="power-settings-fields">
+          <Field label="控制器"><NativeSelect value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
+          {config.powerSupplyKind === "tdk" && <Field label="TDK 串口"><Input value={config.tdkResource} onChange={(e) => update("tdkResource", e.target.value)} /></Field>}
+          <div className="power-settings-value-grid">
+            {config.powerSupplyKind === "tdk" && <NumberField label="输出电压 (V)" value={config.tdkVoltageV} onChange={(v) => update("tdkVoltageV", v)} step="0.1" />}
+            <NumberField label="设定电流 (A)" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
+          </div>
+          {config.powerSupplyKind === "tdk" ? <div className="power-settings-action-grid">
+            <Button disabled={!active || pending} onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接 TDK"}</Button>
+            <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setVoltage", { voltageV: config.tdkVoltageV }, true)} variant="outline">设置电压</Button>
+            <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled ? "关闭输出" : "开启输出"}</Button>
+            <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
+          </div> : <div className="power-settings-action-grid">
+            <Button disabled={!active || pending} onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接电源"}</Button>
+            <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
+            <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline">读取输出电压</Button>
+            <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline">读取输出电流</Button>
+            <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "inputVoltage" })} size="sm" variant="outline">读取输入电压</Button>
+            <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "temperature" })} size="sm" variant="outline">读取模块温度</Button>
+          </div>}
+        </div>
+      </section>
+      <section className="power-settings-section power-settings-section--automatic">
+        <div className="power-settings-section-heading">
+          <p className="power-settings-section-title">自动测试电流</p>
+          <p className="power-settings-section-description">设置升流、单点等待和安全下电参数</p>
+        </div>
+        <div className="power-settings-parameter-grid">
+          <NumberField label="起始电流 (A)" value={config.initialCurrentA} onChange={(v) => update("initialCurrentA", v)} max={currentInputMaximum(config, snapshot)} />
+          <NumberField label="目标电流 (A)" value={config.targetCurrentA} onChange={(v) => update("targetCurrentA", v)} max={currentInputMaximum(config, snapshot)} />
+          <NumberField label="电流间隔 (A)" value={config.currentStepA} onChange={(v) => update("currentStepA", v)} max={currentInputMaximum(config, snapshot)} />
+          <NumberField label="单点超时 (s)" value={config.pointTimeoutS} onChange={(v) => update("pointTimeoutS", v)} />
+          <NumberField label="下电步长 (A)" value={config.rampDownStepA} onChange={(v) => update("rampDownStepA", v)} max={currentInputMaximum(config, snapshot)} />
+          <NumberField label="下电间隔 (s)" value={config.rampDownIntervalS} onChange={(v) => update("rampDownIntervalS", v)} step="0.1" />
+        </div>
+      </section>
     </div>
   )
 }
@@ -392,7 +426,7 @@ function PowerMeterSettingsForm({ snapshot, config, update, active, pending, run
   const resources = meter?.resources ?? []
   const selectedResource = config.powerMeterResource.trim()
   return (
-    <div className="space-y-3">
+    <div className="device-settings-form">
       <Field label="串口资源">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
           <NativeSelect value={selectedResource} onChange={(v) => update("powerMeterResource", v)}>
@@ -406,7 +440,7 @@ function PowerMeterSettingsForm({ snapshot, config, update, active, pending, run
       <NumberField label="校准波长 (nm)" value={config.powerMeterWavelengthNm} onChange={(v) => update("powerMeterWavelengthNm", v)} step="0.1" />
       <NumberField label="软件增益" value={config.softwareGain} onChange={(v) => update("softwareGain", v)} step="0.01" />
       <Button className="w-full" disabled={!active || pending} onClick={() => void run(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
-      <div className="grid grid-cols-2 gap-2"><Button disabled={!active || pending || meter?.running} onClick={() => void run("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button disabled={!active || pending || meter?.running} onClick={() => void run("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></div>
+      <div className="device-settings-action-grid"><Button disabled={!active || pending || meter?.running} onClick={() => void run("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button disabled={!active || pending || meter?.running} onClick={() => void run("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></div>
       <p className="text-xs text-muted-foreground">实时功率 {formatNumber(meter?.powerW, " W")} · {meter?.stable ? "已稳定" : "稳定中"}</p>
     </div>
   )
@@ -417,7 +451,7 @@ function SpectrometerSettingsForm({ snapshot, config, update, active, pending, r
 }) {
   const spectrum = snapshot?.devices.spectrometer
   return (
-    <div className="space-y-3">
+    <div className="device-settings-form">
       <Field label="设备资源">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
           <NativeSelect value={config.spectrometerResource} onChange={(v) => update("spectrometerResource", v)}>
@@ -427,10 +461,12 @@ function SpectrometerSettingsForm({ snapshot, config, update, active, pending, r
           <Button disabled={!active || pending} onClick={() => void run("device.refresh", { device: "spectrometer" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
         </div>
       </Field>
-      <NumberField label="积分时间 (μs)" value={config.integrationTimeUs} onChange={(v) => update("integrationTimeUs", v)} />
-      <NumberField label="刷新间隔 (ms)" value={config.spectrometerIntervalMs} onChange={(v) => update("spectrometerIntervalMs", v)} />
-      <NumberField label="平均帧数" min={1} max={20} value={config.spectrumAverageFrames} onChange={(v) => update("spectrumAverageFrames", Math.max(1, Math.min(20, Math.round(v))))} />
-      <label className="flex items-center gap-2 text-sm"><input checked={config.autoIntegration} onChange={(e) => update("autoIntegration", e.target.checked)} type="checkbox" />自动积分</label>
+      <div className="device-settings-field-grid">
+        <NumberField label="积分时间 (μs)" value={config.integrationTimeUs} onChange={(v) => update("integrationTimeUs", v)} />
+        <NumberField label="刷新间隔 (ms)" value={config.spectrometerIntervalMs} onChange={(v) => update("spectrometerIntervalMs", v)} />
+        <NumberField label="平均帧数" min={1} max={20} value={config.spectrumAverageFrames} onChange={(v) => update("spectrumAverageFrames", Math.max(1, Math.min(20, Math.round(v))))} />
+        <Field label="采集模式"><label className="device-settings-checkbox"><input checked={config.autoIntegration} onChange={(e) => update("autoIntegration", e.target.checked)} type="checkbox" />自动积分</label></Field>
+      </div>
       <Button className="w-full" disabled={!active || pending} onClick={() => void run(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
       <p className="text-xs text-muted-foreground">中心 {formatNumber(spectrum?.peakWavelengthNm, " nm")} · FWHM {formatNumber(spectrum?.fwhmNm, " nm")}</p>
     </div>
@@ -474,7 +510,6 @@ function DeviceSettingsDialog({ kind, open, onClose, onSave, snapshot, config, u
     powerMeter: { title: "功率计设置", description: "配置串口资源、校准波长和采集参数", icon: <Gauge className="size-5" /> },
     spectrometer: { title: "光谱仪设置", description: "配置 Ocean Insight 设备和光谱采集参数", icon: <Radio className="size-5" /> },
   }[kind]
-
   const handleSave = async () => {
     if (saving || pending) return
     setSaving(true)
@@ -497,20 +532,34 @@ function DeviceSettingsDialog({ kind, open, onClose, onSave, snapshot, config, u
   }
 
   return (
-    <div className="motion-overlay-enter fixed inset-0 z-[60] flex items-center justify-center bg-black/65 p-4 backdrop-blur-[2px]" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-      <div aria-labelledby={`${kind}-settings-title`} aria-modal="true" className="motion-dialog-enter flex max-h-[min(760px,calc(100vh-2rem))] w-[min(520px,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-[var(--plm-flat-border-strong)] bg-popover shadow-lg shadow-black/35" role="dialog">
-        <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
-          <div className="flex items-start gap-3"><div className="grid size-10 shrink-0 place-items-center rounded-lg border border-[var(--plm-flat-border)] bg-muted/35 text-muted-foreground">{details.icon}</div><div><h2 className="text-base font-semibold" id={`${kind}-settings-title`}>{details.title}</h2><p className="mt-1 text-xs leading-5 text-muted-foreground">{details.description}</p></div></div>
-          <button aria-label="关闭设置弹窗" className="rounded-md p-1.5 text-muted-foreground transition-colors duration-150 hover:bg-[var(--plm-flat-hover)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25" onClick={onClose} ref={closeButtonRef} type="button"><X className="size-4" /></button>
+    <DialogPortal>
+      <div className="dialog-overlay motion-overlay-enter" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+        <div aria-labelledby={`${kind}-settings-title`} aria-modal="true" className="device-settings-dialog motion-dialog-enter" data-kind={kind} role="dialog">
+          <div className="device-settings-dialog__header">
+            <div className="device-settings-dialog__identity">
+              <div className="device-settings-dialog__icon">{details.icon}</div>
+              <div className="min-w-0">
+                <h2 className="device-settings-dialog__title" id={`${kind}-settings-title`}>{details.title}</h2>
+                <p className="device-settings-dialog__description">{details.description}</p>
+              </div>
+            </div>
+            <button aria-label="关闭设置弹窗" className="device-settings-dialog__close" onClick={onClose} ref={closeButtonRef} type="button"><X className="size-[18px]" /></button>
+          </div>
+          <div className="device-settings-dialog__body">
+            {kind === "powerSupply" && <PowerSupplySettingsForm active={active} config={config} pending={false} run={runDialogCommand} snapshot={snapshot} update={update} />}
+            {kind === "powerMeter" && <PowerMeterSettingsForm active={active} config={config} pending={false} run={runDialogCommand} snapshot={snapshot} update={update} />}
+            {kind === "spectrometer" && <SpectrometerSettingsForm active={active} config={config} pending={false} run={runDialogCommand} snapshot={snapshot} update={update} />}
+          </div>
+          <div className="device-settings-dialog__footer">
+            <p className="device-settings-dialog__hint">修改内容将保存到当前测试配置</p>
+            <div className="device-settings-dialog__actions">
+              <Button className="device-settings-dialog__cancel" onClick={onClose} variant="outline">关闭</Button>
+              <Button aria-busy={saving} aria-disabled={!active || pending || saving} className="device-settings-dialog__save" disabled={!active || saving} onClick={() => void handleSave()}>{saving ? "保存中…" : "保存设置"}</Button>
+            </div>
+          </div>
         </div>
-        <div className="min-h-0 overflow-y-auto px-5 py-4">
-          {kind === "powerSupply" && <PowerSupplySettingsForm active={active} config={config} pending={false} run={runDialogCommand} snapshot={snapshot} update={update} />}
-          {kind === "powerMeter" && <PowerMeterSettingsForm active={active} config={config} pending={false} run={runDialogCommand} snapshot={snapshot} update={update} />}
-          {kind === "spectrometer" && <SpectrometerSettingsForm active={active} config={config} pending={false} run={runDialogCommand} snapshot={snapshot} update={update} />}
-        </div>
-        <div className="flex items-center justify-between gap-3 border-t border-border bg-background/35 px-5 py-3"><p className="text-xs text-muted-foreground">修改后保存到当前测试配置</p><div className="flex gap-2"><Button className="w-16" onClick={onClose} variant="outline">关闭</Button><Button aria-busy={saving} aria-disabled={!active || pending || saving} className="w-24" disabled={!active || saving} onClick={() => void handleSave()}>{saving ? "保存中…" : "保存设置"}</Button></div></div>
       </div>
-    </div>
+    </DialogPortal>
   )
 }
 
@@ -536,16 +585,18 @@ function PowerProtectionDialog({ message, onClose }: { message: string; onClose:
   }, [])
 
   return (
-    <div className="motion-overlay-enter fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-[2px]">
-      <div aria-labelledby="power-protection-title" aria-modal="true" className="motion-dialog-enter w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--app-danger)_55%,transparent)] bg-popover shadow-2xl shadow-black/45" role="alertdialog">
+    <DialogPortal>
+      <div className="motion-overlay-enter fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-[2px]">
+        <div aria-labelledby="power-protection-title" aria-modal="true" className="status-dialog motion-dialog-enter w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--app-danger)_55%,transparent)] bg-popover shadow-2xl shadow-black/45" role="alertdialog">
         <div className="flex items-start gap-4 border-b border-border px-5 py-5">
           <div className="grid size-11 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,var(--app-danger)_16%,transparent)] text-[var(--app-danger)]"><OctagonAlert className="size-6" /></div>
           <div><h2 className="text-lg font-semibold" id="power-protection-title">功率保护已触发</h2><p className="mt-1 text-sm text-muted-foreground">设备已进入断电保护状态</p></div>
         </div>
         <div className="px-5 py-5"><p className="whitespace-pre-line text-sm leading-6 text-foreground">{message}</p></div>
-        <div className="flex justify-end border-t border-border bg-background/35 px-5 py-3"><Button onClick={onClose} ref={acknowledgeButtonRef} variant="destructive">确认并关闭</Button></div>
+          <div className="flex justify-end border-t border-border bg-background/35 px-5 py-3"><Button onClick={onClose} ref={acknowledgeButtonRef} variant="destructive">确认并关闭</Button></div>
+        </div>
       </div>
-    </div>
+    </DialogPortal>
   )
 }
 
@@ -571,16 +622,18 @@ function SpectrumSaturationDialog({ message, onClose }: { message: string; onClo
   }, [])
 
   return (
-    <div className="motion-overlay-enter fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-[2px]">
-      <div aria-labelledby="spectrum-saturation-title" aria-modal="true" className="motion-dialog-enter w-[min(540px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--app-warning)_55%,transparent)] bg-popover shadow-2xl shadow-black/45" role="alertdialog">
+    <DialogPortal>
+      <div className="motion-overlay-enter fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-[2px]">
+        <div aria-labelledby="spectrum-saturation-title" aria-modal="true" className="status-dialog motion-dialog-enter w-[min(540px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--app-warning)_55%,transparent)] bg-popover shadow-2xl shadow-black/45" role="alertdialog">
         <div className="flex items-start gap-4 border-b border-border px-5 py-5">
           <div className="grid size-11 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,var(--app-warning)_16%,transparent)] text-[var(--app-warning)]"><OctagonAlert className="size-6" /></div>
           <div><h2 className="text-lg font-semibold" id="spectrum-saturation-title">光谱强度异常，测试已暂停</h2><p className="mt-1 text-sm text-muted-foreground">当前电流保持不变、未下电，程序不会继续升流</p></div>
         </div>
         <div className="px-5 py-5"><p className="whitespace-pre-line text-sm leading-6 text-foreground">{message}</p></div>
-        <div className="flex justify-end border-t border-border bg-background/35 px-5 py-3"><Button className="border-[color-mix(in_srgb,var(--app-warning)_45%,transparent)] text-[var(--app-warning)] hover:bg-[var(--app-warning-soft)]" onClick={onClose} ref={acknowledgeButtonRef} variant="outline">已调整位置，继续测试</Button></div>
+          <div className="flex justify-end border-t border-border bg-background/35 px-5 py-3"><Button className="border-[color-mix(in_srgb,var(--app-warning)_45%,transparent)] text-[var(--app-warning)] hover:bg-[var(--app-warning-soft)]" onClick={onClose} ref={acknowledgeButtonRef} variant="outline">已调整位置，继续测试</Button></div>
+        </div>
       </div>
-    </div>
+    </DialogPortal>
   )
 }
 
@@ -615,16 +668,18 @@ function AutomaticCompletionDialog({ title, message, onClose }: { title: string;
   }, [])
 
   return (
-    <div className="motion-overlay-enter fixed inset-0 z-[80] flex items-center justify-center bg-black/65 p-4 backdrop-blur-[2px]">
-      <div aria-labelledby="automatic-completion-title" aria-modal="true" className="motion-dialog-enter w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--app-success)_50%,transparent)] bg-popover shadow-2xl shadow-black/45" role="dialog">
+    <DialogPortal>
+      <div className="motion-overlay-enter fixed inset-0 z-[80] flex items-center justify-center bg-black/65 p-4 backdrop-blur-[2px]">
+        <div aria-labelledby="automatic-completion-title" aria-modal="true" className="status-dialog motion-dialog-enter w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--app-success)_50%,transparent)] bg-popover shadow-2xl shadow-black/45" role="dialog">
         <div className="flex items-start gap-4 border-b border-border px-5 py-5">
           <div className="grid size-11 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,var(--app-success)_16%,transparent)] text-[var(--app-success)]"><CircleCheck className="size-6" /></div>
           <div><h2 className="text-lg font-semibold" id="automatic-completion-title">{title}</h2><p className="mt-1 text-sm text-muted-foreground">测试流程已经结束，设备已完成安全下电</p></div>
         </div>
         <div className="px-5 py-5"><p className="whitespace-pre-line text-sm leading-6 text-foreground">{message}</p></div>
-        <div className="flex justify-end border-t border-border bg-background/35 px-5 py-3"><Button onClick={onClose} ref={acknowledgeButtonRef}>确定</Button></div>
+          <div className="flex justify-end border-t border-border bg-background/35 px-5 py-3"><Button onClick={onClose} ref={acknowledgeButtonRef}>确定</Button></div>
+        </div>
       </div>
-    </div>
+    </DialogPortal>
   )
 }
 
@@ -673,8 +728,9 @@ function ShutdownFailureDialog({
   }, [onCancel, pending])
 
   return (
-    <div className="motion-overlay-enter fixed inset-0 z-[90] flex items-center justify-center bg-black/75 p-4 backdrop-blur-[2px]">
-      <div aria-describedby="shutdown-failure-description" aria-labelledby="shutdown-failure-title" aria-modal="true" className="motion-dialog-enter w-[min(600px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--app-danger)_55%,transparent)] bg-popover shadow-2xl shadow-black/50" role="alertdialog">
+    <DialogPortal>
+      <div className="motion-overlay-enter fixed inset-0 z-[90] flex items-center justify-center bg-black/75 p-4 backdrop-blur-[2px]">
+        <div aria-describedby="shutdown-failure-description" aria-labelledby="shutdown-failure-title" aria-modal="true" className="status-dialog motion-dialog-enter w-[min(600px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--app-danger)_55%,transparent)] bg-popover shadow-2xl shadow-black/50" role="alertdialog">
         <div className="flex items-start gap-4 border-b border-border px-5 py-5">
           <div className="grid size-11 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,var(--app-danger)_16%,transparent)] text-[var(--app-danger)]"><OctagonAlert className="size-6" /></div>
           <div><h2 className="text-lg font-semibold" id="shutdown-failure-title">无法确认安全下电</h2><p className="mt-1 text-sm text-muted-foreground">电源通信异常，程序无法自动确认输出已经关闭</p></div>
@@ -689,13 +745,14 @@ function ShutdownFailureDialog({
             <span>我已检查电源实体面板，并确认输出已关闭或电流已归零。</span>
           </label>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border bg-background/35 px-5 py-3">
-          <Button disabled={pending} onClick={onCancel} variant="outline">取消退出</Button>
-          <Button disabled={pending} onClick={onRetry} ref={retryButtonRef} variant="outline">{pending ? "正在重试…" : "重试安全下电"}</Button>
-          <Button disabled={pending || !physicalShutdownConfirmed} onClick={onForceExit} variant="destructive">{pending ? "正在退出…" : "确认并强制退出"}</Button>
+          <div className="flex flex-wrap items-center justify-end gap-6 border-t border-border bg-background/35 px-5 py-3">
+            <Button disabled={pending} onClick={onCancel} variant="outline">取消退出</Button>
+            <Button disabled={pending} onClick={onRetry} ref={retryButtonRef} variant="outline">{pending ? "正在重试…" : "重试安全下电"}</Button>
+            <Button disabled={pending || !physicalShutdownConfirmed} onClick={onForceExit} variant="destructive">{pending ? "正在退出…" : "确认并强制退出"}</Button>
+          </div>
         </div>
       </div>
-    </div>
+    </DialogPortal>
   )
 }
 
@@ -1019,16 +1076,21 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
 function App() {
   const [page, setPage] = useState<Page>("automatic")
   const snapshotView = page === "shipping" ? "pd" : page
-  const { snapshot, error, loading, commandPending, pendingCommand, refresh, command } = useBackendSnapshot(snapshotView)
+  const { snapshot, error, loading, commandPending, pendingCommand, command } = useBackendSnapshot(snapshotView)
   const [config, setConfig] = useState<AppConfiguration>(emptyConfig)
   const [dirty, setDirty] = useState(false)
+  const [automaticHistoryItems, setAutomaticHistoryItems] = useState<TestHistoryCandidate[]>([])
+  const [automaticReferencePath, setAutomaticReferencePath] = useState("latest")
+  const [automaticHistoryLoading, setAutomaticHistoryLoading] = useState(false)
+  const [automaticHistoryError, setAutomaticHistoryError] = useState("")
+  const automaticHistoryCompletionSeenRef = useRef(false)
   const [closeFailure, setCloseFailure] = useState<string | null>(null)
   const [automaticCompletion, setAutomaticCompletion] = useState<{ title: string; message: string } | null>(null)
   const [closeRequestPending, setCloseRequestPending] = useState(false)
   const closeRequestInFlightRef = useRef(false)
   const automaticRunSeenRef = useRef(false)
   const fitWindowSizeRef = useRef<string | null>(null)
-  const [pageZoom, setPageZoom] = useState(1)
+  const [pageZoom, setPageZoom] = useState(() => sharedPageZoom(window.innerHeight))
   const pageScrollPositionsRef = useRef<Record<Page, number>>({ automatic: 0, manual: 0, pd: 0, shipping: 0 })
   const active = snapshot?.backend.mode === "active"
   const automaticWorkflowActive = Boolean(snapshot && !["idle", "completed"].includes(snapshot.automaticTest.state))
@@ -1043,37 +1105,59 @@ function App() {
       || (config.powerSupplyKind === "tdk" && snapshot.devices.powerSupply.outputEnabled)
     )
   )
+  const loadAutomaticHistory = useCallback(async () => {
+    if (!config.outputDir.trim() || !config.sn.trim()) {
+      setAutomaticHistoryItems([])
+      return
+    }
+    setAutomaticHistoryLoading(true)
+    setAutomaticHistoryError("")
+    try {
+      const result = await sendBackendRequest<{ items: TestHistoryCandidate[] }>("automatic.references", {
+        outputDir: config.outputDir,
+        sn: config.sn,
+      })
+      setAutomaticHistoryItems(result.items)
+      setAutomaticReferencePath((current) => (
+        current === "latest" || current === "none" || result.items.some((item) => item.sourcePath === current)
+          ? current
+          : "latest"
+      ))
+    } catch (reason) {
+      setAutomaticHistoryError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setAutomaticHistoryLoading(false)
+    }
+  }, [config.outputDir, config.sn])
+  useEffect(() => {
+    setAutomaticHistoryItems([])
+    setAutomaticReferencePath("latest")
+    setAutomaticHistoryError("")
+  }, [config.outputDir, config.sn])
+  useEffect(() => {
+    if (!config.outputDir.trim() || !config.sn.trim()) return
+    const timer = window.setTimeout(() => void loadAutomaticHistory(), 300)
+    return () => window.clearTimeout(timer)
+  }, [loadAutomaticHistory])
+  useEffect(() => {
+    const handleWindowFocus = () => void loadAutomaticHistory()
+    window.addEventListener("focus", handleWindowFocus)
+    return () => window.removeEventListener("focus", handleWindowFocus)
+  }, [loadAutomaticHistory])
+  useEffect(() => {
+    const completed = snapshot?.automaticTest.state === "completed"
+    if (completed && !automaticHistoryCompletionSeenRef.current) void loadAutomaticHistory()
+    automaticHistoryCompletionSeenRef.current = completed
+  }, [snapshot?.automaticTest.state, loadAutomaticHistory])
 
   useEffect(() => {
-    let cancelled = false
     let resizeTimer: number | undefined
 
     const windowSizeKey = () => `${window.innerWidth}x${window.innerHeight}`
-    const fitPageToViewport = async () => {
-      // Measure every page at its natural size first. CSS zoom participates in
-      // document layout, so the resulting scale removes the scrollbar instead
-      // of only shrinking the pixels while the original scroll height remains.
-      setPageZoom(1)
-      await new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())))
-      if (cancelled) return
-
-      const documentElement = document.documentElement
-      const pageShell = document.querySelector<HTMLElement>("[data-page-shell]")
-      const fitContainer = pageShell?.parentElement
-      const viewportWidth = Math.max(1, fitContainer?.clientWidth ?? documentElement.clientWidth)
-      const viewportHeight = Math.max(1, window.innerHeight)
-      const contentWidth = Math.max(1, pageShell?.scrollWidth ?? documentElement.scrollWidth)
-      const contentHeight = Math.max(1, pageShell?.scrollHeight ?? documentElement.scrollHeight)
-      // Leave a tiny rounding buffer so a one-pixel scrollbar does not appear
-      // on the last row after WebView2 applies the fractional zoom.
-      const widthRatio = Math.max(1, viewportWidth - 2) / contentWidth
-      const heightRatio = Math.max(1, viewportHeight - 2) / contentHeight
-      const measuredZoom = FIT_TO_VIEWPORT_PAGES.has(page)
-        ? Math.min(1, widthRatio, heightRatio)
-        : 1
-      const zoom = Math.max(MIN_PAGE_ZOOM, Math.min(1, measuredZoom))
+    const fitPagesToViewport = () => {
+      const zoom = sharedPageZoom(window.innerHeight)
       fitWindowSizeRef.current = windowSizeKey()
-      if (!cancelled) setPageZoom((current) => Math.abs(current - zoom) > 0.005 ? zoom : current)
+      setPageZoom((current) => Math.abs(current - zoom) > 0.005 ? zoom : current)
     }
 
     const handleResize = () => {
@@ -1081,18 +1165,17 @@ function App() {
       if (resizeTimer !== undefined) window.clearTimeout(resizeTimer)
       resizeTimer = window.setTimeout(() => {
         resizeTimer = undefined
-        void fitPageToViewport().catch((error) => console.error("无法更新页面缩放", error))
+        fitPagesToViewport()
       }, 120)
     }
 
     window.addEventListener("resize", handleResize)
-    void fitPageToViewport().catch((error) => console.error("无法初始化页面缩放", error))
+    fitPagesToViewport()
     return () => {
-      cancelled = true
       window.removeEventListener("resize", handleResize)
       if (resizeTimer !== undefined) window.clearTimeout(resizeTimer)
     }
-  }, [page])
+  }, [])
 
   const attemptGracefulClose = useCallback(async () => {
     if (!("__TAURI_INTERNALS__" in window) || closeRequestInFlightRef.current) return
@@ -1248,7 +1331,6 @@ function App() {
     config.useSpectrometer && snapshot?.devices.spectrometer.ready,
   ].filter(Boolean).length
   const requiredDevices = config.useSpectrometer ? 3 : 2
-  const progress = (snapshot?.automaticTest.progress ?? 0) * 100
   const notices = snapshot?.backend.notices ?? []
   const notifications = [
     ...(error ? [{ key: `request-error:${error}`, level: "error" as const, title: "系统错误", message: error }] : []),
@@ -1271,21 +1353,40 @@ function App() {
   const activeAlertNotification = powerProtectionNotification ?? spectrumSaturationNotification
   const toastNotifications = visibleNotifications.filter((notification) => notification !== powerProtectionNotification && notification !== spectrumSaturationNotification)
   const title = navigation.find((item) => item.id === page)?.label ?? "自动测试"
+  const sidebarBodyFontPx = 20 * pageZoom
+  const sidebarSecondaryFontPx = 20 * pageZoom
+  const sidebarIconPx = 16 * pageZoom
+  const headerIdentity = <div className="shrink-0">
+    <div className="flex items-center gap-2">
+      <h1 className="page-title-enter text-xl font-semibold tracking-tight" key={page}>{title}</h1>
+      <Badge variant="outline" className={active ? "border-[color-mix(in_srgb,var(--app-verified)_24%,transparent)] bg-[var(--app-verified-soft)] text-[var(--app-verified)]" : "border-[color-mix(in_srgb,var(--app-warning)_24%,transparent)] bg-[var(--app-warning-soft)] text-[var(--app-warning)]"}>{active ? "控制器已接入" : "只读兼容模式"}</Badge>
+    </div>
+    <p aria-live="polite" className="mt-1 flex min-h-4 items-center gap-1.5 text-xs text-muted-foreground">
+      {commandPending
+        ? <><LoaderCircle className="size-3 animate-spin text-primary" />{pendingCommandLabel(pendingCommand)}</>
+        : page === "automatic" ? null : snapshot?.status?.message ?? (loading ? "正在连接 Python 后端" : "等待后端")}
+    </p>
+  </div>
+  const headerActions = <div className="ml-auto flex shrink-0 items-center gap-2">
+    <Button aria-hidden={!dirty} className={`transition-opacity duration-200 ${dirty ? "opacity-100" : "pointer-events-none opacity-0"}`} disabled={!dirty || !active || commandPending || automaticInteractionLocked} onClick={() => void saveConfiguration()} size="sm" tabIndex={dirty && !automaticInteractionLocked ? 0 : -1} variant="outline"><Save className="size-4" />保存设置</Button>
+    <Button disabled={!active} onClick={() => void run("app.stopAll")} size="sm" variant="destructive"><OctagonAlert className="size-4" />紧急停止</Button>
+  </div>
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <div className="grid min-h-screen grid-cols-[164px_minmax(0,1fr)]">
-        <aside className="shell-sidebar-enter sticky top-0 flex h-screen min-h-0 self-start flex-col border-r border-border bg-[var(--app-sidebar)] px-2.5 py-4 text-[var(--app-text)]">
-          <p className="px-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--app-text-tertiary)]">工作区</p>
+      <div className="grid min-h-screen grid-cols-[124px_minmax(0,1fr)]">
+        <aside className="shell-sidebar-enter sticky top-0 flex h-screen min-h-0 self-start flex-col border-r border-border bg-[var(--app-sidebar)] px-1.5 py-4 text-[var(--app-text)]">
+          <p className="px-1 font-medium uppercase tracking-[0.12em] text-[var(--app-text-tertiary)]" style={{ fontSize: `${sidebarSecondaryFontPx}px` }}>工作区</p>
           <nav className="mt-2 space-y-0.5">
             {navigation.map((item, index) => (
               <button
                 aria-current={page === item.id ? "page" : undefined}
                 aria-keyshortcuts={`Meta+${index + 1} Control+${index + 1}`}
-                className={`app-nav-item relative flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[13px] outline-none transition-[color,background-color,box-shadow] duration-200 before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:origin-center before:rounded-full before:bg-primary before:transition-transform before:duration-200 focus-visible:ring-2 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:text-[var(--app-text-tertiary)] disabled:opacity-45 ${page === item.id ? "bg-[var(--app-selected-soft)] font-medium text-[var(--app-text)] before:scale-y-100" : "text-[var(--app-text-tertiary)] before:scale-y-0 hover:bg-[var(--app-hover-soft)] hover:text-[var(--app-text-secondary)] disabled:hover:bg-transparent"}`}
+                className={`app-nav-item relative flex w-full items-center gap-1.5 rounded-lg px-1.5 py-1.5 outline-none transition-[color,background-color,box-shadow] duration-200 before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:origin-center before:rounded-full before:bg-primary before:transition-transform before:duration-200 focus-visible:ring-2 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:text-[var(--app-text-tertiary)] disabled:opacity-45 ${page === item.id ? "bg-[var(--app-selected-soft)] font-medium text-[var(--app-text)] before:scale-y-100" : "text-[var(--app-text-tertiary)] before:scale-y-0 hover:bg-[var(--app-hover-soft)] hover:text-[var(--app-text-secondary)] disabled:hover:bg-transparent"}`}
                 disabled={pageIsBlocked(item.id)}
                 key={item.id}
                 onClick={() => changePage(item.id)}
+                style={{ fontSize: `${sidebarBodyFontPx}px` }}
                 title={
                   manualPowerOutputActive && item.id === "automatic"
                     ? "手动电源正在输出，请先在详细配置中将电流归零"
@@ -1293,31 +1394,58 @@ function App() {
                 }
                 type="button"
               >
-                <item.icon className="app-nav-icon size-3.5" /><span>{item.label}</span>
+                <item.icon className="app-nav-icon shrink-0" style={{ height: `${sidebarIconPx}px`, width: `${sidebarIconPx}px` }} /><span className="whitespace-nowrap">{item.label}</span>
               </button>
             ))}
           </nav>
         </aside>
 
         <main className="min-h-screen min-w-0">
-          <div className="min-h-screen" data-page-shell style={{ zoom: pageZoom }}>
-            <header className="shell-header-enter sticky top-0 z-40 flex h-[72px] items-center justify-between border-b border-border bg-[var(--app-header-bg)] px-6 backdrop-blur-md">
-            <div>
-              <div className="flex items-center gap-2"><h1 className="page-title-enter text-xl font-semibold tracking-tight" key={page}>{title}</h1><Badge variant="outline" className={active ? "border-[color-mix(in_srgb,var(--app-verified)_24%,transparent)] bg-[var(--app-verified-soft)] text-[var(--app-verified)]" : "border-[color-mix(in_srgb,var(--app-warning)_24%,transparent)] bg-[var(--app-warning-soft)] text-[var(--app-warning)]"}>{active ? "控制器已接入" : "只读兼容模式"}</Badge></div>
-              <p aria-live="polite" className="mt-1 flex min-h-4 items-center gap-1.5 text-xs text-muted-foreground">
-                {commandPending
-                  ? <><LoaderCircle className="size-3 animate-spin text-primary" />{pendingCommandLabel(pendingCommand)}</>
-                  : page === "automatic" ? null : snapshot?.status?.message ?? (loading ? "正在连接 Python 后端" : "等待后端")}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button aria-hidden={!dirty} className={`transition-opacity duration-200 ${dirty ? "opacity-100" : "pointer-events-none opacity-0"}`} disabled={!dirty || !active || commandPending || automaticInteractionLocked} onClick={() => void saveConfiguration()} size="sm" tabIndex={dirty && !automaticInteractionLocked ? 0 : -1} variant="outline"><Save className="size-4" />保存设置</Button>
-              <Button aria-label="刷新" disabled={loading || automaticInteractionLocked} onClick={() => void refresh()} size="icon" variant="outline"><RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} /></Button>
-              <Button disabled={!active} onClick={() => void run("app.stopAll")} size="sm" variant="destructive"><OctagonAlert className="size-4" />紧急停止</Button>
-            </div>
+          <div className="min-h-screen" data-page-shell style={{ minHeight: `${100 / pageZoom}vh`, zoom: pageZoom }}>
+            <header className={`shell-header-enter sticky top-0 z-40 flex border-b border-border bg-[var(--app-header-bg)] px-6 backdrop-blur-md ${page === "automatic" ? "h-[76px] flex-col items-stretch justify-center gap-0 py-2 lg:h-[140px] lg:gap-2 lg:py-3" : "h-[72px] items-center gap-4"}`}>
+            {page === "automatic" ? <>
+              <div className="flex items-center justify-between gap-6">
+                {headerIdentity}
+                {headerActions}
+              </div>
+              <div className="hidden min-w-0 grid-cols-[minmax(280px,1.55fr)_minmax(160px,0.55fr)_minmax(140px,0.45fr)_minmax(340px,1.35fr)] items-end gap-4 lg:grid">
+                <div className="space-y-1">
+                  <Label className="text-[10px] text-muted-foreground" htmlFor="automatic-output-directory"><FolderOpen className="mr-1 inline size-3" />输出目录</Label>
+                  <Input className="h-9" disabled={automaticInteractionLocked || manualPowerOutputActive} id="automatic-output-directory" onChange={(event) => update("outputDir", event.target.value)} value={config.outputDir} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px] text-muted-foreground" htmlFor="automatic-sn">壳体 SN</Label>
+                  <Input className="h-9" disabled={automaticInteractionLocked || manualPowerOutputActive} id="automatic-sn" onChange={(event) => update("sn", event.target.value)} value={config.sn} />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-[10px] text-muted-foreground" htmlFor="automatic-station">测试站别</Label>
+                  <Input className="h-9" disabled={automaticInteractionLocked || manualPowerOutputActive} id="automatic-station" onChange={(event) => update("station", event.target.value)} value={config.station} />
+                </div>
+                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3" title={automaticHistoryError || undefined}>
+                  <div className="min-w-0 space-y-1">
+                    <Label className={`text-[10px] ${automaticHistoryError ? "text-[var(--app-warning)]" : "text-muted-foreground"}`}>历史参考{automaticHistoryLoading ? " · 自动更新中…" : ""}</Label>
+                      <NativeSelect disabled={automaticInteractionLocked || manualPowerOutputActive || automaticHistoryLoading} value={automaticReferencePath} onChange={setAutomaticReferencePath}>
+                        <option value="latest">上一次同 SN 完整测试（默认）</option>
+                        {automaticHistoryItems.map((item) => {
+                          const rawTime = item.startedAtUtc || new Date(item.modifiedAtMs).toISOString()
+                          const timestamp = new Date(rawTime)
+                          const timeLabel = Number.isNaN(timestamp.getTime()) ? rawTime : timestamp.toLocaleString()
+                          return <option key={item.sourcePath} value={item.sourcePath}>{timeLabel} · {item.station || "未填写站别"} · {item.pointCount} 点</option>
+                        })}
+                        <option value="none">不显示历史参考</option>
+                      </NativeSelect>
+                  </div>
+                  <label className={`flex shrink-0 flex-col items-center gap-1 text-[10px] ${automaticInteractionLocked || manualPowerOutputActive ? "cursor-not-allowed text-muted-foreground opacity-55" : "cursor-pointer text-muted-foreground"}`}><span>采集光谱</span><span className="flex h-9 items-center justify-center"><input className="size-5 shrink-0" checked={config.useSpectrometer} disabled={automaticInteractionLocked || manualPowerOutputActive} onChange={(event) => update("useSpectrometer", event.target.checked)} type="checkbox" /></span></label>
+                </div>
+              </div>
+            </> : <>
+              {headerIdentity}
+              <div className="flex-1" />
+              {headerActions}
+            </>}
             </header>
 
-            {toastNotifications.length > 0 && <div className="pointer-events-none fixed right-4 top-20 z-50 flex w-[min(420px,calc(100vw-2rem))] flex-col gap-2">
+            {toastNotifications.length > 0 && <div className={`pointer-events-none fixed right-4 z-50 flex w-[min(420px,calc(100vw-2rem))] flex-col gap-2 ${page === "automatic" ? "top-[84px] lg:top-[148px]" : "top-20"}`}>
             {toastNotifications.map((notification) => {
               const isError = notification.level === "error"
               const isWarning = notification.level === "warning"
@@ -1337,8 +1465,13 @@ function App() {
             {automaticCompletion && !activeAlertNotification && !closeFailure && <AutomaticCompletionDialog message={automaticCompletion.message} onClose={() => setAutomaticCompletion(null)} title={automaticCompletion.title} />}
             {closeFailure && <ShutdownFailureDialog message={closeFailure} onCancel={cancelClose} onForceExit={() => void forceClose()} onRetry={() => void attemptGracefulClose()} pending={closeRequestPending} />}
 
-            <div className="page-enter space-y-4 p-5 lg:p-6" data-page={page} key={page}>
-              {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={active} controlsLocked={automaticInteractionLocked || manualPowerOutputActive} pending={commandPending} readyCount={devicesReady} readyTotal={requiredDevices} progress={progress} run={run} saveConfiguration={saveConfiguration} />}
+            <div
+              className={`page-enter p-5 lg:p-6 ${page === "automatic" ? "flex flex-col gap-4" : page === "manual" ? "flex flex-col" : "space-y-4"}`}
+              data-page={page}
+              key={page}
+              style={page === "automatic" || page === "manual" ? { height: `calc(${100 / pageZoom}vh - ${page === "automatic" ? 140 : 72}px)` } : undefined}
+            >
+              {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={active} controlsLocked={automaticInteractionLocked || manualPowerOutputActive} pending={commandPending} readyCount={devicesReady} readyTotal={requiredDevices} run={run} saveConfiguration={saveConfiguration} historyItems={automaticHistoryItems} historyLoading={automaticHistoryLoading} historyError={automaticHistoryError} referencePath={automaticReferencePath} onReferencePathChange={setAutomaticReferencePath} />}
               {page === "manual" && <ManualPage snapshot={snapshot} config={config} update={update} active={active} pending={commandPending} run={run} />}
               {page === "pd" && <PdPage snapshot={snapshot} active={active} pending={commandPending} run={run} />}
               {page === "shipping" && <ShippingReportPage active={active} controlsLocked={automaticInteractionLocked} pending={commandPending} />}
@@ -2114,56 +2247,21 @@ function BatchShippingReportWorkflow({ disabled }: { disabled: boolean }) {
   </>
 }
 
-function AutomaticPage({ snapshot, config, update, active, controlsLocked, pending, readyCount, readyTotal, progress, run, saveConfiguration }: {
-  snapshot: BackendSnapshot | null; config: AppConfiguration; update: UpdateConfig; active: boolean; controlsLocked: boolean; pending: boolean; readyCount: number; readyTotal: number; progress: number; run: RunCommand; saveConfiguration: () => Promise<void>
+function AutomaticPage({ snapshot, config, update, active, controlsLocked, pending, readyCount, readyTotal, run, saveConfiguration, historyItems, historyLoading, historyError, referencePath, onReferencePathChange }: {
+  snapshot: BackendSnapshot | null; config: AppConfiguration; update: UpdateConfig; active: boolean; controlsLocked: boolean; pending: boolean; readyCount: number; readyTotal: number; run: RunCommand; saveConfiguration: () => Promise<void>; historyItems: TestHistoryCandidate[]; historyLoading: boolean; historyError: string; referencePath: string; onReferencePathChange: (path: string) => void
 }) {
   const auto = snapshot?.automaticTest
-  const running = auto && !["idle", "completed", "paused"].includes(auto.state)
   const testStarted = Boolean(auto && auto.state !== "idle")
-  const ready = readyCount === readyTotal
-  const stageLabel = auto?.state === "waiting_stable"
-    ? config.useSpectrometer ? "等待功率与波长稳定" : "等待功率稳定"
-    : auto ? AUTOMATIC_STAGE_LABELS[auto.state] || auto.detail || "测试进行中" : "准备状态"
   const showingRampDownCurrent = auto?.state === "ramping_down" || auto?.state === "completed"
   const displayedCurrentA = showingRampDownCurrent ? snapshot?.devices.powerSupply.activeCurrentA : auto?.currentA
   const [openSettings, setOpenSettings] = useState<DeviceSettingsKind | null>(null)
-  const [historyItems, setHistoryItems] = useState<TestHistoryCandidate[]>([])
-  const [referencePath, setReferencePath] = useState("latest")
-  const [historyLoading, setHistoryLoading] = useState(false)
-  const [historyError, setHistoryError] = useState("")
   const closeSettings = () => setOpenSettings(null)
-  const loadHistory = useCallback(async () => {
-    if (!config.outputDir.trim() || !config.sn.trim()) {
-      setHistoryItems([])
-      return
-    }
-    setHistoryLoading(true)
-    setHistoryError("")
-    try {
-      const result = await sendBackendRequest<{ items: TestHistoryCandidate[] }>("automatic.references", {
-        outputDir: config.outputDir,
-        sn: config.sn,
-      })
-      setHistoryItems(result.items)
-      setReferencePath((current) => (
-        current === "latest" || current === "none" || result.items.some((item) => item.sourcePath === current)
-          ? current
-          : "latest"
-      ))
-    } catch (reason) {
-      setHistoryError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setHistoryLoading(false)
-    }
-  }, [config.outputDir, config.sn])
-  useEffect(() => {
-    setHistoryItems([])
-    setReferencePath("latest")
-    setHistoryError("")
-  }, [config.outputDir, config.sn])
   useEffect(() => {
     if (controlsLocked) setOpenSettings(null)
   }, [controlsLocked])
+  const startAutomaticTest = () => {
+    void run("automatic.start", { ...config, referencePath })
+  }
   return (
     <>
       <section className="grid grid-cols-3 gap-4">
@@ -2171,16 +2269,16 @@ function AutomaticPage({ snapshot, config, update, active, controlsLocked, pendi
         <DeviceCard title="功率计" icon={<Gauge className="size-5" />} device={snapshot?.devices.powerMeter} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("powerMeter")} />
         <DeviceCard title="光谱仪" icon={<Radio className="size-5" />} device={snapshot?.devices.spectrometer} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("spectrometer")} />
       </section>
-      {openSettings && <DeviceSettingsDialog active={active} config={config} kind={openSettings} onClose={closeSettings} onSave={saveConfiguration} open pending={pending} run={run} snapshot={snapshot} update={update} />}
-      <section className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(320px,0.75fr)_minmax(520px,1.5fr)]">
-        <Card className="min-w-0 shadow-none">
-          <CardContent className="grid grid-cols-2 gap-x-4 gap-y-5 pb-6">
-            <Field label="输出目录" className="col-span-2"><Input disabled={controlsLocked} value={config.outputDir} onBlur={() => void loadHistory()} onChange={(e) => update("outputDir", e.target.value)} /></Field>
-            <Field label="壳体 SN"><Input disabled={controlsLocked} value={config.sn} onBlur={() => void loadHistory()} onChange={(e) => update("sn", e.target.value)} /></Field>
-            <Field label="测试站别"><Input disabled={controlsLocked} value={config.station} onChange={(e) => update("station", e.target.value)} /></Field>
-            <Field className="col-span-2" label="历史参考">
-              <div className="flex gap-2">
-                <NativeSelect disabled={controlsLocked || historyLoading} value={referencePath} onChange={setReferencePath}>
+      <Card className="shadow-none lg:hidden" size="sm">
+        <CardContent className="grid grid-cols-1 gap-4 py-1 lg:grid-cols-[minmax(180px,0.7fr)_minmax(180px,0.7fr)_minmax(360px,1.6fr)] lg:items-start">
+          <Field label="输出目录"><Input disabled={controlsLocked} onChange={(event) => update("outputDir", event.target.value)} value={config.outputDir} /></Field>
+          <Field label="壳体 SN"><Input disabled={controlsLocked} onChange={(event) => update("sn", event.target.value)} value={config.sn} /></Field>
+          <Field label="测试站别"><Input disabled={controlsLocked} onChange={(event) => update("station", event.target.value)} value={config.station} /></Field>
+          <div>
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3">
+              <div className="min-w-0 space-y-1.5">
+                <Label>历史参考{historyLoading ? " · 自动更新中…" : ""}</Label>
+                <NativeSelect disabled={controlsLocked || historyLoading} value={referencePath} onChange={onReferencePathChange}>
                   <option value="latest">上一次同 SN 完整测试（默认）</option>
                   {historyItems.map((item) => {
                     const rawTime = item.startedAtUtc || new Date(item.modifiedAtMs).toISOString()
@@ -2190,37 +2288,39 @@ function AutomaticPage({ snapshot, config, update, active, controlsLocked, pendi
                   })}
                   <option value="none">不显示历史参考</option>
                 </NativeSelect>
-                <Button aria-label="刷新同壳体历史记录" disabled={controlsLocked || historyLoading || !config.outputDir.trim() || !config.sn.trim()} onClick={() => void loadHistory()} size="icon" type="button" variant="outline"><RefreshCw className={`size-4 ${historyLoading ? "animate-spin" : ""}`} /></Button>
               </div>
-              <p className={`mt-1.5 text-xs ${historyError ? "text-[var(--app-warning)]" : "text-muted-foreground"}`}>{historyError || (historyItems.length ? `找到 ${historyItems.length} 次完整测试；默认使用最上一次。` : "填写输出目录和 SN 后，可刷新并选择历史记录。")}</p>
-            </Field>
-            <Separator className="col-span-2 my-2" />
-            <NumberField disabled={controlsLocked} label="起始电流 (A)" value={config.initialCurrentA} onChange={(v) => update("initialCurrentA", v)} max={currentInputMaximum(config, snapshot)} />
-            <NumberField disabled={controlsLocked} label="目标电流 (A)" value={config.targetCurrentA} onChange={(v) => update("targetCurrentA", v)} max={currentInputMaximum(config, snapshot)} />
-            <NumberField disabled={controlsLocked} label="电流间隔 (A)" value={config.currentStepA} onChange={(v) => update("currentStepA", v)} max={currentInputMaximum(config, snapshot)} />
-            <NumberField disabled={controlsLocked} label="单点超时 (s)" value={config.pointTimeoutS} onChange={(v) => update("pointTimeoutS", v)} />
-            <NumberField disabled={controlsLocked} label="下电步长 (A)" value={config.rampDownStepA} onChange={(v) => update("rampDownStepA", v)} max={currentInputMaximum(config, snapshot)} />
-            <NumberField disabled={controlsLocked} label="下电间隔 (s)" value={config.rampDownIntervalS} onChange={(v) => update("rampDownIntervalS", v)} step="0.1" />
-            <label className={`col-span-2 flex items-center gap-3 py-1 text-sm ${controlsLocked ? "cursor-not-allowed text-muted-foreground opacity-55" : ""}`}><input checked={config.useSpectrometer} disabled={controlsLocked} onChange={(e) => update("useSpectrometer", e.target.checked)} type="checkbox" />同时采集光谱并判断波长稳定</label>
-            <div className="col-span-2 grid grid-cols-2 gap-3">
-              <Button disabled={!active || pending || controlsLocked || !auto?.canStart} onClick={() => void run("automatic.start", { ...config, referencePath })}><Play className="size-4" />开始自动测试</Button>
-              {auto?.canRetry && <Button disabled={!active || pending} onClick={() => void run("automatic.retry")} variant="outline"><RotateCcw className="size-4" />修复后重试</Button>}
-              <Button disabled={!active || pending || !auto?.canEnd} onClick={() => void run("automatic.end")} variant="destructive"><Square className="size-4" />结束并安全下电</Button>
+              <label className={`flex shrink-0 flex-col items-center gap-1.5 text-xs ${controlsLocked ? "cursor-not-allowed text-muted-foreground opacity-55" : "cursor-pointer text-muted-foreground"}`}><span>采集光谱</span><span className="flex h-9 items-center justify-center"><input className="size-5 shrink-0" checked={config.useSpectrometer} disabled={controlsLocked} onChange={(event) => update("useSpectrometer", event.target.checked)} type="checkbox" /></span></label>
             </div>
-          </CardContent>
-        </Card>
-        <div className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)_minmax(0,1fr)] gap-4">
-          <Card className="shadow-none">
-            <CardContent className="grid grid-cols-[1fr_auto] items-center gap-4 py-4">
-              <div><div className="flex items-center gap-2"><StatusDot state={auto?.state === "paused" ? "error" : running || ready ? "connected" : "disconnected"} /><b className="text-sm">{testStarted ? stageLabel : auto?.settingsError || "准备状态"}</b></div><Progress aria-label={testStarted ? "自动测试总进度" : "设备准备进度"} className="mt-3 h-2" value={testStarted ? progress : readyCount / readyTotal * 100} /><p className="mt-2 text-xs text-muted-foreground">{testStarted ? `测试点 ${Math.max(0, (auto?.currentIndex ?? -1) + 1)} / ${auto?.currents?.length ?? 0}` : auto?.detail || "等待配置"}</p></div>
-              <div className="text-right"><p className="text-2xl font-semibold">{testStarted ? formatNumber(displayedCurrentA, " A", 1) : `${readyCount} / ${readyTotal}`}</p><p className="text-xs text-muted-foreground">{testStarted ? "当前电流" : "设备就绪"}</p></div>
-            </CardContent>
-          </Card>
+            <p className={`mt-1.5 text-xs ${historyError ? "text-[var(--app-warning)]" : "text-muted-foreground"}`}>{historyError || (historyItems.length ? `已自动找到 ${historyItems.length} 次完整测试；默认使用最上一次。` : "填写输出目录和 SN 后，将自动匹配历史记录。")}</p>
+          </div>
+        </CardContent>
+      </Card>
+      <Card className="shadow-none" size="sm">
+        <CardContent className="grid grid-cols-1 gap-5 py-1 lg:grid-cols-5 lg:items-stretch lg:gap-0">
+          <div className="flex h-full min-h-12 min-w-0 items-center justify-center lg:px-5">
+            <p className="text-2xl font-semibold tabular-nums">{testStarted ? formatNumber(displayedCurrentA, " A", 1) : `${readyCount} / ${readyTotal}`}</p>
+          </div>
+          <div className="flex min-h-12 min-w-0 items-center gap-3 border-border lg:col-span-2 lg:border-l lg:px-5">
+            <p className="min-w-0 flex-1 truncate text-sm font-medium text-muted-foreground" title={testStarted ? `测试点 ${Math.max(0, (auto?.currentIndex ?? -1) + 1)} / ${auto?.currents?.length ?? 0}` : auto?.detail || "等待配置"}>{testStarted ? `测试点 ${Math.max(0, (auto?.currentIndex ?? -1) + 1)} / ${auto?.currents?.length ?? 0}` : auto?.detail || "等待配置"}</p>
+            {auto?.canRetry && <Button disabled={!active || pending} onClick={() => void run("automatic.retry")} size="sm" variant="outline"><RotateCcw className="size-4" />修复后重试</Button>}
+          </div>
+          <div className="flex min-h-12 items-center justify-center border-border lg:border-l lg:px-5">
+            <Button className="h-10 w-full max-w-40 gap-2 px-5" disabled={!active || pending || controlsLocked || !auto?.canStart} onClick={startAutomaticTest}><Play className="size-5" />开始</Button>
+          </div>
+          <div className="flex min-h-12 items-center justify-center lg:pl-5">
+            <Button className="h-10 w-full max-w-40 gap-2 px-5" disabled={!active || pending || !auto?.canEnd} onClick={() => void run("automatic.end")} variant="destructive"><Square className="size-5" />结束</Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className={`grid min-h-0 flex-1 gap-4 ${config.useSpectrometer ? "grid-rows-2" : "grid-rows-1"}`}>
+        <section className="grid min-h-0 grid-cols-1 gap-4 lg:grid-cols-2">
           <PowerRealtimeChart snapshot={snapshot} stretch />
           <PowerEfficiencyChart snapshot={snapshot} stretch />
-        </div>
-      </section>
-      {config.useSpectrometer && <section><SpectrumRealtimeChart heightClassName="h-56" snapshot={snapshot} /></section>}
+        </section>
+        {config.useSpectrometer && <SpectrumRealtimeChart snapshot={snapshot} stretch />}
+      </div>
+      {openSettings && <DeviceSettingsDialog active={active} config={config} kind={openSettings} onClose={closeSettings} onSave={saveConfiguration} open pending={pending} run={run} snapshot={snapshot} update={update} />}
     </>
   )
 }
@@ -2240,14 +2340,14 @@ function ShippingReportPage({ active, controlsLocked, pending }: { active: boole
   )
 }
 
-function NumberField({ label, value, onChange, disabled = false, min, max, step = "1" }: { label: string; value: number; onChange: (value: number) => void; disabled?: boolean; min?: number; max?: number; step?: string }) {
+function NumberField({ label, value, onChange, disabled = false, min, max, step = "1", layout = "stacked" }: { label: string; value: number; onChange: (value: number) => void; disabled?: boolean; min?: number; max?: number; step?: string; layout?: FieldLayout }) {
   const handleChange = (rawValue: string) => {
     let nextValue = asNumber(rawValue)
     if (min !== undefined) nextValue = Math.max(min, nextValue)
     if (max !== undefined) nextValue = Math.min(max, nextValue)
     onChange(nextValue)
   }
-  return <Field label={label}><Input disabled={disabled} type="number" min={min} max={max} step={step} value={value} onChange={(e) => handleChange(e.target.value)} /></Field>
+  return <Field label={label} layout={layout}><Input disabled={disabled} type="number" min={min} max={max} step={step} value={value} onChange={(e) => handleChange(e.target.value)} /></Field>
 }
 
 function ManualPage({ snapshot, config, update, active, pending, run }: {
@@ -2269,31 +2369,30 @@ function ManualPage({ snapshot, config, update, active, pending, run }: {
     }
   }
   return (
-    <div className="manual-page space-y-4">
-      <section className="grid grid-cols-3 gap-4">
+    <div className="manual-page flex min-h-0 flex-1 flex-col gap-4">
+      <section className="manual-device-grid shrink-0">
         <Card size="sm" className="shadow-none"><CardHeader><CardTitle className="text-base">电源控制</CardTitle></CardHeader><CardContent className="manual-control-content">
-          <Field label="控制器"><NativeSelect value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
-          {config.powerSupplyKind === "tdk" && <Field label="TDK 串口"><Input value={config.tdkResource} onChange={(e) => update("tdkResource", e.target.value)} /></Field>}
-          {config.powerSupplyKind === "tdk" && <NumberField label="输出电压 (V)" value={config.tdkVoltageV} onChange={(v) => update("tdkVoltageV", v)} step="0.1" />}
-          <NumberField label="设定电流 (A)" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
+          <Field label="控制器" layout="inline"><NativeSelect value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
+          {config.powerSupplyKind === "tdk" && <Field label="TDK 串口" layout="inline"><Input value={config.tdkResource} onChange={(e) => update("tdkResource", e.target.value)} /></Field>}
+          {config.powerSupplyKind === "tdk" && <NumberField label="输出电压 (V)" layout="inline" value={config.tdkVoltageV} onChange={(v) => update("tdkVoltageV", v)} step="0.1" />}
+          <NumberField label="设定电流 (A)" layout="inline" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
           {config.powerSupplyKind === "tdk" ? <div className="grid grid-cols-2 gap-2">
             <Button disabled={!active} onClick={() => void runManualCommand(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接 TDK"}</Button>
             <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setVoltage", { voltageV: config.tdkVoltageV }, true)} variant="outline">设置电压</Button>
             <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled ? "关闭输出" : "开启输出"}</Button>
             <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
-          </div> : <>
-            <div className="grid grid-cols-2 gap-2"><Button disabled={!active} onClick={() => void runManualCommand(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接电源"}</Button><Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button></div>
-            <div className="grid grid-cols-2 gap-2">
+          </div> : <div className="grid grid-cols-2 gap-2">
+              <Button disabled={!active} onClick={() => void runManualCommand(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接电源"}</Button>
+              <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
               <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline">读取输出电压</Button>
               <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline">读取输出电流</Button>
               <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "inputVoltage" })} size="sm" variant="outline">读取输入电压</Button>
               <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "temperature" })} size="sm" variant="outline">读取模块温度</Button>
-            </div>
-          </>}
+          </div>}
         </CardContent></Card>
 
         <Card size="sm" className="shadow-none"><CardHeader><CardTitle className="text-base">功率计</CardTitle></CardHeader><CardContent className="manual-control-content">
-          <Field label="串口资源">
+          <Field label="串口资源" layout="inline">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
               <NativeSelect value={selectedPowerMeterResource} onChange={(v) => update("powerMeterResource", v)}>
                 <option value="">请选择串口资源</option>
@@ -2303,14 +2402,14 @@ function ManualPage({ snapshot, config, update, active, pending, run }: {
               <Button disabled={!active} onClick={() => void runManualCommand("device.refresh", { device: "powerMeter" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
             </div>
           </Field>
-          <NumberField label="校准波长 (nm)" value={config.powerMeterWavelengthNm} onChange={(v) => update("powerMeterWavelengthNm", v)} step="0.1" />
-          <NumberField label="软件增益" value={config.softwareGain} onChange={(v) => update("softwareGain", v)} step="0.01" />
+          <NumberField label="校准波长 (nm)" layout="inline" value={config.powerMeterWavelengthNm} onChange={(v) => update("powerMeterWavelengthNm", v)} step="0.1" />
+          <NumberField label="软件增益" layout="inline" value={config.softwareGain} onChange={(v) => update("softwareGain", v)} step="0.01" />
           <Button className="w-full" disabled={!active} onClick={() => void runManualCommand(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
           <div className="grid grid-cols-2 gap-2"><Button disabled={!active || meter?.running} onClick={() => void runManualCommand("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button disabled={!active || meter?.running} onClick={() => void runManualCommand("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></div>
         </CardContent></Card>
 
         <Card size="sm" className="shadow-none"><CardHeader><CardTitle className="text-base">光谱仪</CardTitle></CardHeader><CardContent className="manual-control-content">
-          <Field label="串口资源">
+          <Field label="串口资源" layout="inline">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
               <NativeSelect value={config.spectrometerResource} onChange={(v) => update("spectrometerResource", v)}>
                 <option value="">{defaultSpectrometerResourceLabel}</option>
@@ -2319,17 +2418,17 @@ function ManualPage({ snapshot, config, update, active, pending, run }: {
               <Button disabled={!active} onClick={() => void runManualCommand("device.refresh", { device: "spectrometer" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
             </div>
           </Field>
-          <NumberField label="积分时间 (μs)" value={config.integrationTimeUs} onChange={(v) => update("integrationTimeUs", v)} />
-          <NumberField label="刷新间隔 (ms)" value={config.spectrometerIntervalMs} onChange={(v) => update("spectrometerIntervalMs", v)} />
-          <NumberField label="平均帧数" min={1} max={20} value={config.spectrumAverageFrames} onChange={(v) => update("spectrumAverageFrames", Math.max(1, Math.min(20, Math.round(v))))} />
-          <label className="flex items-center gap-2 text-sm"><input checked={config.autoIntegration} onChange={(e) => update("autoIntegration", e.target.checked)} type="checkbox" />自动积分</label>
+          <NumberField label="积分时间 (μs)" layout="inline" value={config.integrationTimeUs} onChange={(v) => update("integrationTimeUs", v)} />
+          <NumberField label="刷新间隔 (ms)" layout="inline" value={config.spectrometerIntervalMs} onChange={(v) => update("spectrometerIntervalMs", v)} />
+          <NumberField label="平均帧数" layout="inline" min={1} max={20} value={config.spectrumAverageFrames} onChange={(v) => update("spectrumAverageFrames", Math.max(1, Math.min(20, Math.round(v))))} />
+          <Field label="采集模式" layout="inline"><label className="manual-checkbox-control"><input checked={config.autoIntegration} onChange={(e) => update("autoIntegration", e.target.checked)} type="checkbox" />自动积分</label></Field>
           <Button className="w-full" disabled={!active} onClick={() => void runManualCommand(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
         </CardContent></Card>
       </section>
-      <section className="grid grid-cols-2 gap-4">
-        <PowerRealtimeChart heightClassName="h-56" snapshot={snapshot} />
-        <PowerEfficiencyChart heightClassName="h-56" snapshot={snapshot} />
-        <div className="col-span-2"><SpectrumRealtimeChart heightClassName="h-56" snapshot={snapshot} /></div>
+      <section className="grid min-h-0 flex-1 grid-cols-2 grid-rows-2 gap-4">
+        <PowerRealtimeChart snapshot={snapshot} stretch />
+        <PowerEfficiencyChart snapshot={snapshot} stretch />
+        <div className="col-span-2 min-h-0"><SpectrumRealtimeChart snapshot={snapshot} stretch /></div>
       </section>
     </div>
   )
@@ -2354,31 +2453,31 @@ function PdPage({ snapshot, active, pending, run }: { snapshot: BackendSnapshot 
   return (
     <>
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(360px,380px)_minmax(0,1fr)]">
-        <Card className="shadow-none"><CardHeader><CardTitle className="text-base">NI-DAQ 采集设置</CardTitle><CardDescription>PD 采集可在电源加电期间独立启动或停止</CardDescription></CardHeader><CardContent className="grid grid-cols-2 gap-3">
+        <Card className="pd-settings-card shadow-none"><CardHeader><CardTitle className="text-base">NI-DAQ 采集设置</CardTitle><CardDescription>PD 采集可在电源加电期间独立启动或停止</CardDescription></CardHeader><CardContent className="pd-settings-grid grid grid-cols-2 gap-3">
           <div className="col-span-2 pt-1"><p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">采集参数</p></div>
-          <Field label="采集卡" className="col-span-2">
+          <Field label="采集卡" className="pd-inline-field col-span-2" layout="inline">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
               <NativeSelect value={current.device} onChange={(v) => set("device", v)}><option value="">请选择</option>{pd?.devices.map((item) => <option key={item} value={item}>{item}</option>)}</NativeSelect>
               <Button disabled={!active || pending || pd?.state === "running"} onClick={() => void run("pd.refresh")} variant="outline"><RefreshCw className="size-4" />识别</Button>
             </div>
           </Field>
-          <Field label="输入通道"><NativeSelect value={current.channel} onChange={(v) => set("channel", v)}><option value="">请选择</option>{pd?.channels.map((item) => <option key={item} value={item}>{item}</option>)}</NativeSelect></Field>
-          <Field label="接线方式"><NativeSelect value={current.terminal} onChange={(v) => set("terminal", v)}><option value="DIFF">差分 DIFF</option><option value="RSE">参考单端 RSE</option></NativeSelect></Field>
-          <Field label="输入量程"><NativeSelect value={String(current.range ?? "")} onChange={(v) => set("range", asNumber(v))}><option value="">自动</option>{pd?.ranges.map((item) => <option key={String(item.value)} value={String(item.value)}>{item.label}</option>)}</NativeSelect></Field>
-          <Field label="采样率 (S/s)"><Input type="number" value={current.sampleRateHz} onChange={(e) => set("sampleRateHz", asNumber(e.target.value))} /></Field>
+          <Field label="输入通道" className="pd-inline-field" layout="inline"><NativeSelect value={current.channel} onChange={(v) => set("channel", v)}><option value="">请选择</option>{pd?.channels.map((item) => <option key={item} value={item}>{item}</option>)}</NativeSelect></Field>
+          <Field label="接线方式" className="pd-inline-field" layout="inline"><NativeSelect value={current.terminal} onChange={(v) => set("terminal", v)}><option value="DIFF">差分 DIFF</option><option value="RSE">参考单端 RSE</option></NativeSelect></Field>
+          <Field label="输入量程" className="pd-inline-field" layout="inline"><NativeSelect value={String(current.range ?? "")} onChange={(v) => set("range", asNumber(v))}><option value="">自动</option>{pd?.ranges.map((item) => <option key={String(item.value)} value={String(item.value)}>{item.label}</option>)}</NativeSelect></Field>
+          <Field label="采样率 (S/s)" className="pd-inline-field" layout="inline"><Input type="number" value={current.sampleRateHz} onChange={(e) => set("sampleRateHz", asNumber(e.target.value))} /></Field>
           <Separator className="col-span-2 my-1" />
           <div className="col-span-2"><p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">标定参数</p></div>
-          <Field label="每批点数"><Input type="number" value={current.blockSize} onChange={(e) => set("blockSize", asNumber(e.target.value))} /></Field>
-          <Field label="标定比例"><Input type="number" value={current.scale} onChange={(e) => set("scale", asNumber(e.target.value))} /></Field>
-          <Field label="标定偏置"><Input type="number" value={current.offset} onChange={(e) => set("offset", asNumber(e.target.value))} /></Field>
-          <Field label="显示单位"><Input value={current.unit} onChange={(e) => set("unit", e.target.value)} /></Field>
+          <Field label="每批点数" className="pd-inline-field" layout="inline"><Input type="number" value={current.blockSize} onChange={(e) => set("blockSize", asNumber(e.target.value))} /></Field>
+          <Field label="标定比例" className="pd-inline-field" layout="inline"><Input type="number" value={current.scale} onChange={(e) => set("scale", asNumber(e.target.value))} /></Field>
+          <Field label="标定偏置" className="pd-inline-field" layout="inline"><Input type="number" value={current.offset} onChange={(e) => set("offset", asNumber(e.target.value))} /></Field>
+          <Field label="显示单位" className="pd-inline-field" layout="inline"><Input value={current.unit} onChange={(e) => set("unit", e.target.value)} /></Field>
           <Separator className="col-span-2 my-1" />
           <div className="col-span-2 rounded-lg border border-[var(--plm-flat-border)] bg-background/30 p-3">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div><p className="text-sm font-medium">保存设置</p><p className="mt-0.5 text-xs text-muted-foreground">可选：保存本次采集的原始数据</p></div>
               <label className="flex shrink-0 items-center gap-2 text-sm"><input checked={current.save} onChange={(e) => set("save", e.target.checked)} type="checkbox" />保存原始数据</label>
             </div>
-            <Field label="保存目录"><Input value={current.outputDir} onChange={(e) => set("outputDir", e.target.value)} /></Field>
+            <Field label="保存目录" className="pd-inline-field" layout="inline"><Input value={current.outputDir} onChange={(e) => set("outputDir", e.target.value)} /></Field>
           </div>
           <div className="col-span-2 space-y-2">
             <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className="grid size-5 place-items-center rounded-full bg-primary/15 font-semibold text-primary">1</span><span>先识别采集卡，再开始采集</span></div>

@@ -28,9 +28,470 @@ body {
   gap: 0.75rem;
 }
 
+.manual-device-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 30rem), 1fr));
+  align-items: stretch;
+  gap: 1rem;
+}
+
+.manual-inline-field {
+  display: grid;
+  grid-template-columns: 9.75rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.manual-inline-field-label {
+  justify-content: flex-end;
+  color: var(--foreground);
+  font-size: 1.25rem;
+  line-height: 1.5rem;
+  white-space: nowrap;
+}
+
+.manual-inline-field-control {
+  min-width: 0;
+}
+
+.pd-inline-field.manual-inline-field {
+  grid-template-columns: 7.25rem minmax(0, 1fr);
+  gap: 0.625rem;
+}
+
+.pd-inline-field .manual-inline-field-label {
+  color: var(--foreground);
+  font-size: 0.875rem;
+  line-height: 1rem;
+}
+
+.pd-settings-card {
+  container-type: inline-size;
+}
+
+@container (max-width: 34rem) {
+  .pd-settings-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pd-settings-grid > .col-span-2 {
+    grid-column: 1 / -1;
+  }
+}
+
+.manual-checkbox-control {
+  display: flex;
+  min-height: 2.75rem;
+  align-items: center;
+  gap: 0.625rem;
+  font-size: 1.25rem;
+  font-weight: 500;
+}
+
+.manual-checkbox-control input {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
 .manual-page [data-slot="button"] {
+  min-height: 2.75rem;
+  font-size: 1.25rem;
+}
+
+.manual-page [data-slot="card-title"] {
+  font-size: 1.375rem;
+  line-height: 1.75rem;
+  font-weight: 600;
+}
+
+.manual-page [data-slot="input"],
+.manual-page .manual-inline-field button {
+  min-height: 2.75rem;
+  font-size: 1.25rem;
+}
+
+@media (max-width: 720px) {
+  .manual-inline-field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.5rem;
+  }
+
+  .manual-inline-field-label {
+    justify-content: flex-start;
+  }
+}
+
+/* Keep routine UI copy at the same readable size as the manual-control body.
+   Headings retain their existing larger sizes and weight hierarchy. */
+[data-page-shell] :where(
+  [class~="text-[10px]"],
+  [class~="text-[11px]"],
+  [class~="text-xs"],
+  [class~="text-sm"],
+  [class~="text-[0.8rem]"]
+) {
+  font-size: 1.25rem !important;
+  line-height: 1.5rem !important;
+}
+
+/* Form values must remain as readable as their surrounding body copy.  Target
+   the controls themselves so responsive utility classes cannot shrink them. */
+[data-page-shell] :where(
+  [data-slot="input"],
+  textarea,
+  select,
+  [role="combobox"]
+) {
+  font-size: 1.25rem !important;
+  line-height: 1.5rem !important;
+}
+
+/* Dialogs render through a portal so their readable scale is independent of
+   the measurement workspace zoom. */
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgb(0 0 0 / 0.68);
+  backdrop-filter: blur(2px);
+}
+
+.device-settings-dialog {
+  container-type: inline-size;
+  display: flex;
+  width: min(35rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--plm-flat-border-strong);
+  border-radius: 0.75rem;
+  background: var(--popover);
+  scale: 0.88;
+  box-shadow: 0 24px 72px rgb(0 0 0 / 0.46);
+}
+
+.device-settings-dialog[data-kind="powerSupply"] {
+  width: min(43.75rem, calc(100vw - 2rem));
+}
+
+.device-settings-dialog__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.875rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.device-settings-dialog__identity {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.device-settings-dialog__icon {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--plm-flat-border);
+  border-radius: 0.625rem;
+  background: color-mix(in srgb, var(--muted) 42%, transparent);
+  color: var(--muted-foreground);
+}
+
+.device-settings-dialog__title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.5rem;
+}
+
+.device-settings-dialog__description {
+  margin-top: 0.125rem;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  line-height: 1.125rem;
+}
+
+.device-settings-dialog__close {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 0.5rem;
+  color: var(--muted-foreground);
+  transition: color 150ms ease, background-color 150ms ease, box-shadow 150ms ease;
+}
+
+.device-settings-dialog__close:hover {
+  background: var(--plm-flat-hover);
+  color: var(--foreground);
+}
+
+.device-settings-dialog__close:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--app-focus-ring);
+}
+
+.device-settings-dialog__body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1.25rem;
+}
+
+.device-settings-dialog__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.875rem;
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--background) 35%, transparent);
+}
+
+.device-settings-dialog__hint {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+.device-settings-dialog__actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.5rem;
+}
+
+.device-settings-dialog [data-slot="label"],
+.device-settings-dialog [data-slot="input"],
+.device-settings-dialog [role="combobox"],
+.device-settings-dialog [role="option"],
+.device-settings-dialog [data-slot="button"] {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.device-settings-dialog [data-slot="label"] {
+  font-weight: 500;
+}
+
+.device-settings-dialog [data-slot="input"],
+.device-settings-dialog [role="combobox"],
+.device-settings-dialog [data-slot="button"] {
+  height: 2.25rem;
   min-height: 2.25rem;
-  font-size: 1rem;
+}
+
+.device-settings-dialog [data-slot="input"],
+.device-settings-dialog [role="combobox"] {
+  padding-inline: 0.625rem;
+}
+
+.device-settings-dialog [data-slot="button"] {
+  gap: 0.375rem;
+  padding-inline: 0.875rem;
+}
+
+.device-settings-dialog__cancel {
+  min-width: 5rem;
+}
+
+.device-settings-dialog__save {
+  min-width: 6.5rem;
+}
+
+.device-settings-form {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.device-settings-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 0.625rem;
+}
+
+.device-settings-action-grid,
+.power-settings-action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.device-settings-checkbox {
+  display: flex;
+  min-height: 2.25rem;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+}
+
+.device-settings-checkbox input {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+.power-settings-layout {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.power-settings-section {
+  min-width: 0;
+}
+
+.power-settings-section--automatic {
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.power-settings-section-heading {
+  margin-bottom: 0.75rem;
+}
+
+.power-settings-section-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  line-height: 1.375rem;
+}
+
+.power-settings-section-description {
+  margin-top: 0.125rem;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  line-height: 1.125rem;
+}
+
+.power-settings-fields {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.power-settings-value-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+  gap: 0.75rem 0.625rem;
+}
+
+.power-settings-parameter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem 0.625rem;
+}
+
+@container (min-width: 40rem) {
+  .power-settings-layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0;
+  }
+
+  .power-settings-section:first-child {
+    padding-right: 1rem;
+  }
+
+  .power-settings-section--automatic {
+    padding-top: 0;
+    padding-left: 1rem;
+    border-top: 0;
+    border-left: 1px solid var(--border);
+  }
+}
+
+@container (max-width: 28rem) {
+  .power-settings-value-grid,
+  .power-settings-parameter-grid,
+  .power-settings-action-grid,
+  .device-settings-action-grid,
+  .device-settings-field-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.status-dialog > :first-child {
+  padding: 1rem 1.25rem;
+}
+
+.status-dialog {
+  scale: 0.88;
+}
+
+.status-dialog > :nth-child(2) {
+  padding: 1rem 1.25rem;
+}
+
+.status-dialog > :last-child {
+  gap: 0.625rem;
+  padding: 0.75rem 1.25rem;
+}
+
+.status-dialog h2 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.5rem;
+}
+
+.status-dialog :where([class~="text-sm"]) {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+.status-dialog [data-slot="button"] {
+  min-height: 2.25rem;
+  padding-inline: 0.875rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+
+@media (max-height: 680px) {
+  .device-settings-dialog__header {
+    padding: 0.875rem 1.125rem;
+  }
+
+  .device-settings-dialog__body {
+    padding: 1.125rem;
+  }
+
+  .device-settings-dialog__footer {
+    padding: 0.625rem 1.125rem;
+  }
+}
+
+@media (max-width: 699px) {
+  .dialog-overlay {
+    padding: 0.75rem;
+  }
+
+  .device-settings-dialog,
+  .device-settings-dialog[data-kind="powerSupply"] {
+    width: min(100%, calc(100vw - 1.5rem));
+    max-height: calc(100vh - 1.5rem);
+    max-height: calc(100dvh - 1.5rem);
+  }
+}
+
+@media (max-width: 520px) {
+  .device-settings-dialog__hint {
+    display: none;
+  }
+
+  .device-settings-dialog__actions {
+    width: 100%;
+  }
+
+  .device-settings-dialog__actions [data-slot="button"] {
+    flex: 1 1 0%;
+  }
 }
 
 @theme inline {

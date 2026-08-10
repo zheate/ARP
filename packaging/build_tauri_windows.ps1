@@ -44,6 +44,9 @@ $pyInstallerArgs = @(
     "--hidden-import", "PySide6.QtPdf",
     "--hidden-import", "combined_test.ocean_direct_adapter",
     "--hidden-import", "tools.pd_daq_mvp",
+    "--hidden-import", "win32com.client",
+    "--hidden-import", "pythoncom",
+    "--hidden-import", "pywintypes",
     "--add-data", "$(Join-Path $projectRoot 'tools\spectrometer_mvp.py');tools",
     "--add-data", "$(Join-Path $projectRoot 'tools\legacy_ch341_control.py');tools"
 )

@@ -1,0 +1,109 @@
+- generic [ref=e4]:
+  - complementary [ref=e5]:
+    - paragraph [ref=e6]: 工作区
+    - navigation [ref=e7]:
+      - button "自动测试" [active] [ref=e8] [cursor=pointer]
+      - button "详细配置" [ref=e14] [cursor=pointer]
+      - button "PD 采集" [ref=e17] [cursor=pointer]
+      - button "出货报告" [ref=e21] [cursor=pointer]
+  - main [ref=e26]:
+    - generic [ref=e27]:
+      - generic [ref=e28]:
+        - generic [ref=e29]:
+          - heading "自动测试" [level=1] [ref=e249]
+          - generic [ref=e31]: 只读兼容模式
+        - paragraph [ref=e32]: 等待后端
+      - generic [ref=e33]:
+        - button [disabled]: 保存设置
+        - button "刷新" [ref=e34] [cursor=pointer]
+        - button "紧急停止" [disabled]
+    - alert [ref=e250]:
+      - generic [ref=e253]:
+        - paragraph [ref=e254]: 系统错误
+        - paragraph [ref=e255]: window.__TAURI_INTERNALS__.transformCallback is not a function
+      - button "关闭提示" [ref=e256] [cursor=pointer]
+    - generic [ref=e260]:
+      - generic [ref=e261]:
+        - button "打开电源设置" [ref=e262] [cursor=pointer]:
+          - generic [ref=e267]:
+            - generic [ref=e268]: 电源
+            - paragraph [ref=e271]: 未连接
+        - button "打开功率计设置" [ref=e272] [cursor=pointer]:
+          - generic [ref=e278]:
+            - generic [ref=e279]: 功率计
+            - paragraph [ref=e282]: 未连接
+        - button "打开光谱仪设置" [ref=e283] [cursor=pointer]:
+          - generic [ref=e292]:
+            - generic [ref=e293]: 光谱仪
+            - paragraph [ref=e296]: 未连接
+      - generic [ref=e297]:
+        - generic [ref=e299]:
+          - generic [ref=e300]:
+            - generic [ref=e301]: 输出目录
+            - textbox [ref=e302]
+          - generic [ref=e303]:
+            - generic [ref=e304]: 壳体 SN
+            - textbox [ref=e305]
+          - generic [ref=e306]:
+            - generic [ref=e307]: 测试站别
+            - textbox [ref=e308]
+          - generic [ref=e309]:
+            - generic [ref=e310]: 起始电流 (A)
+            - spinbutton [ref=e311]: "1"
+          - generic [ref=e312]:
+            - generic [ref=e313]: 目标电流 (A)
+            - spinbutton [ref=e314]: "20"
+          - generic [ref=e315]:
+            - generic [ref=e316]: 电流间隔 (A)
+            - spinbutton [ref=e317]: "3"
+          - generic [ref=e318]:
+            - generic [ref=e319]: 单点超时 (s)
+            - spinbutton [ref=e320]: "120"
+          - generic [ref=e321]:
+            - generic [ref=e322]: 下电步长 (A)
+            - spinbutton [ref=e323]: "5"
+          - generic [ref=e324]:
+            - generic [ref=e325]: 下电间隔 (s)
+            - spinbutton [ref=e326]: "1.1"
+          - generic [ref=e327]:
+            - checkbox "同时采集光谱并判断波长稳定" [checked] [ref=e328]
+            - text: 同时采集光谱并判断波长稳定
+          - generic [ref=e329]:
+            - generic [ref=e330]:
+              - generic [ref=e331]: 准备状态
+              - generic [ref=e332]: 0 / 3
+            - progressbar [ref=e333]
+            - paragraph [ref=e335]: 等待配置
+          - generic [ref=e336]:
+            - button "开始自动测试" [disabled]
+            - button "结束并安全下电" [disabled]
+        - generic [ref=e337]:
+          - generic [ref=e339]:
+            - generic [ref=e340]:
+              - generic [ref=e341]: 未开始
+              - progressbar [ref=e344]
+              - paragraph [ref=e346]: 测试点 0 / 0
+            - generic [ref=e347]:
+              - paragraph [ref=e348]: "--"
+              - paragraph [ref=e349]: 当前电流
+          - generic [ref=e350]:
+            - generic [ref=e351]:
+              - generic [ref=e352]: 功率实时
+              - generic [ref=e353]:
+                - generic [ref=e354]: 未采集
+                - paragraph [ref=e356]: "--"
+            - generic [ref=e357]: 暂无实时数据
+          - generic [ref=e359]:
+            - generic [ref=e360]:
+              - generic [ref=e361]: 光谱
+              - generic [ref=e362]:
+                - generic [ref=e363]:
+                  - paragraph [ref=e364]: "--"
+                  - paragraph [ref=e365]: 中心波长
+                - generic [ref=e366]:
+                  - paragraph [ref=e367]: "--"
+                  - paragraph [ref=e368]: FWHM
+                - generic [ref=e369]:
+                  - paragraph [ref=e370]: "--"
+                  - paragraph [ref=e371]: SMSR
+            - generic [ref=e372]: 暂无实时数据

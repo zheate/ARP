@@ -1,0 +1,141 @@
+- generic [ref=f1e4]:
+  - complementary [ref=f1e5]:
+    - paragraph [ref=f1e6]: 工作区
+    - navigation [ref=f1e7]:
+      - button "自动测试" [ref=f1e8] [cursor=pointer]
+      - button "详细配置" [ref=f1e14] [cursor=pointer]
+      - button "PD 采集" [ref=f1e17] [cursor=pointer]
+      - button "出货报告" [ref=f1e21] [cursor=pointer]
+  - main [ref=f1e26]:
+    - generic [ref=f1e27]:
+      - generic [ref=f1e28]:
+        - generic [ref=f1e29]:
+          - generic [ref=f1e30]:
+            - generic [ref=f1e31]:
+              - heading "自动测试" [level=1] [ref=f1e32]
+              - generic [ref=f1e33]: 只读兼容模式
+            - paragraph [ref=f1e34]
+          - generic [ref=f1e35]:
+            - button [disabled]: 保存设置
+            - button "紧急停止" [disabled]
+        - generic [ref=f1e36]:
+          - generic [ref=f1e37]:
+            - generic [ref=f1e38]: 输出目录
+            - textbox "输出目录" [ref=f1e41]
+          - generic [ref=f1e42]:
+            - generic [ref=f1e43]: 壳体 SN
+            - textbox "壳体 SN" [ref=f1e44]
+          - generic [ref=f1e45]:
+            - generic [ref=f1e46]: 测试站别
+            - textbox "测试站别" [ref=f1e47]
+          - generic [ref=f1e48]:
+            - generic [ref=f1e49]:
+              - generic [ref=f1e50]: 历史参考
+              - combobox [ref=f1e52] [cursor=pointer]:
+                - generic [ref=f1e53]: 上一次同 SN 完整测试（默认）
+            - generic [ref=f1e56] [cursor=pointer]:
+              - generic [ref=f1e57]: 采集光谱
+              - checkbox "采集光谱" [checked] [ref=f1e59]
+      - alert [ref=f1e60]:
+        - generic [ref=f1e63]:
+          - paragraph [ref=f1e64]: 系统错误
+          - paragraph [ref=f1e65]: 浏览器预览模式不会启动 Python 后端
+        - button "关闭提示" [ref=f1e66] [cursor=pointer]
+      - generic [ref=f1e70]:
+        - generic [ref=f1e71]:
+          - button "打开电源设置" [ref=f1e72] [cursor=pointer]:
+            - generic [ref=f1e77]:
+              - generic [ref=f1e78]: 电源
+              - paragraph [ref=f1e81]: 未连接
+          - button "打开功率计设置" [ref=f1e82] [cursor=pointer]:
+            - generic [ref=f1e88]:
+              - generic [ref=f1e89]: 功率计
+              - paragraph [ref=f1e92]: 未连接
+          - button "打开光谱仪设置" [ref=f1e93] [cursor=pointer]:
+            - generic [ref=f1e102]:
+              - generic [ref=f1e103]: 光谱仪
+              - paragraph [ref=f1e106]: 未连接
+        - generic [ref=f1e108]:
+          - paragraph [ref=f1e110]: 0 / 3
+          - paragraph [ref=f1e112]: 等待配置
+          - generic [ref=f1e113]:
+            - button "开始" [disabled]
+          - generic [ref=f1e114]:
+            - button "结束" [disabled]
+        - generic [ref=f1e115]:
+          - generic [ref=f1e116]:
+            - generic "功率实时" [ref=f1e117]:
+              - generic [ref=f1e118]:
+                - generic "图例" [ref=f1e119]: 本次功率 (W)
+                - generic [ref=f1e123]:
+                  - generic [ref=f1e124]: 未采集
+                  - paragraph [ref=f1e126]: "--"
+              - generic [ref=f1e127]: 暂无实时数据
+            - generic "功率 / 效率" [ref=f1e129]:
+              - generic "图例" [ref=f1e131]:
+                - generic [ref=f1e132]: 本次功率 (W)
+                - generic [ref=f1e136]: 本次效率 (%)
+              - generic [ref=f1e140]: 完成稳定测试点后显示功率 / 效率
+          - generic "光谱" [ref=f1e142]:
+            - generic [ref=f1e143]:
+              - generic "图例" [ref=f1e144]: 强度
+              - generic [ref=f1e148]:
+                - generic [ref=f1e149]:
+                  - paragraph [ref=f1e150]: "--"
+                  - paragraph [ref=f1e151]: 中心波长
+                - generic [ref=f1e152]:
+                  - paragraph [ref=f1e153]: "--"
+                  - paragraph [ref=f1e154]: FWHM
+                - generic [ref=f1e155]:
+                  - paragraph [ref=f1e156]: "--"
+                  - paragraph [ref=f1e157]: SMSR
+            - generic [ref=f1e158]: 暂无实时数据
+        - dialog [ref=f1e161]:
+          - generic [ref=f1e162]:
+            - heading "电源设置" [level=2] [ref=f1e168]
+            - button "关闭设置弹窗" [active] [ref=f1e169] [cursor=pointer]
+          - generic [ref=f1e174]:
+            - generic [ref=f1e175]:
+              - paragraph [ref=f1e176]: 手动控制
+              - generic [ref=f1e177]:
+                - generic [ref=f1e178]: 控制器
+                - combobox [ref=f1e180] [cursor=pointer]:
+                  - generic [ref=f1e181]: CH341 I²C
+              - generic [ref=f1e184]:
+                - generic [ref=f1e185]: 设定电流 (A)
+                - spinbutton [ref=f1e186]: "0"
+              - generic [ref=f1e187]:
+                - button "连接电源" [disabled]
+                - button "设置电流" [disabled]
+                - button "读取输出电压" [disabled]
+                - button "读取输出电流" [disabled]
+                - button "读取输入电压" [disabled]
+                - button "读取模块温度" [disabled]
+            - generic [ref=f1e188]:
+              - generic [ref=f1e189]:
+                - paragraph [ref=f1e190]: 自动测试电流
+                - paragraph [ref=f1e191]: 设置升流、单点等待和安全下电参数
+              - generic [ref=f1e192]:
+                - generic [ref=f1e193]:
+                  - generic [ref=f1e194]: 起始电流 (A)
+                  - spinbutton [ref=f1e195]: "1"
+                - generic [ref=f1e196]:
+                  - generic [ref=f1e197]: 目标电流 (A)
+                  - spinbutton [ref=f1e198]: "20"
+                - generic [ref=f1e199]:
+                  - generic [ref=f1e200]: 电流间隔 (A)
+                  - spinbutton [ref=f1e201]: "3"
+                - generic [ref=f1e202]:
+                  - generic [ref=f1e203]: 单点超时 (s)
+                  - spinbutton [ref=f1e204]: "120"
+                - generic [ref=f1e205]:
+                  - generic [ref=f1e206]: 下电步长 (A)
+                  - spinbutton [ref=f1e207]: "5"
+                - generic [ref=f1e208]:
+                  - generic [ref=f1e209]: 下电间隔 (s)
+                  - spinbutton [ref=f1e210]: "1.1"
+          - generic [ref=f1e211]:
+            - paragraph [ref=f1e212]: 修改后保存到当前测试配置
+            - generic [ref=f1e213]:
+              - button "关闭" [ref=f1e214] [cursor=pointer]
+              - button "保存设置" [disabled]

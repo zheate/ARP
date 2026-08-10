@@ -1,0 +1,49 @@
+- generic [ref=e4]:
+  - complementary [ref=e5]:
+    - paragraph [ref=e6]: 工作区
+    - navigation [ref=e7]:
+      - button "自动测试" [ref=e8] [cursor=pointer]
+      - button "详细配置" [ref=e14] [cursor=pointer]
+      - button "PD 采集" [ref=e17] [cursor=pointer]
+      - button "出货报告" [active] [ref=e21] [cursor=pointer]
+  - main [ref=e26]:
+    - generic [ref=e27]:
+      - generic [ref=e28]:
+        - generic [ref=e29]:
+          - generic [ref=e30]:
+            - heading "出货报告" [level=1] [ref=e391]
+            - generic [ref=e167]: 只读兼容模式
+          - paragraph [ref=e168]: 等待后端
+        - generic [ref=e169]:
+          - button [disabled]: 保存设置
+          - button "紧急停止" [disabled]
+      - alert [ref=e60]:
+        - generic [ref=e63]:
+          - paragraph [ref=e64]: 系统错误
+          - paragraph [ref=e65]: 浏览器预览模式不会启动 Python 后端
+        - button "关闭提示" [ref=e66] [cursor=pointer]
+      - generic [ref=e393]:
+        - generic [ref=e395]:
+          - generic [ref=e396]:
+            - generic [ref=e397]: 出货报告
+            - generic [ref=e398]: 填写测试 Excel 和本地 PDF 保存文件夹，再配置报告参数并导出。
+          - generic [ref=e399]:
+            - button "单个生成" [disabled] [ref=e400]
+            - button "批量生成" [disabled] [ref=e401]
+        - generic [ref=e402]:
+          - generic [ref=e403]:
+            - generic [ref=e404]:
+              - generic [ref=e405]: Excel 测试数据路径
+              - generic [ref=e406]:
+                - textbox "Excel 测试数据路径" [disabled]:
+                  - /placeholder: 选择自动测试生成的 .xlsx 文件
+                - button "浏览" [disabled]
+            - generic [ref=e407]:
+              - generic [ref=e408]: 本地 PDF 保存文件夹
+              - generic [ref=e409]:
+                - textbox "本地 PDF 保存文件夹" [disabled]:
+                  - /placeholder: 选择 PDF 保存文件夹，文件名将自动生成
+                - button "选择文件夹" [disabled]
+          - generic [ref=e410]:
+            - paragraph [ref=e412]: 填写两个本地路径后，可配置报告参数并预览 PDF。
+            - button "配置报告" [disabled]

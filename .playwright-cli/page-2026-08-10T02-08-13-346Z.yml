@@ -1,0 +1,106 @@
+- generic [ref=e4]:
+  - complementary [ref=e5]:
+    - paragraph [ref=e6]: 工作区
+    - navigation [ref=e7]:
+      - button "自动测试" [ref=e8] [cursor=pointer]
+      - button "详细配置" [ref=e14] [cursor=pointer]
+      - button "PD 采集" [active] [ref=e17] [cursor=pointer]
+      - button "出货报告" [ref=e21] [cursor=pointer]
+  - main [ref=e26]:
+    - generic [ref=e27]:
+      - generic [ref=e28]:
+        - generic [ref=e29]:
+          - generic [ref=e30]:
+            - heading "PD 采集" [level=1] [ref=e287]
+            - generic [ref=e167]: 只读兼容模式
+          - paragraph [ref=e168]: 等待后端
+        - generic [ref=e169]:
+          - button [disabled]: 保存设置
+          - button "紧急停止" [disabled]
+      - alert [ref=e60]:
+        - generic [ref=e63]:
+          - paragraph [ref=e64]: 系统错误
+          - paragraph [ref=e65]: 浏览器预览模式不会启动 Python 后端
+        - button "关闭提示" [ref=e66] [cursor=pointer]
+      - generic [ref=e289]:
+        - generic [ref=e290]:
+          - generic [ref=e291]:
+            - generic [ref=e292]: NI-DAQ 采集设置
+            - generic [ref=e293]: PD 采集可在电源加电期间独立启动或停止
+          - generic [ref=e294]:
+            - paragraph [ref=e296]: 采集参数
+            - generic [ref=e297]:
+              - generic [ref=e298]: 采集卡
+              - generic [ref=e299]:
+                - combobox [ref=e301] [cursor=pointer]:
+                  - generic [ref=e302]: 请选择
+                - button "识别" [disabled]
+            - generic [ref=e305]:
+              - generic [ref=e306]: 输入通道
+              - combobox [ref=e308] [cursor=pointer]:
+                - generic [ref=e309]: 请选择
+            - generic [ref=e312]:
+              - generic [ref=e313]: 接线方式
+              - combobox [ref=e315] [cursor=pointer]:
+                - generic [ref=e316]: 差分 DIFF
+            - generic [ref=e319]:
+              - generic [ref=e320]: 输入量程
+              - combobox [ref=e322] [cursor=pointer]:
+                - generic [ref=e323]: "10"
+            - generic [ref=e326]:
+              - generic [ref=e327]: 采样率 (S/s)
+              - spinbutton [ref=e328]: "1000"
+            - paragraph [ref=e330]: 标定参数
+            - generic [ref=e331]:
+              - generic [ref=e332]: 每批点数
+              - spinbutton [ref=e333]: "100"
+            - generic [ref=e334]:
+              - generic [ref=e335]: 标定比例
+              - spinbutton [ref=e336]: "1"
+            - generic [ref=e337]:
+              - generic [ref=e338]: 标定偏置
+              - spinbutton [ref=e339]: "0"
+            - generic [ref=e340]:
+              - generic [ref=e341]: 显示单位
+              - textbox [ref=e342]: V
+            - generic [ref=e343]:
+              - generic [ref=e344]:
+                - generic [ref=e345]:
+                  - paragraph [ref=e346]: 保存设置
+                  - paragraph [ref=e347]: 可选：保存本次采集的原始数据
+                - generic [ref=e348]:
+                  - checkbox "保存原始数据" [checked] [ref=e349]
+                  - text: 保存原始数据
+              - generic [ref=e350]:
+                - generic [ref=e351]: 保存目录
+                - textbox [ref=e352]
+            - generic [ref=e353]:
+              - generic [ref=e354]:
+                - generic [ref=e355]: "1"
+                - generic [ref=e356]: 先识别采集卡，再开始采集
+              - button "开始采集" [disabled]
+            - paragraph [ref=e357]: 等待识别采集卡
+        - generic [ref=e358]:
+          - generic [ref=e359]:
+            - generic [ref=e361]:
+              - paragraph [ref=e362]: 当前值
+              - paragraph [ref=e363]: "--"
+            - generic [ref=e365]:
+              - paragraph [ref=e366]: 电压
+              - paragraph [ref=e367]: "--"
+            - generic [ref=e369]:
+              - paragraph [ref=e370]: 采样数
+              - paragraph [ref=e371]: "0"
+          - generic "PD 实时趋势" [ref=e372]:
+            - generic "图例" [ref=e374]: V
+            - generic [ref=e378]: 开始采集后显示实时趋势
+          - generic [ref=e381]:
+            - generic [ref=e382]:
+              - paragraph [ref=e383]: 批次均值
+              - paragraph [ref=e384]: "--"
+            - generic [ref=e385]:
+              - paragraph [ref=e386]: 标准差
+              - paragraph [ref=e387]: "--"
+            - generic [ref=e388]:
+              - paragraph [ref=e389]: 最小 / 最大
+              - paragraph [ref=e390]: "--"

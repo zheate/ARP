@@ -1,0 +1,113 @@
+- generic [ref=f2e4]:
+  - complementary [ref=f2e5]:
+    - paragraph [ref=f2e6]: 工作区
+    - navigation [ref=f2e7]:
+      - button "自动测试" [ref=f2e8] [cursor=pointer]
+      - button "详细配置" [active] [ref=f2e14] [cursor=pointer]
+      - button "PD 采集" [ref=f2e17] [cursor=pointer]
+      - button "出货报告" [ref=f2e21] [cursor=pointer]
+  - main [ref=f2e26]:
+    - generic [ref=f2e27]:
+      - generic [ref=f2e28]:
+        - generic [ref=f2e29]:
+          - generic [ref=f2e30]:
+            - heading "详细配置" [level=1] [ref=f2e166]
+            - generic [ref=f2e167]: 只读兼容模式
+          - paragraph [ref=f2e168]: 等待后端
+        - generic [ref=f2e169]:
+          - button [disabled]: 保存设置
+          - button "紧急停止" [disabled]
+      - alert [ref=f2e60]:
+        - generic [ref=f2e63]:
+          - paragraph [ref=f2e64]: 系统错误
+          - paragraph [ref=f2e65]: 浏览器预览模式不会启动 Python 后端
+        - button "关闭提示" [ref=f2e66] [cursor=pointer]
+      - generic [ref=f2e171]:
+        - generic [ref=f2e172]:
+          - generic [ref=f2e173]:
+            - generic [ref=f2e174]: 电源控制
+            - generic [ref=f2e176]:
+              - generic [ref=f2e177]:
+                - generic [ref=f2e178]: 控制器：
+                - combobox [ref=f2e181] [cursor=pointer]:
+                  - generic [ref=f2e182]: CH341 I²C
+              - generic [ref=f2e185]:
+                - generic [ref=f2e186]: 设定电流 (A)：
+                - spinbutton [ref=f2e188]: "0"
+              - generic [ref=f2e189]:
+                - button "连接电源" [disabled]
+                - button "设置电流" [disabled]
+                - button "读取输出电压" [disabled]
+                - button "读取输出电流" [disabled]
+                - button "读取输入电压" [disabled]
+                - button "读取模块温度" [disabled]
+          - generic [ref=f2e190]:
+            - generic [ref=f2e191]: 功率计
+            - generic [ref=f2e193]:
+              - generic [ref=f2e194]:
+                - generic [ref=f2e195]: 串口资源：
+                - generic [ref=f2e197]:
+                  - combobox [ref=f2e199] [cursor=pointer]:
+                    - generic [ref=f2e200]: 请选择串口资源
+                  - button "识别" [disabled]
+              - generic [ref=f2e203]:
+                - generic [ref=f2e204]: 校准波长 (nm)：
+                - spinbutton [ref=f2e206]: "976"
+              - generic [ref=f2e207]:
+                - generic [ref=f2e208]: 软件增益：
+                - spinbutton [ref=f2e210]: "1"
+              - button "开始采集" [disabled]
+              - generic [ref=f2e211]:
+                - button "相对调零" [disabled]
+                - button "取消调零" [disabled]
+          - generic [ref=f2e212]:
+            - generic [ref=f2e213]: 光谱仪
+            - generic [ref=f2e215]:
+              - generic [ref=f2e216]:
+                - generic [ref=f2e217]: 串口资源：
+                - generic [ref=f2e219]:
+                  - combobox [ref=f2e221] [cursor=pointer]:
+                    - generic [ref=f2e222]: 自动选择第一台 Ocean Insight
+                  - button "识别" [disabled]
+              - generic [ref=f2e225]:
+                - generic [ref=f2e226]: 积分时间 (μs)：
+                - spinbutton [ref=f2e228]: "1000"
+              - generic [ref=f2e229]:
+                - generic [ref=f2e230]: 刷新间隔 (ms)：
+                - spinbutton [ref=f2e232]: "100"
+              - generic [ref=f2e233]:
+                - generic [ref=f2e234]: 平均帧数：
+                - spinbutton [ref=f2e236]: "5"
+              - generic [ref=f2e237]:
+                - generic [ref=f2e238]: 采集模式：
+                - generic [ref=f2e240]:
+                  - checkbox "自动积分" [ref=f2e241]
+                  - text: 自动积分
+              - button "开始采集" [disabled]
+        - generic [ref=f2e242]:
+          - generic "功率实时" [ref=f2e243]:
+            - generic [ref=f2e244]:
+              - generic "图例" [ref=f2e245]: 本次功率 (W)
+              - generic [ref=f2e249]:
+                - generic [ref=f2e250]: 未采集
+                - paragraph [ref=f2e252]: "--"
+            - generic [ref=f2e253]: 暂无实时数据
+          - generic "功率 / 效率" [ref=f2e255]:
+            - generic "图例" [ref=f2e257]:
+              - generic [ref=f2e258]: 本次功率 (W)
+              - generic [ref=f2e262]: 本次效率 (%)
+            - generic [ref=f2e266]: 完成稳定测试点后显示功率 / 效率
+          - generic "光谱" [ref=f2e269]:
+            - generic [ref=f2e270]:
+              - generic "图例" [ref=f2e271]: 强度
+              - generic [ref=f2e275]:
+                - generic [ref=f2e276]:
+                  - paragraph [ref=f2e277]: "--"
+                  - paragraph [ref=f2e278]: 中心波长
+                - generic [ref=f2e279]:
+                  - paragraph [ref=f2e280]: "--"
+                  - paragraph [ref=f2e281]: FWHM
+                - generic [ref=f2e282]:
+                  - paragraph [ref=f2e283]: "--"
+                  - paragraph [ref=f2e284]: SMSR
+            - generic [ref=f2e285]: 暂无实时数据

@@ -34,6 +34,7 @@ type CanvasLineChartProps = {
 }
 
 type ChartSize = { width: number; height: number }
+const CHART_FONT = "16px 'Geist Variable', 'PingFang SC', sans-serif"
 type HoverState = { index: number } | null
 type PendingHover = { index: number; pointerX: number; pointerY: number } | null
 type AxisScale = { min: number; max: number; ticks: number[] }
@@ -153,10 +154,10 @@ function buildLayout(
   yDomain?: [number, number],
 ): ChartLayout {
   const hasRightAxis = lines.some((line) => line.yAxisId === "right")
-  const left = 52
-  const right = hasRightAxis ? 50 : 16
-  const top = 10
-  const bottom = 24
+  const left = 64
+  const right = hasRightAxis ? 60 : 20
+  const top = 12
+  const bottom = 30
   const plotHeight = Math.max(1, size.height - top - bottom)
   const verticalTickTarget = Math.min(5, Math.max(2, Math.floor(plotHeight / 36)))
   const xValues = data.map((row) => finiteValue(row[xKey])).filter((value): value is number => value !== null)
@@ -283,7 +284,7 @@ function drawBaseChart(
   const border = styles.getPropertyValue("--chart-grid").trim() || "hsl(42 7% 25% / 0.52)"
   const muted = styles.getPropertyValue("--muted-foreground").trim() || "hsl(40 8% 60%)"
   const chartBackground = styles.getPropertyValue("--card").trim() || "hsl(48 3% 17%)"
-  context.font = "10px 'Geist Variable', 'PingFang SC', sans-serif"
+  context.font = CHART_FONT
   context.lineWidth = 1
   context.strokeStyle = border
   context.fillStyle = muted
@@ -386,7 +387,7 @@ function drawBaseChart(
     context.stroke()
     context.setLineDash([])
     context.globalAlpha = 0.95
-    context.font = "10px 'Geist Variable', 'PingFang SC', sans-serif"
+    context.font = CHART_FONT
     context.textAlign = index % 2 === 0 ? "left" : "right"
     context.textBaseline = "top"
     const labelX = index % 2 === 0 ? x + 5 : x - 5

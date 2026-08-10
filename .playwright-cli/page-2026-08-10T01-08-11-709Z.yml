@@ -1,0 +1,71 @@
+- generic [ref=f8e4]:
+  - complementary [ref=f8e5]:
+    - paragraph [ref=f8e6]: 工作区
+    - navigation [ref=f8e7]:
+      - button "自动测试" [ref=f8e8] [cursor=pointer]
+      - button "详细配置" [ref=f8e14] [cursor=pointer]
+      - button "PD 采集" [ref=f8e17] [cursor=pointer]
+      - button "出货报告" [ref=f8e21] [cursor=pointer]
+  - main [ref=f8e26]:
+    - generic [ref=f8e27]:
+      - generic [ref=f8e28]:
+        - generic [ref=f8e29]:
+          - generic [ref=f8e30]:
+            - heading "自动测试" [level=1] [ref=f8e31]
+            - button "绘图" [active] [ref=f8e147] [cursor=pointer]
+            - generic [ref=f8e33]: 只读兼容模式
+          - paragraph [ref=f8e34]
+        - generic [ref=f8e35]:
+          - generic [ref=f8e36]: 输出目录
+          - textbox "输出目录" [ref=f8e39]
+        - generic [ref=f8e40]:
+          - button [disabled]: 保存设置
+          - button "刷新" [ref=f8e41] [cursor=pointer]
+          - button "紧急停止" [disabled]
+      - generic [ref=f8e52]:
+        - generic [ref=f8e53]:
+          - button "打开电源设置" [ref=f8e54] [cursor=pointer]:
+            - generic [ref=f8e59]:
+              - generic [ref=f8e60]: 电源
+              - paragraph [ref=f8e63]: 未连接
+          - button "打开功率计设置" [ref=f8e64] [cursor=pointer]:
+            - generic [ref=f8e70]:
+              - generic [ref=f8e71]: 功率计
+              - paragraph [ref=f8e74]: 未连接
+          - button "打开光谱仪设置" [ref=f8e75] [cursor=pointer]:
+            - generic [ref=f8e84]:
+              - generic [ref=f8e85]: 光谱仪
+              - paragraph [ref=f8e88]: 未连接
+        - generic [ref=f8e90]:
+          - generic [ref=f8e91]:
+            - generic [ref=f8e92]: 准备状态
+            - progressbar "设备准备进度" [ref=f8e95]
+            - paragraph [ref=f8e97]: 等待配置
+          - generic [ref=f8e98]:
+            - paragraph [ref=f8e99]: 0 / 3
+            - paragraph [ref=f8e100]: 设备就绪
+          - generic [ref=f8e101]:
+            - button "开始自动测试" [disabled]
+            - button "结束并安全下电" [disabled]
+        - generic [ref=f8e149]:
+          - generic [ref=f8e150]:
+            - generic [ref=f8e151]:
+              - generic [ref=f8e152]: 测试信息
+              - generic [ref=f8e153]: 关联壳体、站别与同 SN 历史测试曲线
+            - generic [ref=f8e154]:
+              - checkbox "同时采集光谱" [checked] [ref=f8e155]
+              - text: 同时采集光谱
+          - generic [ref=f8e156]:
+            - generic [ref=f8e157]:
+              - generic [ref=f8e158]: 壳体 SN
+              - textbox [ref=f8e159]
+            - generic [ref=f8e160]:
+              - generic [ref=f8e161]: 测试站别
+              - textbox [ref=f8e162]
+            - generic [ref=f8e163]:
+              - generic [ref=f8e164]: 历史参考
+              - generic [ref=f8e165]:
+                - combobox [ref=f8e167] [cursor=pointer]:
+                  - generic [ref=f8e168]: 上一次同 SN 完整测试（默认）
+                - button "刷新同壳体历史记录" [disabled]
+              - paragraph [ref=f8e171]: 填写输出目录和 SN 后，可刷新并选择历史记录。

@@ -1,0 +1,82 @@
+- generic [ref=f8e4]:
+  - complementary [ref=f8e5]:
+    - paragraph [ref=f8e6]: 工作区
+    - navigation [ref=f8e7]:
+      - button "自动测试" [ref=f8e8] [cursor=pointer]
+      - button "详细配置" [ref=f8e14] [cursor=pointer]
+      - button "PD 采集" [ref=f8e17] [cursor=pointer]
+      - button "出货报告" [ref=f8e21] [cursor=pointer]
+  - main [ref=f8e26]:
+    - generic [ref=f8e27]:
+      - generic [ref=f8e28]:
+        - generic [ref=f8e29]:
+          - generic [ref=f8e30]:
+            - heading "自动测试" [level=1] [ref=f8e31]
+            - button "配置" [ref=f8e32] [cursor=pointer]
+            - generic [ref=f8e33]: 只读兼容模式
+          - paragraph [ref=f8e34]
+        - generic [ref=f8e35]:
+          - generic [ref=f8e36]: 输出目录
+          - textbox "输出目录" [ref=f8e39]
+        - generic [ref=f8e40]:
+          - button [disabled]: 保存设置
+          - button "刷新" [ref=f8e41] [cursor=pointer]
+          - button "紧急停止" [disabled]
+      - alert [ref=f8e42]:
+        - generic [ref=f8e45]:
+          - paragraph [ref=f8e46]: 系统错误
+          - paragraph [ref=f8e47]: 浏览器预览模式不会启动 Python 后端
+        - button "关闭提示" [ref=f8e48] [cursor=pointer]
+      - generic [ref=f8e52]:
+        - generic [ref=f8e53]:
+          - button "打开电源设置" [ref=f8e54] [cursor=pointer]:
+            - generic [ref=f8e59]:
+              - generic [ref=f8e60]: 电源
+              - paragraph [ref=f8e63]: 未连接
+          - button "打开功率计设置" [ref=f8e64] [cursor=pointer]:
+            - generic [ref=f8e70]:
+              - generic [ref=f8e71]: 功率计
+              - paragraph [ref=f8e74]: 未连接
+          - button "打开光谱仪设置" [ref=f8e75] [cursor=pointer]:
+            - generic [ref=f8e84]:
+              - generic [ref=f8e85]: 光谱仪
+              - paragraph [ref=f8e88]: 未连接
+        - generic [ref=f8e90]:
+          - generic [ref=f8e91]:
+            - generic [ref=f8e92]: 准备状态
+            - progressbar "设备准备进度" [ref=f8e95]
+            - paragraph [ref=f8e97]: 等待配置
+          - generic [ref=f8e98]:
+            - paragraph [ref=f8e99]: 0 / 3
+            - paragraph [ref=f8e100]: 设备就绪
+          - generic [ref=f8e101]:
+            - button "开始自动测试" [disabled]
+            - button "结束并安全下电" [disabled]
+        - generic [ref=f8e102]:
+          - generic [ref=f8e103]:
+            - generic "功率实时" [ref=f8e104]:
+              - generic [ref=f8e105]:
+                - generic "图例" [ref=f8e106]: 本次功率 (W)
+                - generic [ref=f8e110]:
+                  - generic [ref=f8e111]: 未采集
+                  - paragraph [ref=f8e113]: "--"
+              - generic [ref=f8e114]: 暂无实时数据
+            - generic "功率 / 效率" [ref=f8e116]:
+              - generic "图例" [ref=f8e118]:
+                - generic [ref=f8e119]: 本次功率 (W)
+                - generic [ref=f8e123]: 本次效率 (%)
+              - generic [ref=f8e127]: 完成稳定测试点后显示功率 / 效率
+          - generic "光谱" [ref=f8e129]:
+            - generic [ref=f8e130]:
+              - generic "图例" [ref=f8e131]: 强度
+              - generic [ref=f8e135]:
+                - generic [ref=f8e136]:
+                  - paragraph [ref=f8e137]: "--"
+                  - paragraph [ref=f8e138]: 中心波长
+                - generic [ref=f8e139]:
+                  - paragraph [ref=f8e140]: "--"
+                  - paragraph [ref=f8e141]: FWHM
+                - generic [ref=f8e142]:
+                  - paragraph [ref=f8e143]: "--"
+                  - paragraph [ref=f8e144]: SMSR
+            - generic [ref=f8e145]: 暂无实时数据

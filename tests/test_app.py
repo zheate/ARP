@@ -1304,6 +1304,19 @@ class MainWindowTests(unittest.TestCase):
         self.assertEqual(window._selected_power_resource(), "ASRL8::INSTR")
         window.close()
 
+    def test_ophir_resource_selects_the_ophir_driver_without_hardware(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow()
+        window.power_meter_combo.clear()
+        index = window._add_power_meter_resource_option("ophir::usb::SN42")
+        window.power_meter_combo.setCurrentIndex(index)
+
+        settings = window.collect_power_meter_settings()
+
+        self.assertEqual(settings.resource, "OPHIR::USB::SN42")
+        self.assertEqual(settings.driver_kind, "ophir")
+        window.close()
+
     def test_prepare_page_restores_detected_power_meter_name(self) -> None:
         app = QApplication.instance() or QApplication([])
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -3500,6 +3513,121 @@ class SpectrumPeakAnnotationTests(unittest.TestCase):
 
 
 class PowerMeterDetectThreadTests(unittest.TestCase):
+    def test_ophir_power_meter_adapter_runs_against_a_fake_com_controller(self) -> None:
+        calls: list[object] = []
+
+        class FakeOphirController:
+            def ScanUSB(self) -> tuple[str]:
+                return ("SN42",)
+
+            def OpenUSBDevice(self, serial_number: str) -> int:
+                calls.append(("open", serial_number))
+                return 17
+
+            def IsSensorExists(self, _handle: int, _channel: int) -> tuple[bool]:
+                return (True,)
+
+            def GetWavelengths(self, _handle: int, _channel: int) -> tuple[int, tuple[str, str]]:
+                return (0, ("940 nm", "976 nm"))
+
+            def SetWavelength(self, handle: int, channel: int, index: int) -> None:
+                calls.append(("wavelength", handle, channel, index))
+
+            def StartStream(self, handle: int, channel: int) -> None:
+                calls.append(("start", handle, channel))
+
+            def GetData(self, _handle: int, _channel: int) -> tuple[tuple[float, ...], tuple[float, ...], tuple[int, ...]]:
+                return ((0.5, 0.75), (1.0, 2.0), (0, 0))
+
+            def StopStream(self, handle: int, channel: int) -> None:
+                calls.append(("stop", handle, channel))
+
+            def Close(self, handle: int) -> None:
+                calls.append(("close", handle))
+
+            def CloseAll(self) -> None:
+                calls.append("close_all")
+
+        controller = FakeOphirController()
+        original_factory = power_meter_mvp._create_ophir_controller
+        power_meter_mvp._create_ophir_controller = lambda: (controller, None)
+        meter = None
+        try:
+            meter = power_meter_mvp.OphirPowerMeter("OPHIR::USB::SN42")
+
+            self.assertEqual(meter.test(), "OK")
+            meter.set_wavelength(976.2)
+            self.assertAlmostEqual(meter.read_power_w(), 0.75)
+
+            self.assertEqual(
+                calls[:3],
+                [
+                    ("open", "SN42"),
+                    ("wavelength", 17, 0, 1),
+                    ("start", 17, 0),
+                ],
+            )
+        finally:
+            if meter is not None:
+                meter.close()
+            power_meter_mvp._create_ophir_controller = original_factory
+
+        self.assertIn(("stop", 17, 0), calls)
+        self.assertIn(("close", 17), calls)
+        self.assertIn("close_all", calls)
+
+    def test_power_meter_detect_thread_includes_ophir_usb_results(self) -> None:
+        class FakeResourceManager:
+            def list_resources(self) -> tuple[str]:
+                return ()
+
+            def close(self) -> None:
+                pass
+
+        class FakeCaihuangPowerMeter:
+            @staticmethod
+            def probe(resource: str, timeout_ms: int = 1000) -> None:
+                return None
+
+        class FakeLaserPointPowerMeter:
+            @staticmethod
+            def probe(resource: str, timeout_ms: int = 1000) -> None:
+                return None
+
+        class FakeOphirPowerMeter:
+            @staticmethod
+            def probe_all(resource: str = "", timeout_ms: int = 1000) -> list[object]:
+                return [
+                    types.SimpleNamespace(
+                        resource="OPHIR::USB::SN42",
+                        device_type="Ophir USB",
+                        detail="USB SN SN42",
+                        driver_kind="ophir",
+                    )
+                ]
+
+        old_modules = dict(sys.modules)
+        try:
+            sys.modules["pyvisa"] = types.SimpleNamespace(ResourceManager=lambda: FakeResourceManager())
+            sys.modules["tools.power_meter_mvp"] = types.SimpleNamespace(
+                CaihuangPowerMeter=FakeCaihuangPowerMeter,
+                LaserPointPowerMeter=FakeLaserPointPowerMeter,
+                OphirPowerMeter=FakeOphirPowerMeter,
+            )
+            thread = combined_test_devices.PowerMeterDetectThread()
+            detected: list[PowerMeterOption] = []
+            thread.detected.connect(lambda options: detected.extend(options))
+
+            thread.run()
+
+            self.assertEqual(len(detected), 1)
+            self.assertEqual(detected[0].resource, "OPHIR::USB::SN42")
+            self.assertEqual(detected[0].driver_kind, "ophir")
+            self.assertEqual(detected[0].label(), "Ophir USB | OPHIR::USB::SN42 | USB SN SN42")
+        finally:
+            sys.modules.clear()
+            sys.modules.update(old_modules)
+
     def test_power_meter_detect_thread_probes_selected_port_first_with_short_timeout(self) -> None:
         calls: list[tuple[str, str, int]] = []
 

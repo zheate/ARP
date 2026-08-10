@@ -76,12 +76,16 @@ Run standalone diagnostics from the repository root with `python -m tools.power_
   input voltage duplicates TDK output voltage, while temperature is not a
   portable query across the supported TDK-Lambda families.
 
-- Power meters are discovered from VISA serial resources whose names start with `ASRL`.
+- Caihuang and LaserPoint power meters are discovered from VISA serial resources whose names start with `ASRL`.
+- Ophir power meters are discovered independently through the StarLab
+  `OphirLMMeasurement.CoLMMeasurement` USB/COM interface.
 - Supported power-meter probing tries Caihuang first (`$TES`, then optionally `$VER`),
-  then LaserPoint (`*SERNU:` at 38400 baud) on ports that did not match Caihuang.
+  then LaserPoint (`*SERNU:` at 38400 baud) on ports that did not match Caihuang,
+  and finally scans Ophir USB devices.
 - Detected power meters are shown as either:
   `Caihuang CHLP-P | ASRLx::INSTR | OK...` or
-  `LaserPoint | ASRLx::INSTR | SN ...`.
+  `LaserPoint | ASRLx::INSTR | SN ...` or
+  `Ophir USB | OPHIR::USB::<serial> | USB SN ...`.
 - If multiple power meters are detected, choose the target meter from the Power Meter device combo box before starting the test.
 - Spectrometers are discovered through OceanDirect `find_usb_devices()` and `get_device_ids()`.
 - The exposed OceanDirect wrapper does not provide model or serial-number methods, so spectrometers are shown as:

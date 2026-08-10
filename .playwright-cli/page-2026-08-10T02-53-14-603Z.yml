@@ -1,0 +1,149 @@
+- generic [ref=e4]:
+  - complementary [ref=e5]:
+    - paragraph [ref=e6]: 工作区
+    - navigation [ref=e7]:
+      - button "自动测试" [ref=e8] [cursor=pointer]
+      - button "详细配置" [ref=e14] [cursor=pointer]
+      - button "PD 采集" [ref=e17] [cursor=pointer]
+      - button "出货报告" [ref=e21] [cursor=pointer]
+  - main [ref=e26]:
+    - generic [ref=e27]:
+      - generic [ref=e28]:
+        - generic [ref=e29]:
+          - generic [ref=e30]:
+            - generic [ref=e31]:
+              - heading "自动测试" [level=1] [ref=e32]
+              - generic [ref=e33]: 只读兼容模式
+            - paragraph [ref=e34]
+          - generic [ref=e35]:
+            - button [disabled]: 保存设置
+            - button "紧急停止" [disabled]
+        - generic [ref=e36]:
+          - generic [ref=e37]:
+            - generic [ref=e38]: 输出目录
+            - textbox "输出目录" [ref=e41]
+          - generic [ref=e42]:
+            - generic [ref=e43]: 壳体 SN
+            - textbox "壳体 SN" [ref=e44]
+          - generic [ref=e45]:
+            - generic [ref=e46]: 测试站别
+            - textbox "测试站别" [ref=e47]
+          - generic [ref=e48]:
+            - generic [ref=e49]:
+              - generic [ref=e50]: 历史参考
+              - combobox [ref=e52] [cursor=pointer]:
+                - generic [ref=e53]: 上一次同 SN 完整测试（默认）
+            - generic [ref=e56] [cursor=pointer]:
+              - generic [ref=e57]: 采集光谱
+              - checkbox "采集光谱" [checked] [ref=e59]
+      - alert [ref=e60]:
+        - generic [ref=e63]:
+          - paragraph [ref=e64]: 系统错误
+          - paragraph [ref=e65]: 浏览器预览模式不会启动 Python 后端
+        - button "关闭提示" [ref=e66] [cursor=pointer]
+      - generic [ref=e70]:
+        - generic [ref=e71]:
+          - button "打开电源设置" [ref=e72] [cursor=pointer]:
+            - generic [ref=e77]:
+              - generic [ref=e78]: 电源
+              - paragraph [ref=e81]: 未连接
+          - button "打开功率计设置" [ref=e82] [cursor=pointer]:
+            - generic [ref=e88]:
+              - generic [ref=e89]: 功率计
+              - paragraph [ref=e92]: 未连接
+          - button "打开光谱仪设置" [ref=e93] [cursor=pointer]:
+            - generic [ref=e102]:
+              - generic [ref=e103]: 光谱仪
+              - paragraph [ref=e106]: 未连接
+        - generic [ref=e108]:
+          - generic [ref=e109]:
+            - generic [ref=e110]: 准备状态
+            - progressbar "设备准备进度" [ref=e113]
+          - paragraph [ref=e116]: 等待配置
+          - generic [ref=e117]:
+            - paragraph [ref=e118]: 0 / 3
+            - paragraph [ref=e119]: 设备就绪
+          - generic [ref=e120]:
+            - button "开始" [disabled]
+            - button "结束" [disabled]
+        - generic [ref=e121]:
+          - generic [ref=e122]:
+            - generic "功率实时" [ref=e123]:
+              - generic [ref=e124]:
+                - generic "图例" [ref=e125]: 本次功率 (W)
+                - generic [ref=e129]:
+                  - generic [ref=e130]: 未采集
+                  - paragraph [ref=e132]: "--"
+              - generic [ref=e133]: 暂无实时数据
+            - generic "功率 / 效率" [ref=e135]:
+              - generic "图例" [ref=e137]:
+                - generic [ref=e138]: 本次功率 (W)
+                - generic [ref=e142]: 本次效率 (%)
+              - generic [ref=e146]: 完成稳定测试点后显示功率 / 效率
+          - generic "光谱" [ref=e148]:
+            - generic [ref=e149]:
+              - generic "图例" [ref=e150]: 强度
+              - generic [ref=e154]:
+                - generic [ref=e155]:
+                  - paragraph [ref=e156]: "--"
+                  - paragraph [ref=e157]: 中心波长
+                - generic [ref=e158]:
+                  - paragraph [ref=e159]: "--"
+                  - paragraph [ref=e160]: FWHM
+                - generic [ref=e161]:
+                  - paragraph [ref=e162]: "--"
+                  - paragraph [ref=e163]: SMSR
+            - generic [ref=e164]: 暂无实时数据
+        - dialog [ref=e167]:
+          - generic [ref=e168]:
+            - generic [ref=e173]:
+              - heading "电源设置" [level=2] [ref=e174]
+              - paragraph [ref=e175]: 配置电源控制器、输出参数并执行安全控制
+            - button "关闭设置弹窗" [active] [ref=e176] [cursor=pointer]
+          - generic [ref=e181]:
+            - generic [ref=e182]:
+              - generic [ref=e183]:
+                - paragraph [ref=e184]: 手动控制
+                - paragraph [ref=e185]: 连接设备并执行电源输出与状态读取
+              - generic [ref=e186]:
+                - generic [ref=e187]: 控制器
+                - combobox [ref=e189] [cursor=pointer]:
+                  - generic [ref=e190]: CH341 I²C
+              - generic [ref=e193]:
+                - generic [ref=e194]: 设定电流 (A)
+                - spinbutton [ref=e195]: "0"
+              - generic [ref=e196]:
+                - button "连接电源" [disabled]
+                - button "设置电流" [disabled]
+                - button "读取输出电压" [disabled]
+                - button "读取输出电流" [disabled]
+                - button "读取输入电压" [disabled]
+                - button "读取模块温度" [disabled]
+            - generic [ref=e197]:
+              - generic [ref=e198]:
+                - paragraph [ref=e199]: 自动测试电流
+                - paragraph [ref=e200]: 设置升流、单点等待和安全下电参数
+              - generic [ref=e201]:
+                - generic [ref=e202]:
+                  - generic [ref=e203]: 起始电流 (A)
+                  - spinbutton [ref=e204]: "1"
+                - generic [ref=e205]:
+                  - generic [ref=e206]: 目标电流 (A)
+                  - spinbutton [ref=e207]: "20"
+                - generic [ref=e208]:
+                  - generic [ref=e209]: 电流间隔 (A)
+                  - spinbutton [ref=e210]: "3"
+                - generic [ref=e211]:
+                  - generic [ref=e212]: 单点超时 (s)
+                  - spinbutton [ref=e213]: "120"
+                - generic [ref=e214]:
+                  - generic [ref=e215]: 下电步长 (A)
+                  - spinbutton [ref=e216]: "5"
+                - generic [ref=e217]:
+                  - generic [ref=e218]: 下电间隔 (s)
+                  - spinbutton [ref=e219]: "1.1"
+          - generic [ref=e220]:
+            - paragraph [ref=e221]: 修改后保存到当前测试配置
+            - generic [ref=e222]:
+              - button "关闭" [ref=e223] [cursor=pointer]
+              - button "保存设置" [disabled]

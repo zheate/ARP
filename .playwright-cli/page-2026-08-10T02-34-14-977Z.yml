@@ -1,0 +1,96 @@
+- generic [ref=e4]:
+  - complementary [ref=e5]:
+    - paragraph [ref=e6]: 工作区
+    - navigation [ref=e7]:
+      - button "自动测试" [active] [ref=e8] [cursor=pointer]
+      - button "详细配置" [ref=e14] [cursor=pointer]
+      - button "PD 采集" [ref=e17] [cursor=pointer]
+      - button "出货报告" [ref=e21] [cursor=pointer]
+  - main [ref=e26]:
+    - generic [ref=e27]:
+      - generic [ref=e28]:
+        - generic [ref=e29]:
+          - generic [ref=e30]:
+            - generic [ref=e287]:
+              - heading "自动测试" [level=1] [ref=e288]
+              - generic [ref=e289]: 只读兼容模式
+            - paragraph [ref=e290]
+          - generic [ref=e291]:
+            - button [disabled]: 保存设置
+            - button "紧急停止" [disabled]
+        - generic [ref=e36]:
+          - generic [ref=e292]:
+            - generic [ref=e293]: 输出目录
+            - textbox "输出目录" [ref=e296]
+          - generic [ref=e297]:
+            - generic [ref=e298]: 壳体 SN
+            - textbox "壳体 SN" [ref=e299]
+          - generic [ref=e300]:
+            - generic [ref=e301]: 测试站别
+            - textbox "测试站别" [ref=e302]
+          - generic [ref=e303]:
+            - generic [ref=e304]:
+              - generic [ref=e305]: 历史参考
+              - combobox [ref=e307] [cursor=pointer]:
+                - generic [ref=e308]: 上一次同 SN 完整测试（默认）
+            - generic [ref=e311] [cursor=pointer]:
+              - generic [ref=e312]: 采集光谱
+              - checkbox "采集光谱" [checked] [ref=e314]
+      - alert [ref=e60]:
+        - generic [ref=e63]:
+          - paragraph [ref=e64]: 系统错误
+          - paragraph [ref=e65]: 浏览器预览模式不会启动 Python 后端
+        - button "关闭提示" [ref=e66] [cursor=pointer]
+      - generic [ref=e315]:
+        - generic [ref=e316]:
+          - button "打开电源设置" [ref=e317] [cursor=pointer]:
+            - generic [ref=e322]:
+              - generic [ref=e323]: 电源
+              - paragraph [ref=e326]: 未连接
+          - button "打开功率计设置" [ref=e327] [cursor=pointer]:
+            - generic [ref=e333]:
+              - generic [ref=e334]: 功率计
+              - paragraph [ref=e337]: 未连接
+          - button "打开光谱仪设置" [ref=e338] [cursor=pointer]:
+            - generic [ref=e347]:
+              - generic [ref=e348]: 光谱仪
+              - paragraph [ref=e351]: 未连接
+        - generic [ref=e353]:
+          - generic [ref=e354]:
+            - generic [ref=e355]: 准备状态
+            - progressbar "设备准备进度" [ref=e358]
+          - paragraph [ref=e361]: 等待配置
+          - generic [ref=e362]:
+            - paragraph [ref=e363]: 0 / 3
+            - paragraph [ref=e364]: 设备就绪
+          - generic [ref=e365]:
+            - button "开始" [disabled]
+            - button "结束" [disabled]
+        - generic [ref=e366]:
+          - generic [ref=e367]:
+            - generic "功率实时" [ref=e368]:
+              - generic [ref=e369]:
+                - generic "图例" [ref=e370]: 本次功率 (W)
+                - generic [ref=e374]:
+                  - generic [ref=e375]: 未采集
+                  - paragraph [ref=e377]: "--"
+              - generic [ref=e378]: 暂无实时数据
+            - generic "功率 / 效率" [ref=e380]:
+              - generic "图例" [ref=e382]:
+                - generic [ref=e383]: 本次功率 (W)
+                - generic [ref=e387]: 本次效率 (%)
+              - generic [ref=e391]: 完成稳定测试点后显示功率 / 效率
+          - generic "光谱" [ref=e393]:
+            - generic [ref=e394]:
+              - generic "图例" [ref=e395]: 强度
+              - generic [ref=e399]:
+                - generic [ref=e400]:
+                  - paragraph [ref=e401]: "--"
+                  - paragraph [ref=e402]: 中心波长
+                - generic [ref=e403]:
+                  - paragraph [ref=e404]: "--"
+                  - paragraph [ref=e405]: FWHM
+                - generic [ref=e406]:
+                  - paragraph [ref=e407]: "--"
+                  - paragraph [ref=e408]: SMSR
+            - generic [ref=e409]: 暂无实时数据

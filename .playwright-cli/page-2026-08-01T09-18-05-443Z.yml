@@ -1,0 +1,120 @@
+- generic [ref=e4]:
+  - complementary [ref=e5]:
+    - paragraph [ref=e6]: 工作区
+    - navigation [ref=e7]:
+      - button "自动测试" [disabled] [ref=e8]
+      - button "详细配置" [ref=e14] [cursor=pointer]
+      - button "PD 采集" [ref=e17] [cursor=pointer]
+      - button "出货报告" [ref=e21] [cursor=pointer]
+  - main [ref=e26]:
+    - generic [ref=e27]:
+      - generic [ref=e28]:
+        - generic [ref=e29]:
+          - generic [ref=e30]:
+            - heading "自动测试" [level=1] [ref=e31]
+            - generic [ref=e32]: 控制器已接入
+          - paragraph [ref=e33]: 等待后端
+        - generic [ref=e34]:
+          - button [disabled]: 保存设置
+          - button "刷新" [ref=e35] [cursor=pointer]
+          - button "紧急停止" [ref=e36] [cursor=pointer]
+      - alert [ref=e37]:
+        - generic [ref=e40]:
+          - paragraph [ref=e41]: 示例数据
+          - paragraph [ref=e42]: 当前显示的是图表预览数据，不会连接真实仪器。
+        - button "关闭提示" [ref=e43] [cursor=pointer]
+      - dialog [ref=e48]:
+        - generic [ref=e54]:
+          - heading "测试完成" [level=2] [ref=e55]
+          - paragraph [ref=e56]: 测试流程已经结束，设备已完成安全下电
+        - paragraph [ref=e58]: 测试完成，Excel 已保存
+        - button "确定" [active] [ref=e60] [cursor=pointer]
+      - generic [ref=e61]:
+        - generic [ref=e62]:
+          - button "打开电源设置" [disabled] [ref=e63]:
+            - generic [ref=e68]:
+              - generic [ref=e69]: 电源
+              - paragraph [ref=e72]: TDK RS232 · 示例
+          - button "打开功率计设置" [disabled] [ref=e73]:
+            - generic [ref=e79]:
+              - generic [ref=e80]: 功率计
+              - paragraph [ref=e83]: ASRL3::INSTR · 示例
+          - button "打开光谱仪设置" [disabled] [ref=e84]:
+            - generic [ref=e93]:
+              - generic [ref=e94]: 光谱仪
+              - paragraph [ref=e97]: Ocean Insight · 示例
+        - generic [ref=e98]:
+          - generic [ref=e100]:
+            - generic [ref=e101]:
+              - generic [ref=e102]: 输出目录
+              - textbox [disabled]
+            - generic [ref=e103]:
+              - generic [ref=e104]: 壳体 SN
+              - textbox [disabled]: DEMO-001
+            - generic [ref=e105]:
+              - generic [ref=e106]: 测试站别
+              - textbox [disabled]: 预览工位
+            - generic [ref=e107]:
+              - generic [ref=e108]: 起始电流 (A)
+              - spinbutton [disabled]: "2"
+            - generic [ref=e109]:
+              - generic [ref=e110]: 目标电流 (A)
+              - spinbutton [disabled]: "12"
+            - generic [ref=e111]:
+              - generic [ref=e112]: 电流间隔 (A)
+              - spinbutton [disabled]: "2"
+            - generic [ref=e113]:
+              - generic [ref=e114]: 单点超时 (s)
+              - spinbutton [disabled]: "120"
+            - generic [ref=e115]:
+              - generic [ref=e116]: 下电步长 (A)
+              - spinbutton [disabled]: "5"
+            - generic [ref=e117]:
+              - generic [ref=e118]: 下电间隔 (s)
+              - spinbutton [disabled]: "1.1"
+            - generic [ref=e119]:
+              - checkbox "同时采集光谱并判断波长稳定" [checked] [disabled] [ref=e120]
+              - text: 同时采集光谱并判断波长稳定
+            - generic [ref=e121]:
+              - generic [ref=e122]:
+                - generic [ref=e123]: 准备状态
+                - generic [ref=e124]: 3 / 3
+              - progressbar [ref=e125]
+              - paragraph [ref=e127]: 测试完成，Excel 已保存
+            - generic [ref=e128]:
+              - button "开始自动测试" [disabled]
+              - button "结束并安全下电" [ref=e129] [cursor=pointer]
+          - generic [ref=e130]:
+            - generic [ref=e132]:
+              - generic [ref=e133]:
+                - generic [ref=e134]: 测试完成，Excel 已保存
+                - progressbar [ref=e137]
+                - paragraph [ref=e139]: 测试点 4 / 6
+              - generic [ref=e140]:
+                - paragraph [ref=e141]: 8.0 A
+                - paragraph [ref=e142]: 当前电流
+            - generic "功率实时" [ref=e143]:
+              - generic [ref=e144]:
+                - generic "图例" [ref=e145]: 功率 (W)
+                - generic [ref=e149]:
+                  - generic [ref=e150]: 已稳定
+                  - paragraph [ref=e152]: 0.860 W
+              - generic [ref=e154]:
+                - img "功率实时曲线" [ref=e155]
+                - generic [ref=e156]: 功率 (W)
+            - generic "光谱" [ref=e157]:
+              - generic [ref=e158]:
+                - generic "图例" [ref=e159]: 强度
+                - generic [ref=e163]:
+                  - generic [ref=e164]:
+                    - paragraph [ref=e165]: 976.200 nm
+                    - paragraph [ref=e166]: 中心波长
+                  - generic [ref=e167]:
+                    - paragraph [ref=e168]: 0.420 nm
+                    - paragraph [ref=e169]: FWHM
+                  - generic [ref=e170]:
+                    - paragraph [ref=e171]: "--"
+                    - paragraph [ref=e172]: SMSR
+              - generic [ref=e174]:
+                - img "光谱曲线" [ref=e175]
+                - generic [ref=e176]: 强度

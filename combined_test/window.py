@@ -3996,13 +3996,15 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "相对调零", "请先选择功率计。")
             return
         option = self.power_meter_combo.currentData()
-        if isinstance(option, PowerMeterOption) and option.driver_kind == "laserpoint":
+        if isinstance(option, PowerMeterOption) and option.driver_kind in {"laserpoint", "ophir"}:
             signals_were_blocked = self.rel_zero_check.blockSignals(True)
             try:
                 self.rel_zero_check.setChecked(False)
             finally:
                 self.rel_zero_check.blockSignals(signals_were_blocked)
-            if enabled:
+            if enabled and option.driver_kind == "ophir":
+                QMessageBox.warning(self, "相对调零", "Ophir 不支持当前的相对调零指令。")
+            elif enabled:
                 QMessageBox.warning(self, "相对调零", "LaserPoint 不支持彩煌的相对调零指令。")
             return
         try:
@@ -4104,8 +4106,13 @@ class MainWindow(QMainWindow):
         driver_kind: str = "caihuang",
     ) -> int:
         """Add a selectable resource while presenting the supported meter name."""
+        normalized_resource = normalize_power_resource_name(resource)
+        if normalized_resource.startswith("OPHIR::USB::") and driver_kind == "caihuang":
+            driver_kind = "ophir"
+            if device_type == UNDETECTED_POWER_METER_NAME:
+                device_type = "Ophir USB"
         option = PowerMeterOption(
-            resource=normalize_power_resource_name(resource),
+            resource=normalized_resource,
             device_type=device_type,
             detail=detail,
             driver_kind=driver_kind,
@@ -4131,14 +4138,18 @@ class MainWindow(QMainWindow):
 
     def collect_power_meter_settings(self) -> PowerMeterSettings:
         option = self.power_meter_combo.currentData()
+        resource = self._selected_power_resource()
+        driver_kind = option.driver_kind if isinstance(option, PowerMeterOption) else "caihuang"
+        if resource.startswith("OPHIR::USB::"):
+            driver_kind = "ophir"
         return PowerMeterSettings(
-            resource=self._selected_power_resource(),
+            resource=resource,
             wavelength_nm=self.power_wavelength_spin.value(),
             software_gain=self.software_gain_spin.value(),
             interval_ms=self.power_meter_interval_spin.value(),
             stable_window_s=self.stable_window_spin.value(),
             stable_tolerance_w=self.stable_tolerance_spin.value(),
-            driver_kind=(option.driver_kind if isinstance(option, PowerMeterOption) else "caihuang"),
+            driver_kind=driver_kind,
         )
 
     def on_stability_settings_changed(self, _value: float) -> None:

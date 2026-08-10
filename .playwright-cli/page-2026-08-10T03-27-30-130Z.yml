@@ -1,0 +1,121 @@
+- generic [ref=f4e1]:
+  - generic [ref=f4e4]:
+    - complementary [ref=f4e5]:
+      - paragraph [ref=f4e6]: 工作区
+      - navigation [ref=f4e7]:
+        - button "自动测试" [ref=f4e8] [cursor=pointer]
+        - button "详细配置" [ref=f4e14] [cursor=pointer]
+        - button "PD 采集" [ref=f4e17] [cursor=pointer]
+        - button "出货报告" [ref=f4e21] [cursor=pointer]
+    - main [ref=f4e26]:
+      - generic [ref=f4e27]:
+        - generic [ref=f4e29]:
+          - generic [ref=f4e30]:
+            - generic [ref=f4e31]:
+              - heading "自动测试" [level=1] [ref=f4e32]
+              - generic [ref=f4e33]: 只读兼容模式
+            - paragraph [ref=f4e34]
+          - generic [ref=f4e35]:
+            - button "保存设置" [disabled]
+            - button "紧急停止" [disabled]
+        - generic [ref=f4e70]:
+          - generic [ref=f4e71]:
+            - button "打开电源设置" [ref=f4e72] [cursor=pointer]:
+              - generic [ref=f4e77]:
+                - generic [ref=f4e78]: 电源
+                - paragraph [ref=f4e81]: 未连接
+            - button "打开功率计设置" [ref=f4e82] [cursor=pointer]:
+              - generic [ref=f4e88]:
+                - generic [ref=f4e89]: 功率计
+                - paragraph [ref=f4e92]: 未连接
+            - button "打开光谱仪设置" [active] [ref=f4e93] [cursor=pointer]:
+              - generic [ref=f4e102]:
+                - generic [ref=f4e103]: 光谱仪
+                - paragraph [ref=f4e106]: 未连接
+          - generic [ref=f4e221]:
+            - generic [ref=f4e222]:
+              - generic [ref=f4e223]: 输出目录
+              - textbox [ref=f4e224]
+            - generic [ref=f4e225]:
+              - generic [ref=f4e226]: 壳体 SN
+              - textbox [ref=f4e227]
+            - generic [ref=f4e228]:
+              - generic [ref=f4e229]: 测试站别
+              - textbox [ref=f4e230]
+            - generic [ref=f4e231]:
+              - generic [ref=f4e232]:
+                - generic [ref=f4e233]:
+                  - generic [ref=f4e234]: 历史参考
+                  - combobox [ref=f4e236] [cursor=pointer]:
+                    - generic [ref=f4e237]: 上一次同 SN 完整测试（默认）
+                - generic [ref=f4e240] [cursor=pointer]:
+                  - generic [ref=f4e241]: 采集光谱
+                  - checkbox "采集光谱" [checked] [ref=f4e243]
+              - paragraph [ref=f4e244]: 填写输出目录和 SN 后，将自动匹配历史记录。
+          - generic [ref=f4e108]:
+            - paragraph [ref=f4e110]: 0 / 3
+            - paragraph [ref=f4e112]: 等待配置
+            - generic [ref=f4e113]:
+              - button "开始" [disabled]
+            - generic [ref=f4e114]:
+              - button "结束" [disabled]
+          - generic [ref=f4e115]:
+            - generic [ref=f4e116]:
+              - generic "功率实时" [ref=f4e117]:
+                - generic [ref=f4e118]:
+                  - generic "图例" [ref=f4e119]: 本次功率 (W)
+                  - generic [ref=f4e123]:
+                    - generic [ref=f4e124]: 未采集
+                    - paragraph [ref=f4e126]: "--"
+                - generic: 暂无实时数据
+              - generic "功率 / 效率" [ref=f4e129]:
+                - generic "图例" [ref=f4e131]:
+                  - generic [ref=f4e132]: 本次功率 (W)
+                  - generic [ref=f4e136]: 本次效率 (%)
+                - generic: 完成稳定测试点后显示功率 / 效率
+            - generic "光谱" [ref=f4e142]:
+              - generic [ref=f4e143]:
+                - generic "图例" [ref=f4e144]: 强度
+                - generic [ref=f4e148]:
+                  - generic [ref=f4e149]:
+                    - paragraph [ref=f4e150]: "--"
+                    - paragraph [ref=f4e151]: 中心波长
+                  - generic [ref=f4e152]:
+                    - paragraph [ref=f4e153]: "--"
+                    - paragraph [ref=f4e154]: FWHM
+                  - generic [ref=f4e155]:
+                    - paragraph [ref=f4e156]: "--"
+                    - paragraph [ref=f4e157]: SMSR
+              - generic [ref=f4e158]: 暂无实时数据
+  - dialog [ref=f4e292]:
+    - generic [ref=f4e293]:
+      - generic [ref=f4e302]:
+        - heading "光谱仪设置" [level=2] [ref=f4e303]
+        - paragraph [ref=f4e304]: 配置 Ocean Insight 设备和光谱采集参数
+      - button "关闭设置弹窗" [ref=f4e305] [cursor=pointer]
+    - generic [ref=f4e310]:
+      - generic [ref=f4e311]:
+        - generic [ref=f4e312]: 设备资源
+        - generic [ref=f4e313]:
+          - combobox [ref=f4e315] [cursor=pointer]:
+            - generic [ref=f4e316]: 自动选择第一台 Ocean Insight
+          - button "识别" [disabled]
+      - generic [ref=f4e319]:
+        - generic [ref=f4e320]: 积分时间 (μs)
+        - spinbutton [ref=f4e321]: "1000"
+      - generic [ref=f4e322]:
+        - generic [ref=f4e323]: 刷新间隔 (ms)
+        - spinbutton [ref=f4e324]: "100"
+      - generic [ref=f4e325]:
+        - generic [ref=f4e326]: 平均帧数
+        - spinbutton [ref=f4e327]: "5"
+      - generic [ref=f4e328]:
+        - checkbox "自动积分" [ref=f4e329]
+        - text: 自动积分
+      - button "开始采集" [disabled]
+      - paragraph [ref=f4e330]: 中心 -- · FWHM --
+    - generic [ref=f4e331]:
+      - paragraph [ref=f4e332]: 修改内容将保存到当前测试配置
+      - generic [ref=f4e333]:
+        - button "关闭" [ref=f4e334] [cursor=pointer]
+        - button "保存设置" [disabled]

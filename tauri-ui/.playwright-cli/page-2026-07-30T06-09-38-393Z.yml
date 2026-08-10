@@ -1,0 +1,106 @@
+- generic [ref=e4]:
+  - complementary [ref=e5]:
+    - paragraph [ref=e6]: 工作区
+    - navigation [ref=e7]:
+      - button "自动测试" [ref=e8] [cursor=pointer]
+      - button "详细配置" [ref=e14] [cursor=pointer]
+      - button "PD 采集" [active] [ref=e17] [cursor=pointer]
+      - button "出货报告" [ref=e21] [cursor=pointer]
+  - main [ref=e26]:
+    - generic [ref=e27]:
+      - generic [ref=e28]:
+        - generic [ref=e29]:
+          - heading "PD 采集" [level=1] [ref=e272]
+          - generic [ref=e31]: 只读兼容模式
+        - paragraph [ref=e32]: 等待后端
+      - generic [ref=e33]:
+        - button [disabled]: 保存设置
+        - button "刷新" [ref=e34] [cursor=pointer]
+        - button "紧急停止" [disabled]
+    - alert [ref=e35]:
+      - generic [ref=e38]:
+        - paragraph [ref=e39]: 系统错误
+        - paragraph [ref=e40]: 浏览器预览模式不会启动 Python 后端
+      - button "关闭提示" [ref=e41] [cursor=pointer]
+    - generic [ref=e274]:
+      - generic [ref=e275]:
+        - generic [ref=e276]:
+          - generic [ref=e277]: NI-DAQ 采集设置
+          - generic [ref=e278]: PD 采集可在电源加电期间独立启动或停止
+        - generic [ref=e279]:
+          - paragraph [ref=e281]: 采集参数
+          - generic [ref=e282]:
+            - generic [ref=e283]: 采集卡
+            - generic [ref=e284]:
+              - combobox [ref=e286] [cursor=pointer]:
+                - generic [ref=e287]: 请选择
+              - button "识别" [disabled]
+          - generic [ref=e290]:
+            - generic [ref=e291]: 输入通道
+            - combobox [ref=e293] [cursor=pointer]:
+              - generic [ref=e294]: 请选择
+          - generic [ref=e297]:
+            - generic [ref=e298]: 接线方式
+            - combobox [ref=e300] [cursor=pointer]:
+              - generic [ref=e301]: 差分 DIFF
+          - generic [ref=e304]:
+            - generic [ref=e305]: 输入量程
+            - combobox [disabled] [ref=e307]:
+              - generic [ref=e308]: "10"
+          - generic [ref=e311]:
+            - generic [ref=e312]: 采样率 (S/s)
+            - spinbutton [ref=e313]: "1000"
+          - paragraph [ref=e315]: 标定参数
+          - generic [ref=e316]:
+            - generic [ref=e317]: 每批点数
+            - spinbutton [ref=e318]: "100"
+          - generic [ref=e319]:
+            - generic [ref=e320]: 标定比例
+            - spinbutton [ref=e321]: "1"
+          - generic [ref=e322]:
+            - generic [ref=e323]: 标定偏置
+            - spinbutton [ref=e324]: "0"
+          - generic [ref=e325]:
+            - generic [ref=e326]: 显示单位
+            - textbox [ref=e327]: V
+          - generic [ref=e328]:
+            - generic [ref=e329]:
+              - generic [ref=e330]:
+                - paragraph [ref=e331]: 保存设置
+                - paragraph [ref=e332]: 可选：保存本次采集的原始数据
+              - generic [ref=e333]:
+                - checkbox "保存原始数据" [checked] [ref=e334]
+                - text: 保存原始数据
+            - generic [ref=e335]:
+              - generic [ref=e336]: 保存目录
+              - textbox [ref=e337]
+          - generic [ref=e338]:
+            - generic [ref=e339]:
+              - generic [ref=e340]: "1"
+              - generic [ref=e341]: 先识别采集卡，再开始采集
+            - button "开始采集" [disabled]
+          - paragraph [ref=e342]: 等待识别采集卡
+      - generic [ref=e343]:
+        - generic [ref=e344]:
+          - generic [ref=e346]:
+            - paragraph [ref=e347]: 当前值
+            - paragraph [ref=e348]: "--"
+          - generic [ref=e350]:
+            - paragraph [ref=e351]: 电压
+            - paragraph [ref=e352]: "--"
+          - generic [ref=e354]:
+            - paragraph [ref=e355]: 采样数
+            - paragraph [ref=e356]: "0"
+        - generic [ref=e357]:
+          - generic [ref=e358]: PD 实时趋势
+          - generic [ref=e360]: 开始采集后显示实时趋势
+        - generic [ref=e363]:
+          - generic [ref=e364]:
+            - paragraph [ref=e365]: 批次均值
+            - paragraph [ref=e366]: "--"
+          - generic [ref=e367]:
+            - paragraph [ref=e368]: 标准差
+            - paragraph [ref=e369]: "--"
+          - generic [ref=e370]:
+            - paragraph [ref=e371]: 最小 / 最大
+            - paragraph [ref=e372]: "--"

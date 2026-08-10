@@ -251,28 +251,37 @@ class PowerMeterDetectThread(QThread):
         try:
             try:
                 import pyvisa
-                from tools.power_meter_mvp import CaihuangPowerMeter, LaserPointPowerMeter
+                power_meter_mvp = importlib.import_module("tools.power_meter_mvp")
+
+                CaihuangPowerMeter = power_meter_mvp.CaihuangPowerMeter
+                LaserPointPowerMeter = power_meter_mvp.LaserPointPowerMeter
+                OphirPowerMeter = getattr(power_meter_mvp, "OphirPowerMeter", None)
             except ModuleNotFoundError as exc:
                 raise RuntimeError(f"缺少功率计依赖：{exc.name}。请在 sth_eb314 环境中运行。") from exc
 
-            with visa_resource_manager() as rm:
-                resources: list[str] = []
-                for item in rm.list_resources():
-                    resource = normalize_power_resource_name(str(item))
-                    if resource.startswith("ASRL"):
-                        resources.append(resource)
-                resources.sort()
+            resources: list[str] = []
+            try:
+                with visa_resource_manager() as rm:
+                    for item in rm.list_resources():
+                        resource = normalize_power_resource_name(str(item))
+                        if resource.startswith("ASRL"):
+                            resources.append(resource)
+                    resources.sort()
+            except Exception:
+                # Ophir uses its independent USB/COM API. A missing or busy
+                # VISA backend must not hide an otherwise usable Ophir meter.
+                _LOGGER.warning("VISA 资源扫描失败，继续扫描 Ophir USB 设备", exc_info=True)
 
             candidates: list[str] = []
             preferred = normalize_power_resource_name(self.preferred_resource)
-            if preferred:
+            if preferred and not preferred.startswith("OPHIR::USB::"):
                 candidates.append(preferred)
             if self.scan_all_resources:
                 for resource in resources:
                     if resource not in candidates:
                         candidates.append(resource)
 
-            self.status.emit(f"正在 {len(candidates)} 个端口上检测功率计…")
+            self.status.emit(f"正在 {len(candidates)} 个端口上检测功率计，并扫描 Ophir USB")
             options: list[PowerMeterOption] = []
             for resource in candidates:
                 if self._stop_requested.is_set():
@@ -290,6 +299,22 @@ class PowerMeterDetectThread(QThread):
                         )
                     )
                     break
+            should_scan_ophir = self.scan_all_resources or preferred.startswith("OPHIR::USB::")
+            if should_scan_ophir and OphirPowerMeter is not None and not self._stop_requested.is_set():
+                probe_all = getattr(OphirPowerMeter, "probe_all", None)
+                if callable(probe_all):
+                    for result in probe_all(
+                        preferred if preferred.startswith("OPHIR::USB::") else "",
+                        timeout_ms=POWER_METER_PROBE_TIMEOUT_MS,
+                    ):
+                        options.append(
+                            PowerMeterOption(
+                                resource=result.resource,
+                                device_type=result.device_type,
+                                detail=result.detail,
+                                driver_kind=result.driver_kind,
+                            )
+                        )
             if not self._stop_requested.is_set():
                 self.detected.emit(options)
         except Exception as exc:
@@ -339,11 +364,12 @@ class PowerMeterReaderThread(QThread):
         meter = None
         try:
             try:
-                from tools.power_meter_mvp import (
-                    CaihuangPowerMeter,
-                    LaserPointPowerMeter,
-                    normalize_resource,
-                )
+                power_meter_mvp = importlib.import_module("tools.power_meter_mvp")
+
+                CaihuangPowerMeter = power_meter_mvp.CaihuangPowerMeter
+                LaserPointPowerMeter = power_meter_mvp.LaserPointPowerMeter
+                OphirPowerMeter = getattr(power_meter_mvp, "OphirPowerMeter", None)
+                normalize_resource = power_meter_mvp.normalize_resource
             except ModuleNotFoundError as exc:
                 raise RuntimeError(f"缺少功率计依赖：{exc.name}。请在 sth_eb314 环境中运行。") from exc
 
@@ -351,6 +377,8 @@ class PowerMeterReaderThread(QThread):
                 "caihuang": CaihuangPowerMeter,
                 "laserpoint": LaserPointPowerMeter,
             }
+            if OphirPowerMeter is not None:
+                meter_classes["ophir"] = OphirPowerMeter
             meter_class = meter_classes.get(self.settings.driver_kind)
             if meter_class is None:
                 raise RuntimeError(f"不支持的功率计驱动类型：{self.settings.driver_kind}")

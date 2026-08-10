@@ -1,0 +1,110 @@
+- generic [ref=e4]:
+  - complementary [ref=e5]:
+    - paragraph [ref=e6]: 工作区
+    - navigation [ref=e7]:
+      - button "自动测试" [ref=e8] [cursor=pointer]
+      - button "详细配置" [active] [ref=e14] [cursor=pointer]
+      - button "PD 采集" [ref=e17] [cursor=pointer]
+      - button "出货报告" [ref=e21] [cursor=pointer]
+  - main [ref=e26]:
+    - generic [ref=e27]:
+      - generic [ref=e28]:
+        - generic [ref=e29]:
+          - heading "详细配置" [level=1] [ref=e579]
+          - generic [ref=e31]: 只读兼容模式
+        - paragraph [ref=e32]: 等待后端
+      - generic [ref=e33]:
+        - button [disabled]: 保存设置
+        - button "刷新" [ref=e34] [cursor=pointer]
+        - button "紧急停止" [disabled]
+    - alert [ref=e250]:
+      - generic [ref=e253]:
+        - paragraph [ref=e254]: 系统错误
+        - paragraph [ref=e255]: window.__TAURI_INTERNALS__.transformCallback is not a function
+      - button "关闭提示" [ref=e256] [cursor=pointer]
+    - generic [ref=e580]:
+      - generic [ref=e581]:
+        - generic [ref=e582]:
+          - generic [ref=e583]: 电源控制
+          - generic [ref=e585]:
+            - generic [ref=e586]:
+              - generic [ref=e587]: 控制器
+              - combobox [ref=e589] [cursor=pointer]:
+                - generic [ref=e590]: CH341 I²C
+            - generic [ref=e593]:
+              - generic [ref=e594]: 设定电流 (A)
+              - spinbutton [ref=e595]: "0"
+            - generic [ref=e596]:
+              - button "连接电源" [disabled]
+              - button "设置电流" [disabled]
+            - generic [ref=e597]:
+              - button "读取输出电压" [disabled]
+              - button "读取输出电流" [disabled]
+              - button "读取输入电压" [disabled]
+              - button "读取模块温度" [disabled]
+        - generic [ref=e598]:
+          - generic [ref=e599]: 功率计
+          - generic [ref=e601]:
+            - generic [ref=e602]:
+              - generic [ref=e603]: 串口资源
+              - generic [ref=e604]:
+                - combobox [ref=e606] [cursor=pointer]:
+                  - generic [ref=e607]: 请选择串口资源
+                - button "识别" [disabled]
+            - generic [ref=e610]:
+              - generic [ref=e611]: 校准波长 (nm)
+              - spinbutton [ref=e612]: "976"
+            - generic [ref=e613]:
+              - generic [ref=e614]: 软件增益
+              - spinbutton [ref=e615]: "1"
+            - button "开始采集" [disabled]
+            - generic [ref=e616]:
+              - button "相对调零" [disabled]
+              - button "取消调零" [disabled]
+        - generic [ref=e617]:
+          - generic [ref=e618]: 光谱仪
+          - generic [ref=e620]:
+            - generic [ref=e621]:
+              - generic [ref=e622]: 串口资源
+              - generic [ref=e623]:
+                - combobox [ref=e625] [cursor=pointer]:
+                  - generic [ref=e626]: 自动选择第一台 Ocean Insight
+                - button "识别" [disabled]
+            - generic [ref=e629]:
+              - generic [ref=e630]: 积分时间 (μs)
+              - spinbutton [ref=e631]: "1000"
+            - generic [ref=e632]:
+              - generic [ref=e633]: 刷新间隔 (ms)
+              - spinbutton [ref=e634]: "100"
+            - generic [ref=e635]:
+              - checkbox "自动积分" [ref=e636]
+              - text: 自动积分
+            - button "开始采集" [disabled]
+            - generic [ref=e637]:
+              - button "保存光谱 CSV" [disabled]
+              - button "清空曲线" [disabled]
+      - generic [ref=e638]:
+        - generic [ref=e639]:
+          - generic [ref=e640]:
+            - generic [ref=e641]: 功率实时
+            - generic [ref=e642]:
+              - generic [ref=e643]: 未采集
+              - paragraph [ref=e645]: "--"
+          - generic [ref=e646]: 暂无实时数据
+        - generic [ref=e648]:
+          - generic [ref=e649]: 功率 / 效率
+          - generic [ref=e651]: 完成稳定测试点后显示功率 / 效率
+        - generic [ref=e654]:
+          - generic [ref=e655]:
+            - generic [ref=e656]: 光谱
+            - generic [ref=e657]:
+              - generic [ref=e658]:
+                - paragraph [ref=e659]: "--"
+                - paragraph [ref=e660]: 中心波长
+              - generic [ref=e661]:
+                - paragraph [ref=e662]: "--"
+                - paragraph [ref=e663]: FWHM
+              - generic [ref=e664]:
+                - paragraph [ref=e665]: "--"
+                - paragraph [ref=e666]: SMSR
+          - generic [ref=e667]: 暂无实时数据

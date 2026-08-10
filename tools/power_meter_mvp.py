@@ -8,7 +8,7 @@ import sys
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Deque
+from typing import Any, Deque
 
 import pyvisa
 from pyvisa import constants
@@ -42,6 +42,9 @@ MAX_SAMPLES = 10000
 PLOT_HISTORY_S = 30.0
 PLOT_REFRESH_S = 0.2
 DEFAULT_RESOURCE = "ASRL3::INSTR"
+OPHIR_COM_PROGID = "OphirLMMeasurement.CoLMMeasurement"
+OPHIR_RESOURCE_PREFIX = "OPHIR::USB::"
+OPHIR_CHANNEL = 0
 
 
 @dataclass(frozen=True)
@@ -57,6 +60,88 @@ def normalize_resource(name: str) -> str:
     if value.startswith("COM") and value[3:].isdigit():
         return f"ASRL{value[3:]}::INSTR"
     return value
+
+
+def normalize_ophir_resource(name: str) -> str:
+    """Return the stable resource identifier used for an Ophir USB device."""
+    value = str(name).strip()
+    if value.upper().startswith(OPHIR_RESOURCE_PREFIX):
+        value = value[len(OPHIR_RESOURCE_PREFIX) :].strip()
+    if not value:
+        return ""
+    return f"{OPHIR_RESOURCE_PREFIX}{value.upper()}"
+
+
+def ophir_serial_from_resource(name: str) -> str:
+    """Extract the Ophir USB serial from a UI/configuration resource value."""
+    value = str(name).strip()
+    if value.upper().startswith(OPHIR_RESOURCE_PREFIX):
+        value = value[len(OPHIR_RESOURCE_PREFIX) :].strip()
+    return value.upper()
+
+
+def _com_first_value(value: Any) -> Any:
+    """Unwrap a one-element tuple returned for a COM out parameter."""
+    if isinstance(value, tuple) and len(value) == 1:
+        return value[0]
+    return value
+
+
+def _com_sequence(value: Any) -> list[Any]:
+    """Convert a COM SAFEARRAY/list result into a normal Python list."""
+    value = _com_first_value(value)
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    try:
+        return list(value)
+    except TypeError:
+        return [value]
+
+
+def _com_outputs(value: Any, count: int) -> tuple[Any, ...]:
+    """Normalize dynamic-dispatch results containing several out parameters."""
+    if isinstance(value, tuple):
+        if len(value) == count:
+            return value
+        if len(value) == 1 and isinstance(value[0], (tuple, list)) and len(value[0]) == count:
+            return tuple(value[0])
+    return (value,) + (None,) * (count - 1)
+
+
+def _create_ophir_controller() -> tuple[Any, Any | None]:
+    """Create the Ophir COM controller and initialize COM for this thread."""
+    try:
+        import pythoncom
+        import win32com.client
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "Ophir 驱动依赖未安装：需要 pywin32，并且需要先安装 StarLab/Ophir COM 组件"
+        ) from exc
+
+    pythoncom.CoInitialize()
+    try:
+        controller = win32com.client.Dispatch(OPHIR_COM_PROGID)
+    except Exception:
+        pythoncom.CoUninitialize()
+        raise
+    return controller, pythoncom
+
+
+def _release_ophir_controller(controller: Any) -> None:
+    """Close any handles owned by a COM controller.
+
+    The caller must drop its own controller reference before uninitializing
+    COM. Keeping that final step outside this helper avoids blocking when the
+    caller still has a local reference to the Dispatch wrapper.
+    """
+    try:
+        close_all = getattr(controller, "CloseAll", None)
+        if callable(close_all):
+            close_all()
+    except Exception:
+        pass
 
 
 def configure_caihuang(inst: pyvisa.resources.Resource, timeout_ms: int = 1000) -> None:
@@ -328,6 +413,234 @@ class LaserPointPowerMeter:
         finally:
             if rm is not None:
                 release_visa_resource_manager(rm)
+
+
+class OphirPowerMeter:
+    """Ophir USB power-meter adapter backed by the StarLab COM interface.
+
+    Ophir meters do not expose an ``ASRL...::INSTR`` VISA resource.  StarLab
+    registers ``OphirLMMeasurement.CoLMMeasurement`` and provides USB scan,
+    stream, and data APIs through that COM object instead.
+    """
+
+    device_type = "Ophir USB"
+    driver_kind = "ophir"
+
+    _STATUS_NAMES = {
+        0: "OK",
+        1: "overrange",
+        2: "way overrange",
+        3: "missing",
+        4: "energy reset",
+        5: "energy waiting",
+        6: "energy summing",
+        7: "energy timeout",
+        8: "energy peak over",
+        9: "energy over",
+    }
+
+    def __init__(self, resource: str = "") -> None:
+        self.resource = normalize_ophir_resource(resource)
+        self.serial_number = ophir_serial_from_resource(self.resource)
+        self.channel = OPHIR_CHANNEL
+        self.controller: Any | None = None
+        self._pythoncom: Any | None = None
+        self.handle: int | None = None
+        self._stream_started = False
+        self._last_power_w: float | None = None
+        try:
+            self.controller, self._pythoncom = _create_ophir_controller()
+            serial_numbers = self._scan_serial_numbers(self.controller)
+            if self.serial_number:
+                if not serial_numbers:
+                    raise RuntimeError(f"未检测到指定的 Ophir USB 设备：{self.serial_number}")
+                matching = next(
+                    (item for item in serial_numbers if item.upper() == self.serial_number.upper()),
+                    self.serial_number,
+                )
+                if all(item.upper() != self.serial_number.upper() for item in serial_numbers):
+                    raise RuntimeError(f"未检测到指定的 Ophir USB 设备：{self.serial_number}")
+                self.serial_number = matching
+            elif serial_numbers:
+                self.serial_number = serial_numbers[0]
+                self.resource = normalize_ophir_resource(self.serial_number)
+            else:
+                raise RuntimeError("未检测到 Ophir USB 功率计，请先连接设备并在 StarLab 中确认可见")
+
+            opened = self.controller.OpenUSBDevice(self.serial_number)
+            self.handle = int(_com_first_value(opened))
+            if self.handle <= 0:
+                raise RuntimeError(f"Ophir USB 设备打开失败：句柄 {self.handle}")
+        except Exception:
+            self.close()
+            raise
+
+    @staticmethod
+    def _scan_serial_numbers(controller: Any) -> list[str]:
+        result = controller.ScanUSB()
+        serial_numbers: list[str] = []
+        for value in _com_sequence(result):
+            text = str(value).strip()
+            if text and text.upper() not in serial_numbers:
+                serial_numbers.append(text.upper())
+        return serial_numbers
+
+    @staticmethod
+    def probe_all(resource: str = "", timeout_ms: int = 1000) -> list[ProbeResult]:
+        """Return all visible Ophir USB devices without opening a measurement stream."""
+        del timeout_ms  # The StarLab COM API does not expose a probe timeout.
+        requested_serial = ophir_serial_from_resource(resource) if resource else ""
+        controller: Any | None = None
+        pythoncom: Any | None = None
+        try:
+            controller, pythoncom = _create_ophir_controller()
+            serial_numbers = OphirPowerMeter._scan_serial_numbers(controller)
+            if requested_serial:
+                serial_numbers = [
+                    item for item in serial_numbers if item.upper() == requested_serial.upper()
+                ]
+            return [
+                ProbeResult(
+                    normalize_ophir_resource(serial_number),
+                    OphirPowerMeter.device_type,
+                    f"USB SN {serial_number}",
+                    OphirPowerMeter.driver_kind,
+                )
+                for serial_number in serial_numbers
+            ]
+        except Exception:
+            # Ophir is an optional USB device. A missing StarLab/COM install or
+            # an unplugged meter must not prevent VISA meters from being found.
+            return []
+        finally:
+            if controller is not None:
+                _release_ophir_controller(controller)
+                controller = None
+            if pythoncom is not None:
+                pythoncom.CoUninitialize()
+
+    @staticmethod
+    def probe(resource: str = "", timeout_ms: int = 1000) -> ProbeResult | None:
+        results = OphirPowerMeter.probe_all(resource, timeout_ms=timeout_ms)
+        return results[0] if results else None
+
+    def test(self) -> str:
+        if self.controller is None or self.handle is None:
+            raise RuntimeError("Ophir USB 功率计尚未打开")
+        is_sensor_exists = getattr(self.controller, "IsSensorExists", None)
+        if callable(is_sensor_exists):
+            result = _com_first_value(is_sensor_exists(self.handle, self.channel))
+            if result is False or (isinstance(result, (int, float)) and int(result) == 0):
+                raise RuntimeError("Ophir 功率计未检测到测量探头")
+        return "OK"
+
+    def set_wavelength(self, wavelength_nm: float) -> None:
+        if self.controller is None or self.handle is None:
+            raise RuntimeError("Ophir USB 功率计尚未打开")
+        getter = getattr(self.controller, "GetWavelengths", None)
+        setter = getattr(self.controller, "SetWavelength", None)
+        if not callable(getter) or not callable(setter):
+            raise RuntimeError("当前 Ophir COM 组件不支持设置校准波长")
+
+        current_index, options = _com_outputs(
+            getter(self.handle, self.channel),
+            2,
+        )
+        option_values = _com_sequence(options)
+        if not option_values:
+            raise RuntimeError("Ophir 功率计未返回可用波长列表")
+
+        target = float(wavelength_nm)
+        numeric_options: list[tuple[int, float]] = []
+        for index, option in enumerate(option_values):
+            match = re.search(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)", str(option))
+            if match is None:
+                continue
+            try:
+                numeric_options.append((index, float(match.group(0))))
+            except ValueError:
+                continue
+
+        if numeric_options:
+            selected_index = min(numeric_options, key=lambda item: abs(item[1] - target))[0]
+        else:
+            try:
+                selected_index = int(_com_first_value(current_index))
+            except (TypeError, ValueError):
+                selected_index = 0
+        setter(self.handle, self.channel, int(selected_index))
+
+    def _ensure_stream(self) -> None:
+        if self._stream_started:
+            return
+        if self.controller is None or self.handle is None:
+            raise RuntimeError("Ophir USB 功率计尚未打开")
+        self.controller.StartStream(self.handle, self.channel)
+        self._stream_started = True
+
+    def read_power_w(self) -> float:
+        if self.controller is None or self.handle is None:
+            raise RuntimeError("Ophir USB 功率计尚未打开")
+        self._ensure_stream()
+        deadline = time.monotonic() + 0.5
+        while True:
+            data_result = self.controller.GetData(self.handle, self.channel)
+            values, _timestamps, statuses = _com_outputs(data_result, 3)
+            value_array = _com_sequence(values)
+            status_array = _com_sequence(statuses)
+            for index in range(len(value_array) - 1, -1, -1):
+                try:
+                    value = float(value_array[index])
+                except (TypeError, ValueError):
+                    continue
+                if not math.isfinite(value):
+                    continue
+                status = 0
+                if index < len(status_array):
+                    try:
+                        status = int(status_array[index])
+                    except (TypeError, ValueError):
+                        status = 0
+                if status != 0:
+                    status_name = self._STATUS_NAMES.get(status, f"status {status}")
+                    raise RuntimeError(f"Ophir 功率计读数无效：{status_name}")
+                self._last_power_w = value
+                return value
+
+            if self._last_power_w is not None and time.monotonic() >= deadline:
+                return self._last_power_w
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Ophir 功率计暂未返回有效测量数据")
+            time.sleep(0.02)
+
+    def set_relative_zero(self, _enabled: bool) -> None:
+        raise RuntimeError("Ophir COM 接口不支持当前的相对调零操作")
+
+    def close(self) -> None:
+        controller, pythoncom = self.controller, self._pythoncom
+        handle = self.handle
+        stream_started = self._stream_started
+        self.controller = None
+        self._pythoncom = None
+        self.handle = None
+        self._stream_started = False
+        try:
+            if controller is not None and handle is not None:
+                if stream_started:
+                    try:
+                        controller.StopStream(handle, self.channel)
+                    except Exception:
+                        pass
+                try:
+                    controller.Close(handle)
+                except Exception:
+                    pass
+        finally:
+            if controller is not None:
+                _release_ophir_controller(controller)
+                controller = None
+            if pythoncom is not None:
+                pythoncom.CoUninitialize()
 
 
 class PowerReaderThread(QThread):

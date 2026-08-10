@@ -1,0 +1,105 @@
+- generic [ref=e4]:
+  - complementary [ref=e5]:
+    - paragraph [ref=e6]: 工作区
+    - navigation [ref=e7]:
+      - button "自动测试" [ref=e8] [cursor=pointer]
+      - button "详细配置" [active] [ref=e14] [cursor=pointer]
+      - button "PD 采集" [ref=e17] [cursor=pointer]
+      - button "出货报告" [ref=e21] [cursor=pointer]
+  - main [ref=e26]:
+    - generic [ref=e27]:
+      - generic [ref=e28]:
+        - generic [ref=e29]:
+          - heading "详细配置" [level=1] [ref=e159]
+          - generic [ref=e31]: 只读兼容模式
+        - paragraph [ref=e32]: 等待后端
+      - generic [ref=e33]:
+        - button [disabled]: 保存设置
+        - button "刷新" [ref=e34] [cursor=pointer]
+        - button "紧急停止" [disabled]
+    - generic [ref=e160]:
+      - generic [ref=e161]:
+        - generic [ref=e162]:
+          - generic [ref=e163]: 电源控制
+          - generic [ref=e165]:
+            - generic [ref=e166]:
+              - generic [ref=e167]: 控制器
+              - combobox [ref=e169] [cursor=pointer]:
+                - generic [ref=e170]: CH341 I²C
+            - generic [ref=e173]:
+              - generic [ref=e174]: 设定电流 (A)
+              - spinbutton [ref=e175]: "0"
+            - generic [ref=e176]:
+              - button "连接电源" [disabled]
+              - button "设置电流" [disabled]
+            - generic [ref=e177]:
+              - button "读取输出电压" [disabled]
+              - button "读取输出电流" [disabled]
+              - button "读取输入电压" [disabled]
+              - button "读取模块温度" [disabled]
+        - generic [ref=e178]:
+          - generic [ref=e179]: 功率计
+          - generic [ref=e181]:
+            - generic [ref=e182]:
+              - generic [ref=e183]: 串口资源
+              - generic [ref=e184]:
+                - combobox [ref=e186] [cursor=pointer]:
+                  - generic [ref=e187]: 请选择串口资源
+                - button "识别" [disabled]
+            - generic [ref=e190]:
+              - generic [ref=e191]: 校准波长 (nm)
+              - spinbutton [ref=e192]: "976"
+            - generic [ref=e193]:
+              - generic [ref=e194]: 软件增益
+              - spinbutton [ref=e195]: "1"
+            - button "开始采集" [disabled]
+            - generic [ref=e196]:
+              - button "相对调零" [disabled]
+              - button "取消调零" [disabled]
+        - generic [ref=e197]:
+          - generic [ref=e198]: 光谱仪
+          - generic [ref=e200]:
+            - generic [ref=e201]:
+              - generic [ref=e202]: 串口资源
+              - generic [ref=e203]:
+                - combobox [ref=e205] [cursor=pointer]:
+                  - generic [ref=e206]: 自动选择第一台 Ocean Insight
+                - button "识别" [disabled]
+            - generic [ref=e209]:
+              - generic [ref=e210]: 积分时间 (μs)
+              - spinbutton [ref=e211]: "1000"
+            - generic [ref=e212]:
+              - generic [ref=e213]: 刷新间隔 (ms)
+              - spinbutton [ref=e214]: "100"
+            - generic [ref=e215]:
+              - checkbox "自动积分" [ref=e216]
+              - text: 自动积分
+            - button "开始采集" [disabled]
+            - generic [ref=e217]:
+              - button "保存光谱 CSV" [disabled]
+              - button "清空曲线" [disabled]
+      - generic [ref=e218]:
+        - generic [ref=e219]:
+          - generic [ref=e220]:
+            - generic [ref=e221]: 功率实时
+            - generic [ref=e222]:
+              - generic [ref=e223]: 未采集
+              - paragraph [ref=e225]: "--"
+          - generic [ref=e226]: 暂无实时数据
+        - generic [ref=e228]:
+          - generic [ref=e229]: 功率 / 效率
+          - generic [ref=e231]: 完成稳定测试点后显示功率 / 效率
+        - generic [ref=e234]:
+          - generic [ref=e235]:
+            - generic [ref=e236]: 光谱
+            - generic [ref=e237]:
+              - generic [ref=e238]:
+                - paragraph [ref=e239]: "--"
+                - paragraph [ref=e240]: 中心波长
+              - generic [ref=e241]:
+                - paragraph [ref=e242]: "--"
+                - paragraph [ref=e243]: FWHM
+              - generic [ref=e244]:
+                - paragraph [ref=e245]: "--"
+                - paragraph [ref=e246]: SMSR
+          - generic [ref=e247]: 暂无实时数据

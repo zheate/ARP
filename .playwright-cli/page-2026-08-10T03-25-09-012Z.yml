@@ -1,0 +1,147 @@
+- generic [ref=f4e1]:
+  - generic [ref=f4e4]:
+    - complementary [ref=f4e5]:
+      - paragraph [ref=f4e6]: 工作区
+      - navigation [ref=f4e7]:
+        - button "自动测试" [ref=f4e8] [cursor=pointer]
+        - button "详细配置" [ref=f4e14] [cursor=pointer]
+        - button "PD 采集" [ref=f4e17] [cursor=pointer]
+        - button "出货报告" [ref=f4e21] [cursor=pointer]
+    - main [ref=f4e26]:
+      - generic [ref=f4e27]:
+        - generic [ref=f4e28]:
+          - generic [ref=f4e29]:
+            - generic [ref=f4e30]:
+              - generic [ref=f4e31]:
+                - heading "自动测试" [level=1] [ref=f4e32]
+                - generic [ref=f4e33]: 只读兼容模式
+              - paragraph [ref=f4e34]
+            - generic [ref=f4e35]:
+              - button [disabled]: 保存设置
+              - button "紧急停止" [disabled]
+          - generic [ref=f4e36]:
+            - generic [ref=f4e37]:
+              - generic [ref=f4e38]: 输出目录
+              - textbox "输出目录" [ref=f4e41]
+            - generic [ref=f4e42]:
+              - generic [ref=f4e43]: 壳体 SN
+              - textbox "壳体 SN" [ref=f4e44]
+            - generic [ref=f4e45]:
+              - generic [ref=f4e46]: 测试站别
+              - textbox "测试站别" [ref=f4e47]
+            - generic [ref=f4e48]:
+              - generic [ref=f4e49]:
+                - generic [ref=f4e50]: 历史参考
+                - combobox [ref=f4e52] [cursor=pointer]:
+                  - generic [ref=f4e53]: 上一次同 SN 完整测试（默认）
+              - generic [ref=f4e56] [cursor=pointer]:
+                - generic [ref=f4e57]: 采集光谱
+                - checkbox "采集光谱" [checked] [ref=f4e59]
+        - alert [ref=f4e60]:
+          - generic [ref=f4e63]:
+            - paragraph [ref=f4e64]: 系统错误
+            - paragraph [ref=f4e65]: 浏览器预览模式不会启动 Python 后端
+          - button "关闭提示" [ref=f4e66] [cursor=pointer]
+        - generic [ref=f4e70]:
+          - generic [ref=f4e71]:
+            - button "打开电源设置" [active] [ref=f4e72] [cursor=pointer]:
+              - generic [ref=f4e77]:
+                - generic [ref=f4e78]: 电源
+                - paragraph [ref=f4e81]: 未连接
+            - button "打开功率计设置" [ref=f4e82] [cursor=pointer]:
+              - generic [ref=f4e88]:
+                - generic [ref=f4e89]: 功率计
+                - paragraph [ref=f4e92]: 未连接
+            - button "打开光谱仪设置" [ref=f4e93] [cursor=pointer]:
+              - generic [ref=f4e102]:
+                - generic [ref=f4e103]: 光谱仪
+                - paragraph [ref=f4e106]: 未连接
+          - generic [ref=f4e108]:
+            - paragraph [ref=f4e110]: 0 / 3
+            - paragraph [ref=f4e112]: 等待配置
+            - generic [ref=f4e113]:
+              - button "开始" [disabled]
+            - generic [ref=f4e114]:
+              - button "结束" [disabled]
+          - generic [ref=f4e115]:
+            - generic [ref=f4e116]:
+              - generic "功率实时" [ref=f4e117]:
+                - generic [ref=f4e118]:
+                  - generic "图例" [ref=f4e119]: 本次功率 (W)
+                  - generic [ref=f4e123]:
+                    - generic [ref=f4e124]: 未采集
+                    - paragraph [ref=f4e126]: "--"
+                - generic [ref=f4e127]: 暂无实时数据
+              - generic "功率 / 效率" [ref=f4e129]:
+                - generic "图例" [ref=f4e131]:
+                  - generic [ref=f4e132]: 本次功率 (W)
+                  - generic [ref=f4e136]: 本次效率 (%)
+                - generic [ref=f4e140]: 完成稳定测试点后显示功率 / 效率
+            - generic "光谱" [ref=f4e142]:
+              - generic [ref=f4e143]:
+                - generic "图例" [ref=f4e144]: 强度
+                - generic [ref=f4e148]:
+                  - generic [ref=f4e149]:
+                    - paragraph [ref=f4e150]: "--"
+                    - paragraph [ref=f4e151]: 中心波长
+                  - generic [ref=f4e152]:
+                    - paragraph [ref=f4e153]: "--"
+                    - paragraph [ref=f4e154]: FWHM
+                  - generic [ref=f4e155]:
+                    - paragraph [ref=f4e156]: "--"
+                    - paragraph [ref=f4e157]: SMSR
+              - generic [ref=f4e158]: 暂无实时数据
+  - dialog [ref=f4e161]:
+    - generic [ref=f4e162]:
+      - generic [ref=f4e167]:
+        - heading "电源设置" [level=2] [ref=f4e168]
+        - paragraph [ref=f4e169]: 配置电源控制器、输出参数并执行安全控制
+      - button "关闭设置弹窗" [ref=f4e170] [cursor=pointer]
+    - generic [ref=f4e175]:
+      - generic [ref=f4e176]:
+        - generic [ref=f4e177]:
+          - paragraph [ref=f4e178]: 手动控制
+          - paragraph [ref=f4e179]: 连接设备并执行输出控制与状态读取
+        - generic [ref=f4e180]:
+          - generic [ref=f4e181]:
+            - generic [ref=f4e182]: 控制器
+            - combobox [ref=f4e184] [cursor=pointer]:
+              - generic [ref=f4e185]: CH341 I²C
+          - generic [ref=f4e189]:
+            - generic [ref=f4e190]: 设定电流 (A)
+            - spinbutton [ref=f4e191]: "0"
+          - generic [ref=f4e192]:
+            - button "连接电源" [disabled]
+            - button "设置电流" [disabled]
+            - button "读取输出电压" [disabled]
+            - button "读取输出电流" [disabled]
+            - button "读取输入电压" [disabled]
+            - button "读取模块温度" [disabled]
+      - generic [ref=f4e193]:
+        - generic [ref=f4e194]:
+          - paragraph [ref=f4e195]: 自动测试电流
+          - paragraph [ref=f4e196]: 设置升流、单点等待和安全下电参数
+        - generic [ref=f4e197]:
+          - generic [ref=f4e198]:
+            - generic [ref=f4e199]: 起始电流 (A)
+            - spinbutton [ref=f4e200]: "1"
+          - generic [ref=f4e201]:
+            - generic [ref=f4e202]: 目标电流 (A)
+            - spinbutton [ref=f4e203]: "20"
+          - generic [ref=f4e204]:
+            - generic [ref=f4e205]: 电流间隔 (A)
+            - spinbutton [ref=f4e206]: "3"
+          - generic [ref=f4e207]:
+            - generic [ref=f4e208]: 单点超时 (s)
+            - spinbutton [ref=f4e209]: "120"
+          - generic [ref=f4e210]:
+            - generic [ref=f4e211]: 下电步长 (A)
+            - spinbutton [ref=f4e212]: "5"
+          - generic [ref=f4e213]:
+            - generic [ref=f4e214]: 下电间隔 (s)
+            - spinbutton [ref=f4e215]: "1.1"
+    - generic [ref=f4e216]:
+      - paragraph [ref=f4e217]: 修改内容将保存到当前测试配置
+      - generic [ref=f4e218]:
+        - button "关闭" [ref=f4e219] [cursor=pointer]
+        - button "保存设置" [disabled]

@@ -1,0 +1,71 @@
+- generic [ref=e4]:
+  - complementary [ref=e5]:
+    - paragraph [ref=e6]: 工作区
+    - navigation [ref=e7]:
+      - button "自动测试" [ref=e8] [cursor=pointer]
+      - button "详细配置" [ref=e14] [cursor=pointer]
+      - button "PD 采集" [ref=e17] [cursor=pointer]
+      - button "出货报告" [ref=e21] [cursor=pointer]
+  - main [ref=e26]:
+    - generic [ref=e27]:
+      - generic [ref=e28]:
+        - generic [ref=e29]:
+          - generic [ref=e30]:
+            - heading "自动测试" [level=1] [ref=e31]
+            - generic [ref=e32]: 只读兼容模式
+          - paragraph [ref=e33]
+        - generic [ref=e34]:
+          - button [disabled]: 保存设置
+          - button "刷新" [ref=e35] [cursor=pointer]
+          - button "紧急停止" [disabled]
+      - alert [ref=e36]:
+        - generic [ref=e39]:
+          - paragraph [ref=e40]: 系统错误
+          - paragraph [ref=e41]: 浏览器预览模式不会启动 Python 后端
+        - button "关闭提示" [ref=e42] [cursor=pointer]
+      - generic [ref=e46]:
+        - generic [ref=e48]:
+          - generic [ref=e49]:
+            - generic [ref=e50]: 准备状态
+            - progressbar "设备准备进度" [ref=e53]
+            - paragraph [ref=e55]: 等待配置
+          - generic [ref=e56]:
+            - paragraph [ref=e57]: 0 / 3
+            - paragraph [ref=e58]: 设备就绪
+          - generic [ref=e59]:
+            - button "开始自动测试" [disabled]
+            - button "结束并安全下电" [disabled]
+        - generic [ref=e60]:
+          - generic [ref=e61]:
+            - tablist [ref=e62]:
+              - tab "配置" [ref=e63] [cursor=pointer]
+              - tab "绘图" [selected] [ref=e64] [cursor=pointer]
+            - paragraph [ref=e65]: 配置设备与测试信息，绘图页专注实时数据
+          - tabpanel "绘图" [ref=e66]:
+            - generic [ref=e67]:
+              - generic "功率实时" [ref=e68]:
+                - generic [ref=e69]:
+                  - generic "图例" [ref=e70]: 本次功率 (W)
+                  - generic [ref=e74]:
+                    - generic [ref=e75]: 未采集
+                    - paragraph [ref=e77]: "--"
+                - generic [ref=e78]: 暂无实时数据
+              - generic "功率 / 效率" [ref=e80]:
+                - generic "图例" [ref=e82]:
+                  - generic [ref=e83]: 本次功率 (W)
+                  - generic [ref=e87]: 本次效率 (%)
+                - generic [ref=e91]: 完成稳定测试点后显示功率 / 效率
+            - generic "光谱" [ref=e93]:
+              - generic [ref=e94]:
+                - generic "图例" [ref=e95]: 强度
+                - generic [ref=e99]:
+                  - generic [ref=e100]:
+                    - paragraph [ref=e101]: "--"
+                    - paragraph [ref=e102]: 中心波长
+                  - generic [ref=e103]:
+                    - paragraph [ref=e104]: "--"
+                    - paragraph [ref=e105]: FWHM
+                  - generic [ref=e106]:
+                    - paragraph [ref=e107]: "--"
+                    - paragraph [ref=e108]: SMSR
+              - generic [ref=e109]: 暂无实时数据

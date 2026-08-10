@@ -30,7 +30,10 @@ $pyInstallerArgs = @(
     "--add-data", "$(Join-Path $projectRoot 'tools\legacy_ch341_control.py');tools",
     "--add-binary", "$(Join-Path $projectRoot 'local_drivers\ch341\CH341DLLA64.DLL');.",
     "--hidden-import", "tkinter",
-    "--hidden-import", "combined_test.ocean_direct_adapter"
+    "--hidden-import", "combined_test.ocean_direct_adapter",
+    "--hidden-import", "win32com.client",
+    "--hidden-import", "pythoncom",
+    "--hidden-import", "pywintypes"
 )
 $pyInstallerArgs += (Join-Path $projectRoot "main.py")
 

@@ -1,0 +1,88 @@
+- generic [ref=f6e4]:
+  - complementary [ref=f6e5]:
+    - paragraph [ref=f6e6]: 工作区
+    - navigation [ref=f6e7]:
+      - button "自动测试" [ref=f6e8] [cursor=pointer]
+      - button "详细配置" [ref=f6e14] [cursor=pointer]
+      - button "PD 采集" [ref=f6e17] [cursor=pointer]
+      - button "出货报告" [ref=f6e21] [cursor=pointer]
+  - main [ref=f6e26]:
+    - generic [ref=f6e27]:
+      - generic [ref=f6e29]:
+        - generic [ref=f6e30]:
+          - generic [ref=f6e31]:
+            - heading "自动测试" [level=1] [ref=f6e32]
+            - generic [ref=f6e33]: 只读兼容模式
+          - paragraph [ref=f6e34]
+        - generic [ref=f6e35]:
+          - button [disabled]: 保存设置
+          - button "紧急停止" [disabled]
+      - generic [ref=f6e46]:
+        - generic [ref=f6e47]:
+          - button "打开电源设置" [ref=f6e48] [cursor=pointer]:
+            - generic [ref=f6e53]:
+              - generic [ref=f6e54]: 电源
+              - paragraph [ref=f6e57]: 未连接
+          - button "打开功率计设置" [ref=f6e58] [cursor=pointer]:
+            - generic [ref=f6e64]:
+              - generic [ref=f6e65]: 功率计
+              - paragraph [ref=f6e68]: 未连接
+          - button "打开光谱仪设置" [ref=f6e69] [cursor=pointer]:
+            - generic [ref=f6e78]:
+              - generic [ref=f6e79]: 光谱仪
+              - paragraph [ref=f6e82]: 未连接
+        - generic [ref=f6e84]:
+          - generic [ref=f6e85]:
+            - generic [ref=f6e86]: 输出目录
+            - textbox [ref=f6e87]
+          - generic [ref=f6e88]:
+            - generic [ref=f6e89]: 壳体 SN
+            - textbox [ref=f6e90]
+          - generic [ref=f6e91]:
+            - generic [ref=f6e92]: 测试站别
+            - textbox [ref=f6e93]
+          - generic [ref=f6e94]:
+            - generic [ref=f6e95]:
+              - generic [ref=f6e96]:
+                - generic [ref=f6e97]: 历史参考
+                - combobox [ref=f6e99] [cursor=pointer]:
+                  - generic [ref=f6e100]: 上一次同 SN 完整测试（默认）
+              - generic [ref=f6e103] [cursor=pointer]:
+                - generic [ref=f6e104]: 采集光谱
+                - checkbox "采集光谱" [checked] [ref=f6e106]
+            - paragraph [ref=f6e107]: 填写输出目录和 SN 后，将自动匹配历史记录。
+        - generic [ref=f6e109]:
+          - paragraph [ref=f6e111]: 0 / 3
+          - paragraph [ref=f6e113]: 等待配置
+          - generic [ref=f6e114]:
+            - button "开始" [disabled]
+          - generic [ref=f6e115]:
+            - button "结束" [disabled]
+        - generic [ref=f6e116]:
+          - generic [ref=f6e117]:
+            - generic "功率实时" [ref=f6e118]:
+              - generic [ref=f6e119]:
+                - generic "图例" [ref=f6e120]: 本次功率 (W)
+                - generic [ref=f6e124]:
+                  - generic [ref=f6e125]: 未采集
+                  - paragraph [ref=f6e127]: "--"
+              - generic: 暂无实时数据
+            - generic "功率 / 效率" [ref=f6e128]:
+              - generic "图例" [ref=f6e130]:
+                - generic [ref=f6e131]: 本次功率 (W)
+                - generic [ref=f6e135]: 本次效率 (%)
+              - generic: 完成稳定测试点后显示功率 / 效率
+          - generic "光谱" [ref=f6e139]:
+            - generic [ref=f6e140]:
+              - generic "图例" [ref=f6e141]: 强度
+              - generic [ref=f6e145]:
+                - generic [ref=f6e146]:
+                  - paragraph [ref=f6e147]: "--"
+                  - paragraph [ref=f6e148]: 中心波长
+                - generic [ref=f6e149]:
+                  - paragraph [ref=f6e150]: "--"
+                  - paragraph [ref=f6e151]: FWHM
+                - generic [ref=f6e152]:
+                  - paragraph [ref=f6e153]: "--"
+                  - paragraph [ref=f6e154]: SMSR
+            - generic [ref=f6e155]: 暂无实时数据
