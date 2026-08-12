@@ -2955,6 +2955,46 @@ class MainWindowTests(unittest.TestCase):
         window.manual_ch341_controller = None
         window.close()
 
+    def test_automatic_tdk_test_can_start_with_output_armed_at_zero_current(self) -> None:
+        app = QApplication.instance() or QApplication([])
+
+        class FakeTdkController:
+            is_connected = True
+            output_enabled = True
+
+        class WaitingPowerMeter:
+            is_ready = False
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            window = MainWindow()
+            window.power_supply_controller_combo.setCurrentIndex(
+                window.power_supply_controller_combo.findData("tdk")
+            )
+            window.manual_ch341_controller = FakeTdkController()
+            window.power_supply_controller_kind = "tdk"
+            window.active_output_current_a = 0.0
+            window.sn_field.setText("TDK-ZERO-START")
+            window.test_station_field.setText("station-1")
+            window.output_dir_field.setText(temp_dir)
+            window.auto_use_spectrometer_check.setChecked(False)
+            window.power_meter_reader = WaitingPowerMeter()  # type: ignore[assignment]
+            warnings: list[tuple[str, str]] = []
+
+            with patch.object(
+                QMessageBox,
+                "warning",
+                side_effect=lambda _parent, title, message: warnings.append((title, message)),
+            ):
+                window.start_automatic_test()
+
+            self.assertEqual(window.automatic_test_state, AutomaticTestState.STARTING)
+            self.assertEqual(warnings, [])
+            window.automatic_device_start_timer.stop()
+            window.power_meter_reader = None
+            window.manual_ch341_controller = None
+            window.automatic_test_state = AutomaticTestState.IDLE
+            window.close()
+
     def test_automatic_current_command_waits_for_guard_instead_of_pausing(self) -> None:
         app = QApplication.instance() or QApplication([])
 

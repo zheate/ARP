@@ -17,9 +17,9 @@ from tools.visa_session import acquire_visa_resource_manager, release_visa_resou
 
 
 TDK_DEFAULT_TIMEOUT_MS = 1000
-# scripts_runner relies on PyVISA's ASRL default, which is 9600 baud. The
-# installed GSP150-102 also acknowledges GEN commands at this rate.
-TDK_DEFAULT_BAUD_RATE = 9600
+# The installed TDK supply is configured for 115200 baud. Keep this explicit:
+# PyVISA's 9600-baud ASRL default opens COM4 but receives no device response.
+TDK_DEFAULT_BAUD_RATE = 115200
 TDK_DEFAULT_ADDRESS = 6
 TDK_COMMAND_RESPONSE_DELAY_S = 0.05
 # Legacy scripts_runner calibration: actual load voltage minus the raw MV?

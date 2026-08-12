@@ -1471,7 +1471,7 @@ function App() {
               key={page}
               style={page === "automatic" || page === "manual" ? { height: `calc(${100 / pageZoom}vh - ${page === "automatic" ? 140 : 72}px)` } : undefined}
             >
-              {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={active} controlsLocked={automaticInteractionLocked || manualPowerOutputActive} pending={commandPending} readyCount={devicesReady} readyTotal={requiredDevices} run={run} saveConfiguration={saveConfiguration} historyItems={automaticHistoryItems} historyLoading={automaticHistoryLoading} historyError={automaticHistoryError} referencePath={automaticReferencePath} onReferencePathChange={setAutomaticReferencePath} />}
+              {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={active} controlsLocked={automaticInteractionLocked} pending={commandPending} readyCount={devicesReady} readyTotal={requiredDevices} run={run} saveConfiguration={saveConfiguration} historyItems={automaticHistoryItems} historyLoading={automaticHistoryLoading} historyError={automaticHistoryError} referencePath={automaticReferencePath} onReferencePathChange={setAutomaticReferencePath} />}
               {page === "manual" && <ManualPage snapshot={snapshot} config={config} update={update} active={active} pending={commandPending} run={run} />}
               {page === "pd" && <PdPage snapshot={snapshot} active={active} pending={commandPending} run={run} />}
               {page === "shipping" && <ShippingReportPage active={active} controlsLocked={automaticInteractionLocked} pending={commandPending} />}

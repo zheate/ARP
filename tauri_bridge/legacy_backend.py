@@ -1074,10 +1074,10 @@ class LegacyWindowBackend:
                 "state": _enum_value(automatic.state),
                 "detail": window.automatic_test_status_label.text(),
                 "controlsEnabled": True,
-                "canStart": bool(
-                    window.start_automatic_test_button.isEnabled()
-                    and not window._manual_output_is_energized()
-                ),
+                # The Qt preflight already requires an armed TDK output. Do not
+                # reinterpret that required state as manual output and deadlock
+                # the Tauri start button.
+                "canStart": bool(window.start_automatic_test_button.isEnabled()),
                 "canRetry": _enum_value(automatic.state) == "paused",
                 "canPause": _enum_value(automatic.state)
                 not in ("idle", "completed", "paused", "ramping_down"),

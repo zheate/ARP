@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
+from unittest.mock import patch
 
 from openpyxl import Workbook, load_workbook
 
@@ -81,6 +82,55 @@ class ExcelExportTests(unittest.TestCase):
             sheet = workbook[workbook.sheetnames[0]]
             self.assertEqual([sheet.cell(row, 1).value for row in range(3, 6)], [2.0, 4.0, 8.0])
             self.assertEqual([sheet.cell(2, column).value for column in (10, 12, 14)], ["2.0A", "4.0A", "8.0A"])
+            workbook.close()
+
+    def test_batch_save_retries_a_transient_windows_replace_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "batch.xlsx"
+            save_test_records(path, [self._record(2.0)])
+            real_replace = __import__("os").replace
+            replace_calls = 0
+
+            def replace_after_one_lock(source: Path, target: Path) -> None:
+                nonlocal replace_calls
+                replace_calls += 1
+                if replace_calls == 1:
+                    raise PermissionError("workbook is temporarily locked")
+                real_replace(source, target)
+
+            with (
+                patch("combined_test.excel_export.os.replace", side_effect=replace_after_one_lock),
+                patch("combined_test.excel_export.time.sleep") as sleep,
+            ):
+                save_test_records(path, [self._record(2.0), self._record(4.0)])
+
+            self.assertEqual(replace_calls, 2)
+            sleep.assert_called_once_with(0.05)
+            self.assertTrue(path.is_file())
+            self.assertFalse((path.parent / ".batch.tmp.xlsx").exists())
+            workbook = load_workbook(path, read_only=True)
+            self.assertEqual(workbook["测试数据"]["A4"].value, 4.0)
+            workbook.close()
+
+    def test_batch_save_preserves_complete_temporary_file_after_persistent_lock(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "batch.xlsx"
+            save_test_records(path, [self._record(2.0)])
+            temporary = path.parent / ".batch.tmp.xlsx"
+
+            with (
+                patch(
+                    "combined_test.excel_export.os.replace",
+                    side_effect=PermissionError("workbook remains locked"),
+                ),
+                patch("combined_test.excel_export.time.sleep"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "完整临时文件已保留"):
+                    save_test_records(path, [self._record(2.0), self._record(4.0)])
+
+            self.assertTrue(temporary.is_file())
+            workbook = load_workbook(temporary, read_only=True)
+            self.assertEqual(workbook["测试数据"]["A4"].value, 4.0)
             workbook.close()
 
     def test_batch_save_writes_test_station_metadata(self) -> None:

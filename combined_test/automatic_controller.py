@@ -370,17 +370,16 @@ class AutomaticTestController:
     def start_automatic_test(self) -> None:
         if self.automatic_test_state not in (AutomaticTestState.IDLE, AutomaticTestState.COMPLETED):
             return
-        manual_output_is_energized = getattr(
-            self._host,
-            "_manual_output_is_energized",
-            None,
-        )
-        if callable(manual_output_is_energized) and manual_output_is_energized():
+        # Automatic TDK tests are intentionally armed with OUT enabled while
+        # the programmed current is still 0 A. Only a non-zero manual current
+        # is unsafe here; treating the TDK output switch itself as energized
+        # makes the required preflight state impossible to start from.
+        if float(self.active_output_current_a or 0.0) > 0.0:
             QMessageBox.warning(
                 self._host,
                 "自动测试",
-                "手动电源仍在输出。请返回“详细配置”，先将电流设置为 0 A；"
-                "TDK 电源还需关闭输出，然后再启动自动测试。",
+                "手动电源电流仍不为 0 A。请返回“详细配置”，"
+                "先将电流设置为 0 A，然后再启动自动测试。",
             )
             return
         if self.excel_save_thread is not None:

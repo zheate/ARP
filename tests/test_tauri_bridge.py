@@ -233,6 +233,44 @@ class PdPayloadTests(unittest.TestCase):
 
 
 class HeadlessWindowTests(unittest.TestCase):
+    def test_tdk_preflight_can_start_with_required_output_enabled(self) -> None:
+        script = """
+import json
+from types import SimpleNamespace
+from PySide6.QtWidgets import QApplication
+from combined_test.window import MainWindow
+from tauri_bridge.legacy_backend import LegacyWindowBackend
+
+app = QApplication.instance() or QApplication([])
+window = MainWindow(headless=True)
+window.power_supply_controller_combo.setCurrentIndex(
+    window.power_supply_controller_combo.findData("tdk")
+)
+window.manual_ch341_controller = SimpleNamespace(
+    is_connected=True,
+    output_enabled=True,
+)
+window.power_supply_controller_kind = "tdk"
+window.start_automatic_test_button.setEnabled(True)
+snapshot = LegacyWindowBackend(window).snapshot({"view": "automatic"})
+print(json.dumps(snapshot["automaticTest"]["canStart"]))
+window.manual_ch341_controller = None
+window.close()
+"""
+        environment = dict(os.environ)
+        environment["QT_QPA_PLATFORM"] = "offscreen"
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=REPO_ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        )
+
+        self.assertTrue(json.loads(completed.stdout.strip()))
+
     def test_headless_window_does_not_load_matplotlib(self) -> None:
         script = """
 import json

@@ -64,7 +64,7 @@ Run standalone diagnostics from the repository root with `python -m tools.power_
 - The power-supply controller can be switched between the legacy `CH341 I²C`
   path and `TDK (RS-232)` in the Power group.
 - TDK-Lambda control follows scripts_runner's serial driver: PyVISA enumerates
-  `ASRL...::INSTR` resources and opens the serial link at 9600 baud. It sends
+  `ASRL...::INSTR` resources and opens the serial link at 115200 baud. It sends
   `ADR 6`, `RMT 1`, `PV`/`PC`, `OUT`, and reads `MV?` / `MC?`.
 - Connecting a TDK supply never turns its output on automatically. The operator
   must explicitly enable the output before starting an automatic current test.

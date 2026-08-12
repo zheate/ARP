@@ -92,7 +92,7 @@ class TdkLambdaPowerSupplyTests(unittest.TestCase):
         self.assertEqual(instrument.timeout, 1000)
         self.assertEqual(instrument.read_termination, "\r")
         self.assertEqual(instrument.write_termination, "\r")
-        self.assertEqual(instrument.baud_rate, 9600)
+        self.assertEqual(instrument.baud_rate, 115200)
         self.assertEqual(
             instrument.writes,
             ["ADR 6", "RMT 1", "PV 024.50", "PC 005.25", "OUT 1", "MV?", "MC?"],

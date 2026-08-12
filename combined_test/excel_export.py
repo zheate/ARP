@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import os
 import re
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +29,7 @@ RESULT_HEADERS = (
 )
 EXPORT_WORKBOOK_SCHEMA_VERSION = "1"
 INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+WINDOWS_REPLACE_RETRY_DELAYS_S = (0.05, 0.10, 0.20, 0.40, 0.80)
 
 
 @dataclass(frozen=True)
@@ -77,6 +79,42 @@ def build_test_workbook_path(
 def _finite_or_none(value: float) -> float | None:
     number = float(value)
     return number if math.isfinite(number) else None
+
+
+def _replace_file_with_retry(source: Path, target: Path) -> None:
+    """Atomically replace a workbook despite short-lived Windows file locks."""
+    for attempt in range(len(WINDOWS_REPLACE_RETRY_DELAYS_S) + 1):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt >= len(WINDOWS_REPLACE_RETRY_DELAYS_S):
+                raise
+            time.sleep(WINDOWS_REPLACE_RETRY_DELAYS_S[attempt])
+
+
+def _save_workbook_atomically(workbook: Workbook, target: Path) -> None:
+    temporary = target.with_name(f".{target.stem}.tmp.xlsx")
+    try:
+        workbook.save(temporary)
+    except Exception:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+    finally:
+        # Release every openpyxl/ZipFile handle before Windows replaces the
+        # existing workbook. This also makes antivirus/indexer locks shorter.
+        workbook.close()
+
+    try:
+        _replace_file_with_retry(temporary, target)
+    except PermissionError as exc:
+        raise RuntimeError(
+            f"Excel 文件暂时被占用，无法更新 {target.name}；"
+            f"完整临时文件已保留：{temporary}"
+        ) from exc
 
 
 def _ensure_result_headers(sheet: Worksheet) -> None:
@@ -302,14 +340,7 @@ def save_test_records(
                 sheet.cell(row=spectrum_row, column=spectrum_column).number_format = "0.000000"
                 sheet.cell(row=spectrum_row, column=spectrum_column + 1).number_format = "0.000000"
 
-    temporary = target.with_name(f".{target.stem}.tmp.xlsx")
-    try:
-        workbook.save(temporary)
-        os.replace(temporary, target)
-    finally:
-        workbook.close()
-        if temporary.exists():
-            temporary.unlink()
+    _save_workbook_atomically(workbook, target)
 
 
 def append_test_record(path: Path, record: ExcelTestRecord) -> None:
@@ -400,11 +431,4 @@ def append_test_record(path: Path, record: ExcelTestRecord) -> None:
             sheet.cell(row=spectrum_row, column=spectrum_column).number_format = "0.000000"
             sheet.cell(row=spectrum_row, column=spectrum_column + 1).number_format = "0.000000"
 
-    temporary = target.with_name(f".{target.stem}.tmp.xlsx")
-    try:
-        workbook.save(temporary)
-        os.replace(temporary, target)
-    finally:
-        workbook.close()
-        if temporary.exists():
-            temporary.unlink()
+    _save_workbook_atomically(workbook, target)
