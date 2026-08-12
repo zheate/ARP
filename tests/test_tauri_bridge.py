@@ -233,6 +233,55 @@ class PdPayloadTests(unittest.TestCase):
 
 
 class HeadlessWindowTests(unittest.TestCase):
+    def test_custom_current_plan_round_trips_through_tauri_configuration(self) -> None:
+        script = """
+import json
+from PySide6.QtWidgets import QApplication
+from combined_test.window import MainWindow
+from tauri_bridge.legacy_backend import LegacyWindowBackend
+
+app = QApplication.instance() or QApplication([])
+window = MainWindow(headless=True)
+backend = LegacyWindowBackend(window)
+backend._configure({
+    "currentPlanMode": "custom",
+    "customCurrentPoints": [
+        {"currentA": 3, "dwellS": 300},
+        {"currentA": 5, "dwellS": 120},
+    ],
+})
+snapshot = backend.snapshot({"view": "automatic"})
+settings = window.collect_automatic_test_settings()
+print(json.dumps({
+    "mode": snapshot["configuration"]["currentPlanMode"],
+    "points": snapshot["configuration"]["customCurrentPoints"],
+    "currents": list(window.automatic_orchestrator.currents),
+    "configuredCurrents": [point.current_a for point in settings.custom_current_points],
+    "configuredDwells": [point.dwell_s for point in settings.custom_current_points],
+}))
+window.close()
+"""
+        environment = dict(os.environ)
+        environment["QT_QPA_PLATFORM"] = "offscreen"
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            cwd=REPO_ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=True,
+        )
+
+        result = json.loads(completed.stdout.strip())
+        self.assertEqual(result["mode"], "custom")
+        self.assertEqual(
+            result["points"],
+            [{"currentA": 3.0, "dwellS": 300.0}, {"currentA": 5.0, "dwellS": 120.0}],
+        )
+        self.assertEqual(result["configuredCurrents"], [3.0, 5.0])
+        self.assertEqual(result["configuredDwells"], [300.0, 120.0])
+
     def test_tdk_preflight_can_start_with_required_output_enabled(self) -> None:
         script = """
 import json

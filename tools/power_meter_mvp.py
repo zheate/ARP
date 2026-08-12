@@ -155,6 +155,21 @@ def configure_caihuang(inst: pyvisa.resources.Resource, timeout_ms: int = 1000) 
         inst.stop_bits = constants.StopBits.one
 
 
+def configure_coherent(inst: pyvisa.resources.Resource, timeout_ms: int = 1000) -> None:
+    """Configure a Coherent PowerMax-USB/RS serial session."""
+    inst.timeout = int(timeout_ms)
+    # PowerMax commands must end in CR. SCPI replies end in CR/LF.
+    inst.write_termination = "\r"
+    inst.read_termination = "\r\n"
+    if hasattr(inst, "baud_rate"):
+        inst.baud_rate = 9600
+        inst.data_bits = 8
+        inst.parity = constants.Parity.none
+        inst.stop_bits = constants.StopBits.one
+        if hasattr(inst, "flow_control"):
+            inst.flow_control = constants.ControlFlow.none
+
+
 def configure_laserpoint(inst: pyvisa.resources.Resource, timeout_ms: int = 1000) -> None:
     """Configure the VISA serial session used by scripts_runner's LaserPoint driver."""
     inst.timeout = int(timeout_ms)
@@ -177,6 +192,28 @@ def parse_power_w(raw: str) -> float:
     if not math.isfinite(value):
         raise RuntimeError(f"invalid power value: {text}")
     return value
+
+
+def parse_coherent_power_w(raw: str) -> float:
+    """Parse a PowerMax ``READ?`` record and reject unsafe readings."""
+    fields = [field.strip() for field in str(raw).strip().split(",")]
+    if not fields or not fields[0]:
+        raise RuntimeError("Coherent 功率计未返回测量数据")
+    power_w = parse_power_w(fields[0])
+    if len(fields) >= 3:
+        flags = fields[-2].upper()
+        if "R" in flags:
+            raise RuntimeError("Coherent 功率计量程溢出")
+        if "T" in flags:
+            raise RuntimeError("Coherent 功率计过温")
+    return power_w
+
+
+def _unquote_scpi_text(raw: str) -> str:
+    text = str(raw).strip()
+    if len(text) >= 2 and text[0] == text[-1] == '"':
+        return text[1:-1].strip()
+    return text
 
 
 def format_wavelength_nm(wavelength_nm: float) -> str:
@@ -302,6 +339,139 @@ class CaihuangPowerMeter:
         reply = self.inst.query(f"$REL={1 if enabled else 0}").strip()
         if reply != "SUCCEED":
             raise RuntimeError(f"set relative zero failed: {reply}")
+
+    def close(self) -> None:
+        inst, rm = self.inst, self.rm
+        self.inst = None
+        self.rm = None
+        try:
+            if inst is not None:
+                inst.close()
+        finally:
+            if rm is not None:
+                release_visa_resource_manager(rm)
+
+
+class CoherentPowerMeter:
+    """Coherent PowerMax-USB/RS adapter using the documented SCPI host port."""
+
+    device_type = "Coherent PowerMax"
+    driver_kind = "coherent"
+
+    def __init__(self, resource: str) -> None:
+        self.resource = normalize_resource(resource)
+        self.rm = acquire_visa_resource_manager()
+        self.inst = None
+        self.model_name = ""
+        self.serial_number = ""
+        try:
+            self.inst = self.rm.open_resource(self.resource)
+            configure_coherent(self.inst)
+        except Exception:
+            if self.inst is not None:
+                try:
+                    self.inst.close()
+                except Exception:
+                    pass
+                self.inst = None
+            release_visa_resource_manager(self.rm)
+            self.rm = None
+            raise
+
+    @staticmethod
+    def _is_powermax_identity(raw: str) -> bool:
+        identity = str(raw).strip().upper()
+        return "COHERENT" in identity and "POWERMAX" in identity
+
+    @staticmethod
+    def probe(resource: str, timeout_ms: int = 1000) -> ProbeResult | None:
+        rm = acquire_visa_resource_manager()
+        inst = None
+        try:
+            normalized_resource = normalize_resource(resource)
+            inst = rm.open_resource(normalized_resource)
+            configure_coherent(inst, timeout_ms=timeout_ms)
+            identity = inst.query("*IDN?").strip()
+            if not CoherentPowerMeter._is_powermax_identity(identity):
+                return None
+
+            model_name = ""
+            serial_number = ""
+            try:
+                model_name = _unquote_scpi_text(inst.query("SYSTem:INFormation:MODel?"))
+            except Exception:
+                pass
+            try:
+                serial_number = _unquote_scpi_text(inst.query("SYSTem:INFormation:SNUMber?"))
+            except Exception:
+                pass
+
+            detail_parts = []
+            if model_name:
+                detail_parts.append(model_name)
+            if serial_number:
+                detail_parts.append(f"SN {serial_number}")
+            return ProbeResult(
+                normalized_resource,
+                CoherentPowerMeter.device_type,
+                " | ".join(detail_parts) or identity,
+                CoherentPowerMeter.driver_kind,
+            )
+        except Exception:
+            return None
+        finally:
+            if inst is not None:
+                try:
+                    inst.close()
+                except Exception:
+                    pass
+            release_visa_resource_manager(rm)
+
+    def test(self) -> str:
+        identity = self.inst.query("*IDN?").strip()
+        if not self._is_powermax_identity(identity):
+            raise RuntimeError(f"不是受支持的 Coherent PowerMax 设备：{identity or '<empty>'}")
+        try:
+            self.model_name = _unquote_scpi_text(
+                self.inst.query("SYSTem:INFormation:MODel?")
+            )
+            if self.model_name:
+                self.device_type = f"Coherent {self.model_name}"
+        except Exception:
+            self.model_name = ""
+        try:
+            self.serial_number = _unquote_scpi_text(
+                self.inst.query("SYSTem:INFormation:SNUMber?")
+            )
+        except Exception:
+            self.serial_number = ""
+        return "OK"
+
+    def set_power_mode(self) -> None:
+        self.inst.write("CONFigure:MEASure W")
+        mode = self.inst.query("CONFigure:MEASure?").strip().upper()
+        if mode != "W":
+            raise RuntimeError(f"Coherent 功率计未进入功率测量模式：{mode or '<empty>'}")
+
+    def set_wavelength(self, wavelength_nm: float) -> None:
+        requested = float(wavelength_nm)
+        command_value = format_wavelength_nm(requested)
+        self.inst.write(f"CONFigure:WAVElength {command_value}")
+        granted_text = self.inst.query("CONFigure:WAVElength?").strip()
+        granted = float(granted_text)
+        if not math.isfinite(granted) or not math.isclose(granted, requested, abs_tol=0.01):
+            raise RuntimeError(
+                f"Coherent 功率计不支持波长 {command_value} nm，设备设置为 {granted_text} nm"
+            )
+
+    def read_power_w(self) -> float:
+        return parse_coherent_power_w(self.inst.query("READ?"))
+
+    def set_relative_zero(self, enabled: bool) -> None:
+        # PowerMax ZERO is a one-shot baseline capture. *RST restores the
+        # documented power-on zero state, which is the closest equivalent to
+        # the application's "cancel relative zero" action.
+        self.inst.write("CONFigure:ZERO" if enabled else "*RST")
 
     def close(self) -> None:
         inst, rm = self.inst, self.rm
@@ -654,6 +824,7 @@ class PowerReaderThread(QThread):
         wavelength_nm: float,
         software_gain: float,
         interval_ms: int,
+        driver_kind: str = "caihuang",
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -661,17 +832,27 @@ class PowerReaderThread(QThread):
         self.wavelength_nm = wavelength_nm
         self.software_gain = software_gain
         self.interval_ms = interval_ms
+        self.driver_kind = driver_kind
         self._running = False
 
     def stop(self) -> None:
         self._running = False
 
     def run(self) -> None:
-        meter: CaihuangPowerMeter | None = None
+        meter: CaihuangPowerMeter | CoherentPowerMeter | None = None
         try:
-            meter = CaihuangPowerMeter(self.resource)
+            meter_classes = {
+                "caihuang": CaihuangPowerMeter,
+                "coherent": CoherentPowerMeter,
+            }
+            meter_class = meter_classes.get(self.driver_kind)
+            if meter_class is None:
+                raise RuntimeError(f"Unsupported diagnostic driver: {self.driver_kind}")
+            meter = meter_class(self.resource)
             if meter.test() != "OK":
                 raise RuntimeError("device test did not return OK")
+            if self.driver_kind == "coherent":
+                meter.set_power_mode()
             meter.set_wavelength(self.wavelength_nm)
             self.status.emit(f"Connected: {meter.device_type} on {normalize_resource(self.resource)}")
             start = time.monotonic()
@@ -698,6 +879,7 @@ class MainWindow(QMainWindow):
 
         self.rm = acquire_visa_resource_manager()
         self.reader: PowerReaderThread | None = None
+        self.detected_driver_kind = "caihuang"
         self.times: Deque[float] = deque(maxlen=MAX_SAMPLES)
         self.powers: Deque[float] = deque(maxlen=MAX_SAMPLES)
         self.sample_count = 0
@@ -833,12 +1015,16 @@ class MainWindow(QMainWindow):
             self.refresh_resources()
             candidates = [self.resource_combo.itemText(i) for i in range(self.resource_combo.count())]
         for resource in candidates:
-            result = CaihuangPowerMeter.probe(resource)
-            if result:
-                self.resource_combo.setEditText(result.resource)
-                self.device_field.setText(f"{result.device_type} ({result.detail})")
-                self.statusBar().showMessage(f"Detected {result.device_type} on {result.resource}")
-                return
+            for meter_class in (CaihuangPowerMeter, CoherentPowerMeter):
+                result = meter_class.probe(resource)
+                if result:
+                    self.detected_driver_kind = result.driver_kind
+                    self.resource_combo.setEditText(result.resource)
+                    self.device_field.setText(f"{result.device_type} ({result.detail})")
+                    self.statusBar().showMessage(
+                        f"Detected {result.device_type} on {result.resource}"
+                    )
+                    return
         self.device_field.clear()
         QMessageBox.warning(self, "Auto Detect", "No supported power meter was detected.")
 
@@ -859,6 +1045,7 @@ class MainWindow(QMainWindow):
             wavelength_nm=self.wavelength_spin.value(),
             software_gain=self.gain_spin.value(),
             interval_ms=self.interval_spin.value(),
+            driver_kind=self.detected_driver_kind,
             parent=self,
         )
         self.reader.sample.connect(self.on_sample)
@@ -920,7 +1107,12 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "REL Zero", "Select a serial resource first.")
             return
         try:
-            meter = CaihuangPowerMeter(resource)
+            meter_class = (
+                CoherentPowerMeter
+                if self.detected_driver_kind == "coherent"
+                else CaihuangPowerMeter
+            )
+            meter = meter_class(resource)
             meter.set_relative_zero(enabled)
             meter.close()
             self.statusBar().showMessage(f"REL zero {'enabled' if enabled else 'disabled'}")

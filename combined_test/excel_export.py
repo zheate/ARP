@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import math
 import os
 import re
@@ -12,7 +13,8 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Alignment, Font
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
 
@@ -30,6 +32,16 @@ RESULT_HEADERS = (
 EXPORT_WORKBOOK_SCHEMA_VERSION = "1"
 INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 WINDOWS_REPLACE_RETRY_DELAYS_S = (0.05, 0.10, 0.20, 0.40, 0.80)
+SECOND_SAMPLE_HEADERS = (
+    "时间(s)",
+    "功率(W)",
+    "效率",
+    "电压(V)",
+    "中心波长(nm)",
+    "质心波长(nm)",
+    "FWHM(nm)",
+)
+_DATA_HEADER_FILL = PatternFill("solid", fgColor="D9EAF7")
 
 
 @dataclass(frozen=True)
@@ -262,12 +274,174 @@ def _write_measurement_attempts(workbook: Workbook, attempts: Iterable[Any]) -> 
     sheet.column_dimensions["R"].width = 42
 
 
+def _sample_number(row: dict[str, str], key: str) -> float | None:
+    value = str(row.get(key, "")).strip()
+    if not value:
+        return None
+    try:
+        return _finite_or_none(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _sample_series(row: dict[str, str], key: str) -> tuple[float, ...]:
+    raw = str(row.get(key, "")).strip()
+    if not raw:
+        return ()
+    values: list[float] = []
+    for item in raw.split(";"):
+        try:
+            value = _finite_or_none(float(item))
+        except (TypeError, ValueError):
+            return ()
+        if value is None:
+            return ()
+        values.append(value)
+    return tuple(values)
+
+
+def _read_designated_second_samples(path: Path) -> dict[float, list[dict[str, Any]]]:
+    source = Path(path)
+    if not source.is_file():
+        return {}
+    samples_by_current: dict[float, dict[int, dict[str, Any]]] = {}
+    with source.open("r", newline="", encoding="utf-8-sig") as input_file:
+        for row in csv.DictReader(input_file):
+            target_current_a = _sample_number(row, "target_current_a")
+            elapsed_s = _sample_number(row, "point_elapsed_s")
+            if target_current_a is None or elapsed_s is None:
+                continue
+            elapsed_second = max(1, int(round(elapsed_s)))
+            wavelengths = _sample_series(row, "spectrum_wavelengths_nm")
+            intensities = _sample_series(row, "spectrum_intensities")
+            if len(wavelengths) != len(intensities):
+                wavelengths = ()
+                intensities = ()
+            efficiency_percent = _sample_number(row, "efficiency_percent")
+            samples_by_second = samples_by_current.setdefault(target_current_a, {})
+            samples_by_second[elapsed_second] = {
+                "elapsed_second": elapsed_second,
+                "power_w": _sample_number(row, "optical_power_w"),
+                "efficiency": (
+                    efficiency_percent / 100.0
+                    if efficiency_percent is not None
+                    else None
+                ),
+                "voltage_v": _sample_number(row, "output_voltage_v"),
+                "peak_wavelength_nm": _sample_number(row, "peak_wavelength_nm"),
+                "centroid_nm": _sample_number(row, "centroid_nm"),
+                "fwhm_nm": _sample_number(row, "fwhm_nm"),
+                "wavelengths_nm": wavelengths,
+                "intensities": intensities,
+            }
+    return {
+        current_a: [samples_by_second[second] for second in sorted(samples_by_second)]
+        for current_a, samples_by_second in sorted(samples_by_current.items())
+    }
+
+
+def _current_sheet_prefix(current_a: float) -> str:
+    return f"{float(current_a):.12g}A"
+
+
+def _style_data_header(sheet: Worksheet, *, max_column: int) -> None:
+    for column in range(1, max_column + 1):
+        cell = sheet.cell(row=1, column=column)
+        cell.font = Font(bold=True)
+        cell.fill = _DATA_HEADER_FILL
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+
+def _write_designated_second_sheets(
+    workbook: Workbook,
+    automatic_samples_path: Path | None,
+) -> None:
+    if automatic_samples_path is None:
+        return
+    samples_by_current = _read_designated_second_samples(automatic_samples_path)
+    if not samples_by_current:
+        return
+
+    for current_a, samples in samples_by_current.items():
+        sheet_prefix = _current_sheet_prefix(current_a)
+        summary_sheet = workbook.create_sheet(f"{sheet_prefix}逐秒数据")
+        for column, header in enumerate(SECOND_SAMPLE_HEADERS, start=1):
+            summary_sheet.cell(row=1, column=column, value=header)
+        _style_data_header(summary_sheet, max_column=len(SECOND_SAMPLE_HEADERS))
+        for row_index, sample in enumerate(samples, start=2):
+            values = (
+                sample["elapsed_second"],
+                sample["power_w"],
+                sample["efficiency"],
+                sample["voltage_v"],
+                sample["peak_wavelength_nm"],
+                sample["centroid_nm"],
+                sample["fwhm_nm"],
+            )
+            for column, value in enumerate(values, start=1):
+                summary_sheet.cell(row=row_index, column=column, value=value)
+            summary_sheet.cell(row=row_index, column=1).number_format = "0"
+            summary_sheet.cell(row=row_index, column=2).number_format = "0.000000"
+            summary_sheet.cell(row=row_index, column=3).number_format = "0.00%"
+            summary_sheet.cell(row=row_index, column=4).number_format = "0.000000"
+            summary_sheet.cell(row=row_index, column=5).number_format = "0.000000"
+            summary_sheet.cell(row=row_index, column=6).number_format = "0.000000"
+            summary_sheet.cell(row=row_index, column=7).number_format = "0.000000"
+        summary_sheet.freeze_panes = "A2"
+        summary_sheet.auto_filter.ref = f"A1:G{len(samples) + 1}"
+        for column, width in enumerate((12, 16, 14, 16, 18, 18, 14), start=1):
+            summary_sheet.column_dimensions[get_column_letter(column)].width = width
+
+        spectrum_sheet = workbook.create_sheet(f"{sheet_prefix}光谱数据")
+        for sample_index, sample in enumerate(samples):
+            wavelength_column = sample_index * 2 + 1
+            intensity_column = wavelength_column + 1
+            elapsed_second = sample["elapsed_second"]
+            spectrum_sheet.cell(
+                row=1,
+                column=wavelength_column,
+                value=f"{elapsed_second}s波长(nm)",
+            )
+            spectrum_sheet.cell(
+                row=1,
+                column=intensity_column,
+                value=f"{elapsed_second}s强度(counts)",
+            )
+            spectrum_sheet.column_dimensions[get_column_letter(wavelength_column)].width = 16
+            spectrum_sheet.column_dimensions[get_column_letter(intensity_column)].width = 18
+            for row_index, (wavelength_nm, intensity) in enumerate(
+                zip(sample["wavelengths_nm"], sample["intensities"]),
+                start=2,
+            ):
+                spectrum_sheet.cell(
+                    row=row_index,
+                    column=wavelength_column,
+                    value=round(float(wavelength_nm), 3),
+                )
+                spectrum_sheet.cell(
+                    row=row_index,
+                    column=intensity_column,
+                    value=round(float(intensity), 3),
+                )
+                spectrum_sheet.cell(row=row_index, column=wavelength_column).number_format = "0.000"
+                spectrum_sheet.cell(row=row_index, column=intensity_column).number_format = "0.000"
+        _style_data_header(spectrum_sheet, max_column=len(samples) * 2)
+        spectrum_sheet.freeze_panes = "A2"
+
+
+def _hide_diagnostic_sheets(workbook: Workbook) -> None:
+    for name in ("会话信息", "测量尝试"):
+        if name in workbook.sheetnames:
+            workbook[name].sheet_state = "hidden"
+
+
 def save_test_records(
     path: Path,
     records: Iterable[ExcelTestRecord],
     *,
     session: Any | None = None,
     attempts: Iterable[Any] = (),
+    automatic_samples_path: Path | None = None,
 ) -> None:
     """Write a complete, current-sorted test workbook with a single XLSX save."""
     records_by_current: dict[float, tuple[ExcelTestRecord, list[float], list[float]]] = {}
@@ -339,6 +513,9 @@ def save_test_records(
                 sheet.cell(row=spectrum_row, column=spectrum_column + 1, value=_finite_or_none(intensity))
                 sheet.cell(row=spectrum_row, column=spectrum_column).number_format = "0.000000"
                 sheet.cell(row=spectrum_row, column=spectrum_column + 1).number_format = "0.000000"
+
+    _write_designated_second_sheets(workbook, automatic_samples_path)
+    _hide_diagnostic_sheets(workbook)
 
     _save_workbook_atomically(workbook, target)
 

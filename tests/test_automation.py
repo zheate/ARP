@@ -2,12 +2,15 @@ import math
 import unittest
 
 from combined_test.automation import (
+    AutomaticCurrentPoint,
     AutomaticTestOrchestrator,
     AutomaticTestSettings,
     AutomaticTestState,
     PowerDropProtectionDetector,
     build_ramp_down_currents,
+    build_custom_hold_ramp_currents,
     build_test_currents,
+    build_test_dwells,
     validate_automatic_test_settings,
 )
 
@@ -90,6 +93,68 @@ class PowerDropProtectionDetectorTests(unittest.TestCase):
 
 
 class AutomaticCurrentSequenceTests(unittest.TestCase):
+    def test_custom_points_preserve_currents_and_individual_dwell_times(self) -> None:
+        settings = AutomaticTestSettings(
+            initial_current_a=1.0,
+            target_current_a=5.0,
+            current_step_a=3.0,
+            current_plan_mode="custom",
+            custom_current_points=(
+                AutomaticCurrentPoint(3.0, 300.0),
+                AutomaticCurrentPoint(5.0, 120.0),
+            ),
+            custom_hold_ramp_enabled=True,
+        )
+
+        self.assertEqual(build_test_currents(settings), (3.0, 5.0))
+        self.assertEqual(build_test_dwells(settings), (300.0, 120.0))
+        orchestrator = AutomaticTestOrchestrator()
+        orchestrator.start(settings, power_meter_ready=True, spectrum_meter_ready=True)
+        self.assertEqual(orchestrator.current_dwell_s, 300.0)
+        self.assertTrue(orchestrator.advance())
+        self.assertEqual(orchestrator.current_dwell_s, 120.0)
+
+    def test_ch341_custom_mode_keeps_the_original_measurement_sequence(self) -> None:
+        settings = AutomaticTestSettings(
+            initial_current_a=1.0,
+            target_current_a=5.0,
+            current_step_a=3.0,
+            current_plan_mode="custom",
+            custom_current_points=(
+                AutomaticCurrentPoint(3.0, 300.0),
+                AutomaticCurrentPoint(5.0, 120.0),
+            ),
+        )
+
+        self.assertEqual(build_test_currents(settings), (1.0, 3.0, 4.0, 5.0))
+        self.assertEqual(build_test_dwells(settings), (0.0, 300.0, 0.0, 120.0))
+
+    def test_custom_hold_ramp_uses_half_amp_steps_and_includes_target(self) -> None:
+        self.assertEqual(
+            build_custom_hold_ramp_currents(0.0, 3.0),
+            (0.5, 1.0, 1.5, 2.0, 2.5, 3.0),
+        )
+        self.assertEqual(build_custom_hold_ramp_currents(3.0, 4.2), (3.5, 4.0, 4.2))
+        self.assertEqual(build_custom_hold_ramp_currents(5.0, 5.0), ())
+
+    def test_custom_points_must_be_strictly_increasing_with_positive_dwell(self) -> None:
+        duplicate = AutomaticTestSettings(
+            current_plan_mode="custom",
+            custom_current_points=(
+                AutomaticCurrentPoint(3.0, 300.0),
+                AutomaticCurrentPoint(3.0, 120.0),
+            ),
+        )
+        invalid_dwell = AutomaticTestSettings(
+            current_plan_mode="custom",
+            custom_current_points=(AutomaticCurrentPoint(3.0, 0.0),),
+        )
+
+        with self.assertRaisesRegex(ValueError, "严格递增"):
+            build_test_currents(duplicate)
+        with self.assertRaisesRegex(ValueError, "停留时间必须大于 0"):
+            build_test_currents(invalid_dwell)
+
     def test_exact_step_sequence_and_single_target_sequence_are_preserved(self) -> None:
         exact = AutomaticTestSettings(initial_current_a=1.0, target_current_a=3.0, current_step_a=1.0)
         single = AutomaticTestSettings(initial_current_a=20.0, target_current_a=20.0, current_step_a=1.0)

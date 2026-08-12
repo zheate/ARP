@@ -254,6 +254,7 @@ class PowerMeterDetectThread(QThread):
                 power_meter_mvp = importlib.import_module("tools.power_meter_mvp")
 
                 CaihuangPowerMeter = power_meter_mvp.CaihuangPowerMeter
+                CoherentPowerMeter = getattr(power_meter_mvp, "CoherentPowerMeter", None)
                 LaserPointPowerMeter = power_meter_mvp.LaserPointPowerMeter
                 OphirPowerMeter = getattr(power_meter_mvp, "OphirPowerMeter", None)
             except ModuleNotFoundError as exc:
@@ -286,7 +287,11 @@ class PowerMeterDetectThread(QThread):
             for resource in candidates:
                 if self._stop_requested.is_set():
                     return
-                for meter_class in (CaihuangPowerMeter, LaserPointPowerMeter):
+                serial_meter_classes = [CaihuangPowerMeter]
+                if CoherentPowerMeter is not None:
+                    serial_meter_classes.append(CoherentPowerMeter)
+                serial_meter_classes.append(LaserPointPowerMeter)
+                for meter_class in serial_meter_classes:
                     result = meter_class.probe(resource, timeout_ms=POWER_METER_PROBE_TIMEOUT_MS)
                     if result is None:
                         continue
@@ -367,6 +372,7 @@ class PowerMeterReaderThread(QThread):
                 power_meter_mvp = importlib.import_module("tools.power_meter_mvp")
 
                 CaihuangPowerMeter = power_meter_mvp.CaihuangPowerMeter
+                CoherentPowerMeter = getattr(power_meter_mvp, "CoherentPowerMeter", None)
                 LaserPointPowerMeter = power_meter_mvp.LaserPointPowerMeter
                 OphirPowerMeter = getattr(power_meter_mvp, "OphirPowerMeter", None)
                 normalize_resource = power_meter_mvp.normalize_resource
@@ -377,6 +383,8 @@ class PowerMeterReaderThread(QThread):
                 "caihuang": CaihuangPowerMeter,
                 "laserpoint": LaserPointPowerMeter,
             }
+            if CoherentPowerMeter is not None:
+                meter_classes["coherent"] = CoherentPowerMeter
             if OphirPowerMeter is not None:
                 meter_classes["ophir"] = OphirPowerMeter
             meter_class = meter_classes.get(self.settings.driver_kind)
@@ -386,8 +394,9 @@ class PowerMeterReaderThread(QThread):
             meter = meter_class(self.settings.resource)
             if meter.test() != "OK":
                 raise RuntimeError("功率计自检未返回 OK")
-            if self.settings.driver_kind == "laserpoint":
+            if self.settings.driver_kind in {"laserpoint", "coherent"}:
                 meter.set_power_mode()
+            if self.settings.driver_kind == "laserpoint":
                 meter.set_gain_mode(3)
             meter.set_wavelength(self.settings.wavelength_nm)
             if self._stop_requested.is_set():

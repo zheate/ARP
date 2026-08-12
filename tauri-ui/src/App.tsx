@@ -74,6 +74,7 @@ const MIN_PAGE_ZOOM = 0.45
 const FIT_VIEWPORT_BUFFER_PX = 6
 const SHARED_PAGE_REFERENCE_HEIGHT_PX = 1200
 const INFO_TOAST_DURATION_MS = 3000
+const MAX_CUSTOM_CURRENT_POINTS = 50
 
 function sharedPageZoom(viewportHeight: number): number {
   const heightRatio = Math.max(1, viewportHeight - FIT_VIEWPORT_BUFFER_PX) / SHARED_PAGE_REFERENCE_HEIGHT_PX
@@ -154,6 +155,11 @@ const emptyConfig: AppConfiguration = {
   initialCurrentA: 1,
   targetCurrentA: 20,
   currentStepA: 3,
+  currentPlanMode: "range",
+  customCurrentPoints: [
+    { currentA: 3, dwellS: 300 },
+    { currentA: 5, dwellS: 300 },
+  ],
   pointTimeoutS: 120,
   rampDownStepA: 5,
   rampDownIntervalS: 1.1,
@@ -164,7 +170,8 @@ const emptyConfig: AppConfiguration = {
 const configurationKeys = Object.keys(emptyConfig) as Array<keyof AppConfiguration>
 
 function configurationsEqual(left: AppConfiguration, right: AppConfiguration): boolean {
-  return configurationKeys.every((key) => left[key] === right[key])
+  if (!sameRows(left.customCurrentPoints, right.customCurrentPoints, ["currentA", "dwellS"])) return false
+  return configurationKeys.every((key) => key === "customCurrentPoints" || left[key] === right[key])
 }
 
 function asNumber(value: string): number {
@@ -368,6 +375,80 @@ function DeviceCard({ title, icon, device, disabled = false, onOpenSettings }: {
   )
 }
 
+function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0 s"
+  if (seconds % 60 === 0) return `${seconds / 60} min`
+  return `${seconds} s`
+}
+
+function formatDwellProgress(totalSeconds: number, elapsedSeconds?: number | null): string {
+  if (!Number.isFinite(elapsedSeconds)) return `待保持 ${formatDuration(totalSeconds)}`
+  const elapsed = Math.min(totalSeconds, Math.max(0, elapsedSeconds ?? 0))
+  return `保持 ${formatDuration(elapsed)} / ${formatDuration(totalSeconds)}`
+}
+
+function currentPlanSummary(config: AppConfiguration): string {
+  const stepped = `${config.initialCurrentA} → ${config.targetCurrentA} A · 间隔 ${config.currentStepA} A`
+  if (config.currentPlanMode === "range") return stepped
+  const holds = config.customCurrentPoints.length
+    ? config.customCurrentPoints.map((point) => `${point.currentA} A / ${formatDuration(point.dwellS)}`).join("、")
+    : "尚未添加停留点"
+  return `${stepped} · 停留 ${holds}`
+}
+
+function CustomCurrentPlanEditor({ config, update, disabled, maximumCurrentA }: {
+  config: AppConfiguration
+  update: UpdateConfig
+  disabled: boolean
+  maximumCurrentA?: number
+}) {
+  const holdCurrentMaximum = Math.min(maximumCurrentA ?? Number.POSITIVE_INFINITY, config.targetCurrentA)
+  const updatePoint = (index: number, key: "currentA" | "dwellS", value: number) => {
+    const points = config.customCurrentPoints.map((point, pointIndex) => (
+      pointIndex === index ? { ...point, [key]: value } : point
+    ))
+    update("customCurrentPoints", points)
+  }
+  const addPoint = () => {
+    if (config.customCurrentPoints.length >= MAX_CUSTOM_CURRENT_POINTS) return
+    const previous = config.customCurrentPoints[config.customCurrentPoints.length - 1]
+    const proposedCurrent = (previous?.currentA ?? 0) + 1
+    const currentA = Math.max(config.initialCurrentA, Math.min(proposedCurrent, holdCurrentMaximum))
+    update("customCurrentPoints", [
+      ...config.customCurrentPoints,
+      { currentA, dwellS: previous?.dwellS ?? 300 },
+    ])
+  }
+  const removePoint = (index: number) => {
+    if (config.customCurrentPoints.length <= 1) return
+    update("customCurrentPoints", config.customCurrentPoints.filter((_point, pointIndex) => pointIndex !== index))
+  }
+  const totalDwellS = config.customCurrentPoints.reduce((total, point) => total + Math.max(0, point.dwellS), 0)
+
+  return (
+    <div className="custom-current-plan">
+      <div className="custom-current-plan__header">
+        <span>顺序</span><span>指定电流 (A)</span><span>停留时间 (s)</span><span aria-hidden="true" />
+      </div>
+      <div className="custom-current-plan__rows">
+        {config.customCurrentPoints.map((point, index) => (
+          <div className="custom-current-plan__row" key={index}>
+            <span className="custom-current-plan__index">{index + 1}</span>
+            <Input aria-label={`第 ${index + 1} 个指定停留点`} disabled={disabled} max={holdCurrentMaximum} min={config.initialCurrentA} onChange={(event) => updatePoint(index, "currentA", asNumber(event.target.value))} step="0.1" type="number" value={point.currentA} />
+            <Input aria-label={`第 ${index + 1} 个电流点停留时间`} disabled={disabled} min="0.1" onChange={(event) => updatePoint(index, "dwellS", asNumber(event.target.value))} step="1" type="number" value={point.dwellS} />
+            <button aria-label={`删除第 ${index + 1} 个电流点`} className="custom-current-plan__remove" disabled={disabled || config.customCurrentPoints.length <= 1} onClick={() => removePoint(index)} type="button"><X className="size-4" /></button>
+          </div>
+        ))}
+      </div>
+      <div className="custom-current-plan__footer">
+        <p>{config.customCurrentPoints.length} 个停留点 · 合计停留 {formatDuration(totalDwellS)}</p>
+        <Button disabled={disabled || config.customCurrentPoints.length >= MAX_CUSTOM_CURRENT_POINTS} onClick={addPoint} size="sm" type="button" variant="outline"><Plus className="size-3.5" />增加停留点</Button>
+      </div>
+      <p className="custom-current-plan__hint">自动测试仍按起始、目标和步长逐点判稳；指定电流点会插入序列，判稳后按停留时间每 1 s 记录完整数据。</p>
+    </div>
+  )
+}
+
 function PowerSupplySettingsForm({ snapshot, config, update, active, pending, run }: {
   snapshot: BackendSnapshot | null; config: AppConfiguration; update: UpdateConfig; active: boolean; pending: boolean; run: RunCommand
 }) {
@@ -406,10 +487,17 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
           <p className="power-settings-section-title">自动测试电流</p>
           <p className="power-settings-section-description">设置升流、单点等待和安全下电参数</p>
         </div>
+        <div className="current-plan-mode" role="group" aria-label="自动测试电流计划模式">
+          <button aria-pressed={config.currentPlanMode === "range"} disabled={pending} onClick={() => update("currentPlanMode", "range")} type="button">等步长</button>
+          <button aria-pressed={config.currentPlanMode === "custom"} disabled={pending} onClick={() => update("currentPlanMode", "custom")} type="button">增加停留点</button>
+        </div>
         <div className="power-settings-parameter-grid">
           <NumberField label="起始电流 (A)" value={config.initialCurrentA} onChange={(v) => update("initialCurrentA", v)} max={currentInputMaximum(config, snapshot)} />
           <NumberField label="目标电流 (A)" value={config.targetCurrentA} onChange={(v) => update("targetCurrentA", v)} max={currentInputMaximum(config, snapshot)} />
           <NumberField label="电流间隔 (A)" value={config.currentStepA} onChange={(v) => update("currentStepA", v)} max={currentInputMaximum(config, snapshot)} />
+        </div>
+        {config.currentPlanMode === "custom" && <CustomCurrentPlanEditor config={config} disabled={pending} maximumCurrentA={currentInputMaximum(config, snapshot)} update={update} />}
+        <div className="power-settings-parameter-grid power-settings-parameter-grid--safety">
           <NumberField label="单点超时 (s)" value={config.pointTimeoutS} onChange={(v) => update("pointTimeoutS", v)} />
           <NumberField label="下电步长 (A)" value={config.rampDownStepA} onChange={(v) => update("rampDownStepA", v)} max={currentInputMaximum(config, snapshot)} />
           <NumberField label="下电间隔 (s)" value={config.rampDownIntervalS} onChange={(v) => update("rampDownIntervalS", v)} step="0.1" />
@@ -802,7 +890,7 @@ function ChartLegend({ lines }: { lines: CanvasChartLine[] }) {
   )
 }
 
-const ChartPanel = memo(function ChartPanel({ title, data, xKey, lines, empty = "暂无实时数据", heightClassName, headerRight, annotations, stretch = false, xDomain, xTicks, yDomain, preserveAllPoints = false }: {
+const ChartPanel = memo(function ChartPanel({ title, data, xKey, lines, empty = "暂无实时数据", heightClassName, headerRight, annotations, stretch = false, compactHeader = false, xDomain, xTicks, yDomain, preserveAllPoints = false }: {
   title: string
   data: Array<Record<string, number | null>>
   xKey: string
@@ -812,13 +900,14 @@ const ChartPanel = memo(function ChartPanel({ title, data, xKey, lines, empty = 
   headerRight?: ReactNode
   annotations?: CanvasChartAnnotation[]
   stretch?: boolean
+  compactHeader?: boolean
   xDomain?: [number, number]
   xTicks?: number[]
   yDomain?: [number, number]
   preserveAllPoints?: boolean
 }) {
   return (
-    <Card aria-label={title} className={`pb-1 shadow-none ${stretch ? "h-full min-h-0" : ""}`}>
+    <Card aria-label={title} className={`${compactHeader ? "gap-0" : ""} pb-1 shadow-none ${stretch ? "h-full min-h-0" : ""}`}>
       <CardHeader className="flex min-h-9 flex-row items-center justify-between gap-3 pb-2"><ChartLegend lines={lines} />{headerRight}</CardHeader>
       <CardContent className={`${stretch ? "min-h-0 flex-1" : heightClassName || (data.length === 0 ? "h-40" : "h-56")} px-3 pb-0`}>
         {data.length === 0 ? (
@@ -858,6 +947,7 @@ const ChartPanel = memo(function ChartPanel({ title, data, xKey, lines, empty = 
     && previous.empty === next.empty
     && previous.heightClassName === next.heightClassName
     && previous.stretch === next.stretch
+    && previous.compactHeader === next.compactHeader
     && previous.preserveAllPoints === next.preserveAllPoints
     && sameLines
     && sameNumbers(previous.xDomain, next.xDomain)
@@ -921,7 +1011,7 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch 
       xDomain={powerTimeDomain}
       xTicks={powerTimeTicks}
       yDomain={powerYDomain}
-      headerRight={<div className="flex items-center gap-3"><div className={`flex items-center gap-1.5 text-sm font-medium ${powerStable ? "text-[var(--app-success)]" : powerMeter?.running ? "text-[var(--app-validation)]" : "text-muted-foreground"}`}><span className={`size-2 rounded-full ${powerStable ? "bg-[var(--app-success)]" : powerMeter?.running ? "bg-[var(--app-validation)]" : "bg-muted-foreground/45"}`} />{powerStabilityLabel}</div><p className="text-lg font-semibold tabular-nums">{formatNumber(latestPowerW, " W")}</p></div>}
+      headerRight={<div className="flex items-center gap-3"><div className={`flex items-center gap-2 text-[24px] font-medium leading-none ${powerStable ? "text-[var(--app-success)]" : powerMeter?.running ? "text-[var(--app-validation)]" : "text-muted-foreground"}`}><span className={`size-2.5 rounded-full ${powerStable ? "bg-[var(--app-success)]" : powerMeter?.running ? "bg-[var(--app-validation)]" : "bg-muted-foreground/45"}`} />{powerStabilityLabel}</div><p className="text-[24px] font-semibold leading-none tabular-nums">{formatNumber(latestPowerW, " W")}</p></div>}
     />
   )
 }, (previous, next) => {
@@ -1026,6 +1116,7 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
   return (
     <ChartPanel
       title="光谱"
+      compactHeader
       data={spectrumData}
       xKey="wavelengthNm"
       xDomain={spectrumXDomain}
@@ -1038,18 +1129,18 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
       headerRight={
         spectrum?.saturated
           ? <div className="flex min-w-0 flex-1 items-center justify-end gap-2 text-sm font-medium text-[var(--app-warning)]"><OctagonAlert className="size-4" />光谱饱和 · 请缩短积分时间</div>
-          : <div className="grid min-w-0 flex-1 grid-cols-3 items-center gap-6 text-center">
-          <div className="flex flex-col items-center gap-1">
-            <p className="text-lg font-semibold leading-none tabular-nums">{formatNumber(spectrum?.peakWavelengthNm, " nm")}</p>
-            <p className="text-[10px] leading-none text-muted-foreground">中心波长</p>
+          : <div className="grid min-w-0 flex-1 grid-cols-3 items-center gap-6 py-1 text-center">
+          <div className="flex flex-col items-center justify-center gap-1.5">
+            <p className="text-[24px] font-semibold leading-none tabular-nums">{formatNumber(spectrum?.peakWavelengthNm, " nm")}</p>
+            <p className="text-[20px] leading-none text-muted-foreground">中心波长</p>
           </div>
-          <div className="flex flex-col items-center gap-1">
-            <p className="text-lg font-semibold leading-none tabular-nums">{formatNumber(spectrum?.fwhmNm, " nm")}</p>
-            <p className="text-[10px] leading-none text-muted-foreground">FWHM</p>
+          <div className="flex flex-col items-center justify-center gap-1.5">
+            <p className="text-[24px] font-semibold leading-none tabular-nums">{formatNumber(spectrum?.fwhmNm, " nm")}</p>
+            <p className="text-[20px] leading-none text-muted-foreground">FWHM</p>
           </div>
-          <div className="flex flex-col items-center gap-1">
-            <p className="text-lg font-semibold leading-none tabular-nums">{formatNumber(spectrum?.smsrDb, " dB", 2)}</p>
-            <p className="text-[10px] leading-none text-muted-foreground">SMSR</p>
+          <div className="flex flex-col items-center justify-center gap-1.5">
+            <p className="text-[24px] font-semibold leading-none tabular-nums">{formatNumber(spectrum?.smsrDb, " dB", 2)}</p>
+            <p className="text-[20px] leading-none text-muted-foreground">SMSR</p>
           </div>
         </div>
       }
@@ -1353,8 +1444,8 @@ function App() {
   const activeAlertNotification = powerProtectionNotification ?? spectrumSaturationNotification
   const toastNotifications = visibleNotifications.filter((notification) => notification !== powerProtectionNotification && notification !== spectrumSaturationNotification)
   const title = navigation.find((item) => item.id === page)?.label ?? "自动测试"
-  const sidebarBodyFontPx = 20 * pageZoom
-  const sidebarSecondaryFontPx = 20 * pageZoom
+  const sidebarBodyFontPx = Math.min(22, 26 * pageZoom)
+  const sidebarSecondaryFontPx = Math.min(20, 24 * pageZoom)
   const sidebarIconPx = 16 * pageZoom
   const headerIdentity = <div className="shrink-0">
     <div className="flex items-center gap-2">
@@ -1500,6 +1591,10 @@ function updatePowerSupplyKind(config: AppConfiguration, update: UpdateConfig, k
   update("initialCurrentA", Math.min(config.initialCurrentA, I2C_CURRENT_LIMIT_A))
   update("targetCurrentA", Math.min(config.targetCurrentA, I2C_CURRENT_LIMIT_A))
   update("currentStepA", Math.min(config.currentStepA, I2C_CURRENT_LIMIT_A))
+  update("customCurrentPoints", config.customCurrentPoints.map((point) => ({
+    ...point,
+    currentA: Math.min(point.currentA, I2C_CURRENT_LIMIT_A),
+  })))
   update("rampDownStepA", Math.min(config.rampDownStepA, I2C_CURRENT_LIMIT_A))
 }
 
@@ -2254,6 +2349,11 @@ function AutomaticPage({ snapshot, config, update, active, controlsLocked, pendi
   const testStarted = Boolean(auto && auto.state !== "idle")
   const showingRampDownCurrent = auto?.state === "ramping_down" || auto?.state === "completed"
   const displayedCurrentA = showingRampDownCurrent ? snapshot?.devices.powerSupply.activeCurrentA : auto?.currentA
+  const planSummary = currentPlanSummary(config)
+  const currentDwellS = auto?.currentDwellS ?? 0
+  const progressLabel = testStarted
+    ? `测试点 ${Math.max(0, (auto?.currentIndex ?? -1) + 1)} / ${auto?.currents?.length ?? 0}${currentDwellS > 0 ? ` · ${formatDwellProgress(currentDwellS, auto?.currentDwellElapsedS)}` : ""}`
+    : auto?.settingsError || planSummary
   const [openSettings, setOpenSettings] = useState<DeviceSettingsKind | null>(null)
   const closeSettings = () => setOpenSettings(null)
   useEffect(() => {
@@ -2301,7 +2401,7 @@ function AutomaticPage({ snapshot, config, update, active, controlsLocked, pendi
             <p className="text-2xl font-semibold tabular-nums">{testStarted ? formatNumber(displayedCurrentA, " A", 1) : `${readyCount} / ${readyTotal}`}</p>
           </div>
           <div className="flex min-h-12 min-w-0 items-center gap-3 border-border lg:col-span-2 lg:border-l lg:px-5">
-            <p className="min-w-0 flex-1 truncate text-sm font-medium text-muted-foreground" title={testStarted ? `测试点 ${Math.max(0, (auto?.currentIndex ?? -1) + 1)} / ${auto?.currents?.length ?? 0}` : auto?.detail || "等待配置"}>{testStarted ? `测试点 ${Math.max(0, (auto?.currentIndex ?? -1) + 1)} / ${auto?.currents?.length ?? 0}` : auto?.detail || "等待配置"}</p>
+            <p className={`min-w-0 flex-1 truncate text-sm font-medium ${auto?.settingsError && !testStarted ? "text-[var(--app-warning)]" : "text-muted-foreground"}`} title={progressLabel}>{progressLabel}</p>
             {auto?.canRetry && <Button disabled={!active || pending} onClick={() => void run("automatic.retry")} size="sm" variant="outline"><RotateCcw className="size-4" />修复后重试</Button>}
           </div>
           <div className="flex min-h-12 items-center justify-center border-border lg:border-l lg:px-5">

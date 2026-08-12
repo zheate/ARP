@@ -534,6 +534,11 @@ class MainWindowTests(unittest.TestCase):
             first_window.auto_initial_current_spin.setValue(2.0)
             first_window.auto_target_current_spin.setValue(18.0)
             first_window.auto_current_step_spin.setValue(2.0)
+            first_window.automatic_current_plan_mode = "custom"
+            first_window.automatic_custom_current_points = [
+                {"current_a": 3.0, "dwell_s": 300.0},
+                {"current_a": 5.0, "dwell_s": 120.0},
+            ]
             first_window.auto_point_timeout_spin.setValue(180.0)
             first_window.auto_ramp_down_step_spin.setValue(4.0)
             first_window.auto_ramp_down_interval_spin.setValue(1.5)
@@ -552,6 +557,14 @@ class MainWindowTests(unittest.TestCase):
             self.assertEqual(restored_window.auto_initial_current_spin.value(), 2.0)
             self.assertEqual(restored_window.auto_target_current_spin.value(), 18.0)
             self.assertEqual(restored_window.auto_current_step_spin.value(), 2.0)
+            self.assertEqual(restored_window.automatic_current_plan_mode, "custom")
+            self.assertEqual(
+                restored_window.automatic_custom_current_points,
+                [
+                    {"current_a": 3.0, "dwell_s": 300.0},
+                    {"current_a": 5.0, "dwell_s": 120.0},
+                ],
+            )
             self.assertEqual(restored_window.auto_point_timeout_spin.value(), 180.0)
             self.assertEqual(restored_window.auto_ramp_down_step_spin.value(), 4.0)
             self.assertEqual(restored_window.auto_ramp_down_interval_spin.value(), 1.5)

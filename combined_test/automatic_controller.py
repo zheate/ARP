@@ -7,6 +7,7 @@ operator-facing UI effects to its host.
 from __future__ import annotations
 
 import math
+import time
 from collections import deque
 from enum import Enum
 from typing import Any, Callable
@@ -15,9 +16,12 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMessageBox
 
 from .automation import (
+    AutomaticCurrentPoint,
     AutomaticTestSettings,
     AutomaticTestState,
+    CUSTOM_HOLD_RAMP_INTERVAL_S,
     PowerDropProtectionDetector,
+    build_custom_hold_ramp_currents,
     validate_automatic_test_settings,
 )
 from .device_interfaces import PowerMeter, PowerSupply, SpectrumMeter
@@ -43,6 +47,7 @@ AUTOMATIC_CONTROLLER_METHODS = (
     "on_spectrometer_ready",
     "maybe_start_automatic_current_sequence",
     "begin_automatic_current_point",
+    "schedule_next_automatic_ramp_up_current",
     "schedule_automatic_current_command",
     "on_automatic_command_timer_timeout",
     "write_automatic_current",
@@ -54,6 +59,7 @@ AUTOMATIC_CONTROLLER_METHODS = (
     "end_automatic_test",
     "on_automatic_device_start_timeout",
     "on_automatic_point_timeout",
+    "automatic_point_hold_remaining_s",
     "on_automatic_ramp_down_current_applied",
     "begin_automatic_ramp_down",
     "schedule_next_automatic_ramp_down_current",
@@ -265,6 +271,12 @@ class AutomaticTestController:
                 AutomaticTestState.WAITING_VOLTAGE,
                 f"{current_a:.1f} A {stable_label}，等待读取输出电压",
             )
+            if self.automatic_orchestrator.current_dwell_s > 0.0:
+                self.begin_automatic_point_hold()
+                self.add_log(
+                    f"{current_a:.1f} A 已判稳，开始停留 "
+                    f"{self.automatic_orchestrator.current_dwell_s:g} s 并每 1 s 记录"
+                )
 
     def on_acquisition_failed(self, device_label: str, message: str) -> None:
         if device_label == "光谱仪" and not self.automatic_uses_spectrometer():
@@ -348,6 +360,13 @@ class AutomaticTestController:
         return settings is None or settings.use_spectrometer
 
     def collect_automatic_test_settings(self) -> AutomaticTestSettings:
+        custom_points = tuple(
+            AutomaticCurrentPoint(
+                current_a=float(point["current_a"]),
+                dwell_s=float(point["dwell_s"]),
+            )
+            for point in self.automatic_custom_current_points
+        )
         settings = AutomaticTestSettings(
             initial_current_a=self.auto_initial_current_spin.value(),
             target_current_a=self.auto_target_current_spin.value(),
@@ -359,6 +378,12 @@ class AutomaticTestController:
             use_spectrometer=self.auto_use_spectrometer_check.isChecked(),
             maximum_current_a=(
                 None if self._selected_power_supply_kind() == "tdk" else 20.0
+            ),
+            current_plan_mode=self.automatic_current_plan_mode,
+            custom_current_points=custom_points,
+            custom_hold_ramp_enabled=(
+                self.automatic_current_plan_mode == "custom"
+                and self._selected_power_supply_kind() == "tdk"
             ),
         )
         return validate_automatic_test_settings(
@@ -398,6 +423,8 @@ class AutomaticTestController:
         try:
             settings = self.collect_automatic_test_settings()
             self.begin_test_session(require_station=True)
+            if settings.current_plan_mode == "custom":
+                self.open_automatic_sample_recorder()
         except Exception as exc:
             QMessageBox.warning(self._host, "自动测试", self._error_formatter(exc))
             return
@@ -466,13 +493,57 @@ class AutomaticTestController:
             self.pause_automatic_test("自动测试电流序列无效")
             return
         current_a = self.automatic_test_currents[self.automatic_test_current_index]
+        self.automatic_point_started_monotonic_s = None
+        self.automatic_hold_started_monotonic_s = None
+        settings = self.automatic_test_settings
+        if settings is not None and settings.custom_hold_ramp_enabled:
+            try:
+                self.automatic_ramp_up_currents = deque(
+                    build_custom_hold_ramp_currents(
+                        max(0.0, float(self.active_output_current_a or 0.0)),
+                        current_a,
+                    )
+                )
+            except ValueError as exc:
+                self.pause_automatic_test(self._error_formatter(exc))
+                return
+            self.set_automatic_test_state(
+                AutomaticTestState.SETTING_CURRENT,
+                f"正以 0.5 A/0.5 s 升流至 {current_a:.1f} A",
+            )
+            self.schedule_next_automatic_ramp_up_current()
+            return
         self.set_automatic_test_state(AutomaticTestState.SETTING_CURRENT, f"正在设置 {current_a:.1f} A")
         self.schedule_automatic_current_command(current_a, "test")
 
-    def schedule_automatic_current_command(self, current_a: float, kind: str) -> None:
+    def schedule_next_automatic_ramp_up_current(self) -> None:
+        if self.automatic_test_state != AutomaticTestState.SETTING_CURRENT:
+            return
+        if not self.automatic_ramp_up_currents:
+            current_a = self.automatic_test_currents[self.automatic_test_current_index]
+            self.schedule_automatic_current_command(current_a, "test")
+            return
+        current_a = self.automatic_ramp_up_currents.popleft()
+        kind = "test" if not self.automatic_ramp_up_currents else "ramp_up"
+        self.schedule_automatic_current_command(
+            current_a,
+            kind,
+            minimum_delay_s=CUSTOM_HOLD_RAMP_INTERVAL_S,
+        )
+
+    def schedule_automatic_current_command(
+        self,
+        current_a: float,
+        kind: str,
+        *,
+        minimum_delay_s: float = 0.0,
+    ) -> None:
         self.pending_automatic_current_a = float(current_a)
         self.pending_automatic_command_kind = kind
-        remaining_s = self.power_supply_command_interval_remaining_s()
+        remaining_s = max(
+            max(0.0, float(minimum_delay_s)),
+            self.power_supply_command_interval_remaining_s(),
+        )
         if remaining_s > 0.0:
             self.automatic_command_timer.start(max(1, math.ceil(remaining_s * 1000.0)))
             return
@@ -574,10 +645,30 @@ class AutomaticTestController:
         if kind == "ramp_down":
             self.on_automatic_ramp_down_current_applied(current_a)
             return
+        if kind == "ramp_up":
+            self.cancel_auto_vout_read()
+            self.set_current_spin.setValue(current_a)
+            self.active_output_current_a = current_a
+            self.pending_stable_point_current_a = None
+            self.pending_stable_point_generation = None
+            self.recorded_stable_point_current_a = None
+            self.recorded_stable_point_generation = None
+            target_current_a = self.automatic_test_currents[self.automatic_test_current_index]
+            self.set_automatic_test_state(
+                AutomaticTestState.SETTING_CURRENT,
+                f"升流过渡 {current_a:.1f} A，目标停留点 {target_current_a:.1f} A",
+            )
+            self.add_log(
+                f"指定停留点升流过渡：输出电流已设为 {current_a:.1f} A，"
+                "不判稳、不记录"
+            )
+            self.schedule_next_automatic_ramp_up_current()
+            return
 
         self.cancel_auto_vout_read()
         self.set_current_spin.setValue(current_a)
         self.active_output_current_a = current_a
+        self.automatic_point_started_monotonic_s = time.monotonic()
         self.pending_stable_point_current_a = current_a
         self.recorded_stable_point_current_a = None
         self.recorded_stable_point_generation = None
@@ -593,11 +684,28 @@ class AutomaticTestController:
             f"等待 {current_a:.1f} A {stability_label}",
         )
         if self.automatic_test_settings is not None:
-            self.automatic_point_timer.start(round(self.automatic_test_settings.point_timeout_s * 1000.0))
+            timeout_s = (
+                self.automatic_test_settings.point_timeout_s
+                + self.automatic_orchestrator.current_dwell_s
+            )
+            self.automatic_point_timer.start(round(timeout_s * 1000.0))
         self.add_log(
             f"自动测试 {self.automatic_test_current_index + 1}/{len(self.automatic_test_currents)}："
             f"输出电流已设为 {current_a:.1f} A"
+            + (
+                f"，至少保持 {self.automatic_orchestrator.current_dwell_s:g} s"
+                if self.automatic_orchestrator.current_dwell_s > 0.0
+                else ""
+            )
         )
+
+    def automatic_point_hold_remaining_s(self, now: float | None = None) -> float:
+        started_at = self.automatic_hold_started_monotonic_s
+        dwell_s = self.automatic_orchestrator.current_dwell_s
+        if started_at is None or dwell_s <= 0.0:
+            return 0.0
+        current_time = time.monotonic() if now is None else float(now)
+        return max(0.0, dwell_s - (current_time - started_at))
 
     def set_automatic_test_state(self, state: AutomaticTestState, detail: str = "") -> None:
         self.automatic_orchestrator.set_state(state)
@@ -703,7 +811,9 @@ class AutomaticTestController:
         self._clear_current_write_retry()
         self.pending_automatic_current_a = None
         self.pending_automatic_command_kind = None
+        self.automatic_ramp_up_currents.clear()
         self.cancel_auto_vout_read()
+        self.stop_automatic_point_sampling()
         self.set_automatic_test_state(AutomaticTestState.PAUSED, f"已暂停：{reason}")
         self.statusBar().showMessage(f"自动测试已暂停：{reason}")
         self.add_log(f"自动测试已暂停并保持当前电流：{reason}")
@@ -914,6 +1024,8 @@ class AutomaticTestController:
         self.automatic_pause_safety_timer.stop()
         object.__setattr__(self, "_pause_holds_current_until_operator", False)
         self.cancel_auto_vout_read()
+        self.stop_automatic_point_sampling()
+        self.automatic_ramp_up_currents.clear()
         start_current_a = max(0.0, float(self.active_output_current_a or 0.0))
         try:
             self.automatic_ramp_down_currents = deque(self.automatic_orchestrator.begin_ramp_down(start_current_a))
@@ -946,6 +1058,7 @@ class AutomaticTestController:
         object.__setattr__(self, "_pause_holds_current_until_operator", False)
         self.pending_automatic_current_a = None
         self.pending_automatic_command_kind = None
+        self.automatic_ramp_up_currents.clear()
         self._clear_current_write_retry()
         if self._pending_terminal_outcome is None and self.terminal_outcome is None:
             self._set_pending_terminal_outcome(
@@ -974,6 +1087,7 @@ class AutomaticTestController:
             self.sync_tdk_output_controls(False)
         self.active_output_current_a = 0.0
         self.set_current_spin.setValue(0.0)
+        self.close_automatic_sample_recorder()
         self._confirm_terminal_outcome()
         self.automatic_orchestrator.complete()
         completed_message = completion_detail or self._completion_message()
@@ -1028,7 +1142,12 @@ class AutomaticTestController:
             return
         self.automatic_test_settings = None
         self.automatic_test_currents = ()
+        self.automatic_orchestrator.dwell_times_s = ()
         self.automatic_test_current_index = -1
+        self.automatic_point_started_monotonic_s = None
+        self.automatic_hold_started_monotonic_s = None
+        self.automatic_ramp_up_currents.clear()
+        self.close_automatic_sample_recorder()
         self.automatic_completion_record = None
         self.automatic_run_started_monotonic_s = None
         self._clear_current_write_retry()

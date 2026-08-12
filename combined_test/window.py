@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import os
 import sys
@@ -45,6 +46,12 @@ from PySide6.QtWidgets import (
 )
 
 from .automatic_controller import AutomaticTestController, AutomaticTestTerminalOutcome
+from .automatic_samples import (
+    AUTOMATIC_SAMPLE_INTERVAL_S,
+    AutomaticSampleRecorder,
+    AutomaticSecondSample,
+    automatic_sample_path,
+)
 from .automation import (
     AutomaticTestOrchestrator,
     AutomaticTestSettings,
@@ -289,6 +296,20 @@ class MainWindow(QMainWindow):
         self.automatic_test_settings: AutomaticTestSettings | None = None
         self.automatic_test_currents: tuple[float, ...] = ()
         self.automatic_test_current_index = -1
+        self.automatic_current_plan_mode = "range"
+        self.automatic_custom_current_points = [
+            {"current_a": 3.0, "dwell_s": 300.0},
+            {"current_a": 5.0, "dwell_s": 300.0},
+        ]
+        self.automatic_point_started_monotonic_s: float | None = None
+        self.automatic_hold_started_monotonic_s: float | None = None
+        self.automatic_sample_recorder: AutomaticSampleRecorder | None = None
+        self.automatic_sample_csv_path: Path | None = None
+        self.automatic_sample_last_second = 0
+        self.automatic_sample_timer = QTimer(self)
+        self.automatic_sample_timer.setInterval(round(AUTOMATIC_SAMPLE_INTERVAL_S * 1000.0))
+        self.automatic_sample_timer.setTimerType(Qt.TimerType.PreciseTimer)
+        self.automatic_sample_timer.timeout.connect(self.record_automatic_second_sample)
         self.automatic_power_meter_ready = False
         self.automatic_spectrometer_ready = False
         self.automatic_pause_reason = ""
@@ -312,6 +333,7 @@ class MainWindow(QMainWindow):
         self.automatic_command_timer.timeout.connect(self.on_automatic_command_timer_timeout)
         self.pending_automatic_current_a: float | None = None
         self.pending_automatic_command_kind: str | None = None
+        self.automatic_ramp_up_currents: deque[float] = deque()
         self.automatic_ramp_down_currents: deque[float] = deque()
         self.automatic_ramp_down_timer = QTimer(self)
         self.automatic_ramp_down_timer.setSingleShot(True)
@@ -611,6 +633,25 @@ class MainWindow(QMainWindow):
         self.auto_current_step_spin.setValue(
             settings.value(prefix + "auto_current_step_a", self.auto_current_step_spin.value(), type=float)
         )
+        saved_plan_mode = str(settings.value(prefix + "auto_current_plan_mode", "range")).strip()
+        self.automatic_current_plan_mode = saved_plan_mode if saved_plan_mode in {"range", "custom"} else "range"
+        raw_custom_points = str(settings.value(prefix + "auto_custom_current_points", "")).strip()
+        if raw_custom_points:
+            try:
+                parsed_points = json.loads(raw_custom_points)
+                if isinstance(parsed_points, list) and parsed_points:
+                    self.automatic_custom_current_points = [
+                        {
+                            "current_a": float(point["current_a"]),
+                            "dwell_s": float(point["dwell_s"]),
+                        }
+                        for point in parsed_points
+                        if isinstance(point, dict)
+                        and "current_a" in point
+                        and "dwell_s" in point
+                    ]
+            except (TypeError, ValueError, json.JSONDecodeError):
+                self.automatic_current_plan_mode = "range"
         self.auto_point_timeout_spin.setValue(
             settings.value(prefix + "auto_point_timeout_s", self.auto_point_timeout_spin.value(), type=float)
         )
@@ -765,6 +806,11 @@ class MainWindow(QMainWindow):
         settings.setValue(prefix + "auto_initial_current_a", self.auto_initial_current_spin.value())
         settings.setValue(prefix + "auto_target_current_a", self.auto_target_current_spin.value())
         settings.setValue(prefix + "auto_current_step_a", self.auto_current_step_spin.value())
+        settings.setValue(prefix + "auto_current_plan_mode", self.automatic_current_plan_mode)
+        settings.setValue(
+            prefix + "auto_custom_current_points",
+            json.dumps(self.automatic_custom_current_points, ensure_ascii=False),
+        )
         settings.setValue(prefix + "auto_point_timeout_s", self.auto_point_timeout_spin.value())
         settings.setValue(prefix + "auto_ramp_down_step_a", self.auto_ramp_down_step_spin.value())
         settings.setValue(prefix + "auto_ramp_down_interval_s", self.auto_ramp_down_interval_spin.value())
@@ -2731,6 +2777,161 @@ class MainWindow(QMainWindow):
         self.add_log(f"Excel 输出：{self.excel_workbook_path}")
         return self.excel_workbook_path
 
+    def open_automatic_sample_recorder(self) -> Path:
+        self.close_automatic_sample_recorder()
+        path = automatic_sample_path(self.excel_workbook_path)
+        self.automatic_sample_recorder = AutomaticSampleRecorder(path)
+        self.automatic_sample_csv_path = path
+        self.add_log(f"自动测试 1 秒明细：{path}")
+        return path
+
+    def begin_automatic_point_sampling(self) -> None:
+        self.automatic_sample_timer.stop()
+        self.automatic_sample_last_second = 0
+        if self.automatic_sample_recorder is not None:
+            self.automatic_sample_timer.start()
+
+    def begin_automatic_point_hold(self) -> None:
+        # A designated hold is latched by the first joint-stability event.
+        # Transient power/wavelength movement during the hold must not restart
+        # the user's dwell timer or create a second 1-second sample sequence.
+        if self.automatic_hold_started_monotonic_s is not None:
+            return
+        self.automatic_hold_started_monotonic_s = time.monotonic()
+        self.begin_automatic_point_sampling()
+
+    def automatic_point_hold_is_latched(self) -> bool:
+        return (
+            self.automatic_orchestrator.current_dwell_s > 0.0
+            and self.automatic_hold_started_monotonic_s is not None
+            and self.automatic_test_state == AutomaticTestState.WAITING_VOLTAGE
+            and self.active_output_current_a is not None
+            and self.active_output_current_a == self.recorded_stable_point_current_a
+        )
+
+    def stop_automatic_point_sampling(self) -> None:
+        self.automatic_sample_timer.stop()
+
+    def close_automatic_sample_recorder(self) -> None:
+        self.automatic_sample_timer.stop()
+        recorder = self.automatic_sample_recorder
+        self.automatic_sample_recorder = None
+        if recorder is not None:
+            recorder.close()
+
+    def record_automatic_second_sample(
+        self,
+        *,
+        force: bool = False,
+        raw_voltage_v: float | None = None,
+        voltage_v: float | None = None,
+        power_w: float | None = None,
+    ) -> bool:
+        recorder = self.automatic_sample_recorder
+        started_at = self.automatic_hold_started_monotonic_s
+        current_a = self.active_output_current_a
+        if (
+            recorder is None
+            or started_at is None
+            or current_a is None
+            or current_a <= 0.0
+            or self.automatic_test_state
+            not in (AutomaticTestState.WAITING_STABLE, AutomaticTestState.WAITING_VOLTAGE)
+        ):
+            return False
+
+        now = time.monotonic()
+        dwell_s = self.automatic_orchestrator.current_dwell_s
+        if dwell_s <= 0.0:
+            self.automatic_sample_timer.stop()
+            return False
+        actual_elapsed_s = max(0.0, now - started_at)
+        point_elapsed_s = min(actual_elapsed_s, dwell_s)
+        reached_dwell_end = actual_elapsed_s >= dwell_s
+        elapsed_second = max(1, int(math.floor(point_elapsed_s + 0.05)))
+        if elapsed_second <= self.automatic_sample_last_second:
+            if reached_dwell_end:
+                self.automatic_sample_timer.stop()
+            return False
+
+        errors: list[str] = []
+        output_current_a: float | None = None
+        output_voltage_raw_v = raw_voltage_v
+        output_voltage_v = voltage_v
+        if self.power_supply_controller_kind == "tdk":
+            try:
+                power_supply = self.get_power_supply()
+                if power_supply is None:
+                    raise RuntimeError("TDK 电源未连接")
+                output_current_a = float(power_supply.read_output_current())
+                if output_voltage_raw_v is None:
+                    output_voltage_raw_v = float(power_supply.read_output_voltage())
+                if output_voltage_v is None and output_voltage_raw_v is not None:
+                    output_voltage_v = compensate_tdk_output_voltage(
+                        output_voltage_raw_v,
+                        output_current_a,
+                    )
+            except Exception as exc:
+                errors.append(f"电流/电压：{user_facing_error_message(exc)}")
+        else:
+            # CH341 commands require more than one second of bus spacing, so the
+            # commanded current and latest safe voltage read are archived.
+            output_current_a = float(current_a)
+            if output_voltage_raw_v is None and math.isfinite(self.last_raw_output_voltage_v):
+                output_voltage_raw_v = float(self.last_raw_output_voltage_v)
+            if output_voltage_v is None:
+                output_voltage_v = output_voltage_raw_v
+            if output_voltage_v is None:
+                errors.append("CH341 尚无安全的输出电压回读")
+
+        reading = self.latest_power_meter_reading
+        if power_w is None and reading is not None:
+            power_w = float(reading.power_w)
+        if power_w is None:
+            errors.append("暂无功率数据")
+
+        wavelengths: tuple[float, ...] = ()
+        intensities: tuple[float, ...] = ()
+        stats = self.latest_spectrum_stats
+        if self.automatic_controller.automatic_uses_spectrometer():
+            try:
+                if self.latest_spectrum_wavelength is None or self.latest_spectrum_intensity is None:
+                    raise RuntimeError("暂无光谱数据")
+                wavelengths = tuple(float(value) for value in self.latest_spectrum_wavelength)
+                intensities = tuple(float(value) for value in self.latest_spectrum_intensity)
+                if len(wavelengths) != len(intensities) or not wavelengths:
+                    raise RuntimeError("光谱数据为空或长度不一致")
+            except Exception as exc:
+                errors.append(f"光谱：{user_facing_error_message(exc)}")
+                wavelengths = ()
+                intensities = ()
+
+        recorder.write(
+            AutomaticSecondSample(
+                point_index=self.automatic_test_current_index + 1,
+                point_elapsed_s=point_elapsed_s,
+                target_current_a=float(current_a),
+                output_current_a=output_current_a,
+                output_voltage_raw_v=output_voltage_raw_v,
+                output_voltage_v=output_voltage_v,
+                optical_power_w=power_w,
+                peak_wavelength_nm=(float(stats.peak_wavelength_nm) if stats is not None else None),
+                centroid_nm=(float(stats.centroid_nm) if stats is not None else None),
+                fwhm_nm=(float(stats.fwhm_nm) if stats is not None else None),
+                spectrum_wavelengths_nm=wavelengths,
+                spectrum_intensities=intensities,
+                error="；".join(errors),
+            )
+        )
+        self.automatic_sample_last_second = elapsed_second
+        if reached_dwell_end:
+            self.automatic_sample_timer.stop()
+        if force:
+            self.add_log(
+                f"{current_a:.3f} A 逐秒明细已记录至 {point_elapsed_s:.1f} s"
+            )
+        return True
+
     def stop_all(self) -> None:
         if self.automatic_test_state not in (
             AutomaticTestState.IDLE,
@@ -3425,6 +3626,14 @@ class MainWindow(QMainWindow):
                 else AUTO_VOUT_AFTER_STABLE_S
             )
         delay_s = max(float(delay_s), self.vout_read_interval_remaining_s())
+        if self.automatic_test_state in (
+            AutomaticTestState.WAITING_STABLE,
+            AutomaticTestState.WAITING_VOLTAGE,
+        ):
+            delay_s = max(
+                delay_s,
+                self.automatic_controller.automatic_point_hold_remaining_s(),
+            )
         self.pending_auto_vout_current_a = current_a
         self.pending_auto_vout_generation = generation
         reading = self.latest_power_meter_reading
@@ -3475,25 +3684,38 @@ class MainWindow(QMainWindow):
             and self.latest_spectrum_reading_received_monotonic_s is not None
             and self.latest_spectrum_reading_received_monotonic_s > initial_spectrum_received_s
         )
-        if (
-            current_a is None
-            or generation is None
-            or current_a != self.active_output_current_a
-            or current_a != self.recorded_stable_point_current_a
-            or generation != self.recorded_stable_point_generation
-            or reading is None
-            or not reading.stable
-            or reading.stability_generation != generation
-            or not power_is_fresh
-            or not power_has_progressed
-            or (
-                requires_spectrum
-                and (
-                    not self.latest_wavelength_stable
-                    or not spectrum_is_fresh
-                    or not spectrum_has_progressed
+        hold_is_latched = self.automatic_point_hold_is_latched()
+        hold_remaining_s = self.automatic_controller.automatic_point_hold_remaining_s(now)
+        if hold_is_latched and hold_remaining_s > 0.0:
+            # Protect against a timer firing a few milliseconds early. Keep the
+            # original hold start and wait only for the remaining duration.
+            self.schedule_auto_vout_read(delay_s=hold_remaining_s)
+            return
+        hold_is_complete = hold_is_latched and hold_remaining_s <= 0.0
+        point_identity_is_valid = (
+            current_a is not None
+            and generation is not None
+            and current_a == self.active_output_current_a
+            and current_a == self.recorded_stable_point_current_a
+            and generation == self.recorded_stable_point_generation
+        )
+        latest_measurement_is_valid = (
+            reading is not None
+            and reading.stable
+            and reading.stability_generation == generation
+            and power_is_fresh
+            and power_has_progressed
+            and (
+                not requires_spectrum
+                or (
+                    self.latest_wavelength_stable
+                    and spectrum_is_fresh
+                    and spectrum_has_progressed
                 )
             )
+        )
+        if not point_identity_is_valid or (
+            not hold_is_complete and not latest_measurement_is_valid
         ):
             if not power_is_fresh or not power_has_progressed:
                 reason = "功率采样已中断"
@@ -3510,6 +3732,8 @@ class MainWindow(QMainWindow):
 
     def invalidate_automatic_stability(self, reason: str) -> None:
         if self.automatic_test_state != AutomaticTestState.WAITING_VOLTAGE:
+            return
+        if self.automatic_point_hold_is_latched():
             return
         self.cancel_auto_vout_read()
         self.recorded_stable_point_current_a = None
@@ -3581,6 +3805,7 @@ class MainWindow(QMainWindow):
             return
 
         raw_voltage_v = float(voltage_v)
+        self.last_raw_output_voltage_v = raw_voltage_v
         if self.power_supply_controller_kind == "tdk":
             voltage_v = compensate_tdk_output_voltage(raw_voltage_v, current_a)
             self.add_log(
@@ -3604,6 +3829,13 @@ class MainWindow(QMainWindow):
             f"效率点：{current_a:.3f} A，{power_w:.3f} W / "
             f"({current_a:.3f} A × {voltage_v:.3f} V) = {efficiency_percent:.2f}%"
         )
+        self.record_automatic_second_sample(
+            force=True,
+            raw_voltage_v=raw_voltage_v,
+            voltage_v=voltage_v,
+            power_w=power_w,
+        )
+        self.stop_automatic_point_sampling()
 
         queued = self.queue_excel_test_point(
             current_a,
@@ -3871,6 +4103,7 @@ class MainWindow(QMainWindow):
             self,
             session=session,
             attempts=attempts,
+            automatic_samples_path=self.automatic_sample_csv_path,
         )
         self.excel_save_thread.saved.connect(self.on_excel_save_succeeded)
         self.excel_save_thread.failed.connect(self.on_excel_save_failed)
@@ -3879,6 +4112,29 @@ class MainWindow(QMainWindow):
         self.save_excel_button.setText("保存中…")
         self.save_status_label.setText("正在写入最终测试状态…")
         self.excel_save_thread.start()
+        return True
+
+    def delete_final_automatic_sample_csv(self, thread: ExcelSaveThread) -> bool:
+        sample_path_value = getattr(thread, "automatic_samples_path", None)
+        if sample_path_value is None:
+            return False
+        sample_path = Path(sample_path_value)
+        expected_path = automatic_sample_path(Path(thread.path))
+        if sample_path.resolve(strict=False) != expected_path.resolve(strict=False):
+            self.add_log(f"逐秒 CSV 路径与当前 Excel 不匹配，未删除：{sample_path}")
+            return False
+        try:
+            sample_path.unlink(missing_ok=True)
+        except OSError as exc:
+            self.add_log(f"Excel 已保存，但逐秒 CSV 删除失败：{sample_path}（{exc}）")
+            return False
+        if (
+            self.automatic_sample_csv_path is not None
+            and self.automatic_sample_csv_path.resolve(strict=False)
+            == sample_path.resolve(strict=False)
+        ):
+            self.automatic_sample_csv_path = None
+        self.add_log(f"最终 Excel 已包含逐秒数据，已删除临时 CSV：{sample_path}")
         return True
 
     def on_excel_save_succeeded(self, elapsed_s: float) -> None:
@@ -3904,6 +4160,7 @@ class MainWindow(QMainWindow):
         self.add_log(f"Excel 已在 {elapsed_s:.2f} 秒内保存：{thread.path}")
         pending_finalization = self._automatic_finalization_pending
         if pending_finalization is not None:
+            self.delete_final_automatic_sample_csv(thread)
             self._automatic_finalization_pending = None
             completion_record, completed_message = pending_finalization
             self.automatic_controller.finish_automatic_test_presentation(
@@ -4008,9 +4265,14 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "相对调零", "LaserPoint 不支持彩煌的相对调零指令。")
             return
         try:
-            from tools.power_meter_mvp import CaihuangPowerMeter
+            from tools.power_meter_mvp import CaihuangPowerMeter, CoherentPowerMeter
 
-            meter = CaihuangPowerMeter(resource)
+            meter_class = (
+                CoherentPowerMeter
+                if isinstance(option, PowerMeterOption) and option.driver_kind == "coherent"
+                else CaihuangPowerMeter
+            )
+            meter = meter_class(resource)
             try:
                 meter.set_relative_zero(enabled)
             finally:
@@ -4351,6 +4613,7 @@ class MainWindow(QMainWindow):
                 and not result.stable
                 and self.automatic_test_state == AutomaticTestState.WAITING_VOLTAGE
                 and self.automatic_controller.automatic_uses_spectrometer()
+                and not self.automatic_point_hold_is_latched()
             ):
                 self.invalidate_automatic_stability("中心波长不再稳定")
         else:
@@ -4504,6 +4767,7 @@ class MainWindow(QMainWindow):
                 not reading.stable
                 and self.pending_auto_vout_current_a == self.active_output_current_a
                 and self.pending_auto_vout_generation == reading.stability_generation
+                and not self.automatic_point_hold_is_latched()
             ):
                 self.cancel_auto_vout_read()
                 self.add_log("功率不再稳定，已取消自动读取输出电压")
@@ -4560,8 +4824,8 @@ class MainWindow(QMainWindow):
                 f"已记录 {current_a:.3f} A 时的稳定功率：{stable_power_w:.3f} W"
             )
             self.add_log(f"稳定功率点：{current_a:.3f} A，{stable_power_w:.3f} W")
-        self.schedule_auto_vout_read()
         self.automatic_controller.on_stable_power_captured(current_a)
+        self.schedule_auto_vout_read()
 
     def update_latest_stable_power_point(self, reading: PowerMeterReading) -> None:
         current_a = self.recorded_stable_point_current_a

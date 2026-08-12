@@ -549,6 +549,29 @@ class LegacyWindowBackend:
         if "powerSupplyKind" in params:
             self._set_combo_data(window.power_supply_controller_combo, params["powerSupplyKind"])
 
+        if "currentPlanMode" in params:
+            plan_mode = str(params["currentPlanMode"]).strip().lower()
+            if plan_mode not in {"range", "custom"}:
+                raise ValueError(f"不支持的电流计划模式：{plan_mode}")
+            window.automatic_current_plan_mode = plan_mode
+        if "customCurrentPoints" in params:
+            raw_points = params["customCurrentPoints"]
+            if not isinstance(raw_points, list):
+                raise ValueError("自定义电流点必须是列表")
+            custom_points: list[dict[str, float]] = []
+            for index, point in enumerate(raw_points, start=1):
+                if not isinstance(point, dict):
+                    raise ValueError(f"第 {index} 个自定义电流点格式无效")
+                try:
+                    current_a = float(point["currentA"])
+                    dwell_s = float(point["dwellS"])
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise ValueError(f"第 {index} 个自定义电流点格式无效") from exc
+                if not math.isfinite(current_a) or not math.isfinite(dwell_s):
+                    raise ValueError(f"第 {index} 个自定义电流点必须使用有限数值")
+                custom_points.append({"current_a": current_a, "dwell_s": dwell_s})
+            window.automatic_custom_current_points = custom_points
+
         values = {
             "initialCurrentA": window.auto_initial_current_spin,
             "targetCurrentA": window.auto_target_current_spin,
@@ -974,6 +997,20 @@ class LegacyWindowBackend:
         if currents:
             progress = max(0.0, min(1.0, (current_index + 1) / len(currents)))
 
+        current_dwell_s = max(0.0, float(automatic.current_dwell_s))
+        current_dwell_elapsed_s: float | None = None
+        if (
+            current_dwell_s > 0.0
+            and window.automatic_hold_started_monotonic_s is not None
+        ):
+            remaining_s = window.automatic_controller.automatic_point_hold_remaining_s()
+            elapsed_s = max(0.0, current_dwell_s - remaining_s)
+            current_dwell_elapsed_s = (
+                current_dwell_s
+                if remaining_s <= 0.0
+                else min(current_dwell_s, float(math.floor(elapsed_s)))
+            )
+
         return {
             "capturedAt": datetime.now(timezone.utc).isoformat(),
             "seriesRevisions": series_revisions,
@@ -1013,6 +1050,14 @@ class LegacyWindowBackend:
                 "initialCurrentA": window.auto_initial_current_spin.value(),
                 "targetCurrentA": window.auto_target_current_spin.value(),
                 "currentStepA": window.auto_current_step_spin.value(),
+                "currentPlanMode": window.automatic_current_plan_mode,
+                "customCurrentPoints": [
+                    {
+                        "currentA": float(point["current_a"]),
+                        "dwellS": float(point["dwell_s"]),
+                    }
+                    for point in window.automatic_custom_current_points
+                ],
                 "pointTimeoutS": window.auto_point_timeout_spin.value(),
                 "rampDownStepA": window.auto_ramp_down_step_spin.value(),
                 "rampDownIntervalS": window.auto_ramp_down_interval_spin.value(),
@@ -1084,8 +1129,12 @@ class LegacyWindowBackend:
                 "canEnd": _enum_value(automatic.state) not in ("idle", "completed", "ramping_down"),
                 "settingsError": settings_error,
                 "currents": currents,
+                "dwellTimesS": list(automatic.dwell_times_s),
                 "currentIndex": current_index,
                 "currentA": _number(automatic.current_a),
+                "currentDwellS": current_dwell_s,
+                "currentDwellElapsedS": current_dwell_elapsed_s,
+                "samplePath": str(window.automatic_sample_csv_path or ""),
                 "progress": progress,
                 "pauseReason": automatic.pause_reason,
                 "terminalOutcome": _enum_value(window.automatic_controller.terminal_outcome),

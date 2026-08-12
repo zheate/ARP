@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from openpyxl import Workbook, load_workbook
 
+from combined_test.automatic_samples import AutomaticSampleRecorder, AutomaticSecondSample
 from combined_test.excel_export import ExcelTestRecord, append_test_record, build_test_workbook_path, save_test_records
 
 
@@ -177,6 +178,207 @@ class ExcelExportTests(unittest.TestCase):
             self.assertEqual([sheet.cell(3, column).value for column in range(5, 10)], [None] * 5)
             self.assertIsNone(sheet["J2"].value)
             workbook.close()
+
+    def test_final_workbook_has_two_tables_for_every_designated_hold_current(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            path = directory / "three_tables.xlsx"
+            sample_path = directory / "three_tables_1s_samples.csv"
+            recorder = AutomaticSampleRecorder(sample_path)
+            recorder.write(
+                AutomaticSecondSample(
+                    point_index=4,
+                    point_elapsed_s=1.02,
+                    target_current_a=3.0,
+                    output_current_a=3.0,
+                    output_voltage_raw_v=20.0,
+                    output_voltage_v=20.0,
+                    optical_power_w=6.0,
+                    peak_wavelength_nm=975.1,
+                    centroid_nm=975.0,
+                    fwhm_nm=0.281,
+                    spectrum_wavelengths_nm=(974.0, 975.0, 976.0),
+                    spectrum_intensities=(10.0, 100.0, 20.0),
+                )
+            )
+            recorder.write(
+                AutomaticSecondSample(
+                    point_index=4,
+                    point_elapsed_s=2.08,
+                    target_current_a=3.0,
+                    output_current_a=3.0,
+                    output_voltage_raw_v=20.5,
+                    output_voltage_v=20.5,
+                    optical_power_w=6.15,
+                    peak_wavelength_nm=975.2,
+                    centroid_nm=975.05,
+                    fwhm_nm=0.282,
+                    spectrum_wavelengths_nm=(974.0, 975.0, 976.0),
+                    spectrum_intensities=(11.0, 101.0, 21.0),
+                )
+            )
+            recorder.write(
+                AutomaticSecondSample(
+                    point_index=7,
+                    point_elapsed_s=1.0,
+                    target_current_a=5.0,
+                    output_current_a=5.0,
+                    output_voltage_raw_v=21.0,
+                    output_voltage_v=21.0,
+                    optical_power_w=10.0,
+                    peak_wavelength_nm=976.1,
+                    centroid_nm=976.0,
+                    fwhm_nm=0.351,
+                    spectrum_wavelengths_nm=(975.0, 976.0, 977.0),
+                    spectrum_intensities=(20.0, 200.0, 30.0),
+                )
+            )
+            recorder.close()
+
+            class Session:
+                session_id = "session"
+                sn = "SN001"
+                product_model = ""
+                batch = ""
+                station = "熔接前"
+                mode = "automatic"
+                started_at_utc = "2026-08-12T00:00:00Z"
+                ended_at_utc = "2026-08-12T00:05:00Z"
+                status = "completed"
+                termination_reason = ""
+                shutdown_confirmed = True
+                software_version = "1.0.0"
+                calculation_version = "2026-08"
+                settings = {}
+                devices = ()
+
+            save_test_records(
+                path,
+                [self._record(3.0), self._record(5.0)],
+                session=Session(),
+                automatic_samples_path=sample_path,
+            )
+
+            workbook = load_workbook(path, data_only=False)
+            visible_sheets = [
+                sheet.title for sheet in workbook.worksheets if sheet.sheet_state == "visible"
+            ]
+            self.assertEqual(
+                visible_sheets,
+                [
+                    "测试数据",
+                    "3A逐秒数据",
+                    "3A光谱数据",
+                    "5A逐秒数据",
+                    "5A光谱数据",
+                ],
+            )
+            self.assertEqual(workbook["会话信息"].sheet_state, "hidden")
+
+            summary = workbook["3A逐秒数据"]
+            self.assertEqual(
+                [summary.cell(row=1, column=column).value for column in range(1, 8)],
+                [
+                    "时间(s)", "功率(W)", "效率", "电压(V)",
+                    "中心波长(nm)", "质心波长(nm)", "FWHM(nm)",
+                ],
+            )
+            self.assertEqual(
+                [summary.cell(row=2, column=column).value for column in range(1, 8)],
+                [1, 6.0, 0.1, 20.0, 975.1, 975.0, 0.281],
+            )
+            self.assertEqual(summary["A3"].value, 2)
+            self.assertEqual(summary["C2"].number_format, "0.00%")
+
+            spectrum = workbook["3A光谱数据"]
+            self.assertEqual(
+                [spectrum.cell(row=1, column=column).value for column in range(1, 5)],
+                ["1s波长(nm)", "1s强度(counts)", "2s波长(nm)", "2s强度(counts)"],
+            )
+            self.assertEqual([spectrum.cell(row=row, column=1).value for row in range(2, 5)], [974.0, 975.0, 976.0])
+            self.assertEqual(spectrum["A2"].number_format, "0.000")
+            self.assertEqual([spectrum.cell(row=row, column=2).value for row in range(2, 5)], [10.0, 100.0, 20.0])
+            self.assertEqual([spectrum.cell(row=row, column=3).value for row in range(2, 5)], [974.0, 975.0, 976.0])
+            self.assertEqual([spectrum.cell(row=row, column=4).value for row in range(2, 5)], [11.0, 101.0, 21.0])
+
+            summary_5a = workbook["5A逐秒数据"]
+            self.assertEqual(summary_5a["A2"].value, 1)
+            self.assertEqual(summary_5a["B2"].value, 10.0)
+            self.assertAlmostEqual(summary_5a["C2"].value, 10.0 / (5.0 * 21.0))
+            self.assertEqual(summary_5a["D2"].value, 21.0)
+            self.assertEqual(summary_5a["E2"].value, 976.1)
+            self.assertEqual(summary_5a["F2"].value, 976.0)
+            self.assertEqual(summary_5a["G2"].value, 0.351)
+            self.assertEqual(summary_5a["G2"].number_format, "0.000000")
+
+            spectrum_5a = workbook["5A光谱数据"]
+            self.assertEqual(spectrum_5a["A1"].value, "1s波长(nm)")
+            self.assertEqual(spectrum_5a["B1"].value, "1s强度(counts)")
+            self.assertEqual(
+                [spectrum_5a.cell(row=row, column=1).value for row in range(2, 5)],
+                [975.0, 976.0, 977.0],
+            )
+            self.assertEqual(
+                [spectrum_5a.cell(row=row, column=2).value for row in range(2, 5)],
+                [20.0, 200.0, 30.0],
+            )
+            workbook.close()
+
+    def test_each_second_keeps_its_own_wavelength_axis_rounded_to_three_decimals(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            directory = Path(temp_dir)
+            path = directory / "axis_changed.xlsx"
+            sample_path = directory / "axis_changed_1s_samples.csv"
+            recorder = AutomaticSampleRecorder(sample_path)
+            recorder.write(
+                AutomaticSecondSample(
+                    point_index=4,
+                    point_elapsed_s=1.0,
+                    target_current_a=3.0,
+                    output_current_a=3.0,
+                    output_voltage_raw_v=20.0,
+                    output_voltage_v=20.0,
+                    optical_power_w=6.0,
+                    spectrum_wavelengths_nm=(974.0004, 975.0005, 976.0006),
+                    spectrum_intensities=(10.0004, 100.0005, 20.0006),
+                )
+            )
+            recorder.write(
+                AutomaticSecondSample(
+                    point_index=4,
+                    point_elapsed_s=2.0,
+                    target_current_a=3.0,
+                    output_current_a=3.0,
+                    output_voltage_raw_v=20.0,
+                    output_voltage_v=20.0,
+                    optical_power_w=6.0,
+                    spectrum_wavelengths_nm=(974.1004, 975.1005, 976.1006),
+                    spectrum_intensities=(11.0004, 101.0005, 21.0006),
+                )
+            )
+            recorder.close()
+
+            save_test_records(
+                path,
+                [self._record(3.0)],
+                automatic_samples_path=sample_path,
+            )
+
+            workbook = load_workbook(path)
+            sheet = workbook["3A光谱数据"]
+            self.assertEqual(
+                [sheet.cell(row=2, column=column).value for column in range(1, 5)],
+                [974.0, 10.0, 974.1, 11.0],
+            )
+            self.assertEqual(
+                [sheet.cell(row=4, column=column).value for column in range(1, 5)],
+                [976.001, 20.001, 976.101, 21.001],
+            )
+            self.assertEqual(sheet["A2"].number_format, "0.000")
+            self.assertEqual(sheet["B2"].number_format, "0.000")
+            workbook.close()
+            self.assertTrue(sample_path.is_file())
+            self.assertTrue(path.exists())
 
     def test_append_migrates_legacy_workbook_smsr_header(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

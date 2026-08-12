@@ -58,6 +58,8 @@ export interface AppConfiguration {
   initialCurrentA: number
   targetCurrentA: number
   currentStepA: number
+  currentPlanMode: "range" | "custom"
+  customCurrentPoints: Array<{ currentA: number; dwellS: number }>
   pointTimeoutS: number
   rampDownStepA: number
   rampDownIntervalS: number
@@ -106,8 +108,12 @@ export interface BackendSnapshot {
     canEnd?: boolean
     settingsError?: string
     currents?: number[]
+    dwellTimesS?: number[]
     currentIndex?: number
     currentA?: number | null
+    currentDwellS?: number | null
+    currentDwellElapsedS?: number | null
+    samplePath?: string
     progress?: number
     pauseReason?: string
     terminalOutcome?: string | null

@@ -34,7 +34,7 @@ type CanvasLineChartProps = {
 }
 
 type ChartSize = { width: number; height: number }
-const CHART_FONT = "16px 'Geist Variable', 'PingFang SC', sans-serif"
+const CHART_FONT = "12px 'Geist Variable', 'PingFang SC', sans-serif"
 type HoverState = { index: number } | null
 type PendingHover = { index: number; pointerX: number; pointerY: number } | null
 type AxisScale = { min: number; max: number; ticks: number[] }

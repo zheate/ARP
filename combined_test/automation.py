@@ -11,7 +11,10 @@ from enum import Enum
 
 MAX_CURRENT_CENTIAMPS = 2000
 MIN_POWER_SUPPLY_COMMAND_INTERVAL_S = 1.1
+CUSTOM_HOLD_RAMP_STEP_A = 0.5
+CUSTOM_HOLD_RAMP_INTERVAL_S = 0.5
 MAX_AUTOMATIC_SEQUENCE_POINTS = 10_000
+MAX_CUSTOM_POINT_DWELL_S = 24.0 * 60.0 * 60.0
 POWER_DROP_PROTECTION_RELATIVE_FRACTION = 0.30
 POWER_DROP_PROTECTION_WINDOW_S = 5.0
 POWER_DROP_PROTECTION_CONFIRMATION_SAMPLES = 3
@@ -30,6 +33,12 @@ class AutomaticTestState(str, Enum):
 
 
 @dataclass(frozen=True)
+class AutomaticCurrentPoint:
+    current_a: float
+    dwell_s: float
+
+
+@dataclass(frozen=True)
 class AutomaticTestSettings:
     initial_current_a: float = 1.0
     target_current_a: float = 20.0
@@ -40,6 +49,9 @@ class AutomaticTestSettings:
     pause_ramp_down_timeout_s: float = 30.0
     use_spectrometer: bool = True
     maximum_current_a: float | None = MAX_CURRENT_CENTIAMPS / 100.0
+    current_plan_mode: str = "range"
+    custom_current_points: tuple[AutomaticCurrentPoint, ...] = ()
+    custom_hold_ramp_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -172,6 +184,7 @@ class AutomaticTestOrchestrator:
         self.state = AutomaticTestState.IDLE
         self.settings: AutomaticTestSettings | None = None
         self.currents: tuple[float, ...] = ()
+        self.dwell_times_s: tuple[float, ...] = ()
         self.current_index = -1
         self.power_meter_ready = False
         self.spectrum_meter_ready = False
@@ -192,6 +205,12 @@ class AutomaticTestOrchestrator:
             return self.currents[self.current_index]
         return None
 
+    @property
+    def current_dwell_s(self) -> float:
+        if 0 <= self.current_index < len(self.dwell_times_s):
+            return self.dwell_times_s[self.current_index]
+        return 0.0
+
     def start(
         self,
         settings: AutomaticTestSettings,
@@ -201,6 +220,7 @@ class AutomaticTestOrchestrator:
     ) -> None:
         self.settings = settings
         self.currents = build_test_currents(settings)
+        self.dwell_times_s = build_test_dwells(settings)
         self.current_index = 0
         self.power_meter_ready = bool(power_meter_ready)
         self.spectrum_meter_ready = bool(spectrum_meter_ready)
@@ -267,7 +287,11 @@ def _validate_sequence_size(point_count: int) -> None:
 
 
 def build_test_currents(settings: AutomaticTestSettings) -> tuple[float, ...]:
-    """Build an increasing current sequence that always includes the target."""
+    """Build the currents that require stability detection and a saved result."""
+    mode = str(settings.current_plan_mode).strip().lower()
+    if mode not in {"range", "custom"}:
+        raise ValueError(f"不支持的电流计划模式：{settings.current_plan_mode}")
+
     initial = _to_centiampere(settings.initial_current_a, "初始电流")
     target = _to_centiampere(settings.target_current_a, "目标电流")
     step = _to_centiampere(settings.current_step_a, "电流间隔")
@@ -279,10 +303,76 @@ def build_test_currents(settings: AutomaticTestSettings) -> tuple[float, ...]:
     if step <= 0:
         raise ValueError("电流间隔必须大于 0 A")
 
+    hold_currents: list[int] = []
+    if mode == "custom":
+        if not settings.custom_current_points:
+            raise ValueError("至少需要一个指定停留点")
+        for index, point in enumerate(settings.custom_current_points, start=1):
+            current = _to_centiampere(point.current_a, f"第 {index} 个指定停留点")
+            if current < initial or current > target:
+                raise ValueError(
+                    f"第 {index} 个指定停留点必须位于初始电流与目标电流之间"
+                )
+            if hold_currents and current <= hold_currents[-1]:
+                raise ValueError("指定停留点必须严格递增且不能重复")
+            dwell_s = float(point.dwell_s)
+            if not math.isfinite(dwell_s) or dwell_s <= 0.0:
+                raise ValueError(f"第 {index} 个指定停留点的停留时间必须大于 0 s")
+            if dwell_s > MAX_CUSTOM_POINT_DWELL_S:
+                raise ValueError(
+                    f"第 {index} 个指定停留点的停留时间不能超过 {MAX_CUSTOM_POINT_DWELL_S:g} s"
+                )
+            hold_currents.append(current)
+        if settings.custom_hold_ramp_enabled:
+            _validate_sequence_size(len(hold_currents))
+            return tuple(value / 100.0 for value in hold_currents)
+
     step_count = (target - initial + step - 1) // step
     _validate_sequence_size(step_count + 1)
-    currents = [min(target, initial + index * step) for index in range(step_count + 1)]
-    return tuple(value / 100.0 for value in currents)
+    currents = {min(target, initial + index * step) for index in range(step_count + 1)}
+    currents.update(hold_currents)
+    _validate_sequence_size(len(currents))
+    return tuple(value / 100.0 for value in sorted(currents))
+
+
+def build_test_dwells(settings: AutomaticTestSettings) -> tuple[float, ...]:
+    """Return post-stability dwell time aligned with every planned current."""
+    currents = build_test_currents(settings)
+    if str(settings.current_plan_mode).strip().lower() != "custom":
+        return (0.0,) * len(currents)
+    holds = {
+        round(float(point.current_a), 2): float(point.dwell_s)
+        for point in settings.custom_current_points
+    }
+    return tuple(holds.get(round(current, 2), 0.0) for current in currents)
+
+
+def build_custom_hold_ramp_currents(
+    start_current_a: float,
+    target_current_a: float,
+    step_a: float = CUSTOM_HOLD_RAMP_STEP_A,
+) -> tuple[float, ...]:
+    """Build upward transition setpoints, including the final hold current."""
+    start = _to_centiampere(start_current_a, "当前电流")
+    target = _to_centiampere(target_current_a, "指定停留电流")
+    step = _to_centiampere(step_a, "升流步长")
+    if start < 0:
+        raise ValueError("当前电流必须大于或等于 0 A")
+    if target <= 0:
+        raise ValueError("指定停留电流必须大于 0 A")
+    if target < start:
+        raise ValueError("指定停留电流不能小于当前输出电流")
+    if step <= 0:
+        raise ValueError("升流步长必须大于 0 A")
+    if target == start:
+        return ()
+
+    step_count = (target - start + step - 1) // step
+    _validate_sequence_size(step_count)
+    return tuple(
+        min(target, start + index * step) / 100.0
+        for index in range(1, step_count + 1)
+    )
 
 
 def build_ramp_down_currents(
@@ -315,9 +405,10 @@ def validate_automatic_test_settings(
     post_stable_delay_s: float,
 ) -> AutomaticTestSettings:
     """Validate settings shared by the UI and automatic runner."""
-    build_test_currents(settings)
+    currents = build_test_currents(settings)
+    build_test_dwells(settings)
     build_ramp_down_currents(
-        settings.target_current_a,
+        currents[-1],
         settings.ramp_down_step_a,
         maximum_current_a=settings.maximum_current_a,
     )

@@ -30,12 +30,16 @@ class ExcelSaveThread(QThread):
         *,
         session: Any | None = None,
         attempts: tuple[Any, ...] = (),
+        automatic_samples_path: Path | None = None,
     ) -> None:
         super().__init__(parent)
         self.path = Path(path)
         self.records = list(records)
         self.session = session
         self.attempts = tuple(attempts)
+        self.automatic_samples_path = (
+            Path(automatic_samples_path) if automatic_samples_path is not None else None
+        )
 
     def run(self) -> None:
         started = time.monotonic()
@@ -45,6 +49,7 @@ class ExcelSaveThread(QThread):
                 self.records,
                 session=self.session,
                 attempts=self.attempts,
+                automatic_samples_path=self.automatic_samples_path,
             )
         except Exception as exc:
             _LOGGER.exception("Excel 后台保存失败 | path=%s", self.path)
