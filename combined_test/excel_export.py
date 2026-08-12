@@ -12,10 +12,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
-from openpyxl import Workbook, load_workbook
-from openpyxl.styles import Alignment, Font, PatternFill
-from openpyxl.utils import get_column_letter
-from openpyxl.worksheet.worksheet import Worksheet
+from openpyxl import Workbook as OpenpyxlWorkbook, load_workbook
+from openpyxl.styles import Alignment, Font
+from openpyxl.worksheet.worksheet import Worksheet as OpenpyxlWorksheet
+from xlsxwriter import Workbook as XlsxWriterWorkbook
+from xlsxwriter.format import Format as XlsxWriterFormat
+from xlsxwriter.worksheet import Worksheet as XlsxWriterWorksheet
 
 
 RESULT_HEADERS = (
@@ -41,7 +43,7 @@ SECOND_SAMPLE_HEADERS = (
     "质心波长(nm)",
     "FWHM(nm)",
 )
-_DATA_HEADER_FILL = PatternFill("solid", fgColor="D9EAF7")
+_DATA_HEADER_COLOR = "#D9EAF7"
 
 
 @dataclass(frozen=True)
@@ -105,7 +107,7 @@ def _replace_file_with_retry(source: Path, target: Path) -> None:
             time.sleep(WINDOWS_REPLACE_RETRY_DELAYS_S[attempt])
 
 
-def _save_workbook_atomically(workbook: Workbook, target: Path) -> None:
+def _save_openpyxl_workbook_atomically(workbook: OpenpyxlWorkbook, target: Path) -> None:
     temporary = target.with_name(f".{target.stem}.tmp.xlsx")
     try:
         workbook.save(temporary)
@@ -129,7 +131,7 @@ def _save_workbook_atomically(workbook: Workbook, target: Path) -> None:
         ) from exc
 
 
-def _ensure_result_headers(sheet: Worksheet) -> None:
+def _ensure_result_headers(sheet: OpenpyxlWorksheet) -> None:
     for column, header in enumerate(RESULT_HEADERS, start=1):
         cell = sheet.cell(row=2, column=column, value=header)
         cell.font = Font(bold=True)
@@ -137,8 +139,8 @@ def _ensure_result_headers(sheet: Worksheet) -> None:
     sheet.column_dimensions["I"].width = 12
 
 
-def _create_workbook(path: Path) -> Workbook:
-    workbook = Workbook()
+def _create_openpyxl_workbook() -> OpenpyxlWorkbook:
+    workbook = OpenpyxlWorkbook()
     sheet = workbook.active
     sheet.title = "测试数据"
     sheet["A1"] = "LIV"
@@ -159,7 +161,7 @@ def _create_workbook(path: Path) -> Workbook:
     return workbook
 
 
-def _write_test_station(sheet: Worksheet, test_station: str) -> None:
+def _write_test_station(sheet: OpenpyxlWorksheet, test_station: str) -> None:
     station = str(test_station).strip()
     if not station:
         return
@@ -167,111 +169,6 @@ def _write_test_station(sheet: Worksheet, test_station: str) -> None:
     sheet["B1"].font = Font(bold=True)
     sheet["C1"] = station
     sheet.column_dimensions["C"].width = max(sheet.column_dimensions["C"].width or 0, 16)
-
-
-def _write_session_information(workbook: Workbook, session: Any) -> None:
-    sheet = workbook.create_sheet("会话信息")
-    rows = (
-        ("出货报告格式版本", EXPORT_WORKBOOK_SCHEMA_VERSION),
-        ("会话编号", getattr(session, "session_id", "")),
-        ("SN", getattr(session, "sn", "")),
-        ("产品型号", getattr(session, "product_model", "")),
-        ("批次", getattr(session, "batch", "")),
-        ("测试站别", getattr(session, "station", "")),
-        ("测试模式", getattr(session, "mode", "")),
-        ("开始时间 UTC", getattr(session, "started_at_utc", "")),
-        ("结束时间 UTC", getattr(session, "ended_at_utc", "") or ""),
-        ("流程状态", getattr(getattr(session, "status", ""), "value", getattr(session, "status", ""))),
-        ("结束原因", getattr(session, "termination_reason", "")),
-        ("安全下电确认", getattr(session, "shutdown_confirmed", "")),
-        ("软件版本", getattr(session, "software_version", "")),
-        ("算法版本", getattr(session, "calculation_version", "")),
-    )
-    for row_index, (label, value) in enumerate(rows, start=1):
-        sheet.cell(row=row_index, column=1, value=label).font = Font(bold=True)
-        sheet.cell(row=row_index, column=2, value=str(value))
-    row_index = len(rows) + 2
-    sheet.cell(row=row_index, column=1, value="测试参数").font = Font(bold=True)
-    for key, value in sorted(dict(getattr(session, "settings", {}) or {}).items()):
-        row_index += 1
-        sheet.cell(row=row_index, column=1, value=str(key))
-        sheet.cell(row=row_index, column=2, value=str(value))
-    row_index += 2
-    sheet.cell(row=row_index, column=1, value="设备快照").font = Font(bold=True)
-    for device in tuple(getattr(session, "devices", ()) or ()):
-        row_index += 1
-        if isinstance(device, dict):
-            label = device.get("role", "设备")
-            value = " | ".join(
-                str(device.get(key, ""))
-                for key in ("kind", "resource", "detail")
-                if str(device.get(key, "")).strip()
-            )
-        else:
-            label = getattr(device, "role", "设备")
-            value = str(device)
-        sheet.cell(row=row_index, column=1, value=str(label))
-        sheet.cell(row=row_index, column=2, value=value)
-    sheet.column_dimensions["A"].width = 24
-    sheet.column_dimensions["B"].width = 72
-
-
-def _write_measurement_attempts(workbook: Workbook, attempts: Iterable[Any]) -> None:
-    sheet = workbook.create_sheet("测量尝试")
-    headers = (
-        "点序号",
-        "目标电流(A)",
-        "尝试次数",
-        "时间 UTC",
-        "数据状态",
-        "原因",
-        "采用",
-        "电压(V)",
-        "功率(W)",
-        "效率",
-        "中心波长(nm)",
-        "FWHM(nm)",
-        "PIB",
-        "SMSR(dB)",
-        "判稳波动(W)",
-        "判稳窗口(s)",
-        "积分时间(us)",
-        "光谱文件",
-    )
-    for column, header in enumerate(headers, start=1):
-        cell = sheet.cell(row=1, column=column, value=header)
-        cell.font = Font(bold=True)
-        cell.alignment = Alignment(horizontal="center")
-    for row_index, attempt in enumerate(attempts, start=2):
-        validity = getattr(attempt, "validity", "")
-        values = (
-            int(getattr(attempt, "sequence_index", 0)) + 1,
-            _finite_or_none(getattr(attempt, "target_current_a", math.nan)),
-            int(getattr(attempt, "attempt_no", 1)),
-            getattr(attempt, "created_at_utc", ""),
-            getattr(validity, "value", validity),
-            getattr(attempt, "invalid_reason", ""),
-            "是" if bool(getattr(attempt, "selected", False)) else "否",
-            _finite_or_none(getattr(attempt, "voltage_v", math.nan)),
-            _finite_or_none(getattr(attempt, "power_w", math.nan)),
-            _finite_or_none(getattr(attempt, "efficiency", math.nan)),
-            _finite_or_none(getattr(attempt, "centroid_nm", math.nan)),
-            _finite_or_none(getattr(attempt, "fwhm_nm", math.nan)),
-            _finite_or_none(getattr(attempt, "pib", math.nan)),
-            _finite_or_none(getattr(attempt, "smsr_db", math.nan)),
-            _finite_or_none(getattr(attempt, "stable_span_w", math.nan)),
-            _finite_or_none(getattr(attempt, "stable_window_s", math.nan)),
-            getattr(attempt, "integration_time_us", None),
-            getattr(attempt, "spectrum_path", ""),
-        )
-        for column, value in enumerate(values, start=1):
-            sheet.cell(row=row_index, column=column, value=value)
-    sheet.freeze_panes = "A2"
-    for column in range(1, len(headers) + 1):
-        sheet.column_dimensions[sheet.cell(row=1, column=column).column_letter].width = 16
-    sheet.column_dimensions["D"].width = 28
-    sheet.column_dimensions["F"].width = 42
-    sheet.column_dimensions["R"].width = 42
 
 
 def _sample_number(row: dict[str, str], key: str) -> float | None:
@@ -344,31 +241,264 @@ def _current_sheet_prefix(current_a: float) -> str:
     return f"{float(current_a):.12g}A"
 
 
-def _style_data_header(sheet: Worksheet, *, max_column: int) -> None:
-    for column in range(1, max_column + 1):
-        cell = sheet.cell(row=1, column=column)
-        cell.font = Font(bold=True)
-        cell.fill = _DATA_HEADER_FILL
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+def _create_xlsxwriter_formats(
+    workbook: XlsxWriterWorkbook,
+) -> dict[str, XlsxWriterFormat]:
+    return {
+        "bold": workbook.add_format({"bold": True}),
+        "result_header": workbook.add_format({"bold": True, "align": "center"}),
+        "data_header": workbook.add_format(
+            {
+                "bold": True,
+                "align": "center",
+                "valign": "vcenter",
+                "bg_color": _DATA_HEADER_COLOR,
+            }
+        ),
+        "integer": workbook.add_format({"num_format": "0"}),
+        "number_2": workbook.add_format({"num_format": "0.00"}),
+        "number_3": workbook.add_format({"num_format": "0.000"}),
+        "number_6": workbook.add_format({"num_format": "0.000000"}),
+        "percent_2": workbook.add_format({"num_format": "0.00%"}),
+    }
 
 
-def _write_designated_second_sheets(
-    workbook: Workbook,
-    automatic_samples_path: Path | None,
+def _write_xlsx_number(
+    sheet: XlsxWriterWorksheet,
+    row: int,
+    column: int,
+    value: Any,
+    cell_format: XlsxWriterFormat,
 ) -> None:
-    if automatic_samples_path is None:
-        return
-    samples_by_current = _read_designated_second_samples(automatic_samples_path)
-    if not samples_by_current:
-        return
+    number = None if value is None else _finite_or_none(value)
+    if number is None:
+        sheet.write_blank(row, column, None, cell_format)
+    else:
+        sheet.write_number(row, column, number, cell_format)
 
+
+def _write_xlsx_test_data_sheet(
+    workbook: XlsxWriterWorkbook,
+    formats: dict[str, XlsxWriterFormat],
+    records_by_current: dict[float, tuple[ExcelTestRecord, list[float], list[float]]],
+    test_station: str,
+) -> None:
+    sheet = workbook.add_worksheet("测试数据")
+    sheet.freeze_panes(2, 0)
+    sheet.set_column(0, 3, 12)
+    sheet.set_column(4, 5, 16)
+    sheet.set_column(6, 8, 12)
+    sheet.write(0, 0, "LIV", formats["bold"])
+    sheet.write(0, 9, "光谱", formats["bold"])
+    if test_station:
+        sheet.write(0, 1, "测试站别", formats["bold"])
+        sheet.write(0, 2, test_station)
+        sheet.set_column(2, 2, 16)
+    sheet.write_row(1, 0, RESULT_HEADERS, formats["result_header"])
+
+    record_items = sorted(records_by_current.items())
+    spectra = [
+        (current, wavelengths, intensities)
+        for current, (_record, wavelengths, intensities) in record_items
+        if wavelengths
+    ]
+    for spectrum_index, (current, _wavelengths, _intensities) in enumerate(spectra):
+        spectrum_column = 9 + spectrum_index * 2
+        sheet.write(1, spectrum_column, f"{current:.1f}A")
+        sheet.set_column(spectrum_column, spectrum_column + 1, 14)
+
+    result_formats = (
+        formats["number_3"],
+        formats["number_3"],
+        formats["number_3"],
+        formats["percent_2"],
+        formats["number_3"],
+        formats["number_3"],
+        formats["number_3"],
+        formats["percent_2"],
+        formats["number_2"],
+    )
+    maximum_spectrum_points = max((len(wavelengths) for _, wavelengths, _ in spectra), default=0)
+    for data_index in range(max(len(record_items), maximum_spectrum_points)):
+        row = data_index + 2
+        if data_index < len(record_items):
+            record = record_items[data_index][1][0]
+            values = (
+                record.current_a,
+                record.voltage_v,
+                record.power_w,
+                record.efficiency,
+                record.peak_wavelength_nm,
+                record.centroid_nm,
+                record.fwhm_nm,
+                record.pib,
+                record.smsr_db,
+            )
+            for column, (value, cell_format) in enumerate(zip(values, result_formats)):
+                _write_xlsx_number(sheet, row, column, value, cell_format)
+        for spectrum_index, (_current, wavelengths, intensities) in enumerate(spectra):
+            if data_index >= len(wavelengths):
+                continue
+            spectrum_column = 9 + spectrum_index * 2
+            _write_xlsx_number(
+                sheet,
+                row,
+                spectrum_column,
+                wavelengths[data_index],
+                formats["number_6"],
+            )
+            _write_xlsx_number(
+                sheet,
+                row,
+                spectrum_column + 1,
+                intensities[data_index],
+                formats["number_6"],
+            )
+
+
+def _write_xlsx_session_information(
+    workbook: XlsxWriterWorkbook,
+    formats: dict[str, XlsxWriterFormat],
+    session: Any,
+) -> None:
+    sheet = workbook.add_worksheet("会话信息")
+    sheet.set_column(0, 0, 24)
+    sheet.set_column(1, 1, 72)
+    rows = (
+        ("出货报告格式版本", EXPORT_WORKBOOK_SCHEMA_VERSION),
+        ("会话编号", getattr(session, "session_id", "")),
+        ("SN", getattr(session, "sn", "")),
+        ("产品型号", getattr(session, "product_model", "")),
+        ("批次", getattr(session, "batch", "")),
+        ("测试站别", getattr(session, "station", "")),
+        ("测试模式", getattr(session, "mode", "")),
+        ("开始时间 UTC", getattr(session, "started_at_utc", "")),
+        ("结束时间 UTC", getattr(session, "ended_at_utc", "") or ""),
+        (
+            "流程状态",
+            getattr(
+                getattr(session, "status", ""),
+                "value",
+                getattr(session, "status", ""),
+            ),
+        ),
+        ("结束原因", getattr(session, "termination_reason", "")),
+        ("安全下电确认", getattr(session, "shutdown_confirmed", "")),
+        ("软件版本", getattr(session, "software_version", "")),
+        ("算法版本", getattr(session, "calculation_version", "")),
+    )
+    row = 0
+    for label, value in rows:
+        sheet.write(row, 0, label, formats["bold"])
+        sheet.write(row, 1, str(value))
+        row += 1
+    row += 1
+    sheet.write(row, 0, "测试参数", formats["bold"])
+    for key, value in sorted(dict(getattr(session, "settings", {}) or {}).items()):
+        row += 1
+        sheet.write(row, 0, str(key))
+        sheet.write(row, 1, str(value))
+    row += 2
+    sheet.write(row, 0, "设备快照", formats["bold"])
+    for device in tuple(getattr(session, "devices", ()) or ()):
+        row += 1
+        if isinstance(device, dict):
+            label = device.get("role", "设备")
+            value = " | ".join(
+                str(device.get(key, ""))
+                for key in ("kind", "resource", "detail")
+                if str(device.get(key, "")).strip()
+            )
+        else:
+            label = getattr(device, "role", "设备")
+            value = str(device)
+        sheet.write(row, 0, str(label))
+        sheet.write(row, 1, value)
+    sheet.hide()
+
+
+def _write_xlsx_measurement_attempts(
+    workbook: XlsxWriterWorkbook,
+    formats: dict[str, XlsxWriterFormat],
+    attempts: tuple[Any, ...],
+) -> None:
+    sheet = workbook.add_worksheet("测量尝试")
+    headers = (
+        "点序号",
+        "目标电流(A)",
+        "尝试次数",
+        "时间 UTC",
+        "数据状态",
+        "原因",
+        "采用",
+        "电压(V)",
+        "功率(W)",
+        "效率",
+        "中心波长(nm)",
+        "FWHM(nm)",
+        "PIB",
+        "SMSR(dB)",
+        "判稳波动(W)",
+        "判稳窗口(s)",
+        "积分时间(us)",
+        "光谱文件",
+    )
+    sheet.freeze_panes(1, 0)
+    sheet.set_column(0, len(headers) - 1, 16)
+    sheet.set_column(3, 3, 28)
+    sheet.set_column(5, 5, 42)
+    sheet.set_column(17, 17, 42)
+    sheet.write_row(0, 0, headers, formats["result_header"])
+    for row, attempt in enumerate(attempts, start=1):
+        validity = getattr(attempt, "validity", "")
+        integration_time_us = getattr(attempt, "integration_time_us", None)
+        values = (
+            int(getattr(attempt, "sequence_index", 0)) + 1,
+            _finite_or_none(getattr(attempt, "target_current_a", math.nan)),
+            int(getattr(attempt, "attempt_no", 1)),
+            getattr(attempt, "created_at_utc", ""),
+            getattr(validity, "value", validity),
+            getattr(attempt, "invalid_reason", ""),
+            "是" if bool(getattr(attempt, "selected", False)) else "否",
+            _finite_or_none(getattr(attempt, "voltage_v", math.nan)),
+            _finite_or_none(getattr(attempt, "power_w", math.nan)),
+            _finite_or_none(getattr(attempt, "efficiency", math.nan)),
+            _finite_or_none(getattr(attempt, "centroid_nm", math.nan)),
+            _finite_or_none(getattr(attempt, "fwhm_nm", math.nan)),
+            _finite_or_none(getattr(attempt, "pib", math.nan)),
+            _finite_or_none(getattr(attempt, "smsr_db", math.nan)),
+            _finite_or_none(getattr(attempt, "stable_span_w", math.nan)),
+            _finite_or_none(getattr(attempt, "stable_window_s", math.nan)),
+            None if integration_time_us is None else int(integration_time_us),
+            getattr(attempt, "spectrum_path", ""),
+        )
+        sheet.write_row(row, 0, values)
+    sheet.hide()
+
+
+def _write_xlsx_designated_second_sheets(
+    workbook: XlsxWriterWorkbook,
+    formats: dict[str, XlsxWriterFormat],
+    samples_by_current: dict[float, list[dict[str, Any]]],
+) -> None:
+    summary_formats = (
+        formats["integer"],
+        formats["number_6"],
+        formats["percent_2"],
+        formats["number_6"],
+        formats["number_6"],
+        formats["number_6"],
+        formats["number_6"],
+    )
     for current_a, samples in samples_by_current.items():
         sheet_prefix = _current_sheet_prefix(current_a)
-        summary_sheet = workbook.create_sheet(f"{sheet_prefix}逐秒数据")
-        for column, header in enumerate(SECOND_SAMPLE_HEADERS, start=1):
-            summary_sheet.cell(row=1, column=column, value=header)
-        _style_data_header(summary_sheet, max_column=len(SECOND_SAMPLE_HEADERS))
-        for row_index, sample in enumerate(samples, start=2):
+        summary_sheet = workbook.add_worksheet(f"{sheet_prefix}逐秒数据")
+        summary_sheet.freeze_panes(1, 0)
+        for column, width in enumerate((12, 16, 14, 16, 18, 18, 14)):
+            summary_sheet.set_column(column, column, width)
+        summary_sheet.autofilter(0, 0, len(samples), len(SECOND_SAMPLE_HEADERS) - 1)
+        summary_sheet.write_row(0, 0, SECOND_SAMPLE_HEADERS, formats["data_header"])
+        for row, sample in enumerate(samples, start=1):
             values = (
                 sample["elapsed_second"],
                 sample["power_w"],
@@ -378,61 +508,65 @@ def _write_designated_second_sheets(
                 sample["centroid_nm"],
                 sample["fwhm_nm"],
             )
-            for column, value in enumerate(values, start=1):
-                summary_sheet.cell(row=row_index, column=column, value=value)
-            summary_sheet.cell(row=row_index, column=1).number_format = "0"
-            summary_sheet.cell(row=row_index, column=2).number_format = "0.000000"
-            summary_sheet.cell(row=row_index, column=3).number_format = "0.00%"
-            summary_sheet.cell(row=row_index, column=4).number_format = "0.000000"
-            summary_sheet.cell(row=row_index, column=5).number_format = "0.000000"
-            summary_sheet.cell(row=row_index, column=6).number_format = "0.000000"
-            summary_sheet.cell(row=row_index, column=7).number_format = "0.000000"
-        summary_sheet.freeze_panes = "A2"
-        summary_sheet.auto_filter.ref = f"A1:G{len(samples) + 1}"
-        for column, width in enumerate((12, 16, 14, 16, 18, 18, 14), start=1):
-            summary_sheet.column_dimensions[get_column_letter(column)].width = width
+            for column, (value, cell_format) in enumerate(zip(values, summary_formats)):
+                _write_xlsx_number(summary_sheet, row, column, value, cell_format)
 
-        spectrum_sheet = workbook.create_sheet(f"{sheet_prefix}光谱数据")
+        spectrum_sheet = workbook.add_worksheet(f"{sheet_prefix}光谱数据")
+        spectrum_sheet.freeze_panes(1, 0)
         for sample_index, sample in enumerate(samples):
-            wavelength_column = sample_index * 2 + 1
-            intensity_column = wavelength_column + 1
+            wavelength_column = sample_index * 2
             elapsed_second = sample["elapsed_second"]
-            spectrum_sheet.cell(
-                row=1,
-                column=wavelength_column,
-                value=f"{elapsed_second}s波长(nm)",
+            spectrum_sheet.set_column(wavelength_column, wavelength_column, 16)
+            spectrum_sheet.set_column(wavelength_column + 1, wavelength_column + 1, 18)
+            spectrum_sheet.write(
+                0,
+                wavelength_column,
+                f"{elapsed_second}s波长(nm)",
+                formats["data_header"],
             )
-            spectrum_sheet.cell(
-                row=1,
-                column=intensity_column,
-                value=f"{elapsed_second}s强度(counts)",
+            spectrum_sheet.write(
+                0,
+                wavelength_column + 1,
+                f"{elapsed_second}s强度(counts)",
+                formats["data_header"],
             )
-            spectrum_sheet.column_dimensions[get_column_letter(wavelength_column)].width = 16
-            spectrum_sheet.column_dimensions[get_column_letter(intensity_column)].width = 18
-            for row_index, (wavelength_nm, intensity) in enumerate(
-                zip(sample["wavelengths_nm"], sample["intensities"]),
-                start=2,
-            ):
-                spectrum_sheet.cell(
-                    row=row_index,
-                    column=wavelength_column,
-                    value=round(float(wavelength_nm), 3),
+        maximum_spectrum_points = max(
+            (len(sample["wavelengths_nm"]) for sample in samples),
+            default=0,
+        )
+        for point_index in range(maximum_spectrum_points):
+            row = point_index + 1
+            for sample_index, sample in enumerate(samples):
+                wavelengths = sample["wavelengths_nm"]
+                if point_index >= len(wavelengths):
+                    continue
+                column = sample_index * 2
+                spectrum_sheet.write_number(
+                    row,
+                    column,
+                    round(float(wavelengths[point_index]), 3),
+                    formats["number_3"],
                 )
-                spectrum_sheet.cell(
-                    row=row_index,
-                    column=intensity_column,
-                    value=round(float(intensity), 3),
+                spectrum_sheet.write_number(
+                    row,
+                    column + 1,
+                    round(float(sample["intensities"][point_index]), 3),
+                    formats["number_3"],
                 )
-                spectrum_sheet.cell(row=row_index, column=wavelength_column).number_format = "0.000"
-                spectrum_sheet.cell(row=row_index, column=intensity_column).number_format = "0.000"
-        _style_data_header(spectrum_sheet, max_column=len(samples) * 2)
-        spectrum_sheet.freeze_panes = "A2"
 
 
-def _hide_diagnostic_sheets(workbook: Workbook) -> None:
-    for name in ("会话信息", "测量尝试"):
-        if name in workbook.sheetnames:
-            workbook[name].sheet_state = "hidden"
+def _discard_xlsxwriter_workbook(
+    workbook: XlsxWriterWorkbook,
+    temporary: Path,
+) -> None:
+    try:
+        workbook.close()
+    except Exception:
+        pass
+    try:
+        temporary.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def save_test_records(
@@ -443,7 +577,7 @@ def save_test_records(
     attempts: Iterable[Any] = (),
     automatic_samples_path: Path | None = None,
 ) -> None:
-    """Write a complete, current-sorted test workbook with a single XLSX save."""
+    """Generate a complete current-sorted workbook with XlsxWriter."""
     records_by_current: dict[float, tuple[ExcelTestRecord, list[float], list[float]]] = {}
     for record in records:
         wavelength_values = [float(value) for value in record.wavelength]
@@ -464,60 +598,46 @@ def save_test_records(
 
     target = Path(path).expanduser()
     target.parent.mkdir(parents=True, exist_ok=True)
-    workbook = _create_workbook(target)
-    sheet = workbook[workbook.sheetnames[0]]
-
-    if session is not None:
-        _write_session_information(workbook, session)
     attempt_values = tuple(attempts)
-    if attempt_values:
-        _write_measurement_attempts(workbook, attempt_values)
-
-    if test_stations:
-        _write_test_station(sheet, next(iter(test_stations)))
-
-    spectrum_index = 0
-    for index, current in enumerate(sorted(records_by_current)):
-        record, wavelength_values, intensity_values = records_by_current[current]
-        result_row = 3 + index
-        result_values = (
-            record.current_a,
-            record.voltage_v,
-            record.power_w,
-            record.efficiency,
-            record.peak_wavelength_nm,
-            record.centroid_nm,
-            record.fwhm_nm,
-            record.pib,
-            record.smsr_db,
+    samples_by_current = (
+        _read_designated_second_samples(automatic_samples_path)
+        if automatic_samples_path is not None
+        else {}
+    )
+    temporary = target.with_name(f".{target.stem}.tmp.xlsx")
+    temporary.unlink(missing_ok=True)
+    workbook = XlsxWriterWorkbook(
+        str(temporary),
+        {
+            "constant_memory": True,
+            "strings_to_urls": False,
+        },
+    )
+    try:
+        formats = _create_xlsxwriter_formats(workbook)
+        _write_xlsx_test_data_sheet(
+            workbook,
+            formats,
+            records_by_current,
+            next(iter(test_stations)) if test_stations else "",
         )
-        for column, value in enumerate(result_values, start=1):
-            sheet.cell(row=result_row, column=column, value=_finite_or_none(value))
-        for column in (1, 2, 3, 5, 6, 7):
-            sheet.cell(row=result_row, column=column).number_format = "0.000"
-        for column in (4, 8):
-            sheet.cell(row=result_row, column=column).number_format = "0.00%"
-        sheet.cell(row=result_row, column=9).number_format = "0.00"
+        if session is not None:
+            _write_xlsx_session_information(workbook, formats, session)
+        if attempt_values:
+            _write_xlsx_measurement_attempts(workbook, formats, attempt_values)
+        _write_xlsx_designated_second_sheets(workbook, formats, samples_by_current)
+        workbook.close()
+    except Exception:
+        _discard_xlsxwriter_workbook(workbook, temporary)
+        raise
 
-        if wavelength_values:
-            spectrum_column = 10 + spectrum_index * 2
-            spectrum_index += 1
-            sheet.cell(row=2, column=spectrum_column, value=f"{current:.1f}A")
-            sheet.column_dimensions[sheet.cell(row=1, column=spectrum_column).column_letter].width = 14
-            sheet.column_dimensions[sheet.cell(row=1, column=spectrum_column + 1).column_letter].width = 14
-            for spectrum_row, (wavelength_nm, intensity) in enumerate(
-                zip(wavelength_values, intensity_values),
-                start=3,
-            ):
-                sheet.cell(row=spectrum_row, column=spectrum_column, value=_finite_or_none(wavelength_nm))
-                sheet.cell(row=spectrum_row, column=spectrum_column + 1, value=_finite_or_none(intensity))
-                sheet.cell(row=spectrum_row, column=spectrum_column).number_format = "0.000000"
-                sheet.cell(row=spectrum_row, column=spectrum_column + 1).number_format = "0.000000"
-
-    _write_designated_second_sheets(workbook, automatic_samples_path)
-    _hide_diagnostic_sheets(workbook)
-
-    _save_workbook_atomically(workbook, target)
+    try:
+        _replace_file_with_retry(temporary, target)
+    except PermissionError as exc:
+        raise RuntimeError(
+            f"Excel 文件暂时被占用，无法更新 {target.name}；"
+            f"完整临时文件已保留：{temporary}"
+        ) from exc
 
 
 def append_test_record(path: Path, record: ExcelTestRecord) -> None:
@@ -528,7 +648,11 @@ def append_test_record(path: Path, record: ExcelTestRecord) -> None:
 
     target = Path(path).expanduser()
     target.parent.mkdir(parents=True, exist_ok=True)
-    workbook = load_workbook(target) if target.exists() else _create_workbook(target)
+    workbook = (
+        load_workbook(target)
+        if target.exists()
+        else _create_openpyxl_workbook()
+    )
     sheet = workbook[workbook.sheetnames[0]]
     _ensure_result_headers(sheet)
     existing_station = str(sheet["C1"].value or "").strip() if sheet["B1"].value == "测试站别" else ""
@@ -608,4 +732,4 @@ def append_test_record(path: Path, record: ExcelTestRecord) -> None:
             sheet.cell(row=spectrum_row, column=spectrum_column).number_format = "0.000000"
             sheet.cell(row=spectrum_row, column=spectrum_column + 1).number_format = "0.000000"
 
-    _save_workbook_atomically(workbook, target)
+    _save_openpyxl_workbook_atomically(workbook, target)

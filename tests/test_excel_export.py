@@ -2,9 +2,11 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from openpyxl import Workbook, load_workbook
+from xlsxwriter import Workbook as XlsxWriterWorkbook
 
 from combined_test.automatic_samples import AutomaticSampleRecorder, AutomaticSecondSample
 from combined_test.excel_export import ExcelTestRecord, append_test_record, build_test_workbook_path, save_test_records
@@ -73,6 +75,22 @@ class ExcelExportTests(unittest.TestCase):
             self.assertEqual(sheet["I3"].number_format, "0.00")
             workbook.close()
 
+    def test_append_opens_existing_workbook_with_openpyxl(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "existing.xlsx"
+            save_test_records(path, [self._record(2.0)])
+
+            with patch(
+                "combined_test.excel_export.load_workbook",
+                wraps=load_workbook,
+            ) as loader:
+                append_test_record(path, self._record(4.0))
+
+            loader.assert_called_once_with(path)
+            workbook = load_workbook(path, read_only=True)
+            self.assertEqual(workbook["测试数据"]["A4"].value, 4.0)
+            workbook.close()
+
     def test_batch_save_writes_all_records_once_in_current_order(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "batch.xlsx"
@@ -84,6 +102,22 @@ class ExcelExportTests(unittest.TestCase):
             self.assertEqual([sheet.cell(row, 1).value for row in range(3, 6)], [2.0, 4.0, 8.0])
             self.assertEqual([sheet.cell(2, column).value for column in (10, 12, 14)], ["2.0A", "4.0A", "8.0A"])
             workbook.close()
+
+    def test_batch_save_uses_xlsxwriter_constant_memory_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "batch.xlsx"
+
+            with patch(
+                "combined_test.excel_export.XlsxWriterWorkbook",
+                side_effect=XlsxWriterWorkbook,
+            ) as writer:
+                save_test_records(path, [self._record(2.0)])
+
+            writer.assert_called_once()
+            self.assertEqual(
+                writer.call_args.args[1],
+                {"constant_memory": True, "strings_to_urls": False},
+            )
 
     def test_batch_save_retries_a_transient_windows_replace_lock(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -144,6 +178,41 @@ class ExcelExportTests(unittest.TestCase):
             sheet = workbook[workbook.sheetnames[0]]
             self.assertEqual(sheet["B1"].value, "测试站别")
             self.assertEqual(sheet["C1"].value, "老化站 1")
+            workbook.close()
+
+    def test_batch_save_writes_hidden_measurement_attempts_sheet(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "attempts.xlsx"
+            attempt = SimpleNamespace(
+                sequence_index=4,
+                target_current_a=3.0,
+                attempt_no=2,
+                created_at_utc="2026-08-12T00:00:00Z",
+                validity=SimpleNamespace(value="valid"),
+                invalid_reason="",
+                selected=True,
+                voltage_v=20.0,
+                power_w=6.0,
+                efficiency=0.1,
+                centroid_nm=975.0,
+                fwhm_nm=0.281,
+                pib=0.995,
+                smsr_db=32.5,
+                stable_span_w=0.01,
+                stable_window_s=3.0,
+                integration_time_us=3_800,
+                spectrum_path="spectra/point.csv",
+            )
+
+            save_test_records(path, [self._record(3.0)], attempts=[attempt])
+
+            workbook = load_workbook(path, data_only=False)
+            sheet = workbook["测量尝试"]
+            self.assertEqual(sheet.sheet_state, "hidden")
+            self.assertEqual(
+                [sheet.cell(2, column).value for column in (1, 2, 3, 7, 17, 18)],
+                [5, 3.0, 2, "是", 3_800, "spectra/point.csv"],
+            )
             workbook.close()
 
     def test_batch_save_rejects_mixed_test_stations(self) -> None:

@@ -13,9 +13,7 @@ from pathlib import Path
 from tauri_bridge.protocol import PROTOCOL_VERSION
 from tauri_bridge.legacy_backend import (
     LegacyWindowBackend,
-    SPECTRUM_CHART_POINT_LIMIT,
     _downsample_pd_history,
-    _downsample_spectrum,
     _paired_series,
 )
 from tauri_bridge.__main__ import _read_request_lines, _write_response
@@ -36,36 +34,21 @@ class SpectrumPayloadTests(unittest.TestCase):
         self.assertEqual(wavelength, [975.0, 977.0])
         self.assertEqual(intensity, [10.0, 30.0])
 
-    def test_downsampling_bounds_payload_and_preserves_narrow_peak(self) -> None:
+    def test_spectrum_snapshot_keeps_every_native_sample(self) -> None:
+        backend = object.__new__(LegacyWindowBackend)
+        backend._spectrum_cache_source = None
+        backend._spectrum_cache_payload = ([], [], None, [], None)
         wavelength = [950.0 + index * 0.01 for index in range(8000)]
-        intensity = [100.0 for _index in range(8000)]
-        intensity[4234] = 16000.0
+        intensity = [float(index) for index in range(8000)]
 
-        chart_wavelength, chart_intensity = _downsample_spectrum(wavelength, intensity)
-
-        self.assertLessEqual(len(chart_wavelength), SPECTRUM_CHART_POINT_LIMIT)
-        self.assertEqual(len(chart_wavelength), len(chart_intensity))
-        self.assertEqual(chart_wavelength[0], wavelength[0])
-        self.assertEqual(chart_wavelength[-1], wavelength[-1])
-        self.assertIn(16000.0, chart_intensity)
-
-    def test_ocean_hr4_sized_spectrum_keeps_every_sample(self) -> None:
-        wavelength = [700.0 + index * 0.1 for index in range(3648)]
-        intensity = [float(index) for index in range(3648)]
-
-        self.assertEqual(
-            _downsample_spectrum(wavelength, intensity),
-            (wavelength, intensity),
+        chart_wavelength, chart_intensity, *_rest = backend._spectrum_snapshot(
+            wavelength,
+            intensity,
+            True,
         )
 
-    def test_short_spectrum_is_not_resampled(self) -> None:
-        wavelength = [975.0, 976.0, 977.0]
-        intensity = [10.0, 100.0, 12.0]
-
-        self.assertEqual(
-            _downsample_spectrum(wavelength, intensity),
-            (wavelength, intensity),
-        )
+        self.assertEqual(chart_wavelength, wavelength)
+        self.assertEqual(chart_intensity, intensity)
 
     def test_same_acquired_frame_reuses_spectrum_analysis(self) -> None:
         backend = object.__new__(LegacyWindowBackend)

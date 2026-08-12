@@ -70,46 +70,6 @@ def _paired_series(
     return x_output, y_output
 
 
-SPECTRUM_CHART_POINT_LIMIT = 4096
-
-
-def _downsample_spectrum(
-    wavelength: list[float],
-    intensity: list[float],
-    *,
-    limit: int = SPECTRUM_CHART_POINT_LIMIT,
-) -> tuple[list[float], list[float]]:
-    """Keep a full OceanHR4 frame while bounding unusually large payloads."""
-
-    point_count = min(len(wavelength), len(intensity))
-    if point_count <= limit:
-        return wavelength[:point_count], intensity[:point_count]
-    if limit < 4:
-        indexes = [0, point_count - 1][:limit]
-        return [wavelength[index] for index in indexes], [intensity[index] for index in indexes]
-
-    bucket_count = max(1, (limit - 2) // 2)
-    bucket_size = math.ceil((point_count - 2) / bucket_count)
-    selected_indexes = [0]
-    for start in range(1, point_count - 1, bucket_size):
-        stop = min(point_count - 1, start + bucket_size)
-        low_index = high_index = start
-        for index in range(start + 1, stop):
-            if intensity[index] < intensity[low_index]:
-                low_index = index
-            if intensity[index] > intensity[high_index]:
-                high_index = index
-        selected_indexes.extend(
-            (low_index,) if low_index == high_index else sorted((low_index, high_index))
-        )
-    selected_indexes.append(point_count - 1)
-    selected_indexes = selected_indexes[:limit]
-    return (
-        [wavelength[index] for index in selected_indexes],
-        [intensity[index] for index in selected_indexes],
-    )
-
-
 def _downsample_pd_history(
     times: Any,
     values: Any,
