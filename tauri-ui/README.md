@@ -9,7 +9,7 @@ Power Test 程序的桌面界面，技术栈为 Tauri 2、React、TypeScript、V
 - PD 采集：NI-DAQ 识别、通道/接线/量程/采样/标定/保存设置、开始/停止、统计量与实时趋势。
 - 安全：所有设备命令、自动状态、Excel 导出和下电继续由现有 Python 控制器负责；Tauri 关闭前会请求紧急停止，并等待后台采集/导出线程结束。
 
-现有 PySide6 程序仍可通过仓库根目录的 `python main.py` 独立运行，作为迁移期回退入口。
+Tauri 是唯一的操作员界面。Python/PySide6 代码仅作为随应用启动的硬件 sidecar 使用，不提供独立 GUI 启动入口。
 
 ## 本地运行
 

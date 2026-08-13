@@ -4242,14 +4242,6 @@ class DeviceOptionTests(unittest.TestCase):
 
 
 class LocalSpectrometerLoadingTests(unittest.TestCase):
-    def test_sth_eb314_launcher_uses_named_conda_environment(self) -> None:
-        launcher = Path(__file__).resolve().parents[1] / "run_combined_test_sth_eb314.bat"
-
-        self.assertTrue(launcher.exists())
-        content = launcher.read_text(encoding="utf-8")
-        self.assertIn("sth_eb314", content)
-        self.assertIn("main.py", content)
-
     def test_load_spectrometer_components_ignores_legacy_root_and_does_not_import_application(
         self,
     ) -> None:

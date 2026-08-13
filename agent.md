@@ -2,7 +2,7 @@
 
 ## Default Implementation Target
 
-- Unless the user explicitly says otherwise, make code and UI changes in the Tauri version (`tauri-ui` and its related Tauri integration) and do not modify the Qt version.
+- Tauri (`tauri-ui` and its Python sidecar) is the only product surface. Do not add an independent Qt operator application or fallback launcher.
 
 ## Verification Policy
 
@@ -11,19 +11,20 @@
 - Before running the full test suite, packaging, or any long-running build or verification command, obtain the user's consent.
 - When tests are skipped under this policy, state briefly that the change has not been test-verified.
 
-## Combined Test App
+## Power Test App
 
 - Run from this workspace with the Python environment that can load the scripts runner compiled modules:
   `conda activate sth_eb314`
-- Start the combined tester with:
-  `python main.py`
+- Start the desktop application with:
+  `npm start`
 - `OceanDirect.dll` is copied into this project at `assets\libs\ocean_direct\OceanDirect.dll`.
 - Keep the current working directory at this project root when loading OceanDirect. The compiled OceanDirect wrapper resolves `assets\libs\ocean_direct\OceanDirect.dll` from `os.getcwd()`.
 
 ### Code Layout
 
-- `main.py` is the stable operator entry point.
-- `combined_test/window.py` owns Qt layout, signal wiring, and operator interactions.
+- `tauri-ui` is the operator interface and stable desktop entry point.
+- `tauri_bridge` owns the Tauri-to-Python protocol.
+- `combined_test/window.py` is loaded only as the headless sidecar controller state; it is not an operator-facing Qt application.
 - `combined_test/devices.py` owns hardware loading, device selection helpers, and acquisition threads.
 - `combined_test/device_interfaces.py` defines the stable `PowerSupply`, `PowerMeter`, and `SpectrumMeter` ports plus the legacy/TDK power adapter.
 - `combined_test/automation.py` owns automatic-test planning and device-independent state transitions.
