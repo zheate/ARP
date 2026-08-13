@@ -1,11 +1,10 @@
-"""Qt main window for the combined optical test application."""
+"""Widget-backed controller state used by the Tauri Python sidecar."""
 
 from __future__ import annotations
 
 import json
 import math
 import os
-import sys
 import time
 from collections import deque
 from datetime import datetime
@@ -13,7 +12,7 @@ from pathlib import Path
 from statistics import median
 from typing import Any
 
-from PySide6.QtCore import QEvent, QLockFile, QSettings, QStandardPaths, QTimer, Qt, QUrl
+from PySide6.QtCore import QEvent, QSettings, QTimer, Qt, QUrl
 from PySide6.QtGui import QCloseEvent, QDesktopServices
 from PySide6.QtWidgets import (
     QApplication,
@@ -108,7 +107,7 @@ from .record_store import (
     RecordStore,
     SessionRecordStore,
 )
-from .runtime_logging import configure_runtime_logging, get_runtime_logger, runtime_log_path
+from .runtime_logging import get_runtime_logger, runtime_log_path
 from .plot_types import PlotLayoutContext
 from .spectrum import (
     SPECTRUM_CENTER_LOCK_HALF_RANGE_NM,
@@ -138,7 +137,7 @@ from .tdk_power_supply import (
     compensate_tdk_output_voltage,
     list_tdk_serial_resources,
 )
-from .theme import FontRole, apply_application_theme, font_for_role, semantic_colors_for_palette
+from .theme import FontRole, font_for_role, semantic_colors_for_palette
 from tools.pd_daq_mvp import PdDaqPanel
 from tools.visa_session import visa_resource_manager
 
@@ -2827,12 +2826,11 @@ class MainWindow(QMainWindow):
         recorder = self.automatic_sample_recorder
         self.automatic_sample_recorder = None
         if recorder is not None:
-            try:
-                # close() drains the background writer queue so the CSV is
-                # complete before any Excel save thread reads it.
-                recorder.close()
-            except Exception as exc:
-                self.add_log(f"逐秒 CSV 收尾失败：{user_facing_error_message(exc)}")
+            # close() drains the background writer queue so the CSV is
+            # complete before any Excel save thread reads it, stops the
+            # writer thread even on failure, and re-raises any write error
+            # so the caller can refuse to export incomplete data.
+            recorder.close()
 
     def record_automatic_second_sample(
         self,
@@ -5439,28 +5437,3 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
         super().closeEvent(event)
-
-
-def main() -> int:
-    configure_runtime_logging(process_role="qt-backend")
-    app = QApplication(sys.argv)
-    lock_directory = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.TempLocation)
-    instance_lock = QLockFile(
-        str(Path(lock_directory or Path.home()) / "changguang_huaxin_pump_driver_test.lock")
-    )
-    instance_lock.setStaleLockTime(30_000)
-    if not instance_lock.tryLock(100):
-        QMessageBox.warning(None, "程序已在运行", "检测到测试程序已经启动，请使用现有窗口。")
-        return 0
-    apply_application_theme(app)
-    window = MainWindow()
-    window.show()
-    QTimer.singleShot(0, window.auto_detect_selected_power_meter)
-    try:
-        return app.exec()
-    finally:
-        instance_lock.unlock()
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

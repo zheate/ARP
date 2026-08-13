@@ -1087,7 +1087,18 @@ class AutomaticTestController:
             self.sync_tdk_output_controls(False)
         self.active_output_current_a = 0.0
         self.set_current_spin.setValue(0.0)
-        self.close_automatic_sample_recorder()
+        try:
+            self.close_automatic_sample_recorder()
+        except Exception as exc:
+            # The per-second CSV is incomplete; refuse to finalize the Excel
+            # workbook from partial data instead of silently exporting it.
+            message = (
+                "逐秒采样记录收尾失败，Excel 将不会保存："
+                f"{self._error_formatter(exc)}"
+            )
+            self.add_log(message)
+            QMessageBox.critical(self._host, "逐秒记录", message)
+            return
         self._confirm_terminal_outcome()
         self.automatic_orchestrator.complete()
         completed_message = completion_detail or self._completion_message()
@@ -1147,7 +1158,11 @@ class AutomaticTestController:
         self.automatic_point_started_monotonic_s = None
         self.automatic_hold_started_monotonic_s = None
         self.automatic_ramp_up_currents.clear()
-        self.close_automatic_sample_recorder()
+        try:
+            self.close_automatic_sample_recorder()
+        except Exception as exc:
+            self.add_log(f"逐秒采样记录收尾失败：{self._error_formatter(exc)}")
+            return
         self.automatic_completion_record = None
         self.automatic_run_started_monotonic_s = None
         self._clear_current_write_retry()

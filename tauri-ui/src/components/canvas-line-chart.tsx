@@ -38,6 +38,7 @@ type CanvasLineChartProps = {
   yDomain?: [number, number]
   annotations?: CanvasChartAnnotation[]
   ariaLabel: string
+  preserveAllPoints?: boolean
 }
 
 type ChartSize = { width: number; height: number }
@@ -508,7 +509,7 @@ function tooltipNumber(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }
 
-export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, annotations = [], ariaLabel }: CanvasLineChartProps) {
+export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, annotations = [], ariaLabel, preserveAllPoints = false }: CanvasLineChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const baseCanvasRef = useRef<HTMLCanvasElement>(null)
   const hoverCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -536,8 +537,10 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     [chartData, layout.x.max, layout.x.min, xKey],
   )
   const displayIndexes = useMemo(
-    () => downsampleIndexes(chartData, visibleIndexes, lines, Math.max(96, Math.floor(layout.plotWidth * 1.25))),
-    [chartData, layout.plotWidth, lines, visibleIndexes],
+    () => preserveAllPoints
+      ? visibleIndexes
+      : downsampleIndexes(chartData, visibleIndexes, lines, Math.max(96, Math.floor(layout.plotWidth * 1.25))),
+    [chartData, layout.plotWidth, lines, preserveAllPoints, visibleIndexes],
   )
 
   useLayoutEffect(() => {

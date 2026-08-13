@@ -171,13 +171,17 @@ class LegacyWindowBackend:
         self,
         wavelength: list[float],
         intensity: list[float],
+        *,
+        omit_grid: bool = False,
     ) -> dict[str, Any]:
         """Columnar spectrum payload with a cached wavelength grid.
 
         The wavelength axis is hardware-defined and only changes when the
         device grid itself changes, so retransmitting thousands of floats per
-        frame dominated the pipe. The axis is sent once per grid revision;
-        the frontend merges it from its cached copy on later frames.
+        frame dominated the pipe. When ``omit_grid`` is set (incremental
+        stream polls that the frontend merges against its cached grid) the
+        axis is sent once per grid revision and omitted afterwards; callers
+        that replace their snapshot wholesale must keep it.
         """
         grid_changed = self._spectrum_grid_wavelength != wavelength
         if grid_changed:
@@ -187,7 +191,7 @@ class LegacyWindowBackend:
             "gridRevision": self._spectrum_grid_revision,
             "intensity": intensity,
         }
-        if grid_changed:
+        if grid_changed or not omit_grid:
             payload["wavelengthNm"] = wavelength
         return payload
 
@@ -891,7 +895,15 @@ class LegacyWindowBackend:
                 None,
             )
         power_points = self._power_snapshot(plots) if include_live_charts else []
-        spectrum_columns = self._spectrum_columns_payload(wavelength, intensity)
+        # Only incremental stream polls (which the frontend merges against its
+        # cached grid) may omit the wavelength axis. Command responses carry
+        # no `since` and replace the frontend snapshot wholesale, so they must
+        # always include the full grid.
+        spectrum_columns = self._spectrum_columns_payload(
+            wavelength,
+            intensity,
+            omit_grid=since_revisions is not None,
+        )
         stable_points = self._stable_snapshot(window) if include_live_charts else []
 
         panel = window.pd_panel

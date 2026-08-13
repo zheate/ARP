@@ -163,8 +163,8 @@ class SpectrumPayloadTests(unittest.TestCase):
         backend._spectrum_grid_revision = 0
         grid = [940.0, 941.0, 942.0]
 
-        first = backend._spectrum_columns_payload(grid, [10.0, 20.0, 30.0])
-        second = backend._spectrum_columns_payload(grid, [11.0, 21.0, 31.0])
+        first = backend._spectrum_columns_payload(grid, [10.0, 20.0, 30.0], omit_grid=True)
+        second = backend._spectrum_columns_payload(grid, [11.0, 21.0, 31.0], omit_grid=True)
 
         self.assertEqual(
             first,
@@ -179,9 +179,26 @@ class SpectrumPayloadTests(unittest.TestCase):
         changed = backend._spectrum_columns_payload(
             [940.0, 941.0, 942.0, 943.0],
             [1.0, 2.0, 3.0, 4.0],
+            omit_grid=True,
         )
         self.assertEqual(changed["gridRevision"], 2)
         self.assertIn("wavelengthNm", changed)
+
+    def test_spectrum_columns_payload_keeps_grid_for_full_replacements(self) -> None:
+        backend = object.__new__(LegacyWindowBackend)
+        backend._spectrum_grid_wavelength = None
+        backend._spectrum_grid_revision = 0
+        grid = [940.0, 941.0, 942.0]
+
+        backend._spectrum_columns_payload(grid, [10.0, 20.0, 30.0])
+        repeated = backend._spectrum_columns_payload(grid, [11.0, 21.0, 31.0])
+
+        # Command responses replace the frontend snapshot wholesale, so the
+        # axis must stay present even though the grid did not change.
+        self.assertEqual(
+            repeated,
+            {"gridRevision": 1, "wavelengthNm": grid, "intensity": [11.0, 21.0, 31.0]},
+        )
 
     def test_locked_center_only_scopes_chart_and_invalidates_cached_frame(self) -> None:
         backend = object.__new__(LegacyWindowBackend)

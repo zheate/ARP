@@ -174,9 +174,14 @@ class AutomaticSampleRecorder:
             raise self._write_error
 
     def close(self) -> None:
-        """Drain queued rows, stop the writer thread, and release the file."""
+        """Drain queued rows, stop the writer thread, then surface failures.
+
+        The writer thread is always stopped before any stored write error is
+        raised, so callers that catch the error are never left with a leaked
+        background thread holding the file open.
+        """
         if self._queue is not None:
-            self.flush_now()
+            self._queue.join()
             self._queue.put(None)
             if self._writer_thread is not None:
                 self._writer_thread.join(timeout=30)
@@ -184,3 +189,5 @@ class AutomaticSampleRecorder:
             self._writer_thread = None
         elif self._file is not None:
             self._file.flush()
+        if self._write_error is not None:
+            raise self._write_error

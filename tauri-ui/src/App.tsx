@@ -974,7 +974,7 @@ function ChartLegend({ lines }: { lines: CanvasChartLine[] }) {
   )
 }
 
-const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, lines, empty = "暂无实时数据", heightClassName, headerRight, annotations, stretch = false, compactHeader = false, xDomain, xTicks, yDomain }: {
+const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, lines, empty = "暂无实时数据", heightClassName, headerRight, annotations, stretch = false, compactHeader = false, xDomain, xTicks, yDomain, preserveAllPoints = false }: {
   title: string
   data?: Array<Record<string, number | null>>
   columns?: CanvasColumnarData
@@ -989,6 +989,7 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
   xDomain?: [number, number]
   xTicks?: number[]
   yDomain?: [number, number]
+  preserveAllPoints?: boolean
 }) {
   const dataLength = columns
     ? Math.min(...Object.values(columns).map((values) => values.length))
@@ -1000,7 +1001,7 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
         {dataLength === 0 ? (
           <div className="grid h-full place-items-center rounded-lg bg-background/30 text-sm text-muted-foreground/70">{empty}</div>
         ) : (
-          <CanvasLineChart annotations={annotations} ariaLabel={`${title}曲线`} columns={columns} data={data} lines={lines} xDomain={xDomain} xKey={xKey} xTicks={xTicks} yDomain={yDomain} />
+          <CanvasLineChart annotations={annotations} ariaLabel={`${title}曲线`} columns={columns} data={data} lines={lines} preserveAllPoints={preserveAllPoints} xDomain={xDomain} xKey={xKey} xTicks={xTicks} yDomain={yDomain} />
         )}
       </CardContent>
     </Card>
@@ -1042,6 +1043,7 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
     && previous.heightClassName === next.heightClassName
     && previous.stretch === next.stretch
     && previous.compactHeader === next.compactHeader
+    && previous.preserveAllPoints === next.preserveAllPoints
     && sameLines
     && sameNumbers(previous.xDomain, next.xDomain)
     && sameNumbers(previous.xTicks, next.xTicks)
@@ -1217,6 +1219,7 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
       xKey="wavelengthNm"
       xDomain={spectrumXDomain}
       yDomain={spectrumYDomain}
+      preserveAllPoints
       lines={[{ key: "intensity", label: "强度", color: PLM_CHART_SERIES.green }]}
       stretch={stretch}
       heightClassName={heightClassName}

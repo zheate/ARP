@@ -85,6 +85,39 @@ class AutomaticSampleRecorderTests(unittest.TestCase):
                 rows = list(csv.DictReader(handle))
             self.assertEqual(len(rows), 2)
 
+    def test_close_stops_the_writer_thread_and_raises_stored_write_errors(self) -> None:
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "failing_samples.csv"
+            original_writer = csv.writer
+            row_count = 0
+
+            class FailingWriter:
+                def __init__(self, handle):
+                    self._writer = original_writer(handle)
+
+                def writerow(self, row):
+                    nonlocal row_count
+                    row_count += 1
+                    if row_count > 1:
+                        raise OSError("磁盘已满")
+                    return self._writer.writerow(row)
+
+            with patch("combined_test.automatic_samples.csv.writer", side_effect=FailingWriter):
+                recorder = AutomaticSampleRecorder(path)
+                writer_thread = recorder._writer_thread
+                recorder.write(_sample(point_elapsed_s=1.0))
+                with self.assertRaisesRegex(OSError, "磁盘已满"):
+                    recorder.close()
+
+            # The writer thread must be stopped even when rows failed, and
+            # the recorder must no longer hold it open.
+            self.assertIsNotNone(writer_thread)
+            self.assertFalse(writer_thread.is_alive())
+            self.assertIsNone(recorder._queue)
+            self.assertIsNone(recorder._writer_thread)
+
     def test_output_path_lives_next_to_automatic_workbook(self) -> None:
         self.assertEqual(
             automatic_sample_path(Path("result/2026_08_12_12_00.xlsx")),
