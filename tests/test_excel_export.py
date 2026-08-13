@@ -9,7 +9,13 @@ from openpyxl import Workbook, load_workbook
 from xlsxwriter import Workbook as XlsxWriterWorkbook
 
 from combined_test.automatic_samples import AutomaticSampleRecorder, AutomaticSecondSample
-from combined_test.excel_export import ExcelTestRecord, append_test_record, build_test_workbook_path, save_test_records
+from combined_test.excel_export import (
+    ExcelTestRecord,
+    _sample_series,
+    append_test_record,
+    build_test_workbook_path,
+    save_test_records,
+)
 
 
 class ExcelExportTests(unittest.TestCase):
@@ -448,6 +454,17 @@ class ExcelExportTests(unittest.TestCase):
             workbook.close()
             self.assertTrue(sample_path.is_file())
             self.assertTrue(path.exists())
+
+    def test_sample_series_parses_batches_with_legacy_failure_semantics(self) -> None:
+        row = {"spectrum_wavelengths_nm": "975;976.25;977", "spectrum_intensities": "1.5;2;3.25"}
+        self.assertEqual(_sample_series(row, "spectrum_wavelengths_nm"), (975.0, 976.25, 977.0))
+        self.assertEqual(_sample_series(row, "spectrum_intensities"), (1.5, 2.0, 3.25))
+        self.assertEqual(_sample_series(row, "missing_key"), ())
+        self.assertEqual(_sample_series({"v": "  "}, "v"), ())
+        self.assertEqual(_sample_series({"v": "1;nan;3"}, "v"), ())
+        self.assertEqual(_sample_series({"v": "1;inf"}, "v"), ())
+        self.assertEqual(_sample_series({"v": "1;oops;3"}, "v"), ())
+        self.assertEqual(_sample_series({"v": "1;"}, "v"), ())
 
     def test_append_migrates_legacy_workbook_smsr_header(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

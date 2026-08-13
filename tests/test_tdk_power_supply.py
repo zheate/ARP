@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import time
 import unittest
 
 from combined_test.tdk_power_supply import (
@@ -194,6 +196,38 @@ class TdkLambdaPowerSupplyTests(unittest.TestCase):
         self.assertFalse(success)
         self.assertIn("温度", message)
         self.assertEqual(instrument.writes, initialization_writes)
+
+    def test_exchange_serializes_concurrent_transactions(self) -> None:
+        class StrictInstrument(FakeInstrument):
+            def read(self) -> str:
+                if len(self.pending_responses) != 1:
+                    raise RuntimeError("interleaved RS-232 transaction")
+                return super().read()
+
+        controller = TdkLambdaPowerSupply(
+            "ASRL9::INSTR",
+            resource_manager_factory=lambda: FakeResourceManager(),
+        )
+        controller._instrument = StrictInstrument(responses={"MC?": "5.67 A"})
+
+        results: list[str | None] = [None, None]
+
+        def exchange(index: int) -> None:
+            try:
+                results[index] = controller._exchange("MC?")
+            except Exception as exc:  # pragma: no cover - failure path
+                results[index] = f"ERROR: {exc}"
+
+        threads = [threading.Thread(target=exchange, args=(index,)) for index in range(2)]
+        threads[0].start()
+        # Start the second thread while the first is inside its 0.05 s response
+        # delay: without the lock the two transactions interleave on the wire.
+        time.sleep(0.02)
+        threads[1].start()
+        for thread in threads:
+            thread.join(timeout=10)
+
+        self.assertEqual(results, ["5.67 A", "5.67 A"])
 
 
 if __name__ == "__main__":

@@ -20,9 +20,17 @@ export type CanvasChartAnnotation = {
 }
 
 type NumericRow = Record<string, number | null>
+export type CanvasColumnarData = Record<string, readonly number[]>
+
+type ChartData = {
+  length: number
+  valueAt: (index: number, key: string) => number | null
+  rowAt: (index: number) => NumericRow | undefined
+}
 
 type CanvasLineChartProps = {
-  data: NumericRow[]
+  data?: NumericRow[]
+  columns?: CanvasColumnarData
   xKey: string
   lines: CanvasChartLine[]
   xDomain?: [number, number]
@@ -30,7 +38,6 @@ type CanvasLineChartProps = {
   yDomain?: [number, number]
   annotations?: CanvasChartAnnotation[]
   ariaLabel: string
-  preserveAllPoints?: boolean
 }
 
 type ChartSize = { width: number; height: number }
@@ -51,10 +58,33 @@ type ChartLayout = {
 }
 
 const EMPTY_SIZE: ChartSize = { width: 0, height: 0 }
+const EMPTY_ROWS: NumericRow[] = []
 const NUMERIC_ZERO_EPSILON = 1e-12
 
 function finiteValue(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null
+}
+
+function chartDataFrom(rows: NumericRow[], columns?: CanvasColumnarData): ChartData {
+  if (!columns) {
+    return {
+      length: rows.length,
+      valueAt: (index, key) => finiteValue(rows[index]?.[key]),
+      rowAt: (index) => rows[index],
+    }
+  }
+  const lengths = Object.values(columns).map((values) => values.length)
+  const length = lengths.length ? Math.min(...lengths) : 0
+  return {
+    length,
+    valueAt: (index, key) => finiteValue(columns[key]?.[index]),
+    rowAt: (index) => {
+      if (index < 0 || index >= length) return undefined
+      return Object.fromEntries(
+        Object.entries(columns).map(([key, values]) => [key, finiteValue(values[index])]),
+      )
+    },
+  }
 }
 
 function paddedExtent(values: number[], includeZero: boolean): [number, number] {
@@ -145,7 +175,7 @@ function formatTick(value: number, scale: AxisScale): string {
 }
 
 function buildLayout(
-  data: NumericRow[],
+  data: ChartData,
   xKey: string,
   lines: CanvasChartLine[],
   size: ChartSize,
@@ -160,18 +190,30 @@ function buildLayout(
   const bottom = 30
   const plotHeight = Math.max(1, size.height - top - bottom)
   const verticalTickTarget = Math.min(5, Math.max(2, Math.floor(plotHeight / 36)))
-  const xValues = data.map((row) => finiteValue(row[xKey])).filter((value): value is number => value !== null)
+  const xValues: number[] = []
+  if (!xDomain) {
+    for (let index = 0; index < data.length; index += 1) {
+      const value = data.valueAt(index, xKey)
+      if (value !== null) xValues.push(value)
+    }
+  }
   const automaticXExtent = paddedExtent(xValues, false)
   const x = xDomain ? fixedScale(xDomain, xTicks) : createScale(automaticXExtent[0], automaticXExtent[1], Math.max(3, Math.floor(size.width / 110)))
-  const visibleRows = data.filter((row) => {
-    const value = finiteValue(row[xKey])
-    return value !== null && value >= x.min && value <= x.max
-  })
-  const valuesFor = (axis: "left" | "right") => lines
-    .filter((line) => (line.yAxisId ?? "left") === axis)
-    .flatMap((line) => visibleRows.map((row) => finiteValue(row[line.key])).filter((value): value is number => value !== null))
-  const leftExtent = paddedExtent(valuesFor("left"), true)
-  const rightValues = valuesFor("right")
+  const leftValues: number[] = []
+  const rightValues: number[] = []
+  if (!yDomain || hasRightAxis) {
+    for (let index = 0; index < data.length; index += 1) {
+      const xValue = data.valueAt(index, xKey)
+      if (xValue === null || xValue < x.min || xValue > x.max) continue
+      for (const line of lines) {
+        const value = data.valueAt(index, line.key)
+        if (value === null) continue
+        if (line.yAxisId === "right") rightValues.push(value)
+        else if (!yDomain) leftValues.push(value)
+      }
+    }
+  }
+  const leftExtent = paddedExtent(leftValues, true)
   const rightExtent = paddedExtent(rightValues, true)
   return {
     left,
@@ -194,28 +236,28 @@ function mapY(value: number, scale: AxisScale, layout: ChartLayout): number {
   return layout.top + (1 - (value - scale.min) / (scale.max - scale.min)) * layout.plotHeight
 }
 
-function downsampleRows(data: NumericRow[], lines: CanvasChartLine[], limit: number): NumericRow[] {
-  if (data.length <= limit || limit < 4 || lines.length === 0) return data
+function downsampleIndexes(data: ChartData, indexes: number[], lines: CanvasChartLine[], limit: number): number[] {
+  if (indexes.length <= limit || limit < 4 || lines.length === 0) return indexes
   const valueKey = lines[0].key
   const bucketCount = Math.max(1, Math.floor((limit - 2) / 2))
-  const bucketSize = Math.ceil((data.length - 2) / bucketCount)
-  const selectedIndexes = [0]
-  for (let start = 1; start < data.length - 1; start += bucketSize) {
-    const stop = Math.min(data.length - 1, start + bucketSize)
+  const bucketSize = Math.ceil((indexes.length - 2) / bucketCount)
+  const selectedIndexes = [indexes[0]]
+  for (let start = 1; start < indexes.length - 1; start += bucketSize) {
+    const stop = Math.min(indexes.length - 1, start + bucketSize)
     let lowIndex = start
     let highIndex = start
     for (let index = start + 1; index < stop; index += 1) {
-      const value = finiteValue(data[index]?.[valueKey])
-      const lowValue = finiteValue(data[lowIndex]?.[valueKey])
-      const highValue = finiteValue(data[highIndex]?.[valueKey])
+      const value = data.valueAt(indexes[index], valueKey)
+      const lowValue = data.valueAt(indexes[lowIndex], valueKey)
+      const highValue = data.valueAt(indexes[highIndex], valueKey)
       if (value !== null && (lowValue === null || value < lowValue)) lowIndex = index
       if (value !== null && (highValue === null || value > highValue)) highIndex = index
     }
-    if (lowIndex === highIndex) selectedIndexes.push(lowIndex)
-    else selectedIndexes.push(...([lowIndex, highIndex].sort((left, right) => left - right)))
+    if (lowIndex === highIndex) selectedIndexes.push(indexes[lowIndex])
+    else selectedIndexes.push(...([lowIndex, highIndex].sort((left, right) => left - right).map((index) => indexes[index])))
   }
-  selectedIndexes.push(data.length - 1)
-  return selectedIndexes.slice(0, limit).map((index) => data[index])
+  selectedIndexes.push(indexes[indexes.length - 1])
+  return selectedIndexes.slice(0, limit)
 }
 
 function prepareCanvas(canvas: HTMLCanvasElement, size: ChartSize): CanvasRenderingContext2D | null {
@@ -273,7 +315,8 @@ function drawBaseChart(
   container: HTMLDivElement,
   size: ChartSize,
   layout: ChartLayout,
-  data: NumericRow[],
+  data: ChartData,
+  indexes: number[],
   xKey: string,
   lines: CanvasChartLine[],
   annotations: CanvasChartAnnotation[],
@@ -338,9 +381,9 @@ function drawBaseChart(
     context.lineJoin = "round"
     context.lineCap = "round"
     let drawing = false
-    for (const row of data) {
-      const xValue = finiteValue(row[xKey])
-      const yValue = finiteValue(row[line.key])
+    for (const index of indexes) {
+      const xValue = data.valueAt(index, xKey)
+      const yValue = data.valueAt(index, line.key)
       if (xValue === null || yValue === null || xValue < layout.x.min || xValue > layout.x.max) {
         drawing = false
         continue
@@ -354,9 +397,9 @@ function drawBaseChart(
     context.stroke()
 
     if (line.showPoints) {
-      for (const row of data) {
-        const xValue = finiteValue(row[xKey])
-        const yValue = finiteValue(row[line.key])
+      for (const index of indexes) {
+        const xValue = data.valueAt(index, xKey)
+        const yValue = data.valueAt(index, line.key)
         if (xValue === null || yValue === null || xValue < layout.x.min || xValue > layout.x.max) continue
         drawPoint(
           context,
@@ -398,17 +441,17 @@ function drawBaseChart(
 
 }
 
-function nearestRowIndex(data: NumericRow[], xKey: string, target: number): number {
+function nearestRowIndex(data: ChartData, xKey: string, target: number): number {
   let low = 0
   let high = data.length - 1
   while (low < high) {
     const middle = Math.floor((low + high) / 2)
-    const value = finiteValue(data[middle]?.[xKey]) ?? Number.POSITIVE_INFINITY
+    const value = data.valueAt(middle, xKey) ?? Number.POSITIVE_INFINITY
     if (value < target) low = middle + 1
     else high = middle
   }
-  const current = finiteValue(data[low]?.[xKey])
-  const previous = low > 0 ? finiteValue(data[low - 1]?.[xKey]) : null
+  const current = data.valueAt(low, xKey)
+  const previous = low > 0 ? data.valueAt(low - 1, xKey) : null
   if (current === null) return Math.max(0, low - 1)
   if (previous !== null && Math.abs(previous - target) <= Math.abs(current - target)) return low - 1
   return low
@@ -465,7 +508,7 @@ function tooltipNumber(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }
 
-export function CanvasLineChart({ data, xKey, lines, xDomain, xTicks, yDomain, annotations = [], ariaLabel, preserveAllPoints = false }: CanvasLineChartProps) {
+export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, annotations = [], ariaLabel }: CanvasLineChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const baseCanvasRef = useRef<HTMLCanvasElement>(null)
   const hoverCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -475,22 +518,26 @@ export function CanvasLineChart({ data, xKey, lines, xDomain, xTicks, yDomain, a
   const pointerRef = useRef({ x: 0, y: 0 })
   const [size, setSize] = useState<ChartSize>(EMPTY_SIZE)
   const [hover, setHover] = useState<HoverState>(null)
+  const hoverDrawnRef = useRef(false)
+  const chartData = useMemo(() => chartDataFrom(data, columns), [columns, data])
   const layout = useMemo(
-    () => buildLayout(data, xKey, lines, size, xDomain, xTicks, yDomain),
-    [data, lines, size, xDomain, xKey, xTicks, yDomain],
+    () => buildLayout(chartData, xKey, lines, size, xDomain, xTicks, yDomain),
+    [chartData, lines, size, xDomain, xKey, xTicks, yDomain],
   )
-  const visibleData = useMemo(
-    () => data.filter((row) => {
-      const xValue = finiteValue(row[xKey])
-      return xValue !== null && xValue >= layout.x.min && xValue <= layout.x.max
-    }),
-    [data, layout.x.max, layout.x.min, xKey],
+  const visibleIndexes = useMemo(
+    () => {
+      const indexes: number[] = []
+      for (let index = 0; index < chartData.length; index += 1) {
+        const xValue = chartData.valueAt(index, xKey)
+        if (xValue !== null && xValue >= layout.x.min && xValue <= layout.x.max) indexes.push(index)
+      }
+      return indexes
+    },
+    [chartData, layout.x.max, layout.x.min, xKey],
   )
-  const displayData = useMemo(
-    () => preserveAllPoints
-      ? visibleData
-      : downsampleRows(visibleData, lines, Math.max(96, Math.floor(layout.plotWidth * 1.25))),
-    [layout.plotWidth, lines, preserveAllPoints, visibleData],
+  const displayIndexes = useMemo(
+    () => downsampleIndexes(chartData, visibleIndexes, lines, Math.max(96, Math.floor(layout.plotWidth * 1.25))),
+    [chartData, layout.plotWidth, lines, visibleIndexes],
   )
 
   useLayoutEffect(() => {
@@ -509,20 +556,48 @@ export function CanvasLineChart({ data, xKey, lines, xDomain, xTicks, yDomain, a
     return () => observer.disconnect()
   }, [])
 
-  useEffect(() => {
+  // Coalesce data-driven redraws through requestAnimationFrame so a burst of
+  // snapshot updates draws at most once per frame instead of synchronously
+  // clearing and repainting the full chart for every update.
+  const baseDrawArgsRef = useRef<null | {
+    size: ChartSize
+    layout: ChartLayout
+    chartData: ChartData
+    displayIndexes: number[]
+    xKey: string
+    lines: CanvasChartLine[]
+    annotations: CanvasChartAnnotation[]
+  }>(null)
+  const baseFrameRef = useRef<number | null>(null)
+  const flushBaseDraw = useCallback(() => {
+    baseFrameRef.current = null
+    const args = baseDrawArgsRef.current
     const canvas = baseCanvasRef.current
     const container = containerRef.current
-    if (!canvas || !container || size.width <= 0 || size.height <= 0) return
-    drawBaseChart(canvas, container, size, layout, displayData, xKey, lines, annotations)
-  }, [annotations, displayData, layout, lines, size, xKey])
+    if (!args || !canvas || !container || args.size.width <= 0 || args.size.height <= 0) return
+    drawBaseChart(canvas, container, args.size, args.layout, args.chartData, args.displayIndexes, args.xKey, args.lines, args.annotations)
+  }, [])
 
-  const hoverRow = hover ? data[hover.index] : undefined
+  useEffect(() => {
+    baseDrawArgsRef.current = { size, layout, chartData, displayIndexes, xKey, lines, annotations }
+    if (baseFrameRef.current === null) {
+      baseFrameRef.current = window.requestAnimationFrame(flushBaseDraw)
+    }
+  }, [annotations, chartData, displayIndexes, layout, lines, size, xKey, flushBaseDraw])
+
+  useEffect(() => () => {
+    if (baseFrameRef.current !== null) window.cancelAnimationFrame(baseFrameRef.current)
+  }, [])
+
+  const hoverRow = hover ? chartData.rowAt(hover.index) : undefined
 
   useEffect(() => {
     const canvas = hoverCanvasRef.current
     const container = containerRef.current
     if (!canvas || !container || size.width <= 0 || size.height <= 0) return
+    if (!hoverRow && !hoverDrawnRef.current) return
     drawHover(canvas, container, size, layout, hoverRow, xKey, lines)
+    hoverDrawnRef.current = Boolean(hoverRow)
   }, [hoverRow, layout, lines, size, xKey])
 
   const positionTooltip = useCallback((pointerX: number, pointerY: number) => {
@@ -565,7 +640,11 @@ export function CanvasLineChart({ data, xKey, lines, xDomain, xTicks, yDomain, a
       return
     }
     const target = layout.x.min + ((pointerX - layout.left) / layout.plotWidth) * (layout.x.max - layout.x.min)
-    scheduleHover({ index: nearestRowIndex(data, xKey, target), pointerX, pointerY })
+    if (chartData.length === 0) {
+      scheduleHover(null)
+      return
+    }
+    scheduleHover({ index: nearestRowIndex(chartData, xKey, target), pointerX, pointerY })
   }
 
   const tooltipLeft = Math.min(Math.max(8, pointerRef.current.x + 12), Math.max(8, size.width - 172))

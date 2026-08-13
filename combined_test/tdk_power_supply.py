@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 import re
+import threading
 import time
 from typing import Any, Callable
 
@@ -89,6 +90,11 @@ class TdkLambdaPowerSupply:
         self._resource_manager: Any | None = None
         self._resource_manager_is_shared = False
         self._instrument: Any | None = None
+        # Serialize write/sleep/read transactions so the background TDK reader
+        # thread never interleaves its polls with GUI write commands on the
+        # same RS-232 link. Reentrant: _exchange may call disconnect_device
+        # while still holding the lock.
+        self._exchange_lock = threading.RLock()
         self.is_connected = False
         self.identity = ""
         self.output_enabled = False
@@ -137,26 +143,27 @@ class TdkLambdaPowerSupply:
             return False, f"连接 TDK 电源失败：{exc}"
 
     def disconnect_device(self) -> bool:
-        instrument, manager = self._instrument, self._resource_manager
-        manager_is_shared = self._resource_manager_is_shared
-        self._instrument = None
-        self._resource_manager = None
-        self._resource_manager_is_shared = False
-        self.is_connected = False
-        self.output_enabled = False
-        if instrument is not None:
-            try:
-                instrument.close()
-            except Exception:
-                pass
-        if manager is not None:
-            try:
-                if manager_is_shared:
-                    release_visa_resource_manager(manager)
-                else:
-                    manager.close()
-            except Exception:
-                pass
+        with self._exchange_lock:
+            instrument, manager = self._instrument, self._resource_manager
+            manager_is_shared = self._resource_manager_is_shared
+            self._instrument = None
+            self._resource_manager = None
+            self._resource_manager_is_shared = False
+            self.is_connected = False
+            self.output_enabled = False
+            if instrument is not None:
+                try:
+                    instrument.close()
+                except Exception:
+                    pass
+            if manager is not None:
+                try:
+                    if manager_is_shared:
+                        release_visa_resource_manager(manager)
+                    else:
+                        manager.close()
+                except Exception:
+                    pass
         return True
 
     def set_i2c_speed(self, _speed: int) -> bool:
@@ -169,19 +176,20 @@ class TdkLambdaPowerSupply:
         return self._instrument
 
     def _exchange(self, command: str) -> str:
-        instrument = self._require_instrument()
-        try:
-            instrument.write(command)
-            time.sleep(TDK_COMMAND_RESPONSE_DELAY_S)
-            return str(instrument.read()).strip()
-        except Exception as exc:
-            error_text = str(exc).lower()
-            if "invalid session" in error_text or "resource might be closed" in error_text:
-                self.disconnect_device()
-                raise RuntimeError(
-                    "TDK RS-232 会话已失效，串口可能已被关闭；请断开后重新连接 TDK"
-                ) from exc
-            raise
+        with self._exchange_lock:
+            instrument = self._require_instrument()
+            try:
+                instrument.write(command)
+                time.sleep(TDK_COMMAND_RESPONSE_DELAY_S)
+                return str(instrument.read()).strip()
+            except Exception as exc:
+                error_text = str(exc).lower()
+                if "invalid session" in error_text or "resource might be closed" in error_text:
+                    self.disconnect_device()
+                    raise RuntimeError(
+                        "TDK RS-232 会话已失效，串口可能已被关闭；请断开后重新连接 TDK"
+                    ) from exc
+                raise
 
     def _write(self, command: str) -> None:
         response = self._exchange(command)

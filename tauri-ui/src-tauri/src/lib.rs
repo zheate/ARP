@@ -2,6 +2,7 @@ use serde_json::{json, Value};
 
 const LIVE_SNAPSHOT_INTERVAL_MS: u64 = 200;
 const PD_SNAPSHOT_INTERVAL_MS: u64 = 500;
+const SHIPPING_SNAPSHOT_INTERVAL_MS: u64 = 500;
 use std::env;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -251,7 +252,7 @@ impl PythonBridge {
         let request_id = format!("tauri-{}", self.next_request_id);
         self.next_request_id += 1;
         let request = json!({
-            "v": 1,
+            "v": 2,
             "id": request_id,
             "method": method,
             "params": params,
@@ -276,7 +277,7 @@ impl PythonBridge {
             ));
         }
 
-        let response: Value = serde_json::from_str(&line).map_err(|error| {
+        let mut response: Value = serde_json::from_str(&line).map_err(|error| {
             PythonBridgeError::Transport(format!("Python 响应不是有效 JSON：{error}"))
         })?;
         if response.get("id").and_then(Value::as_str) != Some(request_id.as_str()) {
@@ -292,9 +293,10 @@ impl PythonBridge {
             return Err(PythonBridgeError::Backend(message.to_string()));
         }
         let result = response
-            .get("result")
-            .cloned()
+            .get_mut("result")
+            .map(Value::take)
             .ok_or_else(|| PythonBridgeError::Transport("Python 响应缺少 result".to_string()))?;
+        validate_columnar_spectrum(&result)?;
         if method == "app.shutdown"
             && result.get("shutdownConfirmed").and_then(Value::as_bool) == Some(true)
         {
@@ -347,6 +349,78 @@ fn should_reset_bridge(result: &Result<Value, PythonBridgeError>) -> bool {
     result.as_ref().is_err_and(PythonBridgeError::is_transport)
 }
 
+fn validate_columnar_spectrum(snapshot: &Value) -> Result<(), PythonBridgeError> {
+    let Some(spectrum) = snapshot.pointer("/measurements/spectrum") else {
+        return Ok(());
+    };
+    let Some(spectrum) = spectrum.as_object() else {
+        return Err(PythonBridgeError::Transport(
+            "Python 快照中的 measurements.spectrum 必须是列式对象".to_string(),
+        ));
+    };
+    for key in spectrum.keys() {
+        if !matches!(key.as_str(), "wavelengthNm" | "intensity" | "gridRevision") {
+            return Err(PythonBridgeError::Transport(
+                "Python 快照中的 measurements.spectrum 包含未知字段".to_string(),
+            ));
+        }
+    }
+    let Some(intensities) = spectrum.get("intensity").and_then(Value::as_array) else {
+        return Err(PythonBridgeError::Transport(
+            "Python 快照中的 measurements.spectrum.intensity 必须是数组".to_string(),
+        ));
+    };
+    if intensities.iter().any(|value| !value.is_number()) {
+        return Err(PythonBridgeError::Transport(
+            "Python 快照中的 measurements.spectrum 数组只能包含数值".to_string(),
+        ));
+    }
+    match spectrum.get("wavelengthNm") {
+        Some(wavelengths) => {
+            let Some(wavelengths) = wavelengths.as_array() else {
+                return Err(PythonBridgeError::Transport(
+                    "Python 快照中的 measurements.spectrum.wavelengthNm 必须是数组".to_string(),
+                ));
+            };
+            if wavelengths.len() != intensities.len() {
+                return Err(PythonBridgeError::Transport(
+                    "Python 快照中的 measurements.spectrum 两轴长度不一致".to_string(),
+                ));
+            }
+            if wavelengths.iter().any(|value| !value.is_number()) {
+                return Err(PythonBridgeError::Transport(
+                    "Python 快照中的 measurements.spectrum 数组只能包含数值".to_string(),
+                ));
+            }
+        }
+        None => {
+            // Grid-cached frames omit the axis and must carry a gridRevision
+            // so the frontend can verify its cached grid still applies.
+            if spectrum.get("gridRevision").and_then(Value::as_u64).is_none() {
+                return Err(PythonBridgeError::Transport(
+                    "省略 wavelengthNm 时必须携带整数 gridRevision".to_string(),
+                ));
+            }
+        }
+    }
+    if let Some(grid_revision) = spectrum.get("gridRevision") {
+        if !grid_revision.is_u64() {
+            return Err(PythonBridgeError::Transport(
+                "Python 快照中的 measurements.spectrum.gridRevision 必须是整数".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn snapshot_interval_ms(view: &str) -> u64 {
+    match view {
+        "pd" => PD_SNAPSHOT_INTERVAL_MS,
+        "shipping" => SHIPPING_SNAPSHOT_INTERVAL_MS,
+        _ => LIVE_SNAPSHOT_INTERVAL_MS,
+    }
+}
+
 fn update_stream_cursor(
     snapshot: &Value,
     series: &str,
@@ -366,29 +440,64 @@ fn update_stream_cursor(
     }
 }
 
-fn snapshot_fingerprint(snapshot: &Value) -> Value {
-    let Some(root) = snapshot.as_object() else {
-        return snapshot.clone();
+fn snapshot_state_changed(previous: &Value, current: &Value) -> bool {
+    let Some(previous_root) = previous.as_object() else {
+        return true;
     };
-    let mut fingerprint = serde_json::Map::with_capacity(root.len().saturating_sub(3));
-    for (key, value) in root {
-        if matches!(
-            key.as_str(),
-            "capturedAt" | "measurements" | "seriesPatches"
-        ) {
+    let Some(current_root) = current.as_object() else {
+        return true;
+    };
+    // Transport-only keys never count as a state change; the previous
+    // implementation built a fingerprint Value with the same exclusions,
+    // this borrows both trees instead of cloning either.
+    const IGNORED: [&str; 3] = ["capturedAt", "measurements", "seriesPatches"];
+    for (key, previous_value) in previous_root {
+        if IGNORED.contains(&key.as_str()) {
             continue;
         }
+        let Some(current_value) = current_root.get(key) else {
+            return true;
+        };
         if key == "pd" {
-            let mut pd = value.clone();
-            if let Some(pd_object) = pd.as_object_mut() {
-                pd_object.remove("points");
+            if pd_state_changed(previous_value, current_value) {
+                return true;
             }
-            fingerprint.insert(key.clone(), pd);
-        } else {
-            fingerprint.insert(key.clone(), value.clone());
+        } else if previous_value != current_value {
+            return true;
         }
     }
-    Value::Object(fingerprint)
+    for key in current_root.keys() {
+        if IGNORED.contains(&key.as_str()) {
+            continue;
+        }
+        if !previous_root.contains_key(key) {
+            return true;
+        }
+    }
+    false
+}
+
+fn pd_state_changed(previous: &Value, current: &Value) -> bool {
+    let (Some(previous), Some(current)) = (previous.as_object(), current.as_object()) else {
+        return true;
+    };
+    for (key, previous_value) in previous {
+        if key == "points" {
+            continue;
+        }
+        if current.get(key) != Some(previous_value) {
+            return true;
+        }
+    }
+    for key in current.keys() {
+        if key == "points" {
+            continue;
+        }
+        if !previous.contains_key(key) {
+            return true;
+        }
+    }
+    false
 }
 
 fn stream_envelope(subscription_id: &str, message: Value) -> Value {
@@ -460,16 +569,12 @@ fn start_bridge_stream(view: String, sender: StreamSender, state: &BridgeState) 
     let generation = state.stream_generation.fetch_add(1, Ordering::SeqCst) + 1;
     let active_generation = Arc::clone(&state.stream_generation);
     let shared_bridge = Arc::clone(&state.bridge);
-    let interval = if view == "pd" {
-        PD_SNAPSHOT_INTERVAL_MS
-    } else {
-        LIVE_SNAPSHOT_INTERVAL_MS
-    };
+    let interval = snapshot_interval_ms(&view);
 
     tauri::async_runtime::spawn_blocking(move || {
         let mut since: Option<Value> = None;
         let mut cursors = serde_json::Map::new();
-        let mut last_fingerprint: Option<Value> = None;
+        let mut last_snapshot: Option<Value> = None;
         while active_generation.load(Ordering::SeqCst) == generation {
             let mut params = serde_json::Map::new();
             params.insert("view".to_string(), json!(view));
@@ -485,12 +590,14 @@ fn start_bridge_stream(view: String, sender: StreamSender, state: &BridgeState) 
                     since = snapshot.get("seriesRevisions").cloned();
                     update_stream_cursor(&snapshot, "power", "/measurements/power", &mut cursors);
                     update_stream_cursor(&snapshot, "pd", "/pd/points", &mut cursors);
-                    let fingerprint = snapshot_fingerprint(&snapshot);
-                    if last_fingerprint.as_ref() == Some(&fingerprint) {
+                    let changed = last_snapshot
+                        .as_ref()
+                        .map_or(true, |previous| snapshot_state_changed(previous, &snapshot));
+                    if !changed {
                         std::thread::sleep(Duration::from_millis(interval));
                         continue;
                     }
-                    last_fingerprint = Some(fingerprint);
+                    last_snapshot = Some(snapshot.clone());
                     if sender.send(json!({ "snapshot": snapshot })).is_err() {
                         break;
                     }
@@ -643,7 +750,8 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        should_reset_bridge, snapshot_fingerprint, stream_envelope, PythonBridge, PythonBridgeError,
+        should_reset_bridge, snapshot_interval_ms, snapshot_state_changed, stream_envelope,
+        validate_columnar_spectrum, PythonBridge, PythonBridgeError,
     };
 
     #[test]
@@ -656,7 +764,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_fingerprint_ignores_transport_only_changes() {
+    fn snapshot_state_changed_ignores_transport_only_changes() {
         let first = serde_json::json!({
             "capturedAt": "2026-07-21T10:00:00Z",
             "seriesRevisions": { "power": 7, "stable": 1, "spectrum": 3, "pd": 0 },
@@ -673,13 +781,17 @@ mod tests {
             "status": { "message": "ready" },
         });
 
-        assert_eq!(snapshot_fingerprint(&first), snapshot_fingerprint(&second));
+        assert!(!snapshot_state_changed(&first, &second));
         assert!(first["measurements"].is_object());
         assert!(first["pd"]["points"].is_array());
 
-        let mut changed = second;
+        let mut changed = second.clone();
         changed["seriesRevisions"]["power"] = serde_json::json!(8);
-        assert_ne!(snapshot_fingerprint(&first), snapshot_fingerprint(&changed));
+        assert!(snapshot_state_changed(&first, &changed));
+
+        let mut pd_points_changed = second;
+        pd_points_changed["pd"]["points"] = serde_json::json!([{ "elapsedS": 2.0, "value": 1.0 }]);
+        assert!(!snapshot_state_changed(&first, &pd_points_changed));
     }
 
     #[test]
@@ -691,6 +803,91 @@ mod tests {
 
         assert_eq!(envelope["__arpSnapshotStream"], "automatic-7");
         assert_eq!(envelope["message"]["snapshot"]["capturedAt"], "now");
+    }
+
+    #[test]
+    fn snapshot_intervals_keep_shipping_and_pd_at_500_ms() {
+        assert_eq!(snapshot_interval_ms("automatic"), 200);
+        assert_eq!(snapshot_interval_ms("manual"), 200);
+        assert_eq!(snapshot_interval_ms("pd"), 500);
+        assert_eq!(snapshot_interval_ms("shipping"), 500);
+    }
+
+    #[test]
+    fn columnar_spectrum_requires_two_equal_length_arrays() {
+        let valid = serde_json::json!({
+            "measurements": {
+                "spectrum": {
+                    "wavelengthNm": [940.0, 941.0],
+                    "intensity": [0.5, 0.6],
+                }
+            }
+        });
+        let missing = serde_json::json!({ "measurements": {} });
+        let legacy_rows = serde_json::json!({
+            "measurements": {
+                "spectrum": [{ "wavelengthNm": 940.0, "intensity": 0.5 }]
+            }
+        });
+        let mismatched = serde_json::json!({
+            "measurements": {
+                "spectrum": {
+                    "wavelengthNm": [940.0, 941.0],
+                    "intensity": [0.5],
+                }
+            }
+        });
+        let non_numeric = serde_json::json!({
+            "measurements": {
+                "spectrum": {
+                    "wavelengthNm": [940.0],
+                    "intensity": ["invalid"],
+                }
+            }
+        });
+        let grid_cached = serde_json::json!({
+            "measurements": {
+                "spectrum": {
+                    "gridRevision": 3,
+                    "intensity": [0.5, 0.6],
+                }
+            }
+        });
+        let grid_cached_without_revision = serde_json::json!({
+            "measurements": {
+                "spectrum": {
+                    "intensity": [0.5, 0.6],
+                }
+            }
+        });
+        let grid_cached_mismatched = serde_json::json!({
+            "measurements": {
+                "spectrum": {
+                    "gridRevision": 3,
+                    "wavelengthNm": [940.0, 941.0, 942.0],
+                    "intensity": [0.5, 0.6],
+                }
+            }
+        });
+        let unknown_key = serde_json::json!({
+            "measurements": {
+                "spectrum": {
+                    "wavelengthNm": [940.0],
+                    "intensity": [0.5],
+                    "points": [],
+                }
+            }
+        });
+
+        assert!(validate_columnar_spectrum(&valid).is_ok());
+        assert!(validate_columnar_spectrum(&missing).is_ok());
+        assert!(validate_columnar_spectrum(&grid_cached).is_ok());
+        assert!(validate_columnar_spectrum(&legacy_rows).is_err());
+        assert!(validate_columnar_spectrum(&mismatched).is_err());
+        assert!(validate_columnar_spectrum(&non_numeric).is_err());
+        assert!(validate_columnar_spectrum(&grid_cached_without_revision).is_err());
+        assert!(validate_columnar_spectrum(&grid_cached_mismatched).is_err());
+        assert!(validate_columnar_spectrum(&unknown_key).is_err());
     }
 
     #[test]

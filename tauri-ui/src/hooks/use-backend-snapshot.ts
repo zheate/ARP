@@ -6,30 +6,17 @@ import { fetchBackendSnapshot, mergeBackendSnapshot, sendBackendCommand, subscri
 // snapshots without allocating a new command callback for every UI refresh.
 const DEMO_PREVIEW_ENABLED = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("demo") === "1"
 
-const DEMO_SPECTRUM = [
-  { wavelengthNm: 972, intensity: 180 },
-  { wavelengthNm: 973, intensity: 240 },
-  { wavelengthNm: 974, intensity: 320 },
-  { wavelengthNm: 975, intensity: 560 },
-  { wavelengthNm: 975.5, intensity: 1200 },
-  { wavelengthNm: 975.8, intensity: 4200 },
-  { wavelengthNm: 976, intensity: 9800 },
-  { wavelengthNm: 976.2, intensity: 12400 },
-  { wavelengthNm: 976.4, intensity: 10400 },
-  { wavelengthNm: 976.7, intensity: 5300 },
-  { wavelengthNm: 977, intensity: 1700 },
-  { wavelengthNm: 977.5, intensity: 650 },
-  { wavelengthNm: 978, intensity: 360 },
-  { wavelengthNm: 979, intensity: 220 },
-  { wavelengthNm: 980, intensity: 160 },
-]
+const DEMO_SPECTRUM = {
+  wavelengthNm: [972, 973, 974, 975, 975.5, 975.8, 976, 976.2, 976.4, 976.7, 977, 977.5, 978, 979, 980],
+  intensity: [180, 240, 320, 560, 1200, 4200, 9800, 12400, 10400, 5300, 1700, 650, 360, 220, 160],
+}
 
 const DEMO_SNAPSHOT: BackendSnapshot = {
   capturedAt: "2026-07-19T12:00:00.000Z",
   backend: {
     connected: true,
     mode: "active",
-    protocolVersion: 1,
+    protocolVersion: 2,
     pythonVersion: "demo-preview",
     notices: [{ level: "info", title: "示例数据", message: "当前显示的是图表预览数据，不会连接真实仪器。" }],
   },

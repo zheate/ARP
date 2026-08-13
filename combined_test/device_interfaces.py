@@ -10,6 +10,7 @@ from typing import Any, Protocol, runtime_checkable
 
 from .core import build_set_current_command
 from .devices import read_power_status_value
+from .models import SpectrumFrame
 
 
 DEFAULT_POWER_SUPPLY_ADDRESS = 0x41
@@ -74,7 +75,7 @@ class SpectrumMeter(Protocol):
 
     def wait(self, timeout_ms: int = ...) -> bool: ...
 
-    def take_latest_spectrum(self) -> tuple[Any, Any] | None: ...
+    def take_latest_spectrum(self) -> SpectrumFrame | None: ...
 
     def stop(self) -> None: ...
 

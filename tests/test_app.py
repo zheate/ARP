@@ -35,6 +35,7 @@ from combined_test.models import (
     PowerMeterReading,
     PowerMeterSettings,
     SpectrometerOption,
+    SpectrumFrame,
     SpectrumPeakAnnotation,
     SpectrometerReading,
     SpectrometerSettings,
@@ -581,8 +582,13 @@ class MainWindowTests(unittest.TestCase):
             window.test_station_field.setText("老化站 1")
             window.output_dir_field.setText(temp_dir)
             window.begin_test_session()
-            window.latest_spectrum_wavelength = [974.0, 975.0, 976.0, 977.0, 978.0]
-            window.latest_spectrum_intensity = [0.0, 5000.0, 10000.0, 5000.0, 0.0]
+            window.on_spectrum_curve(
+                SpectrumFrame(
+                    [974.0, 975.0, 976.0, 977.0, 978.0],
+                    [0.0, 5000.0, 10000.0, 5000.0, 0.0],
+                    None,
+                )
+            )
 
             window.queue_excel_test_point(3.0, 50.5, 33.0, 33.0 / 3.0 / 50.5)
             self.assertEqual(window.pending_excel_records[3.0].test_station, "老化站 1")
@@ -607,8 +613,13 @@ class MainWindowTests(unittest.TestCase):
             window.test_station_field.setText("老化站 1")
             window.output_dir_field.setText(temp_dir)
             window.begin_test_session(require_station=True)
-            window.latest_spectrum_wavelength = [974.0, 975.0, 976.0, 977.0, 978.0]
-            window.latest_spectrum_intensity = [0.0, 5000.0, 10000.0, 5000.0, 0.0]
+            window.on_spectrum_curve(
+                SpectrumFrame(
+                    [974.0, 975.0, 976.0, 977.0, 978.0],
+                    [0.0, 5000.0, 10000.0, 5000.0, 0.0],
+                    None,
+                )
+            )
             window.active_output_current_a = 3.0
             window.stable_power_points[3.0] = 33.0
             window.automatic_test_state = AutomaticTestState.WAITING_VOLTAGE
@@ -2082,7 +2093,7 @@ class MainWindowTests(unittest.TestCase):
             stable_window_s=1.5,
         )
         window.on_live_reading(reading)
-        window.on_spectrum_curve([975.0, 976.0], [10.0, 20.0])
+        window.on_spectrum_curve(SpectrumFrame([975.0, 976.0], [10.0, 20.0], None))
 
         self.assertEqual(list(window.power_curve_line.get_xdata()), [1.5])
         self.assertEqual(list(window.power_curve_line.get_ydata()), [2.25])
@@ -2133,7 +2144,7 @@ class MainWindowTests(unittest.TestCase):
         wavelength = [973.0, 973.5, 974.0, 974.5, 975.0]
         saturated_intensity = [0.0, 64_000.0, 64_000.0, 64_000.0, 0.0]
 
-        window.on_spectrum_curve(wavelength, saturated_intensity)
+        window.on_spectrum_curve(SpectrumFrame(wavelength, saturated_intensity, None))
         window.on_spectrometer_reading(SpectrometerReading(974.0, 974.0, 1.0))
         window.queue_excel_test_point(10.0, 50.0, 200.0, 0.4)
 
@@ -2143,7 +2154,9 @@ class MainWindowTests(unittest.TestCase):
         self.assertNotIn(10.0, window.pending_excel_records)
         self.assertIn("未加入保存队列", window.save_status_label.text())
 
-        window.on_spectrum_curve(wavelength, [0.0, 100.0, 200.0, 100.0, 0.0])
+        window.on_spectrum_curve(
+            SpectrumFrame(wavelength, [0.0, 100.0, 200.0, 100.0, 0.0], None)
+        )
         self.assertFalse(window.latest_spectrum_saturated)
         self.assertFalse(window.live_plots.spectrum_saturation_text.get_visible())
         self.assertEqual(window.live_plots.spectrum_pib_text.get_text(), "PIB   16.67 %")
@@ -2157,7 +2170,7 @@ class MainWindowTests(unittest.TestCase):
         intensity = [0.0] * len(wavelength)
         intensity[179:182] = [60.0, 100.0, 60.0]
         intensity[199:202] = [600.0, 1000.0, 600.0]
-        window.on_spectrum_curve(wavelength, intensity)
+        window.on_spectrum_curve(SpectrumFrame(wavelength, intensity, None))
 
         self.assertEqual(window.live_plots.spectrum_smsr_text.get_text(), "SMSR   10.00 dB")
         window.close()
@@ -2165,14 +2178,19 @@ class MainWindowTests(unittest.TestCase):
     def test_saturated_spectrum_pauses_automatic_test_at_the_current_point(self) -> None:
         app = QApplication.instance() or QApplication([])
         window = MainWindow()
-        window.latest_spectrum_wavelength = [973.0, 973.5, 974.0, 974.5, 975.0]
-        window.latest_spectrum_intensity = [0.0, 64_000.0, 64_000.0, 64_000.0, 0.0]
         window.active_output_current_a = 10.0
         window.stable_power_points[10.0] = 200.0
         window.automatic_test_settings = window.collect_automatic_test_settings()
         window.automatic_test_state = AutomaticTestState.WAITING_VOLTAGE
         alerts: list[str] = []
         window.show_spectrum_saturation_alert = alerts.append  # type: ignore[method-assign]
+        window.on_spectrum_curve(
+            SpectrumFrame(
+                [973.0, 973.5, 974.0, 974.5, 975.0],
+                [0.0, 64_000.0, 64_000.0, 64_000.0, 0.0],
+                None,
+            )
+        )
 
         window.record_efficiency_from_vout(50.0)
 
@@ -2196,7 +2214,13 @@ class MainWindowTests(unittest.TestCase):
                     fwhm_nm=1.1,
                 )
             )
-        window.on_spectrum_curve([900.0, 946.2, 976.2, 1006.2, 1100.0], [1.0, 2.0, 10.0, 2.0, 1.0])
+        window.on_spectrum_curve(
+            SpectrumFrame(
+                [900.0, 946.2, 976.2, 1006.2, 1100.0],
+                [1.0, 2.0, 10.0, 2.0, 1.0],
+                None,
+            )
+        )
 
         x_min, x_max = window.spectrum_curve_axis.get_xlim()
         self.assertAlmostEqual(x_min, 955.8)
@@ -2216,7 +2240,13 @@ class MainWindowTests(unittest.TestCase):
                 )
             )
 
-        window.on_spectrum_curve([900.0, 943.0, 973.0, 1003.0, 1100.0], [1.0, 2.0, 10.0, 2.0, 1.0])
+        window.on_spectrum_curve(
+            SpectrumFrame(
+                [900.0, 943.0, 973.0, 1003.0, 1100.0],
+                [1.0, 2.0, 10.0, 2.0, 1.0],
+                None,
+            )
+        )
         x_min, x_max = window.spectrum_curve_axis.get_xlim()
 
         self.assertAlmostEqual(x_min, 953.0)
@@ -2236,8 +2266,11 @@ class MainWindowTests(unittest.TestCase):
                 )
             )
         window.on_spectrum_curve(
-            [700.0, 955.2, 975.2, 995.2, 1150.0],
-            [0.0, 10.0, 8000.0, 10.0, 0.0],
+            SpectrumFrame(
+                [700.0, 955.2, 975.2, 995.2, 1150.0],
+                [0.0, 10.0, 8000.0, 10.0, 0.0],
+                None,
+            )
         )
 
         self.assertAlmostEqual(window.spectrum_center_locked_nm or 0.0, 975.2)
@@ -2758,8 +2791,11 @@ class MainWindowTests(unittest.TestCase):
         window.show_spectrum_saturation_alert = alerts.append  # type: ignore[method-assign]
 
         window.on_spectrum_curve(
-            [974.0, 975.0, 976.0, 977.0, 978.0],
-            [100.0, 64_000.0, 64_000.0, 64_000.0, 100.0],
+            SpectrumFrame(
+                [974.0, 975.0, 976.0, 977.0, 978.0],
+                [100.0, 64_000.0, 64_000.0, 64_000.0, 100.0],
+                None,
+            )
         )
 
         self.assertEqual(window.automatic_test_state, AutomaticTestState.PAUSED)
@@ -2771,8 +2807,11 @@ class MainWindowTests(unittest.TestCase):
         self.assertIn("连续 3 个像素", alerts[0])
 
         window.on_spectrum_curve(
-            [974.0, 975.0, 976.0, 977.0, 978.0],
-            [100.0, 64_000.0, 64_000.0, 64_000.0, 100.0],
+            SpectrumFrame(
+                [974.0, 975.0, 976.0, 977.0, 978.0],
+                [100.0, 64_000.0, 64_000.0, 64_000.0, 100.0],
+                None,
+            )
         )
         self.assertEqual(len(alerts), 1)
         window.automatic_test_state = AutomaticTestState.IDLE
@@ -3290,6 +3329,65 @@ class MainWindowTests(unittest.TestCase):
 
         self.assertFalse(window.queue_excel_test_point(3.0, 50.0, 10.0, 0.1))
         self.assertIn("500", window.last_point_record_error)
+        window.close()
+
+    def test_queue_excel_reuses_current_frame_stats_smsr_and_saturation(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow(headless=True)
+        window.sn_field.setText("CACHE-TEST")
+        window.begin_test_session()
+        wavelength = [956.0 + index * 0.1 for index in range(401)]
+        intensity = [float((index % 5) - 2) for index in range(401)]
+        intensity[169:172] = [60.0, 100.0, 60.0]
+        intensity[199:202] = [600.0, 1000.0, 600.0]
+        stats = combined_test_window.calculate_stats(wavelength, intensity)
+        window.on_spectrum_curve(SpectrumFrame(wavelength, intensity, stats))
+
+        with (
+            patch.object(combined_test_window, "calculate_stats") as calculate_stats_mock,
+            patch.object(combined_test_window, "calculate_smsr") as calculate_smsr_mock,
+            patch.object(
+                combined_test_window,
+                "detect_spectrum_saturation",
+            ) as saturation_mock,
+        ):
+            self.assertTrue(window.queue_excel_test_point(3.0, 50.0, 10.0, 0.1))
+
+        calculate_stats_mock.assert_not_called()
+        calculate_smsr_mock.assert_not_called()
+        saturation_mock.assert_not_called()
+        record = window.pending_excel_records[3.0]
+        self.assertEqual(record.peak_wavelength_nm, stats.peak_wavelength_nm)
+        self.assertEqual(record.centroid_nm, stats.centroid_nm)
+        self.assertEqual(record.fwhm_nm, stats.fwhm_nm)
+        self.assertEqual(
+            record.pib.hex(),
+            combined_test_window.calculate_pib(wavelength, intensity).hex(),
+        )
+        self.assertEqual(record.smsr_db, 10.0)
+        window.close()
+
+    def test_headless_spectrum_frame_skips_live_pib_but_saved_point_calculates_it(self) -> None:
+        app = QApplication.instance() or QApplication([])
+        window = MainWindow(headless=True)
+        window.sn_field.setText("PIB-TEST")
+        window.begin_test_session()
+        wavelength = [956.0 + index * 0.1 for index in range(401)]
+        intensity = [100.0 + (index % 3) for index in range(401)]
+        intensity[199:202] = [5000.0, 10_000.0, 5000.0]
+        stats = combined_test_window.calculate_stats(wavelength, intensity)
+
+        with patch.object(
+            combined_test_window,
+            "calculate_pib",
+            wraps=combined_test_window.calculate_pib,
+        ) as calculate_pib_mock:
+            window.on_spectrum_curve(SpectrumFrame(wavelength, intensity, stats))
+            calculate_pib_mock.assert_not_called()
+            self.assertTrue(window.queue_excel_test_point(3.0, 50.0, 10.0, 0.1))
+
+        calculate_pib_mock.assert_called_once_with(wavelength, intensity)
+        self.assertTrue(math.isfinite(window.pending_excel_records[3.0].pib))
         window.close()
 
     def test_pause_arms_safety_ramp_down_timer(self) -> None:

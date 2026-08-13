@@ -27,7 +27,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { CanvasLineChart, type CanvasChartAnnotation, type CanvasChartLine } from "@/components/canvas-line-chart"
+import { CanvasLineChart, type CanvasChartAnnotation, type CanvasChartLine, type CanvasColumnarData } from "@/components/canvas-line-chart"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -857,6 +857,90 @@ function sameRows<T>(
   })
 }
 
+function sameNumberArray(left: readonly number[] | undefined, right: readonly number[] | undefined): boolean {
+  return left === right || Boolean(
+    left
+    && right
+    && left.length === right.length
+    && left.every((value, index) => value === right[index]),
+  )
+}
+
+// Page-level memo comparators. Only skip a page re-render when every slice
+// the page renders is unchanged; nested arrays compare by reference because
+// the snapshot merge replaces them whenever their content changes.
+
+function sameDeviceSnapshot(left: DeviceSnapshot | undefined, right: DeviceSnapshot | undefined): boolean {
+  if (left === right) return true
+  if (!left || !right) return false
+  return left.state === right.state
+    && left.label === right.label
+    && left.detail === right.detail
+    && left.connected === right.connected
+    && left.running === right.running
+    && left.detecting === right.detecting
+    && left.ready === right.ready
+    && left.resources === right.resources
+    && left.outputEnabled === right.outputEnabled
+    && left.activeCurrentA === right.activeCurrentA
+    && left.powerW === right.powerW
+    && left.stable === right.stable
+    && left.peakWavelengthNm === right.peakWavelengthNm
+    && left.centroidNm === right.centroidNm
+    && left.fwhmNm === right.fwhmNm
+    && left.smsrDb === right.smsrDb
+    && left.saturated === right.saturated
+    && left.spectrumWindow === right.spectrumWindow
+}
+
+function sameMeasurements(left: BackendSnapshot["measurements"], right: BackendSnapshot["measurements"]): boolean {
+  if (left === right) return true
+  if (!left || !right) return false
+  return left.power === right.power
+    && left.stable === right.stable
+    && left.spectrum === right.spectrum
+    && left.spectrumPeaks === right.spectrumPeaks
+}
+
+function sameAutomaticTestState(
+  left: BackendSnapshot["automaticTest"] | undefined,
+  right: BackendSnapshot["automaticTest"] | undefined,
+): boolean {
+  if (left === right) return true
+  if (!left || !right) return false
+  return left.state === right.state
+    && left.currentA === right.currentA
+    && left.currentIndex === right.currentIndex
+    && left.currentDwellS === right.currentDwellS
+    && left.currentDwellElapsedS === right.currentDwellElapsedS
+    && left.settingsError === right.settingsError
+    && left.canStart === right.canStart
+    && left.canRetry === right.canRetry
+    && left.canEnd === right.canEnd
+    && sameNumberArray(left.currents, right.currents)
+}
+
+function samePdSection(
+  left: BackendSnapshot["pd"] | undefined,
+  right: BackendSnapshot["pd"] | undefined,
+): boolean {
+  if (left === right) return true
+  if (!left || !right) return false
+  return left.state === right.state
+    && left.status === right.status
+    && left.devices === right.devices
+    && left.channels === right.channels
+    && left.ranges === right.ranges
+    && left.settings === right.settings
+    && left.currentValue === right.currentValue
+    && left.voltage === right.voltage
+    && left.mean === right.mean
+    && left.standardDeviation === right.standardDeviation
+    && left.rangeText === right.rangeText
+    && left.sampleCount === right.sampleCount
+    && left.points === right.points
+}
+
 function ChartLegend({ lines }: { lines: CanvasChartLine[] }) {
   return (
     <div aria-label="图例" className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
@@ -890,9 +974,10 @@ function ChartLegend({ lines }: { lines: CanvasChartLine[] }) {
   )
 }
 
-const ChartPanel = memo(function ChartPanel({ title, data, xKey, lines, empty = "暂无实时数据", heightClassName, headerRight, annotations, stretch = false, compactHeader = false, xDomain, xTicks, yDomain, preserveAllPoints = false }: {
+const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, lines, empty = "暂无实时数据", heightClassName, headerRight, annotations, stretch = false, compactHeader = false, xDomain, xTicks, yDomain }: {
   title: string
-  data: Array<Record<string, number | null>>
+  data?: Array<Record<string, number | null>>
+  columns?: CanvasColumnarData
   xKey: string
   lines: CanvasChartLine[]
   empty?: string
@@ -904,16 +989,18 @@ const ChartPanel = memo(function ChartPanel({ title, data, xKey, lines, empty = 
   xDomain?: [number, number]
   xTicks?: number[]
   yDomain?: [number, number]
-  preserveAllPoints?: boolean
 }) {
+  const dataLength = columns
+    ? Math.min(...Object.values(columns).map((values) => values.length))
+    : data.length
   return (
     <Card aria-label={title} className={`${compactHeader ? "gap-0" : ""} pb-1 shadow-none ${stretch ? "h-full min-h-0" : ""}`}>
       <CardHeader className="flex min-h-9 flex-row items-center justify-between gap-3 pb-2"><ChartLegend lines={lines} />{headerRight}</CardHeader>
-      <CardContent className={`${stretch ? "min-h-0 flex-1" : heightClassName || (data.length === 0 ? "h-40" : "h-56")} px-3 pb-0`}>
-        {data.length === 0 ? (
+      <CardContent className={`${stretch ? "min-h-0 flex-1" : heightClassName || (dataLength === 0 ? "h-40" : "h-56")} px-3 pb-0`}>
+        {dataLength === 0 ? (
           <div className="grid h-full place-items-center rounded-lg bg-background/30 text-sm text-muted-foreground/70">{empty}</div>
         ) : (
-          <CanvasLineChart annotations={annotations} ariaLabel={`${title}曲线`} data={data} lines={lines} preserveAllPoints={preserveAllPoints} xDomain={xDomain} xKey={xKey} xTicks={xTicks} yDomain={yDomain} />
+          <CanvasLineChart annotations={annotations} ariaLabel={`${title}曲线`} columns={columns} data={data} lines={lines} xDomain={xDomain} xKey={xKey} xTicks={xTicks} yDomain={yDomain} />
         )}
       </CardContent>
     </Card>
@@ -941,14 +1028,20 @@ const ChartPanel = memo(function ChartPanel({ title, data, xKey, lines, empty = 
     )
   )
   const dataKeys = [previous.xKey, ...previous.lines.map((line) => line.key)]
+  const sameColumns = previous.columns === next.columns || Boolean(
+    previous.columns
+    && next.columns
+    && Object.keys(previous.columns).length === Object.keys(next.columns).length
+    && Object.keys(previous.columns).every((key) => sameNumberArray(previous.columns?.[key], next.columns?.[key])),
+  )
   return sameRows(previous.data, next.data, dataKeys)
+    && sameColumns
     && previous.title === next.title
     && previous.xKey === next.xKey
     && previous.empty === next.empty
     && previous.heightClassName === next.heightClassName
     && previous.stretch === next.stretch
     && previous.compactHeader === next.compactHeader
-    && previous.preserveAllPoints === next.preserveAllPoints
     && sameLines
     && sameNumbers(previous.xDomain, next.xDomain)
     && sameNumbers(previous.xTicks, next.xTicks)
@@ -1066,7 +1159,12 @@ const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stre
   && sameRows(previous.snapshot?.measurements?.stable, next.snapshot?.measurements?.stable, ["currentA", "powerW", "efficiencyPercent"]))
 
 const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; stretch?: boolean; heightClassName?: string }) {
-  const spectrumData = (snapshot?.measurements?.spectrum ?? []) as Array<Record<string, number | null>>
+  // The merged spectrum carries a gridRevision marker for the grid-cache
+  // protocol; charts only consume the two data arrays.
+  const spectrumSource = snapshot?.measurements?.spectrum
+  const spectrumData = spectrumSource
+    ? { wavelengthNm: spectrumSource.wavelengthNm, intensity: spectrumSource.intensity }
+    : { wavelengthNm: [], intensity: [] }
   const spectrum = snapshot?.devices.spectrometer
   const spectrumPeaks = snapshot?.measurements?.spectrumPeaks ?? []
   const spectrumYAxisStateRef = useRef<SpectrumYAxisState | null>(null)
@@ -1086,8 +1184,7 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
 
     let minimum = Number.POSITIVE_INFINITY
     let maximum = Number.NEGATIVE_INFINITY
-    for (const point of spectrumData) {
-      const wavelength = point.wavelengthNm
+    for (const wavelength of spectrumData.wavelengthNm) {
       if (typeof wavelength !== "number" || !Number.isFinite(wavelength)) continue
       minimum = Math.min(minimum, wavelength)
       maximum = Math.max(maximum, wavelength)
@@ -1095,13 +1192,12 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
     return minimum < maximum ? [minimum, maximum] : undefined
   }, [spectrum?.spectrumWindow, spectrumData])
   const spectrumYDomain = useMemo<[number, number]>(() => {
-    if (spectrumData.length === 0) {
+    if (spectrumData.intensity.length === 0) {
       spectrumYAxisStateRef.current = null
       return [0, 1]
     }
     const intensities: number[] = []
-    for (const point of spectrumData) {
-      const intensity = point.intensity
+    for (const intensity of spectrumData.intensity) {
       if (typeof intensity === "number" && Number.isFinite(intensity)) {
         intensities.push(intensity)
       }
@@ -1117,11 +1213,10 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
     <ChartPanel
       title="光谱"
       compactHeader
-      data={spectrumData}
+      columns={spectrumData}
       xKey="wavelengthNm"
       xDomain={spectrumXDomain}
       yDomain={spectrumYDomain}
-      preserveAllPoints
       lines={[{ key: "intensity", label: "强度", color: PLM_CHART_SERIES.green }]}
       stretch={stretch}
       heightClassName={heightClassName}
@@ -1153,7 +1248,8 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
   const nextSpectrum = next.snapshot?.devices.spectrometer
   return previous.stretch === next.stretch
     && previous.heightClassName === next.heightClassName
-    && sameRows(previousMeasurements?.spectrum, nextMeasurements?.spectrum, ["wavelengthNm", "intensity"])
+    && sameNumberArray(previousMeasurements?.spectrum.wavelengthNm, nextMeasurements?.spectrum.wavelengthNm)
+    && sameNumberArray(previousMeasurements?.spectrum.intensity, nextMeasurements?.spectrum.intensity)
     && sameRows(previousMeasurements?.spectrumPeaks, nextMeasurements?.spectrumPeaks, ["label", "centroidNm", "peakWavelengthNm", "peakIntensity"])
     && previousSpectrum?.peakWavelengthNm === nextSpectrum?.peakWavelengthNm
     && previousSpectrum?.centroidNm === nextSpectrum?.centroidNm
@@ -1166,8 +1262,7 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
 
 function App() {
   const [page, setPage] = useState<Page>("automatic")
-  const snapshotView = page === "shipping" ? "pd" : page
-  const { snapshot, error, loading, commandPending, pendingCommand, command } = useBackendSnapshot(snapshotView)
+  const { snapshot, error, loading, commandPending, pendingCommand, command } = useBackendSnapshot(page)
   const [config, setConfig] = useState<AppConfiguration>(emptyConfig)
   const [dirty, setDirty] = useState(false)
   const [automaticHistoryItems, setAutomaticHistoryItems] = useState<TestHistoryCandidate[]>([])
@@ -1398,23 +1493,25 @@ function App() {
     setAutomaticCompletion({ title, message: automatic.detail || title })
   }, [snapshot?.automaticTest])
 
-  const update = <K extends keyof AppConfiguration>(key: K, value: AppConfiguration[K]) => {
+  // Stable references so memoized pages do not re-render merely because App
+  // rendered; config/dirty still force a new closure when they matter.
+  const update = useCallback(<K extends keyof AppConfiguration>(key: K, value: AppConfiguration[K]) => {
     setConfig((current) => ({ ...current, [key]: value }))
     setDirty(true)
-  }
+  }, [])
 
-  const saveConfiguration = async () => {
+  const saveConfiguration = useCallback(async () => {
     if (!active) return
     await command("app.configure", config as unknown as Record<string, unknown>)
     setDirty(false)
-  }
+  }, [active, command, config])
 
-  const run = async (method: string, params: Record<string, unknown> = {}, sync = false) => {
+  const run = useCallback(async (method: string, params: Record<string, unknown> = {}, sync = false) => {
     if (!active) return
     if (sync && dirty) await saveConfiguration()
     await command(method, params)
     if (method === "automatic.start") setDirty(false)
-  }
+  }, [active, command, dirty, saveConfiguration])
 
   const devicesReady = [
     snapshot?.devices.powerSupply.connected,
@@ -1429,6 +1526,15 @@ function App() {
     ...(!active && snapshot ? [{ key: "runtime-warning", level: "warning" as const, title: "运行环境提示", message: "当前 Python 环境未加载 PySide6/设备驱动，因此控制功能暂不可用。请使用项目指定环境启动。" }] : []),
   ]
   const [dismissedNotifications, setDismissedNotifications] = useState<Set<string>>(new Set())
+  const notificationKeys = notifications.map((notification) => notification.key)
+  const notificationKey = notificationKeys.join("\n")
+  useEffect(() => {
+    const activeKeys = new Set(notificationKeys)
+    setDismissedNotifications((current) => {
+      const retained = new Set([...current].filter((key) => activeKeys.has(key)))
+      return retained.size === current.size ? current : retained
+    })
+  }, [notificationKey])
   const autoDismissNotificationKeys = notifications.filter((notification) => notification.level === "info").map((notification) => notification.key)
   const autoDismissNotificationKey = autoDismissNotificationKeys.join("\n")
   useEffect(() => {
@@ -2342,7 +2448,7 @@ function BatchShippingReportWorkflow({ disabled }: { disabled: boolean }) {
   </>
 }
 
-function AutomaticPage({ snapshot, config, update, active, controlsLocked, pending, readyCount, readyTotal, run, saveConfiguration, historyItems, historyLoading, historyError, referencePath, onReferencePathChange }: {
+const AutomaticPage = memo(function AutomaticPage({ snapshot, config, update, active, controlsLocked, pending, readyCount, readyTotal, run, saveConfiguration, historyItems, historyLoading, historyError, referencePath, onReferencePathChange }: {
   snapshot: BackendSnapshot | null; config: AppConfiguration; update: UpdateConfig; active: boolean; controlsLocked: boolean; pending: boolean; readyCount: number; readyTotal: number; run: RunCommand; saveConfiguration: () => Promise<void>; historyItems: TestHistoryCandidate[]; historyLoading: boolean; historyError: string; referencePath: string; onReferencePathChange: (path: string) => void
 }) {
   const auto = snapshot?.automaticTest
@@ -2423,9 +2529,25 @@ function AutomaticPage({ snapshot, config, update, active, controlsLocked, pendi
       {openSettings && <DeviceSettingsDialog active={active} config={config} kind={openSettings} onClose={closeSettings} onSave={saveConfiguration} open pending={pending} run={run} snapshot={snapshot} update={update} />}
     </>
   )
-}
+}, (previous, next) => (
+  previous.active === next.active
+  && previous.controlsLocked === next.controlsLocked
+  && previous.pending === next.pending
+  && previous.readyCount === next.readyCount
+  && previous.readyTotal === next.readyTotal
+  && previous.historyItems === next.historyItems
+  && previous.historyLoading === next.historyLoading
+  && previous.historyError === next.historyError
+  && previous.referencePath === next.referencePath
+  && configurationsEqual(previous.config, next.config)
+  && sameAutomaticTestState(previous.snapshot?.automaticTest, next.snapshot?.automaticTest)
+  && sameDeviceSnapshot(previous.snapshot?.devices.powerSupply, next.snapshot?.devices.powerSupply)
+  && sameDeviceSnapshot(previous.snapshot?.devices.powerMeter, next.snapshot?.devices.powerMeter)
+  && sameDeviceSnapshot(previous.snapshot?.devices.spectrometer, next.snapshot?.devices.spectrometer)
+  && sameMeasurements(previous.snapshot?.measurements, next.snapshot?.measurements)
+))
 
-function ShippingReportPage({ active, controlsLocked, pending }: { active: boolean; controlsLocked: boolean; pending: boolean }) {
+const ShippingReportPage = memo(function ShippingReportPage({ active, controlsLocked, pending }: { active: boolean; controlsLocked: boolean; pending: boolean }) {
   const [mode, setMode] = useState<"single" | "batch">("single")
   const disabled = !active || controlsLocked || pending
   return (
@@ -2438,7 +2560,11 @@ function ShippingReportPage({ active, controlsLocked, pending }: { active: boole
       </CardContent>
     </Card>
   )
-}
+}, (previous, next) => (
+  previous.active === next.active
+  && previous.controlsLocked === next.controlsLocked
+  && previous.pending === next.pending
+))
 
 function NumberField({ label, value, onChange, disabled = false, min, max, step = "1", layout = "stacked" }: { label: string; value: number; onChange: (value: number) => void; disabled?: boolean; min?: number; max?: number; step?: string; layout?: FieldLayout }) {
   const handleChange = (rawValue: string) => {
@@ -2450,7 +2576,7 @@ function NumberField({ label, value, onChange, disabled = false, min, max, step 
   return <Field label={label} layout={layout}><Input disabled={disabled} type="number" min={min} max={max} step={step} value={value} onChange={(e) => handleChange(e.target.value)} /></Field>
 }
 
-function ManualPage({ snapshot, config, update, active, pending, run }: {
+const ManualPage = memo(function ManualPage({ snapshot, config, update, active, pending, run }: {
   snapshot: BackendSnapshot | null; config: AppConfiguration; update: UpdateConfig; active: boolean; pending: boolean; run: RunCommand
 }) {
   const psu = snapshot?.devices.powerSupply
@@ -2532,9 +2658,17 @@ function ManualPage({ snapshot, config, update, active, pending, run }: {
       </section>
     </div>
   )
-}
+}, (previous, next) => (
+  previous.active === next.active
+  && previous.pending === next.pending
+  && configurationsEqual(previous.config, next.config)
+  && sameDeviceSnapshot(previous.snapshot?.devices.powerSupply, next.snapshot?.devices.powerSupply)
+  && sameDeviceSnapshot(previous.snapshot?.devices.powerMeter, next.snapshot?.devices.powerMeter)
+  && sameDeviceSnapshot(previous.snapshot?.devices.spectrometer, next.snapshot?.devices.spectrometer)
+  && sameMeasurements(previous.snapshot?.measurements, next.snapshot?.measurements)
+))
 
-function PdPage({ snapshot, active, pending, run }: { snapshot: BackendSnapshot | null; active: boolean; pending: boolean; run: RunCommand }) {
+const PdPage = memo(function PdPage({ snapshot, active, pending, run }: { snapshot: BackendSnapshot | null; active: boolean; pending: boolean; run: RunCommand }) {
   const pd = snapshot?.pd
   const pdData = (pd?.points ?? []) as Array<Record<string, number>>
   const latestElapsedS = pdData[pdData.length - 1]?.elapsedS
@@ -2593,6 +2727,10 @@ function PdPage({ snapshot, active, pending, run }: { snapshot: BackendSnapshot 
       </section>
     </>
   )
-}
+}, (previous, next) => (
+  previous.active === next.active
+  && previous.pending === next.pending
+  && samePdSection(previous.snapshot?.pd, next.snapshot?.pd)
+))
 
 export default App

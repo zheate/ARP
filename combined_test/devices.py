@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 from collections import deque
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -29,9 +30,12 @@ from .models import (
     PowerMeterOption,
     PowerMeterReading,
     PowerMeterSettings,
+    SpectrumFrame,
     SpectrometerReading,
     SpectrometerSettings,
 )
+from .spectrum import detect_spectrum_saturation, find_spectrum_peak_annotations
+from .spectrum_math import calculate_pib, calculate_smsr
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -466,6 +470,81 @@ class PowerMeterReaderThread(QThread):
                     pass
 
 
+@dataclass(frozen=True)
+class TdkReading:
+    """Latest TDK MC?/MV? pair captured by the background reader."""
+
+    output_current_a: float
+    output_voltage_v: float
+
+
+class TdkReaderThread(QThread):
+    """Poll TDK MC?/MV? in the background so the GUI never blocks on RS-232.
+
+    The serial transaction lock inside :class:`TdkLambdaPowerSupply` keeps
+    this loop from interleaving with GUI write commands.
+    """
+
+    reading = Signal(object)
+    status = Signal(str)
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        supply: Any,
+        interval_s: float = 1.0,
+        parent: QWidget | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self.supply = supply
+        self.interval_s = max(0.2, float(interval_s))
+        self._stop_requested = threading.Event()
+        self._latest_lock = threading.Lock()
+        self._latest: TdkReading | None = None
+        self.is_ready = False
+
+    def stop(self) -> None:
+        self._stop_requested.set()
+
+    def take_latest_reading(self) -> TdkReading | None:
+        """Return the newest reading and clear the slot, mailbox style."""
+        with self._latest_lock:
+            reading = self._latest
+            self._latest = None
+        return reading
+
+    def run(self) -> None:
+        self.is_ready = True
+        failure_reported = False
+        try:
+            while not self._stop_requested.is_set():
+                try:
+                    current_a = self.supply.read_output_current()
+                    voltage_v = self.supply.read_output_voltage()
+                except Exception as exc:
+                    # Keep polling: the GUI falls back to direct reads while
+                    # the cache stays stale. Report the failure only once so
+                    # a dead link does not spam the log every second.
+                    if not failure_reported:
+                        failure_reported = True
+                        _LOGGER.exception("TDK 后台读取失败")
+                        self.failed.emit(str(exc))
+                else:
+                    if failure_reported:
+                        self.status.emit("TDK 读数已恢复")
+                        failure_reported = False
+                    reading = TdkReading(
+                        output_current_a=float(current_a),
+                        output_voltage_v=float(voltage_v),
+                    )
+                    with self._latest_lock:
+                        self._latest = reading
+                    self.reading.emit(reading)
+                self._stop_requested.wait(self.interval_s)
+        finally:
+            self.is_ready = False
+
+
 class SpectrometerReaderThread(QThread):
     reading = Signal(object)
     status = Signal(str)
@@ -475,12 +554,19 @@ class SpectrometerReaderThread(QThread):
     full_scale_changed = Signal(float)
     auto_integration_failed = Signal(object)
 
-    def __init__(self, settings: SpectrometerSettings, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        settings: SpectrometerSettings,
+        parent: QWidget | None = None,
+        *,
+        headless: bool = False,
+    ) -> None:
         super().__init__(parent)
         self.settings = settings
+        self.headless = bool(headless)
         self._stop_requested = threading.Event()
         self._latest_spectrum_lock = threading.Lock()
-        self._latest_spectrum: tuple[Any, Any] | None = None
+        self._latest_spectrum: SpectrumFrame | None = None
         self._auto_integration_enabled = threading.Event()
         if settings.auto_integration_enabled:
             self._auto_integration_enabled.set()
@@ -489,6 +575,7 @@ class SpectrometerReaderThread(QThread):
         self._fixed_integration_time_us: int | None = None
         self._fixed_integration_pending = threading.Event()
         self._spectrum_averager = SpectrumFrameAverager(settings.average_frames)
+        self._calculate_stats: Any = None
         self.full_scale_counts = AUTO_INTEGRATION_MAX_COUNTS
         self.is_ready = False
 
@@ -518,24 +605,33 @@ class SpectrometerReaderThread(QThread):
     def resume_auto_integration(self) -> None:
         self._resume_auto_integration_requested.set()
 
-    def take_latest_spectrum(self) -> tuple[Any, Any] | None:
+    def take_latest_spectrum(self) -> SpectrumFrame | None:
         """Return the newest frame and discard any older, superseded frame."""
         with self._latest_spectrum_lock:
             spectrum = self._latest_spectrum
             self._latest_spectrum = None
         return spectrum
 
-    def _publish_latest_spectrum(self, wavelength: Any, intensity: Any) -> None:
+    def _publish_latest_spectrum(self, frame: SpectrumFrame) -> None:
         # The GUI deliberately polls this one-slot mailbox. A queued Qt signal
         # per frame would retain every pair of arrays when plotting is slower
         # than acquisition and can grow memory without a bound.
         # OceanDirect/native wrappers are allowed to reuse their output buffers.
         # Keep an immutable snapshot so the following acquisition cannot mutate
         # a frame while the GUI or Tauri bridge is still serializing it.
-        wavelength_copy = self._copy_spectrum_values(wavelength)
-        intensity_copy = self._copy_spectrum_values(intensity)
+        wavelength_copy = self._copy_spectrum_values(frame.wavelength)
+        intensity_copy = self._copy_spectrum_values(frame.intensity)
         with self._latest_spectrum_lock:
-            self._latest_spectrum = (wavelength_copy, intensity_copy)
+            self._latest_spectrum = SpectrumFrame(
+                wavelength=wavelength_copy,
+                intensity=intensity_copy,
+                stats=frame.stats,
+                pib=frame.pib,
+                smsr=frame.smsr,
+                saturation=frame.saturation,
+                peak_annotations=frame.peak_annotations,
+                peak_intensity=frame.peak_intensity,
+            )
 
     def _publish_averaged_spectrum(
         self,
@@ -544,8 +640,65 @@ class SpectrometerReaderThread(QThread):
     ) -> tuple[list[float], list[float]] | None:
         averaged = self._spectrum_averager.add(wavelength, intensity)
         if averaged is not None:
-            self._publish_latest_spectrum(*averaged)
+            calculate_stats = self._calculate_stats
+            if calculate_stats is None:
+                from .spectrum_math import calculate_stats
+
+            self._publish_analyzed_spectrum(
+                averaged[0],
+                averaged[1],
+                calculate_stats(averaged[0], averaged[1]),
+            )
         return averaged
+
+    def _publish_analyzed_spectrum(
+        self,
+        wavelength: Any,
+        intensity: Any,
+        stats: Any,
+    ) -> None:
+        """Analyze an averaged frame on the reader thread and publish it.
+
+        Mirrors the GUI-side analysis previously done per frame in
+        ``MainWindow.on_spectrum_curve``: saturation detection, PIB, SMSR and
+        peak annotations all run here so the GUI thread only consumes results.
+        """
+        saturation = detect_spectrum_saturation(intensity, self.full_scale_counts)
+        try:
+            peak_intensity = max(float(value) for value in intensity)
+        except (TypeError, ValueError):
+            peak_intensity = 0.0
+        try:
+            has_enough_pib_samples = len(intensity) >= 3
+        except TypeError:
+            has_enough_pib_samples = True
+        pib = (
+            calculate_pib(wavelength, intensity)
+            if not self.headless and not saturation.saturated and has_enough_pib_samples
+            else math.nan
+        )
+        smsr = calculate_smsr(wavelength, intensity) if not saturation.saturated else None
+        annotations = (
+            find_spectrum_peak_annotations(
+                zip(wavelength, intensity),
+                stats=stats,
+                smsr_result=smsr,
+            )
+            if smsr is not None
+            else []
+        )
+        self._publish_latest_spectrum(
+            SpectrumFrame(
+                wavelength=wavelength,
+                intensity=intensity,
+                stats=stats,
+                pib=pib,
+                smsr=smsr,
+                saturation=saturation,
+                peak_annotations=tuple(annotations),
+                peak_intensity=float(peak_intensity),
+            )
+        )
 
     @staticmethod
     def _copy_spectrum_values(values: Any) -> Any:
@@ -566,6 +719,7 @@ class SpectrometerReaderThread(QThread):
                 raise RuntimeError(
                     f"缺少光谱仪依赖：{exc.name}。请检查项目环境和本地 OceanDirect 文件。"
                 ) from exc
+            self._calculate_stats = calculate_stats
 
             startup_error: Exception | None = None
             for attempt in range(2):
@@ -733,12 +887,17 @@ class SpectrometerReaderThread(QThread):
                             self._publish_averaged_spectrum(wavelength, intensity)
                         self._stop_requested.wait(self.settings.interval_ms / 1000.0)
                         continue
-                averaged = self._publish_averaged_spectrum(wavelength, intensity)
+                averaged = self._spectrum_averager.add(wavelength, intensity)
                 if averaged is None:
                     self._stop_requested.wait(self.settings.interval_ms / 1000.0)
                     continue
                 averaged_wavelength, averaged_intensity = averaged
                 stats = calculate_stats(averaged_wavelength, averaged_intensity)
+                self._publish_analyzed_spectrum(
+                    averaged_wavelength,
+                    averaged_intensity,
+                    stats,
+                )
                 self.reading.emit(
                     SpectrometerReading(
                         peak_wavelength_nm=stats.peak_wavelength_nm,

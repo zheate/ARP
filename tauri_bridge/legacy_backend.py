@@ -8,6 +8,7 @@ shutdown code remain the single owner of application state.
 from __future__ import annotations
 
 import math
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from enum import Enum
@@ -129,7 +130,7 @@ class LegacyWindowBackend:
 
     def __init__(self, window: Any) -> None:
         self.window = window
-        self.notices: list[dict[str, str]] = []
+        self.notices: deque[dict[str, str]] = deque(maxlen=8)
         log_path = runtime_log_path()
         if log_path is not None:
             self.notices.append(
@@ -149,13 +150,13 @@ class LegacyWindowBackend:
         ] = ([], [], None, [], None)
         self._power_cache_key: tuple[Any, ...] | None = None
         self._power_cache_payload: list[dict[str, float]] = []
-        self._spectrum_points_cache_source: tuple[Any, Any] | None = None
-        self._spectrum_points_cache_payload: list[dict[str, float]] = []
         self._stable_cache_key: tuple[Any, ...] | None = None
         self._stable_cache_payload: list[dict[str, float | None]] = []
         self._pd_cache_key: tuple[Any, ...] | None = None
         self._pd_cache_payload: list[dict[str, float]] = []
         self._series_revisions = {"power": 0, "stable": 0, "spectrum": 0, "pd": 0}
+        self._spectrum_grid_wavelength: list[float] | None = None
+        self._spectrum_grid_revision = 0
         self._test_reference: TestHistoryRecord | None = None
         self._install_nonblocking_dialogs()
 
@@ -165,6 +166,30 @@ class LegacyWindowBackend:
             revisions = {"power": 0, "stable": 0, "spectrum": 0, "pd": 0}
             self._series_revisions = revisions
         revisions[name] = int(revisions.get(name, 0)) + 1
+
+    def _spectrum_columns_payload(
+        self,
+        wavelength: list[float],
+        intensity: list[float],
+    ) -> dict[str, Any]:
+        """Columnar spectrum payload with a cached wavelength grid.
+
+        The wavelength axis is hardware-defined and only changes when the
+        device grid itself changes, so retransmitting thousands of floats per
+        frame dominated the pipe. The axis is sent once per grid revision;
+        the frontend merges it from its cached copy on later frames.
+        """
+        grid_changed = self._spectrum_grid_wavelength != wavelength
+        if grid_changed:
+            self._spectrum_grid_wavelength = list(wavelength)
+            self._spectrum_grid_revision += 1
+        payload: dict[str, Any] = {
+            "gridRevision": self._spectrum_grid_revision,
+            "intensity": intensity,
+        }
+        if grid_changed:
+            payload["wavelengthNm"] = wavelength
+        return payload
 
     def _current_series_revisions(self) -> dict[str, int]:
         revisions = getattr(self, "_series_revisions", {})
@@ -191,30 +216,6 @@ class LegacyWindowBackend:
         self._power_cache_key = cache_key
         self._power_cache_payload = payload
         self._bump_series_revision("power")
-        return payload
-
-    def _spectrum_points_snapshot(
-        self,
-        wavelength: list[float],
-        intensity: list[float],
-    ) -> list[dict[str, float]]:
-        """Avoid rebuilding spectrum row dictionaries before JSON encoding."""
-
-        cached_source = self._spectrum_points_cache_source
-        if (
-            cached_source is not None
-            and cached_source[0] is wavelength
-            and cached_source[1] is intensity
-        ):
-            return self._spectrum_points_cache_payload
-        payload = [
-            {"wavelengthNm": x, "intensity": y}
-            for x, y in zip(wavelength, intensity)
-        ]
-        # Retaining the source references also prevents Python object-id reuse
-        # from producing a false cache hit after the previous frame is freed.
-        self._spectrum_points_cache_source = (wavelength, intensity)
-        self._spectrum_points_cache_payload = payload
         return payload
 
     def _stable_snapshot(self, window: Any) -> list[dict[str, float | None]]:
@@ -460,7 +461,6 @@ class LegacyWindowBackend:
         action = actions.get(method)
         if action is None:
             raise KeyError(method)
-        self.notices.clear()
         result = action(params)
         if method not in {"automatic.references", "shippingReport.preview"}:
             self.window.save_input_settings()
@@ -844,7 +844,11 @@ class LegacyWindowBackend:
         window = self.window
         snapshot_params = params or {}
         requested_view = str(snapshot_params.get("view", "full"))
-        view = requested_view if requested_view in {"automatic", "manual", "pd"} else "full"
+        view = (
+            requested_view
+            if requested_view in {"automatic", "manual", "pd", "shipping"}
+            else "full"
+        )
         since = snapshot_params.get("since")
         since_revisions = since if isinstance(since, dict) else None
         cursors = snapshot_params.get("cursors")
@@ -887,7 +891,7 @@ class LegacyWindowBackend:
                 None,
             )
         power_points = self._power_snapshot(plots) if include_live_charts else []
-        spectrum_points = self._spectrum_points_snapshot(wavelength, intensity)
+        spectrum_columns = self._spectrum_columns_payload(wavelength, intensity)
         stable_points = self._stable_snapshot(window) if include_live_charts else []
 
         panel = window.pd_panel
@@ -939,7 +943,7 @@ class LegacyWindowBackend:
         if include_series("stable", include_live_charts):
             measurements["stable"] = stable_points
         if include_series("spectrum", include_live_charts):
-            measurements["spectrum"] = spectrum_points
+            measurements["spectrum"] = spectrum_columns
             measurements["spectrumPeaks"] = spectrum_peaks
         include_pd_series = include_series("pd", include_pd_points)
         if include_pd_series:
@@ -980,7 +984,7 @@ class LegacyWindowBackend:
                 "mode": self.mode,
                 "pythonVersion": __import__("platform").python_version(),
                 "runtimeLogPath": str(runtime_log_path() or ""),
-                "notices": list(self.notices[-8:]),
+                "notices": list(self.notices),
             },
             "configuration": {
                 "sn": window.sn_field.text(),

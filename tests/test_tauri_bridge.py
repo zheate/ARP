@@ -10,6 +10,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from pathlib import Path
 
+from combined_test.models import SpectrumFrame
 from tauri_bridge.protocol import PROTOCOL_VERSION
 from tauri_bridge.legacy_backend import (
     LegacyWindowBackend,
@@ -155,6 +156,32 @@ class SpectrumPayloadTests(unittest.TestCase):
         calculate_frame_stats.assert_not_called()
         calculate.assert_not_called()
         find_peaks.assert_not_called()
+
+    def test_spectrum_columns_payload_reuses_the_wavelength_grid(self) -> None:
+        backend = object.__new__(LegacyWindowBackend)
+        backend._spectrum_grid_wavelength = None
+        backend._spectrum_grid_revision = 0
+        grid = [940.0, 941.0, 942.0]
+
+        first = backend._spectrum_columns_payload(grid, [10.0, 20.0, 30.0])
+        second = backend._spectrum_columns_payload(grid, [11.0, 21.0, 31.0])
+
+        self.assertEqual(
+            first,
+            {"gridRevision": 1, "wavelengthNm": grid, "intensity": [10.0, 20.0, 30.0]},
+        )
+        self.assertEqual(
+            second,
+            {"gridRevision": 1, "intensity": [11.0, 21.0, 31.0]},
+        )
+        self.assertNotIn("wavelengthNm", second)
+
+        changed = backend._spectrum_columns_payload(
+            [940.0, 941.0, 942.0, 943.0],
+            [1.0, 2.0, 3.0, 4.0],
+        )
+        self.assertEqual(changed["gridRevision"], 2)
+        self.assertIn("wavelengthNm", changed)
 
     def test_locked_center_only_scopes_chart_and_invalidates_cached_frame(self) -> None:
         backend = object.__new__(LegacyWindowBackend)
@@ -308,6 +335,7 @@ window.close()
 import json
 import sys
 from PySide6.QtWidgets import QApplication
+from combined_test.models import SpectrumFrame
 from combined_test.window import MainWindow
 from tauri_bridge.legacy_backend import LegacyWindowBackend
 
@@ -320,7 +348,7 @@ window.spectrum_center_locked_nm = 976.25
 wavelength = [956.0 + index * 0.1 for index in range(401)]
 intensity = [float((index % 5) - 2) for index in range(401)]
 intensity[199:202] = [600.0, 1000.0, 600.0]
-window.on_spectrum_curve(wavelength, intensity)
+window.on_spectrum_curve(SpectrumFrame(wavelength, intensity, None))
 backend.latest_spectrometer_reading = type("StaleReading", (), {
     "peak_wavelength_nm": 900.0,
     "centroid_nm": 901.0,
@@ -329,6 +357,15 @@ backend.latest_spectrometer_reading = type("StaleReading", (), {
 window.live_plots.update_power(0.0, 0.1)
 snapshot = backend.snapshot({"view": "automatic"})
 pd_snapshot = backend.snapshot({"view": "pd"})
+shipping_snapshot = backend.snapshot({"view": "shipping"})
+for index in range(10):
+    backend.notices.append({
+        "id": f"bounded-{index}",
+        "level": "info",
+        "title": f"notice-{index}",
+        "message": "bounded queue",
+    })
+bounded_notice_snapshot = backend.snapshot({"view": "shipping"})
 window.live_plots.update_power(0.1, 0.2)
 incremental = backend.snapshot({
     "view": "automatic",
@@ -348,12 +385,17 @@ print(json.dumps({
     "frameFwhm": snapshot["devices"]["spectrometer"]["fwhmNm"],
     "frameSmsr": snapshot["devices"]["spectrometer"]["smsrDb"],
     "framePeaks": snapshot["measurements"]["spectrumPeaks"],
+    "spectrum": snapshot["measurements"]["spectrum"],
     "saturationNotice": snapshot["backend"]["notices"][-1],
     "spectrumWindow": snapshot["devices"]["spectrometer"]["spectrumWindow"],
     "measurementKeys": sorted(snapshot["measurements"]),
     "automaticHasPdPoints": "points" in snapshot["pd"],
     "pdMeasurementKeys": sorted(pd_snapshot["measurements"]),
     "pdHasPoints": "points" in pd_snapshot["pd"],
+    "shippingMeasurementKeys": sorted(shipping_snapshot["measurements"]),
+    "shippingHasPdPoints": "points" in shipping_snapshot["pd"],
+    "noticeQueueLimit": backend.notices.maxlen,
+    "boundedNoticeIds": [notice["id"] for notice in bounded_notice_snapshot["backend"]["notices"]],
     "incrementalMeasurementKeys": sorted(incremental["measurements"]),
     "powerPatchPoints": incremental["seriesPatches"]["power"]["points"],
     "unchangedMeasurementKeys": sorted(unchanged["measurements"]),
@@ -383,6 +425,17 @@ window.close()
         self.assertIsNone(result["frameSmsr"])
         self.assertEqual([peak["label"] for peak in result["framePeaks"]], ["P1"])
         self.assertEqual(result["framePeak"], result["framePeaks"][0]["centroidNm"])
+        self.assertEqual(
+            result["spectrum"],
+            {
+                "gridRevision": 1,
+                "wavelengthNm": [956.0 + index * 0.1 for index in range(3, 401)],
+                "intensity": [
+                    600.0 if index == 199 else 1000.0 if index == 200 else 600.0 if index == 201 else float((index % 5) - 2)
+                    for index in range(3, 401)
+                ],
+            },
+        )
         self.assertEqual(result["saturationNotice"]["title"], "光谱饱和")
         self.assertEqual(result["saturationNotice"]["level"], "warning")
         self.assertTrue(result["saturationNotice"]["id"])
@@ -399,6 +452,10 @@ window.close()
         self.assertFalse(result["automaticHasPdPoints"])
         self.assertEqual(result["pdMeasurementKeys"], [])
         self.assertTrue(result["pdHasPoints"])
+        self.assertEqual(result["shippingMeasurementKeys"], [])
+        self.assertFalse(result["shippingHasPdPoints"])
+        self.assertEqual(result["noticeQueueLimit"], 8)
+        self.assertEqual(result["boundedNoticeIds"], [f"bounded-{index}" for index in range(2, 10)])
         self.assertNotIn("power", result["incrementalMeasurementKeys"])
         self.assertEqual(len(result["powerPatchPoints"]), 1)
         self.assertEqual(result["powerPatchPoints"][0]["elapsedS"], 0.1)
@@ -427,7 +484,7 @@ class TauriBridgeServiceTests(unittest.TestCase):
 
         self.assertEqual(
             output.buffer.getvalue().decode("utf-8"),
-            '{"label": "CH341 I²C"}\n',
+            '{"label":"CH341 I²C"}\n',
         )
 
     def setUp(self) -> None:
@@ -510,7 +567,7 @@ class TauriBridgeServiceTests(unittest.TestCase):
         response = service.handle_line(
             json.dumps(
                 {
-                    "v": 1,
+                    "v": PROTOCOL_VERSION,
                     "id": "request-3",
                     "method": "app.configure",
                     "params": {"value": 7},

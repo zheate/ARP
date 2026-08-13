@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import sys
 import threading
 from collections.abc import Iterator
@@ -38,7 +39,9 @@ def _read_request_lines() -> Iterator[str]:
 
 
 def _write_response(response: dict[str, object]) -> None:
-    payload = (json.dumps(response, ensure_ascii=False) + "\n").encode("utf-8")
+    payload = (
+        json.dumps(response, ensure_ascii=False, separators=(",", ":")) + "\n"
+    ).encode("utf-8")
     protocol_stdout = _protocol_stdout or sys.stdout
     output = getattr(protocol_stdout, "buffer", None)
     if output is not None:
@@ -77,6 +80,41 @@ def _run_qt_backend() -> int:
     backend = LegacyWindowBackend(window)
     service = BridgeService(backend)
 
+    class ResponseWriter:
+        """Serialize and write responses on a worker thread.
+
+        The Qt main thread only builds the response dict (widget reads and
+        cached series payloads); json.dumps of large snapshots runs here so
+        device acquisition events are never delayed by serialization. A
+        single producer (the Qt main thread) plus a FIFO queue keeps the
+        byte order on stdout identical to request order, which the Rust side
+        depends on.
+        """
+
+        def __init__(self) -> None:
+            self._queue: queue.Queue[dict[str, object] | None] = queue.Queue()
+            self._thread = threading.Thread(
+                target=self._run,
+                name="tauri-stdout",
+                daemon=True,
+            )
+            self._thread.start()
+
+        def submit(self, response: dict[str, object]) -> None:
+            self._queue.put(response)
+
+        def stop(self) -> None:
+            self._queue.put(None)
+
+        def _run(self) -> None:
+            while True:
+                response = self._queue.get()
+                if response is None:
+                    break
+                _write_response(response)
+
+    writer = ResponseWriter()
+
     class Dispatcher(QObject):
         request_received = Signal(str)
         input_closed = Signal()
@@ -88,7 +126,7 @@ def _run_qt_backend() -> int:
 
         @Slot(str)
         def handle(self, line: str) -> None:
-            _write_response(service.handle_line(line))
+            writer.submit(service.handle_line(line))
 
     dispatcher = Dispatcher()
 
@@ -102,7 +140,9 @@ def _run_qt_backend() -> int:
 
     threading.Thread(target=read_requests, name="tauri-stdin", daemon=True).start()
     _LOGGER.info("Tauri Python 硬件后端已就绪")
-    return int(app.exec())
+    exit_code = int(app.exec())
+    writer.stop()
+    return exit_code
 
 
 def main() -> int:

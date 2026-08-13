@@ -12,6 +12,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
+import numpy as np
+
 from openpyxl import Workbook as OpenpyxlWorkbook, load_workbook
 from openpyxl.styles import Alignment, Font
 from openpyxl.worksheet.worksheet import Worksheet as OpenpyxlWorksheet
@@ -185,16 +187,15 @@ def _sample_series(row: dict[str, str], key: str) -> tuple[float, ...]:
     raw = str(row.get(key, "")).strip()
     if not raw:
         return ()
-    values: list[float] = []
-    for item in raw.split(";"):
-        try:
-            value = _finite_or_none(float(item))
-        except (TypeError, ValueError):
-            return ()
-        if value is None:
-            return ()
-        values.append(value)
-    return tuple(values)
+    try:
+        # Tokenizes exactly like the previous split(";") loop, but parses the
+        # whole per-second spectrum (thousands of points) in one numpy call.
+        values = np.asarray(raw.split(";"), dtype=float)
+    except ValueError:
+        return ()
+    if not bool(np.all(np.isfinite(values))):
+        return ()
+    return tuple(values.tolist())
 
 
 def _read_designated_second_samples(path: Path) -> dict[float, list[dict[str, Any]]]:
@@ -536,23 +537,20 @@ def _write_xlsx_designated_second_sheets(
         )
         for point_index in range(maximum_spectrum_points):
             row = point_index + 1
-            for sample_index, sample in enumerate(samples):
+            row_values: list[Any] = []
+            for sample in samples:
                 wavelengths = sample["wavelengths_nm"]
-                if point_index >= len(wavelengths):
-                    continue
-                column = sample_index * 2
-                spectrum_sheet.write_number(
-                    row,
-                    column,
-                    round(float(wavelengths[point_index]), 3),
-                    formats["number_3"],
-                )
-                spectrum_sheet.write_number(
-                    row,
-                    column + 1,
-                    round(float(sample["intensities"][point_index]), 3),
-                    formats["number_3"],
-                )
+                if point_index < len(wavelengths):
+                    row_values.append(round(float(wavelengths[point_index]), 3))
+                    row_values.append(round(float(sample["intensities"][point_index]), 3))
+                else:
+                    row_values.append(None)
+                    row_values.append(None)
+            # One batched row across every sample's wavelength/intensity
+            # column pair. xlsxwriter 3.x applies a single format per row;
+            # None cells become number_3 blanks instead of being skipped,
+            # which is visually identical and keeps column alignment.
+            spectrum_sheet.write_row(row, 0, row_values, formats["number_3"])
 
 
 def _discard_xlsxwriter_workbook(

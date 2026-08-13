@@ -72,6 +72,8 @@ from .devices import (
     PowerMeterDetectThread,
     PowerMeterReaderThread,
     SpectrometerReaderThread,
+    TdkReaderThread,
+    TdkReading,
     extract_power_resource_name,
     load_legacy_ch341_controller_class,
     load_spectrometer_components,
@@ -88,7 +90,9 @@ from .models import (
     PowerMeterReading,
     PowerMeterSettings,
     SpectrometerOption,
+    SpectrumFrame,
     SpectrumPeakAnnotation,
+    SpectrumSaturationResult,
     SpectrometerReading,
     SpectrometerSettings,
 )
@@ -152,6 +156,8 @@ AUTO_VOUT_AFTER_STABLE_S = 5.0
 FINAL_AUTO_VOUT_AFTER_STABLE_S = 10.0
 MIN_VOUT_READ_INTERVAL_S = 5.0
 POWER_SUPPLY_COMMAND_MIN_INTERVAL_S = MIN_POWER_SUPPLY_COMMAND_INTERVAL_S
+# Cached TDK MC?/MV? readings older than this fall back to a direct read.
+TDK_READING_MAX_AGE_S = 3.0
 DEFAULT_SPECTROMETER_INTEGRATION_US = 10000
 WAVELENGTH_STABILITY_TOLERANCE_NM = 0.2
 MIN_SPECTRUM_PEAK_INTENSITY = 500.0
@@ -224,6 +230,9 @@ class MainWindow(QMainWindow):
         self._power_meter_detection_silent = False
         self.power_meter_reader: PowerMeter | None = None
         self.spectrometer_reader: SpectrumMeter | None = None
+        self.tdk_reader: TdkReaderThread | None = None
+        self.latest_tdk_reading: TdkReading | None = None
+        self.latest_tdk_reading_monotonic_s: float | None = None
         self._power_meter_fault_message = ""
         self._spectrometer_fault_message = ""
         self.manual_ch341_controller: Any | None = None
@@ -234,6 +243,7 @@ class MainWindow(QMainWindow):
         self.spectrum_frame_revision = 0
         self.latest_spectrum_analysis_revision = 0
         self.latest_spectrum_stats: SpectrumStats | None = None
+        self.latest_spectrum_saturation: SpectrumSaturationResult | None = None
         self.latest_spectrum_smsr_result: SmsrResult | None = None
         self.latest_spectrum_peak_annotations: list[SpectrumPeakAnnotation] = []
         self.latest_spectrum_smsr_db: float | None = None
@@ -2817,7 +2827,12 @@ class MainWindow(QMainWindow):
         recorder = self.automatic_sample_recorder
         self.automatic_sample_recorder = None
         if recorder is not None:
-            recorder.close()
+            try:
+                # close() drains the background writer queue so the CSV is
+                # complete before any Excel save thread reads it.
+                recorder.close()
+            except Exception as exc:
+                self.add_log(f"逐秒 CSV 收尾失败：{user_facing_error_message(exc)}")
 
     def record_automatic_second_sample(
         self,
@@ -2860,12 +2875,18 @@ class MainWindow(QMainWindow):
         output_voltage_v = voltage_v
         if self.power_supply_controller_kind == "tdk":
             try:
-                power_supply = self.get_power_supply()
-                if power_supply is None:
-                    raise RuntimeError("TDK 电源未连接")
-                output_current_a = float(power_supply.read_output_current())
-                if output_voltage_raw_v is None:
-                    output_voltage_raw_v = float(power_supply.read_output_voltage())
+                cached = self.latest_tdk_reading
+                if cached is not None and self._tdk_cached_reading_is_fresh():
+                    output_current_a = float(cached.output_current_a)
+                    if output_voltage_raw_v is None:
+                        output_voltage_raw_v = float(cached.output_voltage_v)
+                else:
+                    power_supply = self.get_power_supply()
+                    if power_supply is None:
+                        raise RuntimeError("TDK 电源未连接")
+                    output_current_a = float(power_supply.read_output_current())
+                    if output_voltage_raw_v is None:
+                        output_voltage_raw_v = float(power_supply.read_output_voltage())
                 if output_voltage_v is None and output_voltage_raw_v is not None:
                     output_voltage_v = compensate_tdk_output_voltage(
                         output_voltage_raw_v,
@@ -2906,6 +2927,10 @@ class MainWindow(QMainWindow):
                 wavelengths = ()
                 intensities = ()
 
+        if force:
+            # Surface queued write errors before the forced row is appended so
+            # the failure point stays where it was with synchronous writes.
+            recorder.flush_now()
         recorder.write(
             AutomaticSecondSample(
                 point_index=self.automatic_test_current_index + 1,
@@ -3300,9 +3325,44 @@ class MainWindow(QMainWindow):
         selected = self._selected_power_supply_kind() if kind is None else str(kind)
         return POWER_SUPPLY_CONTROLLER_LABELS.get(selected, selected.upper())
 
+    def start_tdk_reader(self) -> None:
+        """Start background TDK MC?/MV? polling so the GUI never blocks on RS-232."""
+        self.stop_tdk_reader()
+        if self.manual_ch341_controller is None:
+            return
+        self.latest_tdk_reading = None
+        self.latest_tdk_reading_monotonic_s = None
+        self.tdk_reader = TdkReaderThread(self.manual_ch341_controller, parent=self)
+        self.tdk_reader.reading.connect(self.on_tdk_reading)
+        self.tdk_reader.status.connect(self.on_status)
+        self.tdk_reader.failed.connect(self.on_tdk_reader_failed)
+        self.tdk_reader.start()
+
+    def stop_tdk_reader(self) -> None:
+        if self.tdk_reader is None:
+            return
+        self.tdk_reader.stop()
+        self.tdk_reader.wait(3000)
+        self.tdk_reader = None
+
+    def on_tdk_reading(self, reading: TdkReading) -> None:
+        self.latest_tdk_reading = reading
+        self.latest_tdk_reading_monotonic_s = time.monotonic()
+
+    def on_tdk_reader_failed(self, message: str) -> None:
+        # The reader keeps polling; the stale cache falls back to direct reads.
+        self.add_log(f"TDK 后台读取失败：{user_facing_error_message(message)}")
+
+    def _tdk_cached_reading_is_fresh(self) -> bool:
+        if self.latest_tdk_reading is None or self.latest_tdk_reading_monotonic_s is None:
+            return False
+        age_s = time.monotonic() - self.latest_tdk_reading_monotonic_s
+        return age_s <= TDK_READING_MAX_AGE_S
+
     def _discard_manual_power_supply_controller(self, reason: str) -> None:
         """Drop a disconnected controller before another protocol is selected."""
 
+        self.stop_tdk_reader()
         if self.manual_ch341_controller is not None:
             _LOGGER.info("电源控制器已释放 | reason=%s", reason)
         self.manual_ch341_controller = None
@@ -3413,6 +3473,7 @@ class MainWindow(QMainWindow):
                 if power_supply is None:
                     raise RuntimeError(f"{label} 电源未连接")
                 if label == "TDK":
+                    self.stop_tdk_reader()
                     power_supply.set_output_enabled(False)
                 else:
                     # I2C supplies can retain the last programmed current after
@@ -3467,6 +3528,7 @@ class MainWindow(QMainWindow):
                 maximum_voltage = getattr(controller, "maximum_voltage_v", None)
                 if maximum_voltage is not None:
                     self.tdk_voltage_spin.setMaximum(float(maximum_voltage))
+                self.start_tdk_reader()
             self.add_log(f"{label} 已连接：{detail}")
             self.update_global_status()
         except Exception as exc:
@@ -3762,11 +3824,25 @@ class MainWindow(QMainWindow):
         try:
             power_supply = self.get_power_supply()
             if command[1] == 0x8B and power_supply is not None:
-                value = power_supply.read_output_voltage()
-                command_label = "RS-232 MV?" if self.power_supply_controller_kind == "tdk" else None
+                if (
+                    self.power_supply_controller_kind == "tdk"
+                    and self._tdk_cached_reading_is_fresh()
+                ):
+                    value = float(self.latest_tdk_reading.output_voltage_v)
+                    command_label = "后台缓存 MV?"
+                else:
+                    value = power_supply.read_output_voltage()
+                    command_label = "RS-232 MV?" if self.power_supply_controller_kind == "tdk" else None
             elif command[1] == 0x8C and power_supply is not None:
-                value = power_supply.read_output_current()
-                command_label = "RS-232 MC?" if self.power_supply_controller_kind == "tdk" else None
+                if (
+                    self.power_supply_controller_kind == "tdk"
+                    and self._tdk_cached_reading_is_fresh()
+                ):
+                    value = float(self.latest_tdk_reading.output_current_a)
+                    command_label = "后台缓存 MC?"
+                else:
+                    value = power_supply.read_output_current()
+                    command_label = "RS-232 MC?" if self.power_supply_controller_kind == "tdk" else None
             else:
                 value = read_power_status_value(controller, DEFAULT_I2C_ADDRESS, command)
                 command_label = None
@@ -3970,10 +4046,17 @@ class MainWindow(QMainWindow):
                 integration_time_us=self.integration_spin.value(),
             )
             return False
-        saturation = detect_spectrum_saturation(
-            self.latest_spectrum_intensity,
-            self.spectrum_full_scale_counts,
+        analysis_is_current = (
+            self.latest_spectrum_analysis_revision == self.spectrum_frame_revision
+            and self.latest_spectrum_stats is not None
+            and self.latest_spectrum_saturation is not None
         )
+        if not analysis_is_current:
+            self.last_point_record_error = "当前光谱分析尚未完成"
+            self.statusBar().showMessage(self.last_point_record_error)
+            self.add_log(self.last_point_record_error)
+            return False
+        saturation = self.latest_spectrum_saturation
         if saturation.saturated:
             self.record_store.discard_pending(current_a)
             self.save_excel_button.setEnabled(
@@ -3997,8 +4080,8 @@ class MainWindow(QMainWindow):
                 integration_time_us=self.integration_spin.value(),
             )
             return False
-        stats = calculate_stats(self.latest_spectrum_wavelength, self.latest_spectrum_intensity)
-        smsr = calculate_smsr(self.latest_spectrum_wavelength, self.latest_spectrum_intensity)
+        stats = self.latest_spectrum_stats
+        smsr = self.latest_spectrum_smsr_result
         try:
             self.record_store.queue(
                 ExcelTestRecord(
@@ -4012,7 +4095,7 @@ class MainWindow(QMainWindow):
                     pib=calculate_pib(self.latest_spectrum_wavelength, self.latest_spectrum_intensity),
                     wavelength=list(self.latest_spectrum_wavelength),
                     intensity=list(self.latest_spectrum_intensity),
-                    smsr_db=smsr.smsr_db,
+                    smsr_db=math.nan if smsr is None else smsr.smsr_db,
                     test_station=self.test_session_station,
                 ),
                 actual_current_a=current_a,
@@ -4492,7 +4575,11 @@ class MainWindow(QMainWindow):
         self.reset_spectrum_curve()
         self.spectrum_full_scale_counts = SPECTRUM_DEFAULT_FULL_SCALE_COUNTS
         self.add_log("正在启动光谱仪采集")
-        self.spectrometer_reader = SpectrometerReaderThread(settings, self)
+        self.spectrometer_reader = SpectrometerReaderThread(
+            settings,
+            self,
+            headless=self.headless,
+        )
         self.spectrometer_reader.reading.connect(self.on_spectrometer_reading)
         self.spectrometer_reader.status.connect(self.on_status)
         self.spectrometer_reader.integration_time_changed.connect(self.on_integration_time_changed)
@@ -4545,7 +4632,7 @@ class MainWindow(QMainWindow):
             return
         spectrum = take_latest()
         if spectrum is not None:
-            self.on_spectrum_curve(*spectrum)
+            self.on_spectrum_curve(spectrum)
 
     def update_stability_card(
         self,
@@ -4659,44 +4746,57 @@ class MainWindow(QMainWindow):
             f"光谱 {measurement.spectrum_csv_path}"
         )
 
-    def on_spectrum_curve(self, wavelength: Any, intensity: Any) -> None:
-        saturation = detect_spectrum_saturation(
-            intensity,
-            self.spectrum_full_scale_counts,
-        )
-        stats = calculate_stats(wavelength, intensity)
-        try:
-            self.latest_spectrum_peak_intensity = max(float(value) for value in intensity)
-        except (TypeError, ValueError):
-            self.latest_spectrum_peak_intensity = 0.0
+    def on_spectrum_curve(self, frame: SpectrumFrame) -> None:
+        wavelength = frame.wavelength
+        intensity = frame.intensity
+        stats = frame.stats if frame.stats is not None else calculate_stats(wavelength, intensity)
+        if frame.saturation is not None:
+            # The reader thread already analyzed this frame; just consume it.
+            saturation = frame.saturation
+            pib = frame.pib
+            smsr = frame.smsr
+            annotations = list(frame.peak_annotations)
+            self.latest_spectrum_peak_intensity = float(frame.peak_intensity)
+        else:
+            # Un-analyzed frame (headless tests or manual construction):
+            # compute on the GUI thread exactly as before.
+            saturation = detect_spectrum_saturation(
+                intensity,
+                self.spectrum_full_scale_counts,
+            )
+            try:
+                self.latest_spectrum_peak_intensity = max(float(value) for value in intensity)
+            except (TypeError, ValueError):
+                self.latest_spectrum_peak_intensity = 0.0
+            try:
+                has_enough_pib_samples = len(intensity) >= 3
+            except TypeError:
+                has_enough_pib_samples = True
+            pib = (
+                calculate_pib(wavelength, intensity)
+                if not self.headless and not saturation.saturated and has_enough_pib_samples
+                else math.nan
+            )
+            smsr = calculate_smsr(wavelength, intensity) if not saturation.saturated else None
+            annotations = (
+                find_spectrum_peak_annotations(
+                    zip(wavelength, intensity),
+                    stats=stats,
+                    smsr_result=smsr,
+                )
+                if smsr is not None
+                else []
+            )
         was_saturated = self.latest_spectrum_saturated
         self.latest_spectrum_saturated = saturation.saturated
         self.spectrum_saturated_frame_count = (
             self.spectrum_saturated_frame_count + 1 if saturation.saturated else 0
         )
-        try:
-            has_enough_pib_samples = len(intensity) >= 3
-        except TypeError:
-            has_enough_pib_samples = True
-        pib = (
-            calculate_pib(wavelength, intensity)
-            if not saturation.saturated and has_enough_pib_samples
-            else math.nan
-        )
-        smsr = calculate_smsr(wavelength, intensity) if not saturation.saturated else None
-        annotations = (
-            find_spectrum_peak_annotations(
-                zip(wavelength, intensity),
-                stats=stats,
-                smsr_result=smsr,
-            )
-            if smsr is not None
-            else []
-        )
         next_revision = self.spectrum_frame_revision + 1
         self.latest_spectrum_wavelength = wavelength
         self.latest_spectrum_intensity = intensity
         self.latest_spectrum_stats = stats
+        self.latest_spectrum_saturation = saturation
         self.latest_spectrum_smsr_result = smsr
         self.latest_spectrum_peak_annotations = annotations
         self.latest_spectrum_smsr_db = (
@@ -4862,6 +4962,7 @@ class MainWindow(QMainWindow):
         self.latest_spectrum_smsr_result = None
         self.latest_spectrum_peak_annotations = []
         self.latest_spectrum_stats = None
+        self.latest_spectrum_saturation = None
         self.latest_spectrum_analysis_revision = 0
         self.spectrum_center_candidate_nm = None
         self.spectrum_center_candidate_count = 0
@@ -5169,6 +5270,7 @@ class MainWindow(QMainWindow):
                 self.power_meter_detect_thread,
                 self.power_meter_reader,
                 self.spectrometer_reader,
+                self.tdk_reader,
                 self.pd_panel.reader,
             )
         )
@@ -5178,6 +5280,7 @@ class MainWindow(QMainWindow):
             self.power_meter_detect_thread.stop()
         self.stop_power_meter()
         self.stop_spectrometer()
+        self.stop_tdk_reader()
         self.pd_panel.stop_acquisition()
 
     def _continue_pending_close(self) -> None:
@@ -5234,6 +5337,7 @@ class MainWindow(QMainWindow):
             self.power_meter_detect_thread,
             self.power_meter_reader,
             self.spectrometer_reader,
+            self.tdk_reader,
             self.pd_panel.reader,
         ):
             if not self._thread_is_running(thread):

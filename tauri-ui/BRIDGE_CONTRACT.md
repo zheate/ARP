@@ -2,10 +2,10 @@
 
 ## Transport
 
-Tauri launches one persistent local Python process. Requests and responses are UTF-8 JSON objects separated by newlines. Standard output is reserved for protocol responses; diagnostics use standard error. The request version remains `1`.
+Tauri launches one persistent local Python process. Requests and responses are UTF-8 JSON objects separated by newlines. Standard output is reserved for protocol responses; diagnostics use standard error. The request version is `2`.
 
 ```json
-{"v":1,"id":"tauri-1","method":"app.snapshot","params":{"view":"automatic"}}
+{"v":2,"id":"tauri-1","method":"app.snapshot","params":{"view":"automatic"}}
 ```
 
 The Rust layer exposes `bridge_snapshot` and a generic `bridge_request(method, params)` command. Production packaging can replace the Python interpreter with a sidecar without changing this contract.
@@ -28,11 +28,11 @@ The bridge being connected never means a physical device is connected. Every dev
 - PD: `pd.refresh`, `pd.configure`, `pd.start`, `pd.stop`
 - Charts: `charts.reset`
 
-Every successful mutation returns a fresh full snapshot. The routine snapshot stream passes the active `view` (`automatic`, `manual`, or `pd`) so large chart and PD point arrays are only serialized for their consumer. Automatic and manual live views refresh at most five times per second, while the PD view refreshes at most twice per second. Streaming pauses while the WebView is hidden. The acquisition threads continue at their configured hardware sampling rates.
+Every successful mutation returns a fresh full snapshot. The routine snapshot stream passes the active `view` (`automatic`, `manual`, `pd`, or `shipping`) so large chart and PD point arrays are only serialized for their consumer. Automatic and manual live views refresh at most five times per second, while PD and shipping refresh at most twice per second. Streaming pauses while the WebView is hidden. The acquisition threads continue at their configured hardware sampling rates.
 
 After the first full response, the frontend returns `seriesRevisions` as `params.since`. Unchanged power, stable-point, spectrum, and PD arrays are omitted and the frontend retains the previous arrays. Power and PD additionally send their last displayed `elapsedS` values in `params.cursors`; when the bounded history is continuous, the response uses `seriesPatches` to append only newer points and supplies `startX` so the frontend can discard points that left the display window. A missing cursor, reset curve, page change, or explicit refresh falls back to a complete array.
 
-On Windows, the Rust layer sends the live stream through WebView2's native `PostWebMessageAsJson` API. Each message carries a random subscription ID, and the frontend removes its matching `window.chrome.webview` listener before unsubscribing. This avoids Tauri Channel's per-message dynamic-script delivery path during long acquisitions. Other platforms retain a Tauri Channel fallback. Every valid native spectrometer sample in the selected wavelength window is transported and drawn; the live spectrum is never downsampled. Raw acquisition and export data remain Python-owned.
+On Windows, the Rust layer sends the live stream through WebView2's native `PostWebMessageAsJson` API. Each message carries a random subscription ID, and the frontend removes its matching `window.chrome.webview` listener before unsubscribing. This avoids Tauri Channel's per-message dynamic-script delivery path during long acquisitions. Other platforms retain a Tauri Channel fallback. Spectrum samples use equal-length `measurements.spectrum.wavelengthNm` and `measurements.spectrum.intensity` arrays; legacy per-point objects are rejected. The wavelength axis is hardware-defined, so it is sent once per `gridRevision` and omitted on later frames; the frontend merges the axis from its cached copy only when the revision matches, and falls back to an empty axis otherwise. Every valid native spectrometer sample in the selected wavelength window is transported and drawn, and the live spectrum is never downsampled. Raw acquisition and export data remain Python-owned.
 
 The WebView2 renderer uses V8's normal heap sizing and garbage-collection policy. The frontend does not expose or periodically force collection; transient snapshot allocations are allowed to return to their natural low-water mark without introducing scheduled full-GC pauses.
 
@@ -42,7 +42,7 @@ The stream fingerprints business state and series revisions after removing trans
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "id": "tauri-2",
   "method": "app.snapshot",
   "params": {
@@ -54,6 +54,7 @@ The stream fingerprints business state and series revisions after removing trans
 ```
 
 Routine snapshots only expose the current status message. The potentially unbounded operator log is intentionally not copied into every WebView response.
+Backend notices are retained as a bounded queue of the most recent eight entries. The frontend drops dismissed-notice keys after their matching notice leaves that queue.
 
 ## Safety invariants
 

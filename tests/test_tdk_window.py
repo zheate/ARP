@@ -80,6 +80,11 @@ class TdkWindowTests(unittest.TestCase):
             self.assertEqual(window.connect_i2c_button.text(), "断开 TDK")
             self.assertFalse(window.read_temperature_button.isEnabled())
 
+            # The background TDK reader starts polling on connect; stop it and
+            # clear its history so the command sequence below is deterministic.
+            window.stop_tdk_reader()
+            controller.command_history.clear()
+
             window.tdk_voltage_spin.setValue(24.5)
             window.last_power_supply_command_monotonic_s = window_module.time.monotonic()
             window.apply_tdk_output_voltage()

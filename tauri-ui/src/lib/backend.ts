@@ -1,10 +1,13 @@
 import { Channel, invoke } from "@tauri-apps/api/core"
 
+import { decodeColumnarSpectrum, mergeSpectrumColumns, type SpectrumColumns, type SpectrumColumnsPatch } from "@/lib/spectrum-columns"
+
 export type BackendMode = "read_only" | "active"
 export type DeviceConnectionState = "disconnected" | "connecting" | "connected" | "error"
-export type SnapshotView = "automatic" | "manual" | "pd"
+export type SnapshotView = "automatic" | "manual" | "pd" | "shipping"
 export type SeriesRevisions = { power: number; stable: number; spectrum: number; pd: number }
 export type SeriesCursors = { power?: number; pd?: number }
+export type { SpectrumColumns } from "@/lib/spectrum-columns"
 
 export interface Notice {
   id?: string
@@ -123,7 +126,7 @@ export interface BackendSnapshot {
   measurements?: {
     power: Array<{ elapsedS: number; powerW: number }>
     stable: Array<{ currentA: number; powerW: number | null; efficiencyPercent: number | null }>
-    spectrum: Array<{ wavelengthNm: number; intensity: number }>
+    spectrum: SpectrumColumns
     spectrumPeaks: Array<{ label: string; centroidNm: number; peakWavelengthNm: number; peakIntensity: number }>
   }
   pd?: {
@@ -163,7 +166,9 @@ export interface BackendSnapshot {
 }
 
 export type BackendSnapshotPatch = Omit<BackendSnapshot, "measurements" | "pd"> & {
-  measurements?: Partial<NonNullable<BackendSnapshot["measurements"]>>
+  measurements?: Omit<Partial<NonNullable<BackendSnapshot["measurements"]>>, "spectrum"> & {
+    spectrum?: SpectrumColumnsPatch
+  }
   pd?: Omit<NonNullable<BackendSnapshot["pd"]>, "points"> & {
     points?: NonNullable<BackendSnapshot["pd"]>["points"]
   }
@@ -171,6 +176,17 @@ export type BackendSnapshotPatch = Omit<BackendSnapshot, "measurements" | "pd"> 
     power?: { startX: number; points: NonNullable<BackendSnapshot["measurements"]>["power"] }
     pd?: { startX: number; points: NonNullable<BackendSnapshot["pd"]>["points"] }
   }
+}
+
+export function decodeBackendSnapshotPatch(value: unknown): BackendSnapshotPatch {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("后端快照格式无效")
+  }
+  const patch = value as BackendSnapshotPatch
+  if (patch.measurements?.spectrum !== undefined) {
+    decodeColumnarSpectrum(patch.measurements.spectrum)
+  }
+  return patch
 }
 
 function mergeAppendSeries<T>(
@@ -191,7 +207,7 @@ export function mergeBackendSnapshot(previous: BackendSnapshot | null, patch: Ba
       ?? mergeAppendSeries(previousMeasurements?.power, seriesPatches?.power, (point) => point.elapsedS)
       ?? [],
     stable: patchMeasurements?.stable ?? previousMeasurements?.stable ?? [],
-    spectrum: patchMeasurements?.spectrum ?? previousMeasurements?.spectrum ?? [],
+    spectrum: mergeSpectrumColumns(previousMeasurements?.spectrum, patchMeasurements?.spectrum),
     spectrumPeaks: patchMeasurements?.spectrumPeaks ?? previousMeasurements?.spectrumPeaks ?? [],
   } : undefined
   const pd = patchPd ? {
@@ -215,10 +231,11 @@ function ensureTauri(): void {
 
 export async function fetchBackendSnapshot(view: SnapshotView, since?: SeriesRevisions, cursors?: SeriesCursors): Promise<BackendSnapshotPatch> {
   ensureTauri()
-  return invoke<BackendSnapshotPatch>("bridge_request", {
+  const value = await invoke<unknown>("bridge_request", {
     method: "app.snapshot",
     params: { view, ...(since ? { since } : {}), ...(cursors ? { cursors } : {}) },
   })
+  return decodeBackendSnapshotPatch(value)
 }
 
 export type ShippingReportType = "spectrum" | "pole"
@@ -348,7 +365,13 @@ export async function subscribeBackendSnapshots(
 
   const dispatch = (message: BackendSnapshotStreamMessage) => {
     if (!active) return
-    if (message.snapshot) onSnapshot(message.snapshot)
+    if (message.snapshot) {
+      try {
+        onSnapshot(decodeBackendSnapshotPatch(message.snapshot))
+      } catch (reason) {
+        onError(reason instanceof Error ? reason.message : String(reason))
+      }
+    }
     if (message.error) onError(message.error)
   }
 
@@ -391,7 +414,8 @@ export async function sendBackendCommand(
   method: string,
   params: Record<string, unknown> = {},
 ): Promise<BackendSnapshot> {
-  return sendBackendRequest<BackendSnapshot>(method, params)
+  const value = await sendBackendRequest<unknown>(method, params)
+  return decodeBackendSnapshotPatch(value) as BackendSnapshot
 }
 
 export async function sendBackendRequest<T>(

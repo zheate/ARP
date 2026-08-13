@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 
 
 def success_response(request_id: str, result: Any) -> dict[str, Any]:

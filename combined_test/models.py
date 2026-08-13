@@ -5,6 +5,10 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .spectrum_math import SmsrResult, SpectrumStats
 
 
 @dataclass(frozen=True)
@@ -93,6 +97,20 @@ class SpectrometerReading:
     peak_wavelength_nm: float
     centroid_nm: float
     fwhm_nm: float
+
+
+@dataclass(frozen=True)
+class SpectrumFrame:
+    wavelength: Any
+    intensity: Any
+    stats: SpectrumStats | None
+    # Analysis produced on the reader thread; ``saturation is None`` marks a
+    # frame that has not been analyzed (the GUI falls back to computing it).
+    pib: float = math.nan
+    smsr: SmsrResult | None = None
+    saturation: SpectrumSaturationResult | None = None
+    peak_annotations: tuple[SpectrumPeakAnnotation, ...] = ()
+    peak_intensity: float = 0.0
 
 
 @dataclass(frozen=True)

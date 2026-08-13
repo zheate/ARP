@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import tempfile
 import unittest
 from datetime import datetime
@@ -8,9 +9,14 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from combined_test.device_interfaces import ControllerPowerSupply, PowerSupply
-from combined_test.devices import SpectrumFrameAverager, SpectrometerReaderThread
+from combined_test.devices import (
+    SpectrumFrameAverager,
+    SpectrometerReaderThread,
+    TdkReaderThread,
+    TdkReading,
+)
 from combined_test.excel_export import ExcelTestRecord
-from combined_test.models import SpectrometerSettings
+from combined_test.models import SpectrumFrame, SpectrometerSettings
 from combined_test.record_store import AttemptValidity, RecordStore, SessionRecordStore
 
 
@@ -129,16 +135,71 @@ class DeviceInterfaceTests(unittest.TestCase):
             reader.run()
 
         expected = ([975.0, 976.0], [6.0, 60.0])
-        self.assertEqual(reader.take_latest_spectrum(), expected)
+        latest_frame = reader.take_latest_spectrum()
+        self.assertIsNotNone(latest_frame)
+        self.assertEqual((latest_frame.wavelength, latest_frame.intensity), expected)
+        self.assertIsNotNone(latest_frame.stats)
         self.assertEqual(analyzed, [expected])
+        self.assertIsNotNone(latest_frame.saturation)
+        self.assertFalse(latest_frame.saturation.saturated)
+        self.assertEqual(latest_frame.peak_intensity, 60.0)
+        self.assertTrue(math.isnan(latest_frame.pib))
+
+    def test_analyzed_frame_skips_pib_when_headless(self) -> None:
+        reader = SpectrometerReaderThread(
+            SpectrometerSettings(10_000, 50),
+            headless=True,
+        )
+        stats = SimpleNamespace(
+            peak_wavelength_nm=976.0,
+            centroid_nm=976.0,
+            fwhm_nm=0.2,
+        )
+        reader._publish_analyzed_spectrum(
+            [975.0, 976.0, 977.0],
+            [10.0, 100.0, 20.0],
+            stats,
+        )
+
+        frame = reader.take_latest_spectrum()
+        self.assertIsNotNone(frame)
+        self.assertTrue(math.isnan(frame.pib))
+        self.assertIsNotNone(frame.saturation)
+        self.assertFalse(frame.saturation.saturated)
+        self.assertEqual(frame.peak_intensity, 100.0)
+        self.assertIsNotNone(frame.smsr)
+        self.assertIsInstance(frame.peak_annotations, tuple)
+
+    def test_analyzed_frame_marks_saturation_and_skips_smsr(self) -> None:
+        reader = SpectrometerReaderThread(SpectrometerSettings(10_000, 50))
+        stats = SimpleNamespace(
+            peak_wavelength_nm=976.0,
+            centroid_nm=976.0,
+            fwhm_nm=0.2,
+        )
+        saturation_floor = reader.full_scale_counts * 0.995
+        saturated = [saturation_floor + 1.0, saturation_floor + 2.0, saturation_floor + 1.0]
+        reader._publish_analyzed_spectrum(
+            [975.0, 976.0, 977.0],
+            saturated,
+            stats,
+        )
+
+        frame = reader.take_latest_spectrum()
+        self.assertIsNotNone(frame)
+        self.assertIsNotNone(frame.saturation)
+        self.assertTrue(frame.saturation.saturated)
+        self.assertIsNone(frame.smsr)
+        self.assertEqual(frame.peak_annotations, ())
+        self.assertTrue(math.isnan(frame.pib))
 
     def test_spectrometer_mailbox_keeps_only_the_latest_frame(self) -> None:
         reader = SpectrometerReaderThread(SpectrometerSettings(10_000, 50))
-        first = ([975.0], [10.0])
-        latest = ([976.0], [20.0])
+        first = SpectrumFrame([975.0], [10.0], None)
+        latest = SpectrumFrame([976.0], [20.0], None)
 
-        reader._publish_latest_spectrum(*first)
-        reader._publish_latest_spectrum(*latest)
+        reader._publish_latest_spectrum(first)
+        reader._publish_latest_spectrum(latest)
 
         self.assertEqual(reader.take_latest_spectrum(), latest)
         self.assertIsNone(reader.take_latest_spectrum())
@@ -148,13 +209,13 @@ class DeviceInterfaceTests(unittest.TestCase):
         wavelength = [975.0, 976.0]
         intensity = [10.0, 20.0]
 
-        reader._publish_latest_spectrum(wavelength, intensity)
+        reader._publish_latest_spectrum(SpectrumFrame(wavelength, intensity, None))
         wavelength[:] = [985.0, 986.0]
         intensity[:] = [60_000.0, 60_000.0]
 
         self.assertEqual(
             reader.take_latest_spectrum(),
-            ([975.0, 976.0], [10.0, 20.0]),
+            SpectrumFrame([975.0, 976.0], [10.0, 20.0], None),
         )
 
     def test_spectrometer_auto_integration_waits_for_full_scale_target(self) -> None:
@@ -606,6 +667,89 @@ class DeviceInterfaceTests(unittest.TestCase):
             self.assertIn("功率下降保护", attempts[-1].invalid_reason)
             self.assertIn("I2C 通信失败", attempts[-1].invalid_reason)
             self.assertIn("保护下电未确认", attempts[-1].invalid_reason)
+
+
+class TdkReaderThreadTests(unittest.TestCase):
+    def test_polls_current_and_voltage_and_publishes_readings(self) -> None:
+        class FakeSupply:
+            def __init__(self) -> None:
+                self.pairs = [(1.0, 12.0), (2.0, 12.5)]
+                self.current_calls = 0
+                self.voltage_calls = 0
+
+            def read_output_current(self) -> float:
+                pair = self.pairs[min(self.current_calls, len(self.pairs) - 1)]
+                self.current_calls += 1
+                return pair[0]
+
+            def read_output_voltage(self) -> float:
+                pair = self.pairs[min(self.voltage_calls, len(self.pairs) - 1)]
+                self.voltage_calls += 1
+                return pair[1]
+
+        reader = TdkReaderThread(FakeSupply())
+        emissions: list[TdkReading] = []
+        reader.reading.connect(emissions.append)
+        wait_count = 0
+
+        def stop_after_two_cycles(_timeout: float) -> bool:
+            nonlocal wait_count
+            wait_count += 1
+            if wait_count >= 2:
+                reader.stop()
+                return True
+            return False
+
+        with patch.object(reader._stop_requested, "wait", side_effect=stop_after_two_cycles):
+            reader.run()
+
+        self.assertEqual(
+            emissions,
+            [TdkReading(1.0, 12.0), TdkReading(2.0, 12.5)],
+        )
+        self.assertEqual(reader.take_latest_reading(), TdkReading(2.0, 12.5))
+        self.assertIsNone(reader.take_latest_reading())
+
+    def test_reports_failure_once_then_recovers(self) -> None:
+        class FlakySupply:
+            def __init__(self) -> None:
+                self.current_calls = 0
+
+            def read_output_current(self) -> float:
+                self.current_calls += 1
+                if self.current_calls <= 2:
+                    raise RuntimeError("TDK 无响应")
+                return 3.0
+
+            def read_output_voltage(self) -> float:
+                return 13.0
+
+        reader = TdkReaderThread(FlakySupply())
+        failures: list[str] = []
+        statuses: list[str] = []
+        emissions: list[TdkReading] = []
+        reader.failed.connect(failures.append)
+        reader.status.connect(statuses.append)
+        reader.reading.connect(emissions.append)
+        wait_count = 0
+
+        def stop_after_four_cycles(_timeout: float) -> bool:
+            nonlocal wait_count
+            wait_count += 1
+            if wait_count >= 4:
+                reader.stop()
+                return True
+            return False
+
+        with patch.object(reader._stop_requested, "wait", side_effect=stop_after_four_cycles):
+            reader.run()
+
+        self.assertEqual(failures, ["TDK 无响应"])
+        self.assertEqual(statuses, ["TDK 读数已恢复"])
+        self.assertEqual(
+            emissions,
+            [TdkReading(3.0, 13.0), TdkReading(3.0, 13.0)],
+        )
 
 
 if __name__ == "__main__":
