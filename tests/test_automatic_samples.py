@@ -118,6 +118,60 @@ class AutomaticSampleRecorderTests(unittest.TestCase):
             self.assertIsNone(recorder._queue)
             self.assertIsNone(recorder._writer_thread)
 
+    def test_close_never_blocks_when_append_open_fails_with_queued_rows(self) -> None:
+        import threading as thread_module
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "unopenable_samples.csv"
+            original_open = Path.open
+            open_attempted = thread_module.Event()
+            release_open = thread_module.Event()
+
+            def guarded_open(self, mode: str = "r", *args, **kwargs):
+                if "a" in mode:
+                    open_attempted.set()
+                    release_open.wait(timeout=5)
+                    raise OSError("拒绝访问")
+                return original_open(self, mode, *args, **kwargs)
+
+            with patch.object(Path, "open", new=guarded_open):
+                recorder = AutomaticSampleRecorder(path)
+                writer_thread = recorder._writer_thread
+                # Queue rows while the writer thread is stuck opening the
+                # append stream, then let the open fail.
+                self.assertTrue(open_attempted.wait(timeout=5))
+                recorder.write(_sample(point_elapsed_s=1.0))
+                recorder.write(_sample(point_elapsed_s=2.0))
+                release_open.set()
+                with self.assertRaisesRegex(OSError, "拒绝访问"):
+                    recorder.close()
+
+            # The dead writer accounted for the queued rows, so close()
+            # returned instead of blocking in queue.join().
+            self.assertIsNotNone(writer_thread)
+            self.assertFalse(writer_thread.is_alive())
+
+    def test_write_refuses_rows_after_the_writer_thread_died(self) -> None:
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "dead_writer_samples.csv"
+            original_open = Path.open
+
+            def failing_append_open(self, mode: str = "r", *args, **kwargs):
+                if "a" in mode:
+                    raise OSError("拒绝访问")
+                return original_open(self, mode, *args, **kwargs)
+
+            with patch.object(Path, "open", new=failing_append_open):
+                recorder = AutomaticSampleRecorder(path)
+                writer_thread = recorder._writer_thread
+                writer_thread.join(timeout=5)
+                self.assertFalse(writer_thread.is_alive())
+                with self.assertRaisesRegex(RuntimeError, "写线程已退出"):
+                    recorder.write(_sample(point_elapsed_s=1.0))
+
     def test_output_path_lives_next_to_automatic_workbook(self) -> None:
         self.assertEqual(
             automatic_sample_path(Path("result/2026_08_12_12_00.xlsx")),

@@ -1091,13 +1091,17 @@ class AutomaticTestController:
             self.close_automatic_sample_recorder()
         except Exception as exc:
             # The per-second CSV is incomplete; refuse to finalize the Excel
-            # workbook from partial data instead of silently exporting it.
+            # workbook from partial data. Pause (like the TDK shutdown
+            # failure path) instead of returning from RAMPING_DOWN, which
+            # would leave the workflow with no retry or reset available.
             message = (
                 "逐秒采样记录收尾失败，Excel 将不会保存："
                 f"{self._error_formatter(exc)}"
             )
-            self.add_log(message)
             QMessageBox.critical(self._host, "逐秒记录", message)
+            self.pause_automatic_test(
+                f"逐秒采样记录收尾失败（{self._error_formatter(exc)}），Excel 未保存"
+            )
             return
         self._confirm_terminal_outcome()
         self.automatic_orchestrator.complete()
@@ -1161,7 +1165,9 @@ class AutomaticTestController:
         try:
             self.close_automatic_sample_recorder()
         except Exception as exc:
-            self.add_log(f"逐秒采样记录收尾失败：{self._error_formatter(exc)}")
+            message = f"逐秒采样记录收尾失败：{self._error_formatter(exc)}"
+            self.add_log(message)
+            QMessageBox.warning(self._host, "自动测试", message)
             return
         self.automatic_completion_record = None
         self.automatic_run_started_monotonic_s = None

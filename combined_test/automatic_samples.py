@@ -88,7 +88,9 @@ class AutomaticSampleRecorder:
         self._file = file
         self._sample_index = 0
         self._queue: queue.Queue[tuple[Any, ...] | None] | None = None
+        self._queue_lock = threading.Lock()
         self._writer_thread: threading.Thread | None = None
+        self._writer_failed = False
         self._write_error: Exception | None = None
         if self._file is None:
             with self.path.open("w", newline="", encoding="utf-8-sig") as output:
@@ -104,21 +106,54 @@ class AutomaticSampleRecorder:
             csv.writer(self._file).writerow(CSV_HEADER)
             self._file.flush()
 
-    def _write_rows_loop(self) -> None:
-        with self.path.open("a", newline="", encoding="utf-8") as output:
-            writer = csv.writer(output)
-            while True:
-                row = self._queue.get()
-                if row is None:
-                    break
+    def _mark_writer_failed(self, exc: Exception) -> None:
+        """Record a fatal writer failure and account for every queued row.
+
+        Must run under ``_queue_lock`` so no row can be queued after the
+        drain and leave ``queue.join()`` in ``close()`` waiting forever.
+        """
+        self._write_error = exc
+        self._writer_failed = True
+        while True:
+            try:
+                row = self._queue.get_nowait()
+            except queue.Empty:
+                break
+            if row is not None:
                 try:
-                    writer.writerow(row)
-                    output.flush()
-                except Exception as exc:
-                    _LOGGER.exception("逐秒 CSV 后台写入失败")
-                    self._write_error = exc
-                finally:
                     self._queue.task_done()
+                except ValueError:
+                    # The queue was already drained; nothing left to account.
+                    pass
+
+    def _write_rows_loop(self) -> None:
+        try:
+            output = self.path.open("a", newline="", encoding="utf-8")
+        except Exception as exc:
+            _LOGGER.exception("逐秒 CSV 追加文件打开失败")
+            with self._queue_lock:
+                self._mark_writer_failed(exc)
+            return
+        try:
+            with output:
+                writer = csv.writer(output)
+                while True:
+                    row = self._queue.get()
+                    if row is None:
+                        break
+                    try:
+                        writer.writerow(row)
+                        output.flush()
+                    except Exception as exc:
+                        _LOGGER.exception("逐秒 CSV 后台写入失败")
+                        with self._queue_lock:
+                            self._write_error = exc
+                    finally:
+                        self._queue.task_done()
+        except Exception as exc:
+            _LOGGER.exception("逐秒 CSV 后台写线程异常")
+            with self._queue_lock:
+                self._mark_writer_failed(exc)
 
     def _build_row(
         self,
@@ -155,7 +190,13 @@ class AutomaticSampleRecorder:
     def write(self, sample: AutomaticSecondSample, *, timestamp: str | None = None) -> None:
         row = self._build_row(sample, timestamp)
         if self._queue is not None:
-            self._queue.put(row)
+            with self._queue_lock:
+                if self._writer_failed:
+                    error = self._write_error
+                    raise RuntimeError(
+                        "逐秒 CSV 后台写线程已退出，样本未记录"
+                    ) from error
+                self._queue.put(row)
         elif self._file is not None:
             csv.writer(self._file).writerow(row)
             self._file.flush()

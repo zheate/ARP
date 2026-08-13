@@ -703,6 +703,32 @@ class AutomaticTestControllerLifecycleTests(unittest.TestCase):
         self.assertEqual(result_details, [])
         self.assertIn("TDK 输出关闭失败", self.window.automatic_pause_reason)
 
+    def test_csv_close_failure_pauses_completion_instead_of_stalling(self) -> None:
+        result_details = self._prepare_zero_current_terminal_path(AutomaticTestState.RAMPING_DOWN)
+        import combined_test.automatic_controller as controller_module
+
+        original_critical = controller_module.QMessageBox.critical
+        dialogs: list[str] = []
+        controller_module.QMessageBox.critical = (  # type: ignore[method-assign]
+            lambda _parent, _title, message: dialogs.append(message)
+        )
+
+        def failing_close() -> None:
+            raise OSError("磁盘已满")
+
+        self.window.close_automatic_sample_recorder = failing_close  # type: ignore[method-assign]
+        try:
+            self.window.complete_automatic_test()
+        finally:
+            controller_module.QMessageBox.critical = original_critical  # type: ignore[method-assign]
+
+        # The workflow must land in a recoverable state (paused with a
+        # reason), not stay stuck in RAMPING_DOWN with no retry or reset.
+        self.assertEqual(self.window.automatic_test_state, AutomaticTestState.PAUSED)
+        self.assertIn("逐秒", self.window.automatic_pause_reason)
+        self.assertEqual(result_details, [])
+        self.assertTrue(dialogs)
+
     def test_tdk_output_timeout_keeps_original_current_and_result_pending(self) -> None:
         class TimedOutOutputController:
             is_connected = True
