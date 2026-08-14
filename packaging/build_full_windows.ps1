@@ -131,6 +131,30 @@ if (Test-Path -LiteralPath $driverPayloadRoot) {
 New-Item -ItemType Directory -Force -Path $driverPayloadRoot | Out-Null
 Copy-Item -Path (Join-Path $driverRoot '*') -Destination $driverPayloadRoot -Recurse -Force
 
+# CH341PAR.EXE is a WinRAR SFX whose GUI handling and exit codes are not
+# reliable for an unattended parent installer. Extract its signed driver
+# package at build time and let Windows stage it through pnputil instead.
+$ch341Sfx = Join-Path $driverRoot "01_ch341_i2c\CH341PAR.EXE"
+$ch341DriverPayloadRoot = Join-Path $driverPayloadRoot "01_ch341_i2c\driver"
+New-Item -ItemType Directory -Force -Path $ch341DriverPayloadRoot | Out-Null
+$ch341DriverFiles = @(
+    "CH341M64.SYS",
+    "CH341W64.SYS",
+    "CH341WDM.CAT",
+    "CH341WDM.INF",
+    "CH341WDM.SYS"
+)
+& "$env:SystemRoot\System32\tar.exe" -xf $ch341Sfx -C $ch341DriverPayloadRoot @ch341DriverFiles
+if ($LASTEXITCODE -ne 0) {
+    throw "Could not extract the CH341 I2C driver package from $ch341Sfx"
+}
+foreach ($driverFile in $ch341DriverFiles) {
+    $driverPath = Join-Path $ch341DriverPayloadRoot $driverFile
+    if (-not (Test-Path -LiteralPath $driverPath -PathType Leaf)) {
+        throw "Extracted CH341 I2C driver file is missing: $driverPath"
+    }
+}
+
 $ophirPayloadRoot = Join-Path $driverPayloadRoot "07_ophir_starlab"
 $coherentPayloadRoot = Join-Path $driverPayloadRoot "08_coherent"
 New-Item -ItemType Directory -Force -Path $ophirPayloadRoot, $coherentPayloadRoot | Out-Null

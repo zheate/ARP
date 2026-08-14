@@ -113,8 +113,7 @@ try {
     }
 
     Write-Step "Installing WCH CH341 I2C driver"
-    $ch341Installer = Join-Path $PayloadRoot "01_ch341_i2c\CH341PAR.EXE"
-    Invoke-External -FilePath $ch341Installer -Arguments @("/S") -SuccessCodes @(0, 1) | Out-Null
+    Install-InfDriver -InfPath (Join-Path $PayloadRoot "01_ch341_i2c\driver\CH341WDM.INF")
 
     Write-Step "Installing OceanHR4 WinUSB driver"
     Install-InfDriver -InfPath (Join-Path $PayloadRoot "03_ocean_hr4\driver\OOI_OceanHR4.inf")
