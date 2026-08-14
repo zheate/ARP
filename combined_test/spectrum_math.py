@@ -94,18 +94,32 @@ def _calculate_centroid_values(x_values: list[float], y_values: list[float]) -> 
     move_length = 7
 
     left_index = 0
-    for index in range(peak_index - move_length + 1):
-        if float(np.std(y_array[index : index + move_length])) > 200.0:
-            break
-        left_index = index
-
     right_index = len(y_values) - 1
-    for index in range(len(y_values), peak_index + move_length, -1):
-        if float(np.std(y_array[index - move_length : index])) > 200.0:
-            break
-        # The compiled scripts_runner implementation keeps the final sample
-        # inside the quiet window, which is one position before its scan cursor.
-        right_index = index - 1
+    if len(y_values) >= move_length:
+        window_deviations = np.lib.stride_tricks.sliding_window_view(
+            y_array,
+            move_length,
+        ).std(axis=1)
+
+        left_stop = peak_index - move_length + 1
+        if left_stop > 0:
+            left_noisy = np.flatnonzero(window_deviations[:left_stop] > 200.0)
+            left_index = (
+                max(0, int(left_noisy[0]) - 1)
+                if left_noisy.size
+                else left_stop - 1
+            )
+
+        right_start = peak_index + 1
+        if right_start < len(window_deviations):
+            right_noisy = np.flatnonzero(window_deviations[right_start:] > 200.0)
+            # The compiled scripts_runner implementation keeps the final
+            # quiet-window sample, one position before the scan cursor.
+            right_index = (
+                right_start + int(right_noisy[-1]) + move_length
+                if right_noisy.size
+                else peak_index + move_length
+            )
 
     if not (0 <= left_index <= peak_index <= right_index < len(y_values)):
         return math.nan

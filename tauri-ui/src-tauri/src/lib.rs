@@ -3,13 +3,18 @@ use serde_json::{json, Value};
 const LIVE_SNAPSHOT_INTERVAL_MS: u64 = 200;
 const PD_SNAPSHOT_INTERVAL_MS: u64 = 500;
 const SHIPPING_SNAPSHOT_INTERVAL_MS: u64 = 500;
+const SNAPSHOT_REQUEST_TIMEOUT_SECS: u64 = 15;
+const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 60;
+const FILE_SCAN_REQUEST_TIMEOUT_SECS: u64 = 120;
+const REPORT_REQUEST_TIMEOUT_SECS: u64 = 10 * 60;
+const SHUTDOWN_REQUEST_TIMEOUT_SECS: u64 = 30;
 use std::collections::HashMap;
 use std::env;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{self, Sender};
+use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -39,19 +44,35 @@ struct PythonBridge {
 #[derive(Clone, Debug)]
 enum PythonBridgeError {
     Backend(String),
+    Timeout(String),
     Transport(String),
 }
 
 impl PythonBridgeError {
     fn message(self) -> String {
         match self {
-            Self::Backend(message) | Self::Transport(message) => message,
+            Self::Backend(message) | Self::Timeout(message) | Self::Transport(message) => message,
         }
     }
 
     fn is_transport(&self) -> bool {
         matches!(self, Self::Transport(_))
     }
+}
+
+fn request_timeout(method: &str) -> Duration {
+    let seconds = match method {
+        "app.snapshot" => SNAPSHOT_REQUEST_TIMEOUT_SECS,
+        "app.shutdown" => SHUTDOWN_REQUEST_TIMEOUT_SECS,
+        "automatic.references" | "shippingReport.inspect" | "shippingReport.batchInspect" => {
+            FILE_SCAN_REQUEST_TIMEOUT_SECS
+        }
+        "shippingReport.preview"
+        | "shippingReport.generate"
+        | "shippingReport.batchGenerateItem" => REPORT_REQUEST_TIMEOUT_SECS,
+        _ => DEFAULT_REQUEST_TIMEOUT_SECS,
+    };
+    Duration::from_secs(seconds)
 }
 
 impl PythonBridge {
@@ -406,11 +427,22 @@ impl PythonBridge {
 
         let execution_started = Instant::now();
         let queue_ms = execution_started.duration_since(queued_at).as_secs_f64() * 1000.0;
-        let result = receiver.recv().unwrap_or_else(|_| {
-            Err(PythonBridgeError::Transport(
+        let timeout = request_timeout(method);
+        let result = match receiver.recv_timeout(timeout) {
+            Ok(result) => result,
+            Err(RecvTimeoutError::Timeout) => {
+                if let Ok(mut pending) = self.pending.lock() {
+                    pending.remove(&request_id);
+                }
+                Err(PythonBridgeError::Timeout(format!(
+                    "Python 后端请求超时：{method}（{} 秒）",
+                    timeout.as_secs()
+                )))
+            }
+            Err(RecvTimeoutError::Disconnected) => Err(PythonBridgeError::Transport(
                 "Python 响应线程意外退出".to_string(),
-            ))
-        });
+            )),
+        };
         let execution_ms = execution_started.elapsed().as_secs_f64() * 1000.0;
         if method != "app.snapshot" || queue_ms >= 50.0 || execution_ms >= 50.0 {
             eprintln!(
@@ -889,17 +921,28 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        should_reset_bridge, snapshot_interval_ms, snapshot_state_changed, stream_envelope,
-        validate_columnar_spectrum, PythonBridge, PythonBridgeError,
+        request_timeout, should_reset_bridge, snapshot_interval_ms, snapshot_state_changed,
+        stream_envelope, validate_columnar_spectrum, PythonBridge, PythonBridgeError,
     };
 
     #[test]
     fn backend_action_errors_do_not_restart_the_python_process() {
         let backend_error = Err(PythonBridgeError::Backend("invalid settings".to_string()));
+        let timeout_error = Err(PythonBridgeError::Timeout("request timed out".to_string()));
         let transport_error = Err(PythonBridgeError::Transport("broken pipe".to_string()));
 
         assert!(!should_reset_bridge(&backend_error));
+        assert!(!should_reset_bridge(&timeout_error));
         assert!(should_reset_bridge(&transport_error));
+    }
+
+    #[test]
+    fn request_timeouts_match_operation_cost() {
+        assert_eq!(request_timeout("app.snapshot").as_secs(), 15);
+        assert_eq!(request_timeout("automatic.references").as_secs(), 120);
+        assert_eq!(request_timeout("shippingReport.generate").as_secs(), 600);
+        assert_eq!(request_timeout("app.shutdown").as_secs(), 30);
+        assert_eq!(request_timeout("automatic.start").as_secs(), 60);
     }
 
     #[test]
