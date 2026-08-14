@@ -44,6 +44,7 @@ SECOND_SAMPLE_HEADERS = (
     "中心波长(nm)",
     "质心波长(nm)",
     "FWHM(nm)",
+    "PIB",
 )
 _DATA_HEADER_COLOR = "#D9EAF7"
 
@@ -229,6 +230,7 @@ def _read_designated_second_samples(path: Path) -> dict[float, list[dict[str, An
                 "peak_wavelength_nm": _sample_number(row, "peak_wavelength_nm"),
                 "centroid_nm": _sample_number(row, "centroid_nm"),
                 "fwhm_nm": _sample_number(row, "fwhm_nm"),
+                "pib": _sample_number(row, "pib"),
                 "wavelengths_nm": wavelengths,
                 "intensities": intensities,
             }
@@ -490,12 +492,13 @@ def _write_xlsx_designated_second_sheets(
         formats["number_6"],
         formats["number_6"],
         formats["number_6"],
+        formats["percent_2"],
     )
     for current_a, samples in samples_by_current.items():
         sheet_prefix = _current_sheet_prefix(current_a)
         summary_sheet = workbook.add_worksheet(f"{sheet_prefix}逐秒数据")
         summary_sheet.freeze_panes(1, 0)
-        for column, width in enumerate((12, 16, 14, 16, 18, 18, 14)):
+        for column, width in enumerate((12, 16, 14, 16, 18, 18, 14, 12)):
             summary_sheet.set_column(column, column, width)
         summary_sheet.autofilter(0, 0, len(samples), len(SECOND_SAMPLE_HEADERS) - 1)
         summary_sheet.write_row(0, 0, SECOND_SAMPLE_HEADERS, formats["data_header"])
@@ -508,6 +511,7 @@ def _write_xlsx_designated_second_sheets(
                 sample["peak_wavelength_nm"],
                 sample["centroid_nm"],
                 sample["fwhm_nm"],
+                sample["pib"],
             )
             for column, (value, cell_format) in enumerate(zip(values, summary_formats)):
                 _write_xlsx_number(summary_sheet, row, column, value, cell_format)

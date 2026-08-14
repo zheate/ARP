@@ -527,6 +527,11 @@ class MainWindowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             settings = QSettings(str(Path(temp_dir) / "operator-inputs.ini"), QSettings.Format.IniFormat)
             first_window = MainWindow(settings)
+            first_window.power_supply_controller_combo.setCurrentIndex(
+                first_window.power_supply_controller_combo.findData("tdk")
+            )
+            first_window.tdk_resource_combo.setEditText("ASRL77::INSTR")
+            first_window.tdk_voltage_spin.setValue(120.0)
             first_window.set_current_spin.setValue(12)
             first_window.power_wavelength_spin.setValue(973.125)
             first_window.integration_spin.setValue(25000)
@@ -550,6 +555,9 @@ class MainWindowTests(unittest.TestCase):
             first_window.close()
 
             restored_window = MainWindow(settings)
+            self.assertEqual(restored_window._selected_power_supply_kind(), "tdk")
+            self.assertEqual(restored_window.tdk_resource_combo.currentText(), "ASRL77::INSTR")
+            self.assertEqual(restored_window.tdk_voltage_spin.value(), 120.0)
             self.assertEqual(restored_window.set_current_spin.value(), 12)
             self.assertAlmostEqual(restored_window.power_wavelength_spin.value(), 973.125)
             self.assertEqual(restored_window.integration_spin.value(), 25000)
@@ -572,6 +580,9 @@ class MainWindowTests(unittest.TestCase):
             self.assertEqual(restored_window.sn_field.text(), "SN-001")
             self.assertEqual(restored_window.test_station_field.text(), "老化站 1")
             self.assertEqual(restored_window.output_dir_field.text(), str(Path(temp_dir) / "records"))
+            with patch("combined_test.window.list_tdk_serial_resources", return_value=["ASRL3::INSTR"]):
+                restored_window.refresh_tdk_resources()
+            self.assertEqual(restored_window.tdk_resource_combo.currentText(), "ASRL77::INSTR")
             restored_window.close()
 
     def test_excel_test_point_saves_liv_and_spectrum_in_one_workbook(self) -> None:

@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from combined_test.native_realtime import NativeRealtimeUnavailable, get_native_realtime_core
 from combined_test.theme import FontRole, font_for_role
 
 
@@ -136,6 +137,20 @@ def summarize_samples(values: Sequence[float]) -> SampleSummary:
     if not values:
         raise ValueError("没有可统计的采样点。")
     numeric = [float(value) for value in values]
+    native_core = get_native_realtime_core()
+    if native_core is not None:
+        try:
+            native = native_core.summarize_samples(numeric)
+            return SampleSummary(
+                latest=native.latest,
+                mean=native.mean,
+                minimum=native.minimum,
+                maximum=native.maximum,
+                standard_deviation=native.standard_deviation,
+                rms=native.rms,
+            )
+        except (NativeRealtimeUnavailable, OSError, ValueError):
+            pass
     return SampleSummary(
         latest=numeric[-1],
         mean=statistics.fmean(numeric),

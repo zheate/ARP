@@ -453,6 +453,8 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
   snapshot: BackendSnapshot | null; config: AppConfiguration; update: UpdateConfig; active: boolean; pending: boolean; run: RunCommand
 }) {
   const psu = snapshot?.devices.powerSupply
+  const resources = psu?.resources ?? []
+  const selectedResource = config.tdkResource.trim()
   return (
     <div className="power-settings-layout">
       <section className="power-settings-section">
@@ -462,7 +464,16 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
         </div>
         <div className="power-settings-fields">
           <Field label="控制器"><NativeSelect value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
-          {config.powerSupplyKind === "tdk" && <Field label="TDK 串口"><Input value={config.tdkResource} onChange={(e) => update("tdkResource", e.target.value)} /></Field>}
+          {config.powerSupplyKind === "tdk" && <Field label="TDK 串口">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+              <NativeSelect value={selectedResource} onChange={(value) => update("tdkResource", value)}>
+                <option value="">请点击识别电源</option>
+                {selectedResource && !resources.includes(selectedResource) && <option value={selectedResource}>{selectedResource}</option>}
+                {resources.map((resource) => <option key={resource} value={resource}>{resource}</option>)}
+              </NativeSelect>
+              <Button disabled={!active || pending || psu?.connected} onClick={() => void run("device.refresh", { device: "powerSupply" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
+            </div>
+          </Field>}
           <div className="power-settings-value-grid">
             {config.powerSupplyKind === "tdk" && <NumberField label="输出电压 (V)" value={config.tdkVoltageV} onChange={(v) => update("tdkVoltageV", v)} step="0.1" />}
             <NumberField label="设定电流 (A)" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
@@ -1268,11 +1279,18 @@ function App() {
   const { snapshot, error, loading, commandPending, pendingCommand, command } = useBackendSnapshot(page)
   const [config, setConfig] = useState<AppConfiguration>(emptyConfig)
   const [dirty, setDirty] = useState(false)
+  const configRef = useRef<AppConfiguration>(emptyConfig)
+  const configHydratedRef = useRef(false)
+  const configRevisionRef = useRef(0)
+  const automaticSaveFlightRef = useRef<Promise<void>>(Promise.resolve())
+  const pendingPersistedConfigRef = useRef<AppConfiguration | null>(null)
   const [automaticHistoryItems, setAutomaticHistoryItems] = useState<TestHistoryCandidate[]>([])
   const [automaticReferencePath, setAutomaticReferencePath] = useState("latest")
   const [automaticHistoryLoading, setAutomaticHistoryLoading] = useState(false)
   const [automaticHistoryError, setAutomaticHistoryError] = useState("")
   const automaticHistoryCompletionSeenRef = useRef(false)
+  const automaticHistoryFlightRef = useRef<{ key: string; promise: Promise<void> } | null>(null)
+  const automaticHistoryKeyRef = useRef("")
   const [closeFailure, setCloseFailure] = useState<string | null>(null)
   const [automaticCompletion, setAutomaticCompletion] = useState<{ title: string; message: string } | null>(null)
   const [closeRequestPending, setCloseRequestPending] = useState(false)
@@ -1285,6 +1303,9 @@ function App() {
   const automaticWorkflowActive = Boolean(snapshot && !["idle", "completed"].includes(snapshot.automaticTest.state))
   const automaticPaused = snapshot?.automaticTest.state === "paused"
   const automaticInteractionLocked = automaticWorkflowActive || pendingCommand === "automatic.start"
+  const liveAcquisitionActive = automaticWorkflowActive
+    || snapshot?.devices.powerMeter.running === true
+    || snapshot?.devices.spectrometer.running === true
   const activeOutputCurrentA = snapshot?.devices.powerSupply.activeCurrentA
   const manualPowerOutputActive = Boolean(
     snapshot
@@ -1294,29 +1315,46 @@ function App() {
       || (config.powerSupplyKind === "tdk" && snapshot.devices.powerSupply.outputEnabled)
     )
   )
-  const loadAutomaticHistory = useCallback(async () => {
-    if (!config.outputDir.trim() || !config.sn.trim()) {
+  const automaticHistoryKey = `${config.outputDir.trim()}\u0000${config.sn.trim()}`
+  automaticHistoryKeyRef.current = automaticHistoryKey
+  const loadAutomaticHistory = useCallback((): Promise<void> => {
+    const outputDir = config.outputDir.trim()
+    const sn = config.sn.trim()
+    const key = `${outputDir}\u0000${sn}`
+    if (!outputDir || !sn) {
       setAutomaticHistoryItems([])
-      return
+      return Promise.resolve()
     }
+    const existing = automaticHistoryFlightRef.current
+    if (existing?.key === key) return existing.promise
+
     setAutomaticHistoryLoading(true)
     setAutomaticHistoryError("")
-    try {
-      const result = await sendBackendRequest<{ items: TestHistoryCandidate[] }>("automatic.references", {
-        outputDir: config.outputDir,
-        sn: config.sn,
-      })
-      setAutomaticHistoryItems(result.items)
-      setAutomaticReferencePath((current) => (
-        current === "latest" || current === "none" || result.items.some((item) => item.sourcePath === current)
-          ? current
-          : "latest"
-      ))
-    } catch (reason) {
-      setAutomaticHistoryError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setAutomaticHistoryLoading(false)
-    }
+    const flight = { key, promise: Promise.resolve() }
+    flight.promise = (async () => {
+      try {
+        const result = await sendBackendRequest<{ items: TestHistoryCandidate[] }>("automatic.references", {
+          outputDir,
+          sn,
+        })
+        if (automaticHistoryKeyRef.current !== key) return
+        setAutomaticHistoryItems(result.items)
+        setAutomaticReferencePath((current) => (
+          current === "latest" || current === "none" || result.items.some((item) => item.sourcePath === current)
+            ? current
+            : "latest"
+        ))
+      } catch (reason) {
+        if (automaticHistoryKeyRef.current === key) {
+          setAutomaticHistoryError(reason instanceof Error ? reason.message : String(reason))
+        }
+      } finally {
+        if (automaticHistoryFlightRef.current === flight) automaticHistoryFlightRef.current = null
+        if (automaticHistoryKeyRef.current === key) setAutomaticHistoryLoading(false)
+      }
+    })()
+    automaticHistoryFlightRef.current = flight
+    return flight.promise
   }, [config.outputDir, config.sn])
   useEffect(() => {
     setAutomaticHistoryItems([])
@@ -1324,15 +1362,17 @@ function App() {
     setAutomaticHistoryError("")
   }, [config.outputDir, config.sn])
   useEffect(() => {
-    if (!config.outputDir.trim() || !config.sn.trim()) return
+    if (liveAcquisitionActive || !config.outputDir.trim() || !config.sn.trim()) return
     const timer = window.setTimeout(() => void loadAutomaticHistory(), 300)
     return () => window.clearTimeout(timer)
-  }, [loadAutomaticHistory])
+  }, [liveAcquisitionActive, loadAutomaticHistory])
   useEffect(() => {
-    const handleWindowFocus = () => void loadAutomaticHistory()
+    const handleWindowFocus = () => {
+      if (!liveAcquisitionActive) void loadAutomaticHistory()
+    }
     window.addEventListener("focus", handleWindowFocus)
     return () => window.removeEventListener("focus", handleWindowFocus)
-  }, [loadAutomaticHistory])
+  }, [liveAcquisitionActive, loadAutomaticHistory])
   useEffect(() => {
     const completed = snapshot?.automaticTest.state === "completed"
     if (completed && !automaticHistoryCompletionSeenRef.current) void loadAutomaticHistory()
@@ -1372,6 +1412,13 @@ function App() {
     setCloseRequestPending(true)
     setCloseFailure(null)
     try {
+      // The Python process owns QSettings. Commit the latest React form state
+      // before asking it to shut down so closing immediately after typing does
+      // not persist the previous snapshot instead.
+      await automaticSaveFlightRef.current.catch(() => undefined)
+      if (configHydratedRef.current) {
+        await sendBackendRequest("app.configure", configRef.current as unknown as Record<string, unknown>)
+      }
       const result = await sendBackendRequest<{ shutdownConfirmed: boolean }>("app.shutdown")
       if (!result.shutdownConfirmed) throw new Error("后端未确认安全下电")
       await invoke("bridge_disconnect")
@@ -1469,7 +1516,15 @@ function App() {
 
   useEffect(() => {
     if (!snapshot?.configuration || dirty) return
-    setConfig((current) => configurationsEqual(current, snapshot.configuration!) ? current : snapshot.configuration!)
+    const pendingPersisted = pendingPersistedConfigRef.current
+    if (pendingPersisted && !configurationsEqual(snapshot.configuration, pendingPersisted)) return
+    pendingPersistedConfigRef.current = null
+    setConfig((current) => {
+      const next = configurationsEqual(current, snapshot.configuration!) ? current : snapshot.configuration!
+      configRef.current = next
+      configHydratedRef.current = true
+      return next
+    })
   }, [snapshot?.configuration, dirty])
 
   useEffect(() => {
@@ -1497,17 +1552,58 @@ function App() {
   }, [snapshot?.automaticTest])
 
   // Stable references so memoized pages do not re-render merely because App
-  // rendered; config/dirty still force a new closure when they matter.
+  // rendered while revision tracking prevents stale saves from overwriting edits.
   const update = useCallback(<K extends keyof AppConfiguration>(key: K, value: AppConfiguration[K]) => {
-    setConfig((current) => ({ ...current, [key]: value }))
+    configRevisionRef.current += 1
+    const next = { ...configRef.current, [key]: value }
+    configRef.current = next
+    setConfig(next)
     setDirty(true)
   }, [])
 
+  useEffect(() => {
+    if (!dirty || !active || commandPending || automaticInteractionLocked) return
+    const revision = configRevisionRef.current
+    const payload = config
+    const timer = window.setTimeout(() => {
+      const save = async () => {
+        const savedSnapshot = await sendBackendRequest<BackendSnapshot>(
+          "app.configure",
+          payload as unknown as Record<string, unknown>,
+        )
+        if (configRevisionRef.current === revision) {
+          const persisted = savedSnapshot.configuration ?? payload
+          pendingPersistedConfigRef.current = persisted
+          configRef.current = persisted
+          setConfig(persisted)
+          setDirty(false)
+        }
+      }
+      const flight = automaticSaveFlightRef.current.catch(() => undefined).then(save)
+      automaticSaveFlightRef.current = flight
+      // Keep the form dirty after a failed background save. The visible save
+      // button remains available and will report errors through command().
+      void flight.catch(() => undefined)
+    }, 800)
+    return () => window.clearTimeout(timer)
+  }, [active, automaticInteractionLocked, commandPending, config, dirty])
+
   const saveConfiguration = useCallback(async () => {
     if (!active) return
-    await command("app.configure", config as unknown as Record<string, unknown>)
-    setDirty(false)
-  }, [active, command, config])
+    const revision = configRevisionRef.current
+    await automaticSaveFlightRef.current.catch(() => undefined)
+    const savedSnapshot = await command(
+      "app.configure",
+      configRef.current as unknown as Record<string, unknown>,
+    )
+    if (configRevisionRef.current === revision) {
+      const persisted = savedSnapshot.configuration ?? configRef.current
+      pendingPersistedConfigRef.current = persisted
+      configRef.current = persisted
+      setConfig(persisted)
+      setDirty(false)
+    }
+  }, [active, command])
 
   const run = useCallback(async (method: string, params: Record<string, unknown> = {}, sync = false) => {
     if (!active) return
@@ -2514,7 +2610,7 @@ const AutomaticPage = memo(function AutomaticPage({ snapshot, config, update, ac
             {auto?.canRetry && <Button disabled={!active || pending} onClick={() => void run("automatic.retry")} size="sm" variant="outline"><RotateCcw className="size-4" />修复后重试</Button>}
           </div>
           <div className="flex min-h-12 items-center justify-center border-border lg:border-l lg:px-5">
-            <Button className="h-10 w-full max-w-40 gap-2 px-5" disabled={!active || pending || controlsLocked || !auto?.canStart} onClick={startAutomaticTest}><Play className="size-5" />开始</Button>
+            <Button className="h-10 w-full max-w-40 gap-2 px-5" disabled={!active || pending || controlsLocked || historyLoading || !auto?.canStart} onClick={startAutomaticTest}><Play className="size-5" />开始</Button>
           </div>
           <div className="flex min-h-12 items-center justify-center lg:pl-5">
             <Button className="h-10 w-full max-w-40 gap-2 px-5" disabled={!active || pending || !auto?.canEnd} onClick={() => void run("automatic.end")} variant="destructive"><Square className="size-5" />结束</Button>
@@ -2585,6 +2681,8 @@ const ManualPage = memo(function ManualPage({ snapshot, config, update, active, 
   const psu = snapshot?.devices.powerSupply
   const meter = snapshot?.devices.powerMeter
   const spectrum = snapshot?.devices.spectrometer
+  const powerSupplyResources = psu?.resources ?? []
+  const selectedPowerSupplyResource = config.tdkResource.trim()
   const powerMeterResources = meter?.resources ?? []
   const selectedPowerMeterResource = config.powerMeterResource.trim()
   const commandLockRef = useRef(false)
@@ -2602,7 +2700,16 @@ const ManualPage = memo(function ManualPage({ snapshot, config, update, active, 
       <section className="manual-device-grid shrink-0">
         <Card size="sm" className="shadow-none"><CardHeader><CardTitle className="text-base">电源控制</CardTitle></CardHeader><CardContent className="manual-control-content">
           <Field label="控制器" layout="inline"><NativeSelect value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
-          {config.powerSupplyKind === "tdk" && <Field label="TDK 串口" layout="inline"><Input value={config.tdkResource} onChange={(e) => update("tdkResource", e.target.value)} /></Field>}
+          {config.powerSupplyKind === "tdk" && <Field label="TDK 串口" layout="inline">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+              <NativeSelect value={selectedPowerSupplyResource} onChange={(value) => update("tdkResource", value)}>
+                <option value="">请点击识别电源</option>
+                {selectedPowerSupplyResource && !powerSupplyResources.includes(selectedPowerSupplyResource) && <option value={selectedPowerSupplyResource}>{selectedPowerSupplyResource}</option>}
+                {powerSupplyResources.map((resource) => <option key={resource} value={resource}>{resource}</option>)}
+              </NativeSelect>
+              <Button disabled={!active || pending || psu?.connected} onClick={() => void runManualCommand("device.refresh", { device: "powerSupply" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
+            </div>
+          </Field>}
           {config.powerSupplyKind === "tdk" && <NumberField label="输出电压 (V)" layout="inline" value={config.tdkVoltageV} onChange={(v) => update("tdkVoltageV", v)} step="0.1" />}
           <NumberField label="设定电流 (A)" layout="inline" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
           {config.powerSupplyKind === "tdk" ? <div className="grid grid-cols-2 gap-2">

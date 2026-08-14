@@ -33,6 +33,15 @@ from combined_test.shipping_report import (
 )
 
 
+BACKGROUND_FILE_TASK_METHODS = frozenset(
+    {
+        "automatic.references",
+        "shippingReport.inspect",
+        "shippingReport.batchInspect",
+    }
+)
+
+
 def _enum_value(value: Any) -> Any:
     return value.value if isinstance(value, Enum) else value
 
@@ -470,6 +479,19 @@ class LegacyWindowBackend:
             self.window.save_input_settings()
         return self.snapshot() if result is None else result
 
+    def dispatch_file_task(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        """Run stateless Excel scans without touching the Qt window lifecycle."""
+
+        actions: dict[str, Callable[[dict[str, Any]], Any]] = {
+            "automatic.references": self._list_automatic_references,
+            "shippingReport.inspect": self._inspect_shipping_report,
+            "shippingReport.batchInspect": self._inspect_shipping_report_batch,
+        }
+        action = actions.get(method)
+        if action is None:
+            raise KeyError(method)
+        return action(params)
+
     @staticmethod
     def _set_combo_data(combo: Any, value: Any) -> None:
         index = combo.findData(value)
@@ -647,8 +669,18 @@ class LegacyWindowBackend:
         self._connect_spectrum_capture()
 
     def _history_records(self, params: dict[str, Any]) -> tuple[TestHistoryRecord, ...]:
-        output_dir = str(params.get("outputDir", self.window.output_dir_field.text())).strip()
-        sn = str(params.get("sn", self.window.sn_field.text())).strip()
+        output_dir_value = params.get("outputDir")
+        sn_value = params.get("sn")
+        output_dir = str(
+            self.window.output_dir_field.text()
+            if output_dir_value is None
+            else output_dir_value
+        ).strip()
+        sn = str(
+            self.window.sn_field.text()
+            if sn_value is None
+            else sn_value
+        ).strip()
         return find_test_history(output_dir, sn) if output_dir and sn else ()
 
     def _list_automatic_references(self, params: dict[str, Any]) -> dict[str, Any]:

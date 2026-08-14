@@ -18,7 +18,7 @@ from combined_test.automatic_controller import AutomaticTestTerminalOutcome
 from combined_test.automatic_samples import AutomaticSampleRecorder, automatic_sample_path
 from combined_test.automation import AutomaticTestState
 from combined_test.models import PowerMeterReading
-from combined_test.spectrum_math import calculate_stats
+from combined_test.spectrum_math import calculate_pib, calculate_stats
 from combined_test.window import MainWindow
 
 
@@ -339,6 +339,13 @@ class AutomaticTestControllerLifecycleTests(unittest.TestCase):
         self.assertEqual(rows[0]["output_voltage_raw_v"], "23")
         self.assertEqual(rows[0]["optical_power_w"], "30")
         self.assertEqual(rows[0]["spectrum_wavelengths_nm"], "975;976;977")
+        self.assertEqual(
+            float(rows[0]["pib"]),
+            calculate_pib(
+                self.window.latest_spectrum_wavelength,
+                self.window.latest_spectrum_intensity,
+            ),
+        )
         self.assertGreater(float(rows[0]["efficiency_percent"]), 0.0)
 
         self.window.automatic_hold_started_monotonic_s = time.monotonic() - 8.0

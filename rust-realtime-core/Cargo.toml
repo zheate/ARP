@@ -1,0 +1,16 @@
+[package]
+name = "arp-realtime-core"
+version = "0.1.0"
+description = "Native realtime spectrum and acquisition calculations for ARP"
+edition = "2021"
+
+[lib]
+name = "arp_realtime_core"
+crate-type = ["cdylib", "rlib"]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+

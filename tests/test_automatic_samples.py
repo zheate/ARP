@@ -41,6 +41,7 @@ class AutomaticSampleRecorderTests(unittest.TestCase):
                 peak_wavelength_nm=976.0,
                 centroid_nm=976.1,
                 fwhm_nm=2.0,
+                pib=0.9876,
                 spectrum_wavelengths_nm=(975.0, 976.0, 977.0),
                 spectrum_intensities=(1.0, 5.0, 1.0),
             ),
@@ -53,6 +54,7 @@ class AutomaticSampleRecorderTests(unittest.TestCase):
         self.assertEqual(rows[0]["output_voltage_v"], "23")
         self.assertEqual(rows[0]["optical_power_w"], "30")
         self.assertAlmostEqual(float(rows[0]["efficiency_percent"]), 30.0 / 69.0 * 100.0)
+        self.assertEqual(rows[0]["pib"], "0.9876")
         self.assertEqual(rows[0]["spectrum_point_count"], "3")
         self.assertEqual(rows[0]["spectrum_wavelengths_nm"], "975;976;977")
         self.assertEqual(rows[0]["spectrum_intensities"], "1;5;1")

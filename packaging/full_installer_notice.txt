@@ -1,0 +1,15 @@
+Power Test 完整安装包
+
+本安装包将安装 Power Test，以及当前项目硬件所需的第三方驱动和运行环境：
+
+- WCH CH341 I2C 和 CH341/CH343 串口驱动
+- Ocean Optics OceanHR4 WinUSB 驱动
+- LaserPoint / FTDI USB 串口驱动
+- National Instruments Package Manager 24.0
+- NI-DAQmx Runtime 23.5
+- NI-VISA Runtime 23.5
+
+继续安装表示您同意安装上述第三方组件，并接受安装包内随附的厂商许可条款。
+安装过程需要管理员权限。部分 Windows 驱动或 NI 运行环境可能要求安装完成后重启电脑。
+
+Power Test 不会在安装过程中从互联网下载任何驱动。

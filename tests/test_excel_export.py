@@ -272,6 +272,7 @@ class ExcelExportTests(unittest.TestCase):
                     peak_wavelength_nm=975.1,
                     centroid_nm=975.0,
                     fwhm_nm=0.281,
+                    pib=0.91,
                     spectrum_wavelengths_nm=(974.0, 975.0, 976.0),
                     spectrum_intensities=(10.0, 100.0, 20.0),
                 )
@@ -288,6 +289,7 @@ class ExcelExportTests(unittest.TestCase):
                     peak_wavelength_nm=975.2,
                     centroid_nm=975.05,
                     fwhm_nm=0.282,
+                    pib=0.92,
                     spectrum_wavelengths_nm=(974.0, 975.0, 976.0),
                     spectrum_intensities=(11.0, 101.0, 21.0),
                 )
@@ -304,6 +306,7 @@ class ExcelExportTests(unittest.TestCase):
                     peak_wavelength_nm=976.1,
                     centroid_nm=976.0,
                     fwhm_nm=0.351,
+                    pib=0.93,
                     spectrum_wavelengths_nm=(975.0, 976.0, 977.0),
                     spectrum_intensities=(20.0, 200.0, 30.0),
                 )
@@ -352,18 +355,19 @@ class ExcelExportTests(unittest.TestCase):
 
             summary = workbook["3A逐秒数据"]
             self.assertEqual(
-                [summary.cell(row=1, column=column).value for column in range(1, 8)],
+                [summary.cell(row=1, column=column).value for column in range(1, 9)],
                 [
                     "时间(s)", "功率(W)", "效率", "电压(V)",
-                    "中心波长(nm)", "质心波长(nm)", "FWHM(nm)",
+                    "中心波长(nm)", "质心波长(nm)", "FWHM(nm)", "PIB",
                 ],
             )
             self.assertEqual(
-                [summary.cell(row=2, column=column).value for column in range(1, 8)],
-                [1, 6.0, 0.1, 20.0, 975.1, 975.0, 0.281],
+                [summary.cell(row=2, column=column).value for column in range(1, 9)],
+                [1, 6.0, 0.1, 20.0, 975.1, 975.0, 0.281, 0.91],
             )
             self.assertEqual(summary["A3"].value, 2)
             self.assertEqual(summary["C2"].number_format, "0.00%")
+            self.assertEqual(summary["H2"].number_format, "0.00%")
 
             spectrum = workbook["3A光谱数据"]
             self.assertEqual(
@@ -385,6 +389,8 @@ class ExcelExportTests(unittest.TestCase):
             self.assertEqual(summary_5a["F2"].value, 976.0)
             self.assertEqual(summary_5a["G2"].value, 0.351)
             self.assertEqual(summary_5a["G2"].number_format, "0.000000")
+            self.assertEqual(summary_5a["H2"].value, 0.93)
+            self.assertEqual(summary_5a["H2"].number_format, "0.00%")
 
             spectrum_5a = workbook["5A光谱数据"]
             self.assertEqual(spectrum_5a["A1"].value, "1s波长(nm)")

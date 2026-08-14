@@ -6,6 +6,8 @@ $binaryRoot = Join-Path $tauriRoot "src-tauri\binaries"
 $workRoot = Join-Path $projectRoot "build\tauri-sidecar"
 $sidecarName = "arp-python-x86_64-pc-windows-msvc"
 $sidecarPath = Join-Path $binaryRoot "$sidecarName.exe"
+$realtimeManifest = Join-Path $projectRoot "rust-realtime-core\Cargo.toml"
+$realtimeDll = Join-Path $projectRoot "rust-realtime-core\target\release\arp_realtime_core.dll"
 
 $condaCommand = Get-Command conda.exe -CommandType Application -ErrorAction SilentlyContinue
 $condaExe = if ($condaCommand) { $condaCommand.Source } else { "D:\anaconda\Scripts\conda.exe" }
@@ -21,6 +23,11 @@ $npmExe = $npmCommand.Source
 
 New-Item -ItemType Directory -Force -Path $binaryRoot, $workRoot | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $workRoot "work"), (Join-Path $workRoot "spec") | Out-Null
+
+& cargo build --manifest-path $realtimeManifest --release --locked
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $realtimeDll)) {
+    throw "Rust realtime core build failed: $realtimeDll"
+}
 
 $fontProbe = & $condaExe run -n sth_eb314 python -c "from pathlib import Path; import matplotlib; print(Path(matplotlib.get_data_path()) / 'fonts' / 'ttf' / 'DejaVuSans.ttf')"
 $qtFontSource = $fontProbe | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Last 1
@@ -47,6 +54,7 @@ $pyInstallerArgs = @(
     "--hidden-import", "win32com.client",
     "--hidden-import", "pythoncom",
     "--hidden-import", "pywintypes",
+    "--add-binary", "$realtimeDll;.",
     "--add-data", "$(Join-Path $projectRoot 'tools\spectrometer_mvp.py');tools",
     "--add-data", "$(Join-Path $projectRoot 'tools\legacy_ch341_control.py');tools"
 )

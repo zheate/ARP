@@ -2918,6 +2918,7 @@ class MainWindow(QMainWindow):
 
         wavelengths: tuple[float, ...] = ()
         intensities: tuple[float, ...] = ()
+        pib: float | None = None
         stats = self.latest_spectrum_stats
         if self.automatic_controller.automatic_uses_spectrometer():
             try:
@@ -2927,6 +2928,10 @@ class MainWindow(QMainWindow):
                 intensities = tuple(float(value) for value in self.latest_spectrum_intensity)
                 if len(wavelengths) != len(intensities) or not wavelengths:
                     raise RuntimeError("光谱数据为空或长度不一致")
+                if not self.latest_spectrum_saturated and len(intensities) >= 3:
+                    calculated_pib = float(calculate_pib(wavelengths, intensities))
+                    if math.isfinite(calculated_pib):
+                        pib = calculated_pib
             except Exception as exc:
                 errors.append(f"光谱：{user_facing_error_message(exc)}")
                 wavelengths = ()
@@ -2948,6 +2953,7 @@ class MainWindow(QMainWindow):
                 peak_wavelength_nm=(float(stats.peak_wavelength_nm) if stats is not None else None),
                 centroid_nm=(float(stats.centroid_nm) if stats is not None else None),
                 fwhm_nm=(float(stats.fwhm_nm) if stats is not None else None),
+                pib=pib,
                 spectrum_wavelengths_nm=wavelengths,
                 spectrum_intensities=intensities,
                 error="；".join(errors),
@@ -3450,10 +3456,15 @@ class MainWindow(QMainWindow):
             return
         self.tdk_resource_combo.clear()
         self.tdk_resource_combo.addItems(resources)
-        if current and current not in resources:
-            self.tdk_resource_combo.setEditText(current)
-        elif current:
+        if current in resources:
             self.tdk_resource_combo.setCurrentText(current)
+        elif current:
+            # A temporarily unavailable serial device must not erase the
+            # operator's persisted selection. Keep it editable so reconnecting
+            # the device later restores the same VISA resource.
+            self.tdk_resource_combo.setEditText(current)
+        elif resources:
+            self.tdk_resource_combo.setCurrentIndex(0)
         self.statusBar().showMessage(f"找到 {len(resources)} 个可用 RS-232 串口")
 
     def _get_manual_ch341_controller(self) -> Any:

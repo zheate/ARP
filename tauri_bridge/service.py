@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import platform
+import time
 from datetime import datetime, timezone
 from typing import Any
 
+from combined_test.native_realtime import native_realtime_status
 from combined_test.runtime_logging import get_runtime_logger, runtime_log_path
 
 from .protocol import PROTOCOL_VERSION, error_response, success_response
@@ -21,7 +23,40 @@ class BridgeService:
     def __init__(self, backend: Any | None = None) -> None:
         self.backend = backend
 
-    def handle_line(self, line: str) -> dict[str, Any]:
+    def handle_line(
+        self,
+        line: str,
+        *,
+        queued_at_monotonic: float | None = None,
+        file_task: bool = False,
+    ) -> dict[str, Any]:
+        started_at = time.perf_counter()
+        request_id = ""
+        method: Any = ""
+        try:
+            return self._handle_line(line, file_task=file_task)
+        finally:
+            try:
+                request = json.loads(line)
+                if isinstance(request, dict):
+                    request_id = str(request.get("id", ""))
+                    method = request.get("method", "")
+            except (json.JSONDecodeError, TypeError):
+                pass
+            finished_at = time.perf_counter()
+            queued_ms = max(0.0, (started_at - (queued_at_monotonic or started_at)) * 1000.0)
+            execution_ms = max(0.0, (finished_at - started_at) * 1000.0)
+            if method != "app.snapshot" or queued_ms >= 50.0 or execution_ms >= 50.0:
+                _LOGGER.info(
+                    "桥接请求耗时 | id=%s | method=%s | queue_ms=%.3f | execution_ms=%.3f | worker=%s",
+                    request_id,
+                    method,
+                    queued_ms,
+                    execution_ms,
+                    "file" if file_task else "qt",
+                )
+
+    def _handle_line(self, line: str, *, file_task: bool = False) -> dict[str, Any]:
         try:
             request = json.loads(line)
         except json.JSONDecodeError:
@@ -46,6 +81,7 @@ class BridgeService:
                 result.update(
                     {
                         "protocolVersion": PROTOCOL_VERSION,
+                        "nativeRealtime": native_realtime_status(),
                     }
                 )
                 return success_response(request_id, result)
@@ -55,6 +91,7 @@ class BridgeService:
                     "status": "ok",
                     "protocolVersion": PROTOCOL_VERSION,
                     "mode": "read_only",
+                    "nativeRealtime": native_realtime_status(),
                 },
             )
         if method == "app.snapshot":
@@ -76,7 +113,10 @@ class BridgeService:
                 return error_response(request_id, "invalid_params", "params 必须是 JSON 对象")
             try:
                 _LOGGER.info("前端命令开始 | id=%s | method=%s | params=%r", request_id, method, params)
-                result = self.backend.dispatch(str(method), params)
+                if file_task:
+                    result = self.backend.dispatch_file_task(str(method), params)
+                else:
+                    result = self.backend.dispatch(str(method), params)
                 _LOGGER.info("前端命令完成 | id=%s | method=%s", request_id, method)
                 return success_response(request_id, result)
             except KeyError:

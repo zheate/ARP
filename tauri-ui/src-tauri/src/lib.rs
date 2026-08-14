@@ -3,13 +3,16 @@ use serde_json::{json, Value};
 const LIVE_SNAPSHOT_INTERVAL_MS: u64 = 200;
 const PD_SNAPSHOT_INTERVAL_MS: u64 = 500;
 const SHIPPING_SNAPSHOT_INTERVAL_MS: u64 = 500;
+use std::collections::HashMap;
 use std::env;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::thread;
+use std::time::{Duration, Instant};
 use tauri::{Manager, State, Webview};
 
 #[cfg(windows)]
@@ -25,15 +28,15 @@ use std::os::windows::process::CommandExt;
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 struct PythonBridge {
-    child: Child,
-    stdin: BufWriter<ChildStdin>,
-    stdout: BufReader<ChildStdout>,
-    next_request_id: u64,
-    shutdown_confirmed: bool,
-    force_exit_requested: bool,
+    child: Mutex<Child>,
+    stdin: Mutex<BufWriter<ChildStdin>>,
+    pending: Arc<Mutex<HashMap<String, Sender<Result<Value, PythonBridgeError>>>>>,
+    next_request_id: AtomicU64,
+    shutdown_confirmed: AtomicBool,
+    force_exit_requested: AtomicBool,
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum PythonBridgeError {
     Backend(String),
     Transport(String),
@@ -52,8 +55,101 @@ impl PythonBridgeError {
 }
 
 impl PythonBridge {
-    fn allow_forced_exit(&mut self) {
-        self.force_exit_requested = true;
+    fn allow_forced_exit(&self) {
+        self.force_exit_requested.store(true, Ordering::SeqCst);
+    }
+
+    fn fail_pending(
+        pending: &Arc<Mutex<HashMap<String, Sender<Result<Value, PythonBridgeError>>>>>,
+        error: PythonBridgeError,
+    ) {
+        let senders = pending
+            .lock()
+            .map(|mut requests| {
+                requests
+                    .drain()
+                    .map(|(_, sender)| sender)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        for sender in senders {
+            let _ = sender.send(Err(error.clone()));
+        }
+    }
+
+    fn start_response_reader(
+        stdout: ChildStdout,
+        pending: Arc<Mutex<HashMap<String, Sender<Result<Value, PythonBridgeError>>>>>,
+    ) -> Result<(), String> {
+        thread::Builder::new()
+            .name("python-bridge-reader".to_string())
+            .spawn(move || {
+                let mut stdout = BufReader::new(stdout);
+                loop {
+                    let mut line = String::new();
+                    match stdout.read_line(&mut line) {
+                        Ok(0) => {
+                            Self::fail_pending(
+                                &pending,
+                                PythonBridgeError::Transport(
+                                    "Python 后端在返回响应前关闭了输出通道".to_string(),
+                                ),
+                            );
+                            break;
+                        }
+                        Ok(_) => {}
+                        Err(error) => {
+                            Self::fail_pending(
+                                &pending,
+                                PythonBridgeError::Transport(format!(
+                                    "无法读取 Python 响应：{error}"
+                                )),
+                            );
+                            break;
+                        }
+                    }
+
+                    let response: Value = match serde_json::from_str(&line) {
+                        Ok(response) => response,
+                        Err(error) => {
+                            Self::fail_pending(
+                                &pending,
+                                PythonBridgeError::Transport(format!(
+                                    "Python 响应不是有效 JSON：{error}"
+                                )),
+                            );
+                            break;
+                        }
+                    };
+                    let Some(request_id) = response.get("id").and_then(Value::as_str) else {
+                        Self::fail_pending(
+                            &pending,
+                            PythonBridgeError::Transport("Python 响应缺少请求编号".to_string()),
+                        );
+                        break;
+                    };
+                    let result = if response.get("ok").and_then(Value::as_bool) == Some(true) {
+                        response.get("result").cloned().ok_or_else(|| {
+                            PythonBridgeError::Transport("Python 响应缺少 result".to_string())
+                        })
+                    } else {
+                        let message = response
+                            .pointer("/error/message")
+                            .and_then(Value::as_str)
+                            .unwrap_or("Python 后端返回未知错误");
+                        Err(PythonBridgeError::Backend(message.to_string()))
+                    };
+                    let sender = pending
+                        .lock()
+                        .ok()
+                        .and_then(|mut requests| requests.remove(request_id));
+                    if let Some(sender) = sender {
+                        let _ = sender.send(result);
+                    }
+                }
+            })
+            .map(|_| ())
+            .map_err(|error| format!("无法启动 Python 响应线程：{error}"))
     }
 
     fn push_python_candidate(candidates: &mut Vec<PathBuf>, candidate: PathBuf) {
@@ -191,13 +287,15 @@ impl PythonBridge {
             .stdout
             .take()
             .ok_or_else(|| "无法打开 Python 后端输出通道".to_string())?;
-        let mut bridge = Self {
-            child,
-            stdin: BufWriter::new(stdin),
-            stdout: BufReader::new(stdout),
-            next_request_id: 1,
-            shutdown_confirmed: false,
-            force_exit_requested: false,
+        let pending = Arc::new(Mutex::new(HashMap::new()));
+        Self::start_response_reader(stdout, Arc::clone(&pending))?;
+        let bridge = Self {
+            child: Mutex::new(child),
+            stdin: Mutex::new(BufWriter::new(stdin)),
+            pending,
+            next_request_id: AtomicU64::new(1),
+            shutdown_confirmed: AtomicBool::new(false),
+            force_exit_requested: AtomicBool::new(false),
         };
         let ping = bridge
             .request("system.ping", json!({}))
@@ -240,67 +338,91 @@ impl PythonBridge {
         ))
     }
 
-    fn request(&mut self, method: &str, params: Value) -> Result<Value, PythonBridgeError> {
-        if let Some(status) = self.child.try_wait().map_err(|error| {
-            PythonBridgeError::Transport(format!("无法读取 Python 后端状态：{error}"))
-        })? {
+    fn request(&self, method: &str, params: Value) -> Result<Value, PythonBridgeError> {
+        self.request_queued(method, params, Instant::now())
+    }
+
+    fn request_queued(
+        &self,
+        method: &str,
+        params: Value,
+        queued_at: Instant,
+    ) -> Result<Value, PythonBridgeError> {
+        let status = self
+            .child
+            .lock()
+            .map_err(|_| PythonBridgeError::Transport("Python 进程状态锁不可用".to_string()))?
+            .try_wait()
+            .map_err(|error| {
+                PythonBridgeError::Transport(format!("无法读取 Python 后端状态：{error}"))
+            })?;
+        if let Some(status) = status {
+            eprintln!(
+                "Python bridge timing | method={method} | queue_ms={:.3} | execution_ms=0.000",
+                queued_at.elapsed().as_secs_f64() * 1000.0,
+            );
             return Err(PythonBridgeError::Transport(format!(
                 "Python 后端已退出：{status}"
             )));
         }
 
-        let request_id = format!("tauri-{}", self.next_request_id);
-        self.next_request_id += 1;
+        let request_id = format!(
+            "tauri-{}",
+            self.next_request_id.fetch_add(1, Ordering::SeqCst)
+        );
         let request = json!({
             "v": 2,
             "id": request_id,
             "method": method,
             "params": params,
         });
-        serde_json::to_writer(&mut self.stdin, &request).map_err(|error| {
+        let payload = serde_json::to_vec(&request).map_err(|error| {
             PythonBridgeError::Transport(format!("无法编码 Python 请求：{error}"))
         })?;
-        self.stdin
-            .write_all(b"\n")
-            .and_then(|_| self.stdin.flush())
-            .map_err(|error| {
-                PythonBridgeError::Transport(format!("无法发送 Python 请求：{error}"))
-            })?;
-
-        let mut line = String::new();
-        let bytes_read = self.stdout.read_line(&mut line).map_err(|error| {
-            PythonBridgeError::Transport(format!("无法读取 Python 响应：{error}"))
-        })?;
-        if bytes_read == 0 {
-            return Err(PythonBridgeError::Transport(
-                "Python 后端在返回响应前关闭了输出通道".to_string(),
-            ));
+        let (sender, receiver) = mpsc::channel();
+        self.pending
+            .lock()
+            .map_err(|_| PythonBridgeError::Transport("Python 请求表锁不可用".to_string()))?
+            .insert(request_id.clone(), sender);
+        let write_result = self
+            .stdin
+            .lock()
+            .map_err(|_| PythonBridgeError::Transport("Python 输入通道锁不可用".to_string()))
+            .and_then(|mut stdin| {
+                stdin
+                    .write_all(&payload)
+                    .and_then(|_| stdin.write_all(b"\n"))
+                    .and_then(|_| stdin.flush())
+                    .map_err(|error| {
+                        PythonBridgeError::Transport(format!("无法发送 Python 请求：{error}"))
+                    })
+            });
+        if let Err(error) = write_result {
+            if let Ok(mut pending) = self.pending.lock() {
+                pending.remove(&request_id);
+            }
+            return Err(error);
         }
 
-        let mut response: Value = serde_json::from_str(&line).map_err(|error| {
-            PythonBridgeError::Transport(format!("Python 响应不是有效 JSON：{error}"))
-        })?;
-        if response.get("id").and_then(Value::as_str) != Some(request_id.as_str()) {
-            return Err(PythonBridgeError::Transport(
-                "Python 响应与请求编号不匹配".to_string(),
-            ));
+        let execution_started = Instant::now();
+        let queue_ms = execution_started.duration_since(queued_at).as_secs_f64() * 1000.0;
+        let result = receiver.recv().unwrap_or_else(|_| {
+            Err(PythonBridgeError::Transport(
+                "Python 响应线程意外退出".to_string(),
+            ))
+        });
+        let execution_ms = execution_started.elapsed().as_secs_f64() * 1000.0;
+        if method != "app.snapshot" || queue_ms >= 50.0 || execution_ms >= 50.0 {
+            eprintln!(
+                "Python bridge timing | id={request_id} | method={method} | queue_ms={queue_ms:.3} | execution_ms={execution_ms:.3}"
+            );
         }
-        if response.get("ok").and_then(Value::as_bool) != Some(true) {
-            let message = response
-                .pointer("/error/message")
-                .and_then(Value::as_str)
-                .unwrap_or("Python 后端返回未知错误");
-            return Err(PythonBridgeError::Backend(message.to_string()));
-        }
-        let result = response
-            .get_mut("result")
-            .map(Value::take)
-            .ok_or_else(|| PythonBridgeError::Transport("Python 响应缺少 result".to_string()))?;
+        let result = result?;
         validate_columnar_spectrum(&result)?;
         if method == "app.shutdown"
             && result.get("shutdownConfirmed").and_then(Value::as_bool) == Some(true)
         {
-            self.shutdown_confirmed = true;
+            self.shutdown_confirmed.store(true, Ordering::SeqCst);
         }
         Ok(result)
     }
@@ -308,39 +430,52 @@ impl PythonBridge {
 
 impl Drop for PythonBridge {
     fn drop(&mut self) {
-        if !self.shutdown_confirmed && !self.force_exit_requested {
+        if !self.shutdown_confirmed.load(Ordering::SeqCst)
+            && !self.force_exit_requested.load(Ordering::SeqCst)
+        {
             let _ = self.request("app.shutdown", json!({}));
         }
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        if let Ok(mut child) = self.child.lock() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
     }
 }
 
 #[derive(Default)]
 struct BridgeState {
-    bridge: Arc<Mutex<Option<PythonBridge>>>,
+    bridge: Arc<Mutex<Option<Arc<PythonBridge>>>>,
     stream_generation: Arc<AtomicU64>,
 }
 
 fn request_shared_bridge(
-    shared_bridge: &Arc<Mutex<Option<PythonBridge>>>,
+    shared_bridge: &Arc<Mutex<Option<Arc<PythonBridge>>>>,
     method: &str,
     params: Value,
 ) -> Result<Value, String> {
-    let mut bridge_guard = shared_bridge
-        .lock()
-        .map_err(|_| "Python 后端状态锁不可用".to_string())?;
-    if bridge_guard.is_none() {
-        *bridge_guard = Some(PythonBridge::spawn()?);
-    }
+    let queued_at = Instant::now();
+    let bridge = {
+        let mut bridge_guard = shared_bridge
+            .lock()
+            .map_err(|_| "Python 后端状态锁不可用".to_string())?;
+        if bridge_guard.is_none() {
+            *bridge_guard = Some(Arc::new(PythonBridge::spawn()?));
+        }
+        Arc::clone(bridge_guard.as_ref().expect("bridge was initialized"))
+    };
 
-    let result = bridge_guard
-        .as_mut()
-        .expect("bridge was initialized")
-        .request(method, params);
+    let result = bridge.request_queued(method, params, queued_at);
     let reset_bridge = should_reset_bridge(&result);
     if reset_bridge {
-        *bridge_guard = None;
+        bridge.allow_forced_exit();
+        if let Ok(mut bridge_guard) = shared_bridge.lock() {
+            if bridge_guard
+                .as_ref()
+                .is_some_and(|current| Arc::ptr_eq(current, &bridge))
+            {
+                *bridge_guard = None;
+            }
+        }
     }
     result.map_err(PythonBridgeError::message)
 }
@@ -396,7 +531,11 @@ fn validate_columnar_spectrum(snapshot: &Value) -> Result<(), PythonBridgeError>
         None => {
             // Grid-cached frames omit the axis and must carry a gridRevision
             // so the frontend can verify its cached grid still applies.
-            if spectrum.get("gridRevision").and_then(Value::as_u64).is_none() {
+            if spectrum
+                .get("gridRevision")
+                .and_then(Value::as_u64)
+                .is_none()
+            {
                 return Err(PythonBridgeError::Transport(
                     "省略 wavelengthNm 时必须携带整数 gridRevision".to_string(),
                 ));
@@ -892,7 +1031,7 @@ mod tests {
 
     #[test]
     fn python_bridge_returns_snapshot() {
-        let mut bridge = PythonBridge::spawn().expect("Python bridge should start");
+        let bridge = PythonBridge::spawn().expect("Python bridge should start");
         let snapshot = bridge
             .request("app.snapshot", serde_json::json!({}))
             .expect("snapshot request should succeed");

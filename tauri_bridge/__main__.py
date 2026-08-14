@@ -7,7 +7,9 @@ import os
 import queue
 import sys
 import threading
+import time
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 
 from combined_test.runtime_logging import configure_runtime_logging, get_runtime_logger
 
@@ -15,6 +17,7 @@ from .service import BridgeService
 
 
 _protocol_stdout: object | None = None
+_protocol_stdout_lock = threading.Lock()
 _LOGGER = get_runtime_logger("tauri_bridge")
 
 
@@ -42,14 +45,23 @@ def _write_response(response: dict[str, object]) -> None:
     payload = (
         json.dumps(response, ensure_ascii=False, separators=(",", ":")) + "\n"
     ).encode("utf-8")
-    protocol_stdout = _protocol_stdout or sys.stdout
-    output = getattr(protocol_stdout, "buffer", None)
-    if output is not None:
-        output.write(payload)
-        output.flush()
-        return
-    protocol_stdout.write(payload.decode("utf-8"))
-    protocol_stdout.flush()
+    with _protocol_stdout_lock:
+        protocol_stdout = _protocol_stdout or sys.stdout
+        output = getattr(protocol_stdout, "buffer", None)
+        if output is not None:
+            output.write(payload)
+            output.flush()
+            return
+        protocol_stdout.write(payload.decode("utf-8"))
+        protocol_stdout.flush()
+
+
+def _request_method(line: str) -> str:
+    try:
+        request = json.loads(line)
+    except json.JSONDecodeError:
+        return ""
+    return str(request.get("method", "")) if isinstance(request, dict) else ""
 
 
 def _run_read_only() -> int:
@@ -69,7 +81,7 @@ def _run_qt_backend() -> int:
     from PySide6.QtWidgets import QApplication
 
     from combined_test.window import MainWindow
-    from .legacy_backend import LegacyWindowBackend
+    from .legacy_backend import BACKGROUND_FILE_TASK_METHODS, LegacyWindowBackend
 
     app = QApplication.instance() or QApplication(sys.argv[:1])
     app.setQuitOnLastWindowClosed(False)
@@ -86,9 +98,8 @@ def _run_qt_backend() -> int:
         The Qt main thread only builds the response dict (widget reads and
         cached series payloads); json.dumps of large snapshots runs here so
         device acquisition events are never delayed by serialization. A
-        single producer (the Qt main thread) plus a FIFO queue keeps the
-        byte order on stdout identical to request order, which the Rust side
-        depends on.
+        FIFO queue serializes stdout writes. Rust routes responses by request
+        ID, so background file tasks may safely finish out of order.
         """
 
         def __init__(self) -> None:
@@ -114,9 +125,10 @@ def _run_qt_backend() -> int:
                 _write_response(response)
 
     writer = ResponseWriter()
+    file_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="excel-scan")
 
     class Dispatcher(QObject):
-        request_received = Signal(str)
+        request_received = Signal(str, float)
         input_closed = Signal()
 
         def __init__(self) -> None:
@@ -124,9 +136,11 @@ def _run_qt_backend() -> int:
             self.request_received.connect(self.handle, Qt.ConnectionType.QueuedConnection)
             self.input_closed.connect(app.quit, Qt.ConnectionType.QueuedConnection)
 
-        @Slot(str)
-        def handle(self, line: str) -> None:
-            writer.submit(service.handle_line(line))
+        @Slot(str, float)
+        def handle(self, line: str, queued_at_monotonic: float) -> None:
+            writer.submit(
+                service.handle_line(line, queued_at_monotonic=queued_at_monotonic)
+            )
 
     dispatcher = Dispatcher()
 
@@ -134,13 +148,26 @@ def _run_qt_backend() -> int:
         try:
             for line in _read_request_lines():
                 if line.strip():
-                    dispatcher.request_received.emit(line)
+                    queued_at_monotonic = time.perf_counter()
+                    if _request_method(line) in BACKGROUND_FILE_TASK_METHODS:
+                        file_executor.submit(
+                            lambda request_line=line, queued_at=queued_at_monotonic: writer.submit(
+                                service.handle_line(
+                                    request_line,
+                                    queued_at_monotonic=queued_at,
+                                    file_task=True,
+                                )
+                            )
+                        )
+                    else:
+                        dispatcher.request_received.emit(line, queued_at_monotonic)
         finally:
             dispatcher.input_closed.emit()
 
     threading.Thread(target=read_requests, name="tauri-stdin", daemon=True).start()
     _LOGGER.info("Tauri Python 硬件后端已就绪")
     exit_code = int(app.exec())
+    file_executor.shutdown(wait=False, cancel_futures=True)
     writer.stop()
     return exit_code
 

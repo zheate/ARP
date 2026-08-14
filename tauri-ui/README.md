@@ -38,3 +38,16 @@ powershell -ExecutionPolicy Bypass -File .\packaging\build_tauri_windows.ps1
 脚本先生成单文件 `arp-python` sidecar，再通过 Windows 专用 Tauri 配置将其装入安装包。安装后的 Tauri 主进程优先使用同目录 sidecar，不依赖目标电脑预装 Python。OceanDirect、CH341、VISA 和 NI-DAQmx 仍必须在 Windows 真机上用实际硬件完成最终验收。
 
 若仓库中没有 `assets/libs/ocean_direct/OceanDirect.dll`，脚本会明确警告并继续构建；这样的安装包不能用于 Ocean Insight 光谱仪验收。
+
+### Windows 驱动完整安装包
+
+若要生成一个不需要用户另行查找驱动的离线安装程序，请确认
+`local_drivers/current_project` 中包含经过校验的 NI Package Manager、NI-DAQmx/NI-VISA、
+CH341、OceanHR4、FTDI 和串口适配器驱动，然后运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\packaging\build_full_windows.ps1
+```
+
+产物位于 `release/full/Power Test_0.1.0_x64-full-setup.exe`。完整安装程序统一请求管理员权限，
+自动安装缺失的系统驱动和运行环境，最后安装 Power Test；安装过程完全离线，完成后可能提示重启。

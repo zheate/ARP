@@ -32,6 +32,7 @@ Thumbs.db
 # Generated offline application bundles stay local.
 release/
 build/
+rust-realtime-core/target/
 
 # Local pixel2motion workbench environments and rendered frame outputs.
 # Keep the source/working files available without making Git rescan thousands

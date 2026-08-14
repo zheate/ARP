@@ -34,6 +34,7 @@ CSV_HEADER = (
     "peak_wavelength_nm",
     "centroid_nm",
     "fwhm_nm",
+    "pib",
     "spectrum_point_count",
     "spectrum_wavelengths_nm",
     "spectrum_intensities",
@@ -63,6 +64,7 @@ class AutomaticSecondSample:
     peak_wavelength_nm: float | None = None
     centroid_nm: float | None = None
     fwhm_nm: float | None = None
+    pib: float | None = None
     spectrum_wavelengths_nm: tuple[float, ...] = ()
     spectrum_intensities: tuple[float, ...] = ()
     error: str = ""
@@ -128,28 +130,35 @@ class AutomaticSampleRecorder:
 
     def _write_rows_loop(self) -> None:
         try:
-            output = self.path.open("a", newline="", encoding="utf-8")
+            # Probe append access when the worker starts so startup failures
+            # are reported before callers can enqueue rows. Do not retain the
+            # handle: on Windows flush_now() must also release the file lock.
+            with self.path.open("a", newline="", encoding="utf-8"):
+                pass
         except Exception as exc:
             _LOGGER.exception("逐秒 CSV 追加文件打开失败")
             with self._queue_lock:
                 self._mark_writer_failed(exc)
             return
         try:
-            with output:
-                writer = csv.writer(output)
-                while True:
-                    row = self._queue.get()
-                    if row is None:
-                        break
-                    try:
+            while True:
+                row = self._queue.get()
+                if row is None:
+                    break
+                try:
+                    # Sampling is one row per second. Opening in the worker is
+                    # cheap relative to that cadence and guarantees readers,
+                    # exporters, and cleanup can access the file after a flush.
+                    with self.path.open("a", newline="", encoding="utf-8") as output:
+                        writer = csv.writer(output)
                         writer.writerow(row)
                         output.flush()
-                    except Exception as exc:
-                        _LOGGER.exception("逐秒 CSV 后台写入失败")
-                        with self._queue_lock:
-                            self._write_error = exc
-                    finally:
-                        self._queue.task_done()
+                except Exception as exc:
+                    _LOGGER.exception("逐秒 CSV 后台写入失败")
+                    with self._queue_lock:
+                        self._write_error = exc
+                finally:
+                    self._queue.task_done()
         except Exception as exc:
             _LOGGER.exception("逐秒 CSV 后台写线程异常")
             with self._queue_lock:
@@ -181,6 +190,7 @@ class AutomaticSampleRecorder:
             _format_number(sample.peak_wavelength_nm),
             _format_number(sample.centroid_nm),
             _format_number(sample.fwhm_nm),
+            _format_number(sample.pib),
             len(sample.spectrum_wavelengths_nm),
             _format_spectrum(sample.spectrum_wavelengths_nm),
             _format_spectrum(sample.spectrum_intensities),

@@ -10,6 +10,8 @@ from typing import Iterable
 import numpy as np
 from scipy.signal import find_peaks, medfilt
 
+from .native_realtime import NativeRealtimeUnavailable, get_native_realtime_core
+
 
 PIB_CENTER_NM = 976.0
 PIB_HALF_RANGE_NM = 1.5
@@ -193,6 +195,28 @@ def calculate_stats(wavelength: Iterable[float], intensity: Iterable[float]) -> 
     if not wavelength_values:
         return SpectrumStats(math.nan, math.nan, math.nan, math.nan)
 
+    native_core = get_native_realtime_core()
+    if native_core is not None:
+        try:
+            native = native_core.calculate_spectrum_stats(
+                wavelength_values,
+                intensity_values,
+            )
+            return SpectrumStats(
+                peak_wavelength_nm=native.peak_wavelength_nm,
+                peak_intensity=native.peak_intensity,
+                # NumPy uses a pairwise reduction for these sums. Keep the
+                # established bitwise result while the native path handles
+                # the remaining per-spectrum statistics.
+                centroid_nm=_calculate_centroid_values(
+                    wavelength_values,
+                    intensity_values,
+                ),
+                fwhm_nm=native.fwhm_nm,
+            )
+        except (NativeRealtimeUnavailable, OSError, ValueError):
+            pass
+
     peak_index = max(range(len(intensity_values)), key=intensity_values.__getitem__)
     return SpectrumStats(
         peak_wavelength_nm=_calculate_central_values(wavelength_values, intensity_values),
@@ -221,6 +245,18 @@ def calculate_pib(
         return math.nan
     if not math.isfinite(center_nm) or not math.isfinite(half_range_nm) or half_range_nm < 0:
         raise ValueError("PIB 中心和半范围必须为有效有限数值")
+
+    native_core = get_native_realtime_core()
+    if native_core is not None:
+        try:
+            return native_core.calculate_pib(
+                wavelength_values,
+                intensity_values,
+                center_nm,
+                half_range_nm,
+            )
+        except (NativeRealtimeUnavailable, OSError, ValueError):
+            pass
 
     x_array = np.asarray(wavelength_values, dtype=float)
     y_array = np.asarray(medfilt(np.asarray(intensity_values, dtype=float)), dtype=float)

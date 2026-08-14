@@ -1,15 +1,21 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
+from combined_test import test_history as test_history_module
 from combined_test.excel_export import ExcelTestRecord, save_test_records
 from combined_test.record_store import SessionStatus
-from combined_test.test_history import find_test_history
+from combined_test.test_history import clear_test_history_cache, find_test_history
 from tauri_bridge.legacy_backend import LegacyWindowBackend
 
 
 class TestHistoryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        clear_test_history_cache()
+
     @staticmethod
     def _record(current_a: float, station: str) -> ExcelTestRecord:
         return ExcelTestRecord(
@@ -71,6 +77,7 @@ class TestHistoryTests(unittest.TestCase):
                 "currentA": 2.0,
                 "powerW": 20.0,
             })
+            self.assertFalse(hasattr(records[0].inspection.points[0], "wavelength"))
 
             backend = object.__new__(LegacyWindowBackend)
             backend.window = SimpleNamespace(
@@ -83,6 +90,92 @@ class TestHistoryTests(unittest.TestCase):
             self.assertEqual(backend._test_reference.station, "站别 A")
             with self.assertRaisesRegex(ValueError, "不属于当前壳体"):
                 backend._select_test_reference({"referencePath": str(root / "other.xlsx")})
+
+    def test_unchanged_history_workbooks_are_not_reopened(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sn = "SN-CACHE"
+            self._write(
+                root / sn / "station" / "first.xlsx",
+                sn,
+                "station",
+                "2026-08-01T01:00:00+00:00",
+                SessionStatus.COMPLETED,
+            )
+            self._write(
+                root / sn / "station" / "second.xlsx",
+                sn,
+                "station",
+                "2026-08-02T01:00:00+00:00",
+                SessionStatus.COMPLETED,
+            )
+
+            with patch.object(
+                test_history_module,
+                "load_workbook",
+                wraps=test_history_module.load_workbook,
+            ) as load:
+                first = find_test_history(root, sn)
+                second = find_test_history(root, sn)
+
+            self.assertEqual(load.call_count, 2)
+            self.assertEqual(first, second)
+
+    def test_history_index_is_reloaded_after_mtime_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            sn = "SN-MTIME"
+            source = root / sn / "station" / "result.xlsx"
+            self._write(
+                source,
+                sn,
+                "station",
+                "2026-08-01T01:00:00+00:00",
+                SessionStatus.COMPLETED,
+            )
+
+            with patch.object(
+                test_history_module,
+                "load_workbook",
+                wraps=test_history_module.load_workbook,
+            ) as load:
+                find_test_history(root, sn)
+                stat = source.stat()
+                os.utime(
+                    source,
+                    ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000),
+                )
+                find_test_history(root, sn)
+
+            self.assertEqual(load.call_count, 2)
+
+    def test_history_index_cache_evicts_least_recently_used_workbooks(self) -> None:
+        limit = test_history_module.HISTORY_INDEX_CACHE_MAX_ENTRIES
+        paths = [Path(f"C:/history/result-{index}.xlsx") for index in range(limit + 1)]
+
+        with patch.object(test_history_module, "_load_history_index", return_value=None):
+            for source in paths:
+                test_history_module._cached_history_index(source, 1)
+
+        self.assertEqual(len(test_history_module._HISTORY_INDEX_CACHE), limit)
+        self.assertNotIn((str(paths[0]), 1), test_history_module._HISTORY_INDEX_CACHE)
+        self.assertIn((str(paths[-1]), 1), test_history_module._HISTORY_INDEX_CACHE)
+
+    def test_explicit_history_params_do_not_read_qt_widgets(self) -> None:
+        def unexpected_widget_access() -> str:
+            raise AssertionError("background history lookup touched a Qt widget")
+
+        backend = object.__new__(LegacyWindowBackend)
+        backend.window = SimpleNamespace(
+            output_dir_field=SimpleNamespace(text=unexpected_widget_access),
+            sn_field=SimpleNamespace(text=unexpected_widget_access),
+        )
+        with patch("tauri_bridge.legacy_backend.find_test_history", return_value=()) as find:
+            self.assertEqual(
+                backend._history_records({"outputDir": "C:/results", "sn": "SN-001"}),
+                (),
+            )
+        find.assert_called_once_with("C:/results", "SN-001")
 
 
 if __name__ == "__main__":
