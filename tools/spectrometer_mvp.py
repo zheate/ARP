@@ -6,27 +6,44 @@ import sys
 
 import numpy as np
 from numpy.typing import NDArray
-from PySide6.QtCore import QThread, Qt, Signal
-from PySide6.QtGui import QCloseEvent
-from PySide6.QtWidgets import (
-    QApplication,
-    QFileDialog,
-    QFormLayout,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMainWindow,
-    QMessageBox,
-    QPushButton,
-    QDoubleSpinBox,
-    QSpinBox,
-    QStatusBar,
-    QVBoxLayout,
-    QWidget,
-)
+try:  # Standalone diagnostic UI; not needed by the production sidecar.
+    from PySide6.QtCore import QThread, Qt, Signal
+    from PySide6.QtGui import QCloseEvent
+    from PySide6.QtWidgets import (
+        QApplication,
+        QFileDialog,
+        QFormLayout,
+        QHBoxLayout,
+        QLabel,
+        QLineEdit,
+        QMainWindow,
+        QMessageBox,
+        QPushButton,
+        QDoubleSpinBox,
+        QSpinBox,
+        QStatusBar,
+        QVBoxLayout,
+        QWidget,
+    )
+    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+    from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
+except ModuleNotFoundError:
+    from combined_test.concurrency import Signal, WorkerThread as QThread
 
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
+    class _DiagnosticUiUnavailable:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("The retired PySide diagnostic UI is unavailable")
+
+    class _QtPlaceholder:
+        class AlignmentFlag:
+            AlignCenter = 0
+
+    Qt = _QtPlaceholder()
+    QCloseEvent = object
+    QApplication = QFileDialog = QFormLayout = QHBoxLayout = _DiagnosticUiUnavailable
+    QLabel = QLineEdit = QMainWindow = QMessageBox = QPushButton = _DiagnosticUiUnavailable
+    QDoubleSpinBox = QSpinBox = QStatusBar = QVBoxLayout = QWidget = _DiagnosticUiUnavailable
+    FigureCanvas = NavigationToolbar = _DiagnosticUiUnavailable
 from matplotlib.figure import Figure
 
 from combined_test.ocean_direct_adapter import OceanDirectControl

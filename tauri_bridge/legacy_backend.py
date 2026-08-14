@@ -21,16 +21,48 @@ from combined_test.spectrum import (
     find_spectrum_peak_annotations,
 )
 from combined_test.test_history import TestHistoryRecord, find_test_history
-from combined_test.shipping_report import (
-    ShippingReportRequest,
-    generate_shipping_report,
-    generate_shipping_report_batch_item,
-    inspect_shipping_report_batch,
-    inspect_shipping_workbook,
-    load_shipping_report_preferences,
-    render_shipping_report_preview,
-    save_shipping_report_preferences,
-)
+
+
+def _shipping_report_module() -> Any:
+    """Load the optional report renderer only when a report command is used."""
+
+    from combined_test import shipping_report
+
+    return shipping_report
+
+
+class ShippingReportRequest:
+    @classmethod
+    def from_mapping(cls, value: Any) -> Any:
+        return _shipping_report_module().ShippingReportRequest.from_mapping(value)
+
+
+def generate_shipping_report(*args: Any, **kwargs: Any) -> Any:
+    return _shipping_report_module().generate_shipping_report(*args, **kwargs)
+
+
+def generate_shipping_report_batch_item(*args: Any, **kwargs: Any) -> Any:
+    return _shipping_report_module().generate_shipping_report_batch_item(*args, **kwargs)
+
+
+def inspect_shipping_report_batch(*args: Any, **kwargs: Any) -> Any:
+    return _shipping_report_module().inspect_shipping_report_batch(*args, **kwargs)
+
+
+def inspect_shipping_workbook(*args: Any, **kwargs: Any) -> Any:
+    return _shipping_report_module().inspect_shipping_workbook(*args, **kwargs)
+
+
+def load_shipping_report_preferences(*args: Any, **kwargs: Any) -> Any:
+    return _shipping_report_module().load_shipping_report_preferences(*args, **kwargs)
+
+
+def render_shipping_report_preview(*args: Any, **kwargs: Any) -> Any:
+    return _shipping_report_module().render_shipping_report_preview(*args, **kwargs)
+
+
+def save_shipping_report_preferences(*args: Any, **kwargs: Any) -> Any:
+    return _shipping_report_module().save_shipping_report_preferences(*args, **kwargs)
 
 
 BACKGROUND_FILE_TASK_METHODS = frozenset(

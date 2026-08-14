@@ -12,8 +12,7 @@ from collections import deque
 from enum import Enum
 from typing import Any, Callable
 
-from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QMessageBox
+from .concurrency import ManagedTimer
 
 from .automation import (
     AutomaticCurrentPoint,
@@ -31,6 +30,36 @@ from .runtime_logging import get_runtime_logger
 FINAL_AUTO_VOUT_AFTER_STABLE_S = 10.0
 AUTOMATIC_DEVICE_START_TIMEOUT_S = 15.0
 _LOGGER = get_runtime_logger("automatic_controller")
+
+
+class QMessageBox:
+    """Compatibility facade that forwards notices to the Tauri frontend."""
+
+    @staticmethod
+    def _send(host: Any, level: str, title: str, message: str) -> None:
+        notifier = getattr(host, "notify", None)
+        if callable(notifier):
+            notifier(level, title, message)
+            return
+        try:
+            from PySide6.QtWidgets import QMessageBox as QtMessageBox
+
+            callback = QtMessageBox.critical if level == "error" else QtMessageBox.warning
+            callback(host, title, message)
+            return
+        except (ImportError, ModuleNotFoundError):
+            pass
+        logger = getattr(host, "add_log", None)
+        if callable(logger):
+            logger(f"{title}: {message}")
+
+    @classmethod
+    def warning(cls, host: Any, title: str, message: str, *_args: Any, **_kwargs: Any) -> None:
+        cls._send(host, "warning", title, message)
+
+    @classmethod
+    def critical(cls, host: Any, title: str, message: str, *_args: Any, **_kwargs: Any) -> None:
+        cls._send(host, "error", title, message)
 
 
 class AutomaticTestTerminalOutcome(str, Enum):
@@ -1155,7 +1184,7 @@ class AutomaticTestController:
                 result_handler(completion_record, completed_message)
         if self.close_after_automatic_ramp_down:
             self.close_after_automatic_ramp_down = False
-            QTimer.singleShot(0, self.close)
+            ManagedTimer.singleShot(0, self.close)
 
     def reset_automatic_test(self) -> None:
         """Return a completed workflow to preparation without bypassing lifecycle ownership."""

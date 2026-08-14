@@ -20,8 +20,7 @@ from .runtime_logging import get_runtime_logger
 
 _LOGGER = get_runtime_logger("devices")
 
-from PySide6.QtCore import QThread, Signal
-from PySide6.QtWidgets import QWidget
+from .concurrency import Signal, WorkerThread
 
 from tools.visa_session import visa_resource_manager
 
@@ -231,7 +230,7 @@ def read_power_status_value(ch341_controller: Any, i2c_address: int, command: li
     return decode_i2c_value(result)
 
 
-class PowerMeterDetectThread(QThread):
+class PowerMeterDetectThread(WorkerThread):
     detected = Signal(object)
     status = Signal(str)
     failed = Signal(str)
@@ -239,7 +238,7 @@ class PowerMeterDetectThread(QThread):
     def __init__(
         self,
         preferred_resource: str = "",
-        parent: QWidget | None = None,
+        parent: object | None = None,
         *,
         scan_all_resources: bool = True,
     ) -> None:
@@ -331,13 +330,13 @@ class PowerMeterDetectThread(QThread):
             self.failed.emit(str(exc))
 
 
-class PowerMeterReaderThread(QThread):
+class PowerMeterReaderThread(WorkerThread):
     reading = Signal(object)
     status = Signal(str)
     ready = Signal()
     failed = Signal(str)
 
-    def __init__(self, settings: PowerMeterSettings, parent: QWidget | None = None) -> None:
+    def __init__(self, settings: PowerMeterSettings, parent: object | None = None) -> None:
         super().__init__(parent)
         self.settings = settings
         self._stop_requested = threading.Event()
@@ -478,7 +477,7 @@ class TdkReading:
     output_voltage_v: float
 
 
-class TdkReaderThread(QThread):
+class TdkReaderThread(WorkerThread):
     """Poll TDK MC?/MV? in the background so the GUI never blocks on RS-232.
 
     The serial transaction lock inside :class:`TdkLambdaPowerSupply` keeps
@@ -493,7 +492,7 @@ class TdkReaderThread(QThread):
         self,
         supply: Any,
         interval_s: float = 1.0,
-        parent: QWidget | None = None,
+        parent: object | None = None,
     ) -> None:
         super().__init__(parent)
         self.supply = supply
@@ -545,7 +544,7 @@ class TdkReaderThread(QThread):
             self.is_ready = False
 
 
-class SpectrometerReaderThread(QThread):
+class SpectrometerReaderThread(WorkerThread):
     reading = Signal(object)
     status = Signal(str)
     ready = Signal()
@@ -557,7 +556,7 @@ class SpectrometerReaderThread(QThread):
     def __init__(
         self,
         settings: SpectrometerSettings,
-        parent: QWidget | None = None,
+        parent: object | None = None,
         *,
         headless: bool = False,
     ) -> None:

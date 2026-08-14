@@ -16,24 +16,30 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from openpyxl import load_workbook
-from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QMarginsF, QPointF, QRectF, QSize, Qt
-from PySide6.QtGui import (
-    QColor,
-    QFont,
-    QFontDatabase,
-    QFontMetricsF,
-    QImage,
-    QPageLayout,
-    QPageSize,
-    QPainter,
-    QPainterPath,
-    QPdfWriter,
-    QPen,
-    QPolygonF,
-)
-from PySide6.QtPdf import QPdfDocument
-from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtWidgets import QApplication
+try:
+    from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QMarginsF, QPointF, QRectF, QSize, Qt
+    from PySide6.QtGui import (
+        QColor,
+        QFont,
+        QFontDatabase,
+        QFontMetricsF,
+        QImage,
+        QPageLayout,
+        QPageSize,
+        QPainter,
+        QPainterPath,
+        QPdfWriter,
+        QPen,
+        QPolygonF,
+    )
+    from PySide6.QtPdf import QPdfDocument
+    from PySide6.QtSvg import QSvgRenderer
+    from PySide6.QtWidgets import QApplication
+except ModuleNotFoundError:
+    QBuffer = QByteArray = QIODevice = QMarginsF = QPointF = QRectF = QSize = Qt = None
+    QColor = QFont = QFontDatabase = QFontMetricsF = QImage = QPageLayout = None
+    QPageSize = QPainter = QPainterPath = QPdfWriter = QPen = QPolygonF = None
+    QPdfDocument = QSvgRenderer = QApplication = None
 
 from .excel_export import EXPORT_WORKBOOK_SCHEMA_VERSION, sanitize_sn
 
@@ -1124,8 +1130,13 @@ def generate_shipping_report(
     if temporary.exists():
         temporary.unlink()
     try:
-        renderer = _ShippingReportRenderer(temporary, inspection, request)
-        renderer.render()
+        if QApplication is None or os.environ.get("ARP_USE_QT_REPORT_RENDERER") != "1":
+            from .shipping_report_headless import render_pdf
+
+            render_pdf(temporary, inspection, request)
+        else:
+            renderer = _ShippingReportRenderer(temporary, inspection, request)
+            renderer.render()
         if not temporary.is_file() or temporary.stat().st_size == 0:
             raise RuntimeError("PDF 生成结果为空")
         os.replace(temporary, target)
@@ -1153,6 +1164,10 @@ def render_shipping_report_preview(
         raise ValueError("预览宽度必须在 240 到 1600 像素之间")
     inspection = inspect_shipping_workbook(source_path)
     validate_shipping_report_request(inspection, request)
+    if QApplication is None or os.environ.get("ARP_USE_QT_REPORT_RENDERER") != "1":
+        from .shipping_report_headless import render_preview_pages
+
+        return render_preview_pages(inspection, request, page_width_px=page_width_px)
     with tempfile.TemporaryDirectory(prefix="shipping-report-preview-") as directory:
         temporary = Path(directory) / "preview.pdf"
         renderer = _ShippingReportRenderer(temporary, inspection, request)

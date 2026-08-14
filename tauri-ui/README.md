@@ -9,7 +9,7 @@ Power Test 程序的桌面界面，技术栈为 Tauri 2、React、TypeScript、V
 - PD 采集：NI-DAQ 识别、通道/接线/量程/采样/标定/保存设置、开始/停止、统计量与实时趋势。
 - 安全：所有设备命令、自动状态、Excel 导出和下电继续由现有 Python 控制器负责；Tauri 关闭前会请求紧急停止，并等待后台采集/导出线程结束。
 
-Tauri 是唯一的操作员界面。Python/PySide6 代码仅作为随应用启动的硬件 sidecar 使用，不提供独立 GUI 启动入口。
+Tauri 是唯一的操作员界面。Python 代码作为随应用启动的无界面硬件 sidecar 使用，不依赖 PySide/PyQt，也不提供独立 GUI 启动入口。
 
 ## 本地运行
 
@@ -18,7 +18,7 @@ npm install
 npm run tauri dev
 ```
 
-解释器选择顺序：`ARP_PYTHON_EXECUTABLE`、当前 Conda 环境、项目常用的 `sth_eb314` 环境、系统 Python。若运行环境无法加载 PySide6，界面会诚实退回只读模式，不扫描或控制硬件。
+解释器选择顺序：`ARP_PYTHON_EXECUTABLE`、当前 Conda 环境、项目常用的 `sth_eb314` 环境、系统 Python。若运行环境无法加载设备驱动依赖，界面会诚实显示对应设备错误，不会把失败误报为已连接。
 
 ```sh
 npm run build

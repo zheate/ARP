@@ -1,6 +1,6 @@
 {
   "bundle": {
-    "targets": "msi",
+    "targets": ["msi", "nsis"],
     "externalBin": [
       "binaries/arp-python"
     ]

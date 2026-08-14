@@ -21,6 +21,11 @@ if (-not $npmCommand) {
 }
 $npmExe = $npmCommand.Source
 
+# Keep Matplotlib on its headless renderer during PyInstaller analysis. Without
+# this, its hook probes locally installed GUI bindings and can pull shiboken6
+# into the sidecar even though the application never uses a Qt backend.
+$env:MPLBACKEND = "Agg"
+
 New-Item -ItemType Directory -Force -Path $binaryRoot, $workRoot | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $workRoot "work"), (Join-Path $workRoot "spec") | Out-Null
 
@@ -28,13 +33,6 @@ New-Item -ItemType Directory -Force -Path (Join-Path $workRoot "work"), (Join-Pa
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $realtimeDll)) {
     throw "Rust realtime core build failed: $realtimeDll"
 }
-
-$fontProbe = & $condaExe run -n sth_eb314 python -c "from pathlib import Path; import matplotlib; print(Path(matplotlib.get_data_path()) / 'fonts' / 'ttf' / 'DejaVuSans.ttf')"
-$qtFontSource = $fontProbe | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Last 1
-if (-not $qtFontSource) {
-    throw "DejaVuSans.ttf was not found in the sth_eb314 environment."
-}
-$qtFontLicense = Join-Path (Split-Path -Parent $qtFontSource) "LICENSE_DEJAVU"
 
 $pyInstallerArgs = @(
     "run", "-n", "sth_eb314", "pyinstaller",
@@ -45,12 +43,19 @@ $pyInstallerArgs = @(
     "--workpath", (Join-Path $workRoot "work"),
     "--specpath", (Join-Path $workRoot "spec"),
     "--runtime-hook", (Join-Path $PSScriptRoot "pyi_rth_safe_streams.py"),
-    "--add-data", "$qtFontSource;PySide6/lib/fonts",
-    "--hidden-import", "combined_test.window",
     "--hidden-import", "combined_test.persistence",
-    "--hidden-import", "PySide6.QtPdf",
+    "--exclude-module", "PySide6",
+    "--exclude-module", "shiboken6",
+    "--exclude-module", "matplotlib.backends.backend_qt",
+    "--exclude-module", "matplotlib.backends.backend_qt5",
+    "--exclude-module", "matplotlib.backends.backend_qtagg",
+    "--exclude-module", "matplotlib.backends.qt_compat",
     "--hidden-import", "combined_test.ocean_direct_adapter",
     "--hidden-import", "tools.pd_daq_mvp",
+    "--hidden-import", "tools.power_meter_mvp",
+    "--hidden-import", "tools.spectrometer_mvp",
+    "--hidden-import", "combined_test.shipping_report_headless",
+    "--hidden-import", "matplotlib.backends.backend_agg",
     "--hidden-import", "win32com.client",
     "--hidden-import", "pythoncom",
     "--hidden-import", "pywintypes",
@@ -58,10 +63,6 @@ $pyInstallerArgs = @(
     "--add-data", "$(Join-Path $projectRoot 'tools\spectrometer_mvp.py');tools",
     "--add-data", "$(Join-Path $projectRoot 'tools\legacy_ch341_control.py');tools"
 )
-
-if (Test-Path -LiteralPath $qtFontLicense) {
-    $pyInstallerArgs += @("--add-data", "$qtFontLicense;licenses")
-}
 
 $assetsRoot = Join-Path $projectRoot "assets"
 if (Test-Path -LiteralPath $assetsRoot) {

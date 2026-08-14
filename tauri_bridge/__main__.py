@@ -172,11 +172,63 @@ def _run_qt_backend() -> int:
     return exit_code
 
 
+def _run_headless_backend() -> int:
+    """Serve requests without a GUI event loop or Qt dependency."""
+
+    from .headless_backend import HeadlessBackend
+    from .legacy_backend import BACKGROUND_FILE_TASK_METHODS
+
+    service = BridgeService(HeadlessBackend())
+    writer_queue: queue.Queue[dict[str, object] | None] = queue.Queue()
+
+    def write_responses() -> None:
+        while True:
+            response = writer_queue.get()
+            if response is None:
+                return
+            _write_response(response)
+
+    writer_thread = threading.Thread(
+        target=write_responses,
+        name="tauri-stdout",
+        daemon=True,
+    )
+    writer_thread.start()
+    file_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="excel-scan")
+    _LOGGER.info("Tauri headless Python hardware backend is ready")
+    try:
+        for line in _read_request_lines():
+            if not line.strip():
+                continue
+            queued_at = time.perf_counter()
+            if _request_method(line) in BACKGROUND_FILE_TASK_METHODS:
+                file_executor.submit(
+                    lambda request_line=line, queued=queued_at: writer_queue.put(
+                        service.handle_line(
+                            request_line,
+                            queued_at_monotonic=queued,
+                            file_task=True,
+                        )
+                    )
+                )
+            else:
+                writer_queue.put(
+                    service.handle_line(line, queued_at_monotonic=queued_at)
+                )
+    except KeyboardInterrupt:
+        pass
+    finally:
+        file_executor.shutdown(wait=False, cancel_futures=True)
+        writer_queue.put(None)
+        writer_thread.join(timeout=2.0)
+    return 0
+
+
 def main() -> int:
     configure_runtime_logging(process_role="tauri-python-backend")
     _reserve_protocol_stdout()
     try:
-        return _run_qt_backend()
+        return _run_headless_backend()
     except (ImportError, ModuleNotFoundError) as exc:
         _LOGGER.exception("活动后端依赖加载失败，切换到只读模式")
         sys.stderr.write(f"Active backend unavailable; using read-only mode: {exc}\n")

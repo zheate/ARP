@@ -12,29 +12,48 @@ from typing import Any, Deque
 
 import pyvisa
 from pyvisa import constants
-from PySide6.QtCore import QThread, Qt, Signal
-from PySide6.QtGui import QCloseEvent
-from PySide6.QtWidgets import (
-    QApplication,
-    QComboBox,
-    QDoubleSpinBox,
-    QFormLayout,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMainWindow,
-    QMessageBox,
-    QPushButton,
-    QSpinBox,
-    QStatusBar,
-    QVBoxLayout,
-    QWidget,
-)
+
+try:  # Standalone diagnostic UI; not needed by the production sidecar.
+    from PySide6.QtCore import QThread, Qt, Signal
+    from PySide6.QtGui import QCloseEvent
+    from PySide6.QtWidgets import (
+        QApplication,
+        QComboBox,
+        QDoubleSpinBox,
+        QFormLayout,
+        QHBoxLayout,
+        QLabel,
+        QLineEdit,
+        QMainWindow,
+        QMessageBox,
+        QPushButton,
+        QSpinBox,
+        QStatusBar,
+        QVBoxLayout,
+        QWidget,
+    )
+    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
+    from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
+except ModuleNotFoundError:
+    from combined_test.concurrency import Signal, WorkerThread as QThread
+
+    class _DiagnosticUiUnavailable:
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+            raise RuntimeError("The retired PySide diagnostic UI is unavailable")
+
+    class _QtPlaceholder:
+        class AlignmentFlag:
+            AlignCenter = 0
+
+    Qt = _QtPlaceholder()
+    QCloseEvent = object
+    QApplication = QComboBox = QDoubleSpinBox = QFormLayout = QHBoxLayout = _DiagnosticUiUnavailable
+    QLabel = QLineEdit = QMainWindow = QMessageBox = QPushButton = _DiagnosticUiUnavailable
+    QSpinBox = QStatusBar = QVBoxLayout = QWidget = _DiagnosticUiUnavailable
+    FigureCanvas = NavigationToolbar = _DiagnosticUiUnavailable
 
 from tools.visa_session import acquire_visa_resource_manager, release_visa_resource_manager
 
-from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
 

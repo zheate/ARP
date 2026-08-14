@@ -5,6 +5,8 @@ Power Test 完整安装包
 - WCH CH341 I2C 和 CH341/CH343 串口驱动
 - Ocean Optics OceanHR4 WinUSB 驱动
 - LaserPoint / FTDI USB 串口驱动
+- Ophir StarLab、Ophir USB 驱动及 COM 接口
+- Coherent Meter Connection / PowerMax USB 驱动
 - National Instruments Package Manager 24.0
 - NI-DAQmx Runtime 23.5
 - NI-VISA Runtime 23.5

@@ -16,30 +16,52 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable, Sequence
 
-from PySide6.QtCore import QEvent, QThread, Qt, Signal
-from PySide6.QtGui import QCloseEvent, QPalette
-from PySide6.QtWidgets import (
-    QApplication,
-    QCheckBox,
-    QComboBox,
-    QDoubleSpinBox,
-    QFileDialog,
-    QFormLayout,
-    QGridLayout,
-    QGroupBox,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMainWindow,
-    QMessageBox,
-    QPushButton,
-    QSpinBox,
-    QVBoxLayout,
-    QWidget,
-)
+from combined_test.concurrency import Signal, WorkerThread as QThread
+
+try:  # Retired standalone diagnostic UI; acquisition below is toolkit-free.
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QCloseEvent, QPalette
+    from PySide6.QtWidgets import (
+        QApplication,
+        QCheckBox,
+        QComboBox,
+        QDoubleSpinBox,
+        QFileDialog,
+        QFormLayout,
+        QGridLayout,
+        QGroupBox,
+        QHBoxLayout,
+        QLabel,
+        QLineEdit,
+        QMainWindow,
+        QMessageBox,
+        QPushButton,
+        QSpinBox,
+        QVBoxLayout,
+        QWidget,
+    )
+    from combined_test.theme import FontRole, font_for_role
+except ModuleNotFoundError:
+    class _DiagnosticUiUnavailable:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            raise RuntimeError("The retired PySide diagnostic UI is unavailable")
+
+    class _QtPlaceholder:
+        class AlignmentFlag:
+            AlignCenter = 0
+
+    Qt = _QtPlaceholder()
+    QEvent = QCloseEvent = QPalette = object
+    QApplication = QCheckBox = QComboBox = QDoubleSpinBox = _DiagnosticUiUnavailable
+    QFileDialog = QFormLayout = QGridLayout = QGroupBox = _DiagnosticUiUnavailable
+    QHBoxLayout = QLabel = QLineEdit = QMainWindow = QMessageBox = _DiagnosticUiUnavailable
+    QPushButton = QSpinBox = QVBoxLayout = QWidget = _DiagnosticUiUnavailable
+    FontRole = object
+
+    def font_for_role(*_args: object, **_kwargs: object) -> object:
+        return object()
 
 from combined_test.native_realtime import NativeRealtimeUnavailable, get_native_realtime_core
-from combined_test.theme import FontRole, font_for_role
 
 
 DEFAULT_SAMPLE_RATE_HZ = 1_000.0

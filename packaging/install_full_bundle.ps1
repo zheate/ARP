@@ -74,7 +74,7 @@ function Invoke-External {
     $exitCode = [int]$process.ExitCode
     Write-Host "  exit code: $exitCode"
 
-    if ($exitCode -in @(3010, -125071)) {
+    if ($exitCode -in @(1641, 3010, -125071)) {
         $script:RebootRequired = $true
     }
     if ($exitCode -notin $SuccessCodes) {
@@ -144,6 +144,37 @@ try {
     Write-Step "Installing WCH CH341/CH343 serial adapter drivers"
     Install-InfDriver -InfPath (Join-Path $PayloadRoot "05_serial_adapters\wch_ch341ser\CH341SER.INF")
     Install-InfDriver -InfPath (Join-Path $PayloadRoot "05_serial_adapters\wch_ch343ser\CH343SER.INF")
+
+    Write-Step "Installing Ophir StarLab USB driver and COM interface"
+    $ophirInstaller = Join-Path $PayloadRoot "07_ophir_starlab\StarLab_Setup.exe"
+    Invoke-External -FilePath $ophirInstaller `
+        -Arguments @("/s", '/v"/qn /norestart"') `
+        -SuccessCodes @(0, 1641, 3010) `
+        -HideWindow | Out-Null
+
+    Write-Step "Installing Coherent Meter Connection driver"
+    $coherentArchive = Join-Path $PayloadRoot "08_coherent\coherent-meter-connection-setup.zip"
+    $coherentExtractRoot = Join-Path $PayloadRoot "_expanded_coherent"
+    if (-not $DryRun) {
+        if (Test-Path -LiteralPath $coherentExtractRoot) {
+            Remove-Item -LiteralPath $coherentExtractRoot -Recurse -Force
+        }
+        Expand-Archive -LiteralPath $coherentArchive -DestinationPath $coherentExtractRoot -Force
+        $coherentInstaller = Get-ChildItem -LiteralPath $coherentExtractRoot -File -Filter "*.exe" |
+            Select-Object -First 1
+        if (-not $coherentInstaller) {
+            throw "The Coherent driver archive contains no installer."
+        }
+        $coherentInstallerPath = $coherentInstaller.FullName
+    }
+    else {
+        Write-Host "> Expand-Archive $coherentArchive -> $coherentExtractRoot"
+        $coherentInstallerPath = Join-Path $coherentExtractRoot "Coherent Meter Connection v1.4.2.3 Release Setup.exe"
+    }
+    Invoke-External -FilePath $coherentInstallerPath `
+        -Arguments @("/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-") `
+        -SuccessCodes @(0, 1641, 3010) `
+        -HideWindow | Out-Null
 
     Write-Step "Installing NI Package Manager when required"
     $nipkgPath = Get-NipkgPath

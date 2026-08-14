@@ -12,7 +12,7 @@ The Rust layer exposes `bridge_snapshot` and a generic `bridge_request(method, p
 
 ## Backend modes
 
-- `active`: PySide6 and the project runtime loaded successfully. A hidden compatibility window owns the existing device threads, automatic controller, Excel export, plots, and PD acquisition.
+- `active`: the headless project runtime loaded successfully. A toolkit-free backend owns device threads, automatic control, Excel/PDF export, plots, and PD acquisition.
 - `read_only`: the active runtime was unavailable. No hardware is probed or controlled and all write controls remain disabled.
 
 The bridge being connected never means a physical device is connected. Every device reports its own state.
