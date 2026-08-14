@@ -1087,6 +1087,7 @@ class AutomaticTestController:
             self.sync_tdk_output_controls(False)
         self.active_output_current_a = 0.0
         self.set_current_spin.setValue(0.0)
+        sample_path = self.automatic_sample_csv_path
         try:
             self.close_automatic_sample_recorder()
         except Exception as exc:
@@ -1094,13 +1095,18 @@ class AutomaticTestController:
             # workbook from partial data. Pause (like the TDK shutdown
             # failure path) instead of returning from RAMPING_DOWN, which
             # would leave the workflow with no retry or reset available.
-            message = (
-                "逐秒采样记录收尾失败，Excel 将不会保存："
-                f"{self._error_formatter(exc)}"
+            error_detail = self._error_formatter(exc)
+            terminal_reason = f"逐秒采样记录收尾失败：{error_detail}"
+            self._set_pending_terminal_outcome(
+                AutomaticTestTerminalOutcome.ABORTED_SAFELY,
+                terminal_reason,
             )
+            if sample_path is not None:
+                self.add_log(f"残缺逐秒 CSV 已保留，仅供排查：{sample_path}")
+            message = f"{terminal_reason}。残缺数据不会写入 Excel。"
             QMessageBox.critical(self._host, "逐秒记录", message)
             self.pause_automatic_test(
-                f"逐秒采样记录收尾失败（{self._error_formatter(exc)}），Excel 未保存"
+                f"{terminal_reason}；重试仅完成安全中止收尾"
             )
             return
         self._confirm_terminal_outcome()

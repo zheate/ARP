@@ -2830,7 +2830,14 @@ class MainWindow(QMainWindow):
             # complete before any Excel save thread reads it, stops the
             # writer thread even on failure, and re-raises any write error
             # so the caller can refuse to export incomplete data.
-            recorder.close()
+            try:
+                recorder.close()
+            except Exception:
+                # Once close() fails the file is known to be incomplete and
+                # must never remain eligible for the final Excel import.
+                # Keep the file itself on disk for diagnosis.
+                self.automatic_sample_csv_path = None
+                raise
 
     def record_automatic_second_sample(
         self,

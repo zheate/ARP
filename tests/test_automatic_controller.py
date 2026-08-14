@@ -713,10 +713,21 @@ class AutomaticTestControllerLifecycleTests(unittest.TestCase):
             lambda _parent, _title, message: dialogs.append(message)
         )
 
-        def failing_close() -> None:
-            raise OSError("磁盘已满")
+        class FailingRecorder:
+            def close(self) -> None:
+                raise OSError("磁盘已满")
 
-        self.window.close_automatic_sample_recorder = failing_close  # type: ignore[method-assign]
+        sample_path = Path(self.temp_dir.name) / "incomplete.csv"
+        sample_path.write_text("partial data", encoding="utf-8")
+        self.window.automatic_sample_recorder = FailingRecorder()  # type: ignore[assignment]
+        self.window.automatic_sample_csv_path = sample_path
+        finalized_sample_paths: list[Path | None] = []
+        self.window.finalize_automatic_session_workbook = (  # type: ignore[method-assign]
+            lambda _record, _message: finalized_sample_paths.append(
+                self.window.automatic_sample_csv_path
+            )
+            or False
+        )
         try:
             self.window.complete_automatic_test()
         finally:
@@ -728,6 +739,21 @@ class AutomaticTestControllerLifecycleTests(unittest.TestCase):
         self.assertIn("逐秒", self.window.automatic_pause_reason)
         self.assertEqual(result_details, [])
         self.assertTrue(dialogs)
+        self.assertIsNone(self.window.automatic_sample_recorder)
+        self.assertIsNone(self.window.automatic_sample_csv_path)
+        self.assertTrue(sample_path.exists())
+
+        self._retry_without_modal()
+
+        self.assertEqual(self.window.automatic_test_state, AutomaticTestState.COMPLETED)
+        self.assertEqual(
+            self.window.automatic_controller.terminal_outcome,
+            AutomaticTestTerminalOutcome.ABORTED_SAFELY,
+        )
+        self.assertIn("逐秒采样记录收尾失败", self.window.automatic_controller.terminal_reason)
+        self.assertEqual(finalized_sample_paths, [None])
+        self.assertTrue(sample_path.exists())
+        self.assertIn("异常中止", result_details[-1])
 
     def test_tdk_output_timeout_keeps_original_current_and_result_pending(self) -> None:
         class TimedOutOutputController:
