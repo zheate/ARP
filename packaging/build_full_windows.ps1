@@ -28,6 +28,7 @@ if ([string]::IsNullOrWhiteSpace($OutputFile)) {
     $OutputFile = Join-Path $projectRoot $OutputFile
 }
 $installScript = Join-Path $PSScriptRoot "install_full_bundle.ps1"
+$driverGuide = Join-Path $PSScriptRoot "driver_installation_guide.txt"
 $licenseFile = Join-Path $PSScriptRoot "full_installer_notice.txt"
 $encodedLicenseFile = Join-Path $buildRoot "full_installer_notice.utf16.txt"
 $nsiScript = Join-Path $PSScriptRoot "power_test_full_installer.nsi"
@@ -49,6 +50,7 @@ $requiredPaths = @(
     $coherentArchive,
     $nipmInstaller,
     $installScript,
+    $driverGuide,
     $licenseFile,
     $nsiScript,
     $appIcon
@@ -130,6 +132,7 @@ if (Test-Path -LiteralPath $driverPayloadRoot) {
 }
 New-Item -ItemType Directory -Force -Path $driverPayloadRoot | Out-Null
 Copy-Item -Path (Join-Path $driverRoot '*') -Destination $driverPayloadRoot -Recurse -Force
+Copy-Item -LiteralPath $driverGuide -Destination (Join-Path $driverPayloadRoot "DRIVER-INSTALLATION.txt") -Force
 
 # CH341PAR.EXE is a WinRAR SFX whose GUI handling and exit codes are not
 # reliable for an unattended parent installer. Extract its signed driver

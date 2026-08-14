@@ -1,6 +1,8 @@
-Power Test 完整安装包
+Power Test 应用与离线驱动文件包
 
-本安装包将安装 Power Test，以及当前项目硬件所需的第三方驱动和运行环境：
+本安装包只安装 Power Test，不会自动安装任何硬件驱动或厂商软件。
+
+下列离线驱动文件会复制到 C:\ProgramData\Power Test\Drivers，供用户按需手动安装：
 
 - WCH CH341 I2C 和 CH341/CH343 串口驱动
 - Ocean Optics OceanHR4 WinUSB 驱动
@@ -11,7 +13,7 @@ Power Test 完整安装包
 - NI-DAQmx Runtime 23.5
 - NI-VISA Runtime 23.5
 
-继续安装表示您同意安装上述第三方组件，并接受安装包内随附的厂商许可条款。
-安装过程需要管理员权限。部分 Windows 驱动或 NI 运行环境可能要求安装完成后重启电脑。
+安装结束后请打开该目录，阅读 DRIVER-INSTALLATION.txt，只安装实际使用设备对应的驱动。
+手动安装厂商驱动表示您接受对应厂商的许可条款。部分驱动安装后可能需要重启电脑。
 
-Power Test 不会在安装过程中从互联网下载任何驱动。
+Power Test 安装过程不会执行驱动安装程序，也不会从互联网下载驱动。
