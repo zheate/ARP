@@ -1,3 +1,9 @@
+[CmdletBinding()]
+param(
+    [ValidateSet("all", "msi", "nsis")]
+    [string]$BundleTargets = "all"
+)
+
 $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
@@ -90,7 +96,14 @@ try {
         & $npmExe install
         if ($LASTEXITCODE -ne 0) { throw "npm install failed." }
     }
-    & $npmExe run tauri build -- --config (Join-Path $PSScriptRoot "tauri.windows.conf.json")
+    $tauriArgs = @(
+        "run", "tauri", "build", "--",
+        "--config", (Join-Path $PSScriptRoot "tauri.windows.conf.json")
+    )
+    if ($BundleTargets -ne "all") {
+        $tauriArgs += @("--bundles", $BundleTargets)
+    }
+    & $npmExe @tauriArgs
     if ($LASTEXITCODE -ne 0) { throw "Tauri Windows installer build failed." }
 }
 finally {

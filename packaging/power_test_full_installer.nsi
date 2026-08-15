@@ -24,6 +24,9 @@ ManifestDPIAware true
 !ifndef APP_ICON
   !error "APP_ICON is required"
 !endif
+!ifndef APP_VERSION
+  !error "APP_VERSION is required"
+!endif
 
 Name "Power Test Setup with Driver Files"
 OutFile "${OUTPUT_FILE}"
@@ -35,13 +38,13 @@ ShowInstDetails show
 SetCompressor /SOLID lzma
 SetCompressorDictSize 32
 
-VIProductVersion "0.1.0.0"
+VIProductVersion "${APP_VERSION}.0"
 VIAddVersionKey /LANG=2052 "ProductName" "Power Test Setup with Driver Files"
 VIAddVersionKey /LANG=2052 "CompanyName" "ARP"
 VIAddVersionKey /LANG=2052 "LegalCopyright" "Copyright (C) ARP"
 VIAddVersionKey /LANG=2052 "FileDescription" "Power Test application and offline driver files"
-VIAddVersionKey /LANG=2052 "FileVersion" "0.1.0"
-VIAddVersionKey /LANG=2052 "ProductVersion" "0.1.0"
+VIAddVersionKey /LANG=2052 "FileVersion" "${APP_VERSION}"
+VIAddVersionKey /LANG=2052 "ProductVersion" "${APP_VERSION}"
 
 !define MUI_ABORTWARNING
 !define MUI_FINISHPAGE_NOAUTOCLOSE

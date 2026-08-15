@@ -55,25 +55,66 @@ function Invoke-ApplicationInstaller {
         [Parameter(Mandatory = $true)][string]$InstallDirectory
     )
 
-    $arguments = @("/i", $MsiPath, "INSTALLDIR=$InstallDirectory", "/qn", "/norestart")
+    $msiLogPath = Join-Path $logRoot ("application-msi-{0:yyyyMMdd-HHmmss}.log" -f (Get-Date))
+    $arguments = @(
+        "/i",
+        $MsiPath,
+        "INSTALLDIR=$InstallDirectory",
+        "/qn",
+        "/norestart",
+        "/L*v",
+        $msiLogPath
+    )
     $display = "$env:SystemRoot\System32\msiexec.exe $(Format-ArgumentList $arguments)"
+    Write-Host "  MSI log: $msiLogPath"
     Write-Host "> $display"
     if ($DryRun) {
         return
     }
 
+    $installerService = Get-Service -Name "msiserver" -ErrorAction Stop
+    if ($installerService.Status -ne [System.ServiceProcess.ServiceControllerStatus]::Running) {
+        Write-Host "  Starting Windows Installer service..."
+        Start-Service -Name "msiserver"
+        $installerService.WaitForStatus(
+            [System.ServiceProcess.ServiceControllerStatus]::Running,
+            [TimeSpan]::FromSeconds(30)
+        )
+    }
+
     $process = Start-Process -FilePath "$env:SystemRoot\System32\msiexec.exe" `
         -ArgumentList (Format-ArgumentList $arguments) `
         -PassThru `
-        -Wait `
         -WindowStyle Hidden
+
+    $timeout = [TimeSpan]::FromMinutes(20)
+    $progressInterval = [TimeSpan]::FromSeconds(15)
+    $stopwatch = [Diagnostics.Stopwatch]::StartNew()
+    $nextProgress = $progressInterval
+    while (-not $process.WaitForExit(1000)) {
+        if ($stopwatch.Elapsed -ge $timeout) {
+            try {
+                $process.Kill()
+                $process.WaitForExit()
+            }
+            catch {
+                Write-Warning "Could not stop timed-out msiexec process $($process.Id): $_"
+            }
+            throw "Power Test MSI timed out after 20 minutes. See $msiLogPath"
+        }
+        if ($stopwatch.Elapsed -ge $nextProgress) {
+            Write-Host ("  Power Test MSI is still running ({0:mm\:ss} elapsed)..." -f $stopwatch.Elapsed)
+            $nextProgress = $nextProgress.Add($progressInterval)
+        }
+    }
+    $stopwatch.Stop()
     $exitCode = [int]$process.ExitCode
-    Write-Host "  exit code: $exitCode"
+    Write-Host "  exit code: $exitCode; elapsed: $($stopwatch.Elapsed.ToString('mm\:ss'))"
     if ($exitCode -eq 3010) {
         $script:RebootRequired = $true
     }
     if ($exitCode -notin @(0, 3010)) {
-        throw "Power Test application installation failed with exit code $exitCode."
+        throw "Power Test application installation failed with exit code $exitCode. See $msiLogPath"
     }
 }
 

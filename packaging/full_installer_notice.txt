@@ -2,6 +2,8 @@ Power Test 应用与离线驱动文件包
 
 本安装包只安装 Power Test，不会自动安装任何硬件驱动或厂商软件。
 
+Power Test 所需的 Microsoft WebView2 离线运行库已包含在主程序 MSI 中；缺少时会自动安装，不会联网下载。WebView2 是应用运行环境，不是硬件驱动。
+
 下列离线驱动文件会复制到 C:\ProgramData\Power Test\Drivers，供用户按需手动安装：
 
 - WCH CH341 I2C 和 CH341/CH343 串口驱动

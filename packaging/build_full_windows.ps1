@@ -18,12 +18,18 @@ $ophirInstaller = if ($ophirInstallerItem) {
 }
 $coherentArchive = Join-Path $projectRoot "local_drivers\coherent\coherent-meter-connection-v1.4.2.3-release-setup.zip"
 $tauriRoot = Join-Path $projectRoot "tauri-ui"
+$tauriConfigPath = Join-Path $tauriRoot "src-tauri\tauri.conf.json"
+$tauriConfig = Get-Content -LiteralPath $tauriConfigPath -Raw | ConvertFrom-Json
+$appVersion = [string]$tauriConfig.version
+if ($appVersion -notmatch '^\d+\.\d+\.\d+$') {
+    throw "Tauri app version must contain three numeric fields: $appVersion"
+}
 $bundleRoot = Join-Path $tauriRoot "src-tauri\target\release\bundle"
 $buildRoot = Join-Path $projectRoot "build\full-installer"
 $driverPayloadRoot = Join-Path $buildRoot "drivers"
 $outputRoot = Join-Path $projectRoot "release\full"
 if ([string]::IsNullOrWhiteSpace($OutputFile)) {
-    $OutputFile = Join-Path $outputRoot "Power Test_0.1.0_x64-all-drivers-setup.exe"
+    $OutputFile = Join-Path $outputRoot "Power Test_${appVersion}_x64-all-drivers-setup.exe"
 } elseif (-not [System.IO.Path]::IsPathRooted($OutputFile)) {
     $OutputFile = Join-Path $projectRoot $OutputFile
 }
@@ -90,7 +96,9 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 if (-not $SkipApplicationBuild) {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build_tauri_windows.ps1")
+    & powershell -NoProfile -ExecutionPolicy Bypass `
+        -File (Join-Path $PSScriptRoot "build_tauri_windows.ps1") `
+        -BundleTargets msi
     if ($LASTEXITCODE -ne 0) {
         throw "Power Test application build failed."
     }
@@ -134,9 +142,8 @@ New-Item -ItemType Directory -Force -Path $driverPayloadRoot | Out-Null
 Copy-Item -Path (Join-Path $driverRoot '*') -Destination $driverPayloadRoot -Recurse -Force
 Copy-Item -LiteralPath $driverGuide -Destination (Join-Path $driverPayloadRoot "DRIVER-INSTALLATION.txt") -Force
 
-# CH341PAR.EXE is a WinRAR SFX whose GUI handling and exit codes are not
-# reliable for an unattended parent installer. Extract its signed driver
-# package at build time and let Windows stage it through pnputil instead.
+# CH341PAR.EXE is a WinRAR SFX. Extract its signed driver files at build time
+# so users can install the INF manually without depending on the vendor GUI.
 $ch341Sfx = Join-Path $driverRoot "01_ch341_i2c\CH341PAR.EXE"
 $ch341DriverPayloadRoot = Join-Path $driverPayloadRoot "01_ch341_i2c\driver"
 New-Item -ItemType Directory -Force -Path $ch341DriverPayloadRoot | Out-Null
@@ -182,6 +189,7 @@ $nsisArguments = @(
     "/DLICENSE_FILE=$encodedLicenseFile",
     "/DOUTPUT_FILE=$OutputFile",
     "/DAPP_ICON=$appIcon",
+    "/DAPP_VERSION=$appVersion",
     $nsiScript
 )
 & $makensis @nsisArguments
