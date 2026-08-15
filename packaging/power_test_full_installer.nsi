@@ -75,7 +75,7 @@ Section "Power Test and offline driver files" SEC_MAIN
   SetOutPath "$PLUGINSDIR\payload\drivers"
   File /r "${DRIVER_ROOT}\*.*"
 
-  DetailPrint "Installing Power Test and copying offline driver files. No hardware driver will be installed automatically."
+  DetailPrint "Installing Power Test and copying offline files. No driver or WebView2 runtime will be installed automatically."
   nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\payload\install_full_bundle.ps1" -PayloadRoot "$PLUGINSDIR\payload\drivers" -AppMsiPath "$PLUGINSDIR\payload\PowerTest.msi" -AppInstallDir "$INSTDIR" -DriverDestination "$APPDATA\Power Test\Drivers"'
   Pop $0
 
@@ -83,13 +83,13 @@ Section "Power Test and offline driver files" SEC_MAIN
     WriteRegStr HKLM "Software\ARP\Power Test" "InstallDir" "$INSTDIR"
     WriteRegStr HKLM "Software\ARP\Power Test" "DriverDir" "$APPDATA\Power Test\Drivers"
     SetRebootFlag true
-    MessageBox MB_ICONINFORMATION|MB_OK "Power Test was installed. No hardware driver was installed automatically. Driver files: $APPDATA\Power Test\Drivers. Read DRIVER-INSTALLATION.txt and install only the drivers you need."
+    MessageBox MB_ICONINFORMATION|MB_OK "Power Test was installed. No driver or WebView2 runtime was installed automatically. Optional files: $APPDATA\Power Test\Drivers. Read DRIVER-INSTALLATION.txt and install only what you need."
   ${ElseIf} $0 != "0"
     MessageBox MB_ICONSTOP|MB_OK "Power Test installation failed (error $0). Log folder: C:\ProgramData\Power Test\InstallerLogs."
     Abort
   ${Else}
     WriteRegStr HKLM "Software\ARP\Power Test" "InstallDir" "$INSTDIR"
     WriteRegStr HKLM "Software\ARP\Power Test" "DriverDir" "$APPDATA\Power Test\Drivers"
-    MessageBox MB_ICONINFORMATION|MB_OK "Power Test was installed. No hardware driver was installed automatically. Driver files: $APPDATA\Power Test\Drivers. Read DRIVER-INSTALLATION.txt and install only the drivers you need."
+    MessageBox MB_ICONINFORMATION|MB_OK "Power Test was installed. No driver or WebView2 runtime was installed automatically. Optional files: $APPDATA\Power Test\Drivers. Read DRIVER-INSTALLATION.txt and install only what you need."
   ${EndIf}
 SectionEnd

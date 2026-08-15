@@ -7,6 +7,14 @@ C:\ProgramData\Power Test\Drivers
 请只安装实际使用设备对应的驱动，并在安装前关闭 Power Test、拔下相关 USB 设备。
 驱动安装通常需要右键“以管理员身份运行”。
 
+0. Microsoft WebView2（Power Test 运行环境）
+
+目录：09_webview2
+
+- 安装器不会自动安装 WebView2。
+- 如果 Power Test 无法启动，或系统提示缺少 WebView2，请以管理员身份运行 MicrosoftEdgeWebView2RuntimeInstallerX64.exe。
+- 安装完成后再启动 Power Test。已经安装 WebView2 的电脑可以跳过此步骤。
+
 1. CH341 I2C 泵驱控制器
 
 目录：01_ch341_i2c

@@ -40,9 +40,11 @@ $encodedLicenseFile = Join-Path $buildRoot "full_installer_notice.utf16.txt"
 $nsiScript = Join-Path $PSScriptRoot "power_test_full_installer.nsi"
 $appIcon = Join-Path $tauriRoot "src-tauri\icons\icon.ico"
 $nipmInstaller = Join-Path $driverRoot "00_ni_package_manager\NIPackageManager24.0.0.exe"
+$webviewInstaller = Join-Path $driverRoot "09_webview2\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
 $expectedNipmHash = "92763B4AFCFE81BFBB2C73F84071707B3852BDDBEFE29AB47F5279BAFA3B88F8"
 $expectedOphirHash = "1FE3E5937EB054A3B50754F0AAF1A5E6BE2EE7426BD943DCEB6FF5989384DE1B"
 $expectedCoherentHash = "53907AFDC23F6163017DFEC6360C087F735AA30E331C5883BAE81CC976C9B194"
+$expectedWebviewHash = "6AC57A21414742AC1A6A03BF9516A048897317CEF04A49967B283093E29C31B7"
 
 $requiredPaths = @(
     $driverRoot,
@@ -55,6 +57,7 @@ $requiredPaths = @(
     $ophirInstaller,
     $coherentArchive,
     $nipmInstaller,
+    $webviewInstaller,
     $installScript,
     $driverGuide,
     $licenseFile,
@@ -74,6 +77,18 @@ if ($nipmHash -ne $expectedNipmHash) {
 $nipmSignature = Get-AuthenticodeSignature -LiteralPath $nipmInstaller
 if ($nipmSignature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
     throw "NI Package Manager signature is not valid: $($nipmSignature.Status)"
+}
+
+$webviewHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $webviewInstaller).Hash
+if ($webviewHash -ne $expectedWebviewHash) {
+    throw "WebView2 Runtime SHA-256 mismatch. Expected $expectedWebviewHash, received $webviewHash"
+}
+$webviewSignature = Get-AuthenticodeSignature -LiteralPath $webviewInstaller
+if (
+    $webviewSignature.Status -ne [System.Management.Automation.SignatureStatus]::Valid -or
+    $webviewSignature.SignerCertificate.Subject -notmatch "Microsoft Corporation"
+) {
+    throw "WebView2 Runtime signature is not valid: $($webviewSignature.Status)"
 }
 
 $ophirHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $ophirInstaller).Hash

@@ -56,16 +56,17 @@ function Invoke-ApplicationInstaller {
     )
 
     $msiLogPath = Join-Path $logRoot ("application-msi-{0:yyyyMMdd-HHmmss}.log" -f (Get-Date))
-    $arguments = @(
+    $argumentParts = @(
         "/i",
-        $MsiPath,
-        "INSTALLDIR=$InstallDirectory",
+        (Format-ArgumentList @($MsiPath)),
+        ("INSTALLDIR=" + (Format-ArgumentList @($InstallDirectory))),
         "/qn",
         "/norestart",
         "/L*v",
-        $msiLogPath
+        (Format-ArgumentList @($msiLogPath))
     )
-    $display = "$env:SystemRoot\System32\msiexec.exe $(Format-ArgumentList $arguments)"
+    $argumentLine = $argumentParts -join " "
+    $display = "$env:SystemRoot\System32\msiexec.exe $argumentLine"
     Write-Host "  MSI log: $msiLogPath"
     Write-Host "> $display"
     if ($DryRun) {
@@ -83,12 +84,11 @@ function Invoke-ApplicationInstaller {
     }
 
     $process = Start-Process -FilePath "$env:SystemRoot\System32\msiexec.exe" `
-        -ArgumentList (Format-ArgumentList $arguments) `
-        -PassThru `
-        -WindowStyle Hidden
+        -ArgumentList $argumentLine `
+        -PassThru
 
-    $timeout = [TimeSpan]::FromMinutes(20)
-    $progressInterval = [TimeSpan]::FromSeconds(15)
+    $timeout = [TimeSpan]::FromMinutes(5)
+    $progressInterval = [TimeSpan]::FromSeconds(10)
     $stopwatch = [Diagnostics.Stopwatch]::StartNew()
     $nextProgress = $progressInterval
     while (-not $process.WaitForExit(1000)) {
@@ -100,7 +100,7 @@ function Invoke-ApplicationInstaller {
             catch {
                 Write-Warning "Could not stop timed-out msiexec process $($process.Id): $_"
             }
-            throw "Power Test MSI timed out after 20 minutes. See $msiLogPath"
+            throw "Power Test MSI timed out after 5 minutes. See $msiLogPath"
         }
         if ($stopwatch.Elapsed -ge $nextProgress) {
             Write-Host ("  Power Test MSI is still running ({0:mm\:ss} elapsed)..." -f $stopwatch.Elapsed)
@@ -146,7 +146,7 @@ try {
             -Force
     }
 
-    Write-Step "No hardware driver was installed automatically."
+    Write-Step "No driver or WebView2 runtime was installed automatically."
     Write-Step "Driver files: $DriverDestination"
     Write-Step "Manual instructions: $(Join-Path $DriverDestination 'DRIVER-INSTALLATION.txt')"
     Write-Step "Installation completed. Log: $logPath"

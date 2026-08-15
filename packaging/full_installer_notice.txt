@@ -2,7 +2,7 @@ Power Test 应用与离线驱动文件包
 
 本安装包只安装 Power Test，不会自动安装任何硬件驱动或厂商软件。
 
-Power Test 所需的 Microsoft WebView2 离线运行库已包含在主程序 MSI 中；缺少时会自动安装，不会联网下载。WebView2 是应用运行环境，不是硬件驱动。
+Microsoft WebView2 离线安装程序也会复制到驱动目录，但不会自动安装。首次启动 Power Test 前，如果电脑尚未安装 WebView2，请由用户手动运行该安装程序。
 
 下列离线驱动文件会复制到 C:\ProgramData\Power Test\Drivers，供用户按需手动安装：
 
@@ -14,6 +14,7 @@ Power Test 所需的 Microsoft WebView2 离线运行库已包含在主程序 MSI
 - National Instruments Package Manager 24.0
 - NI-DAQmx Runtime 23.5
 - NI-VISA Runtime 23.5
+- Microsoft WebView2 Runtime 离线安装程序
 
 安装结束后请打开该目录，阅读 DRIVER-INSTALLATION.txt，只安装实际使用设备对应的驱动。
 手动安装厂商驱动表示您接受对应厂商的许可条款。部分驱动安装后可能需要重启电脑。
