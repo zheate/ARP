@@ -126,8 +126,22 @@ def _restore_exception_hooks() -> None:
     _exception_hooks_installed = False
 
 
+def _clean_old_logs(directory: Path, max_age_days: int = 30) -> None:
+    try:
+        cutoff = datetime.now().timestamp() - max_age_days * 86400
+        for entry in directory.glob("*.log"):
+            try:
+                if entry.is_file() and entry.stat().st_mtime < cutoff:
+                    entry.unlink(missing_ok=True)
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+
 def _create_file_handler(directory: Path, process_role: str) -> tuple[logging.FileHandler, Path]:
     directory.mkdir(parents=True, exist_ok=True)
+    _clean_old_logs(directory, max_age_days=30)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     filename = f"{_safe_role_name(process_role)}_{timestamp}_pid{os.getpid()}.log"
     path = directory / filename

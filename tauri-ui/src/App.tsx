@@ -2,22 +2,25 @@ import { Children, isValidElement, memo, useCallback, useEffect, useLayoutEffect
 import { createPortal } from "react-dom"
 import {
   BarChart3,
+  Check,
   ChevronDown,
-  CircleCheck,
   CircleGauge,
   FileText,
   FolderOpen,
   Gauge,
+  Hand,
+  History,
   LoaderCircle,
+  Milestone,
   OctagonAlert,
   Play,
   Power,
   Plus,
+  QrCode,
   Radio,
   RefreshCw,
   RotateCcw,
   Save,
-  SlidersHorizontal,
   Square,
   Tag,
   Trash2,
@@ -66,22 +69,14 @@ const HISTORY_CHART_SERIES = {
 
 const navigation = [
   { id: "automatic" as const, label: "自动测试", icon: CircleGauge },
-  { id: "manual" as const, label: "详细配置", icon: SlidersHorizontal },
+  { id: "manual" as const, label: "手动配置", icon: Hand },
   { id: "pd" as const, label: "PD 采集", icon: BarChart3 },
   { id: "shipping" as const, label: "出货报告", icon: FileText },
 ]
 
 const pageShortcuts: Page[] = ["automatic", "manual", "pd", "shipping"]
-const MIN_PAGE_ZOOM = 0.45
-const FIT_VIEWPORT_BUFFER_PX = 6
-const SHARED_PAGE_REFERENCE_HEIGHT_PX = 1200
 const INFO_TOAST_DURATION_MS = 3000
 const MAX_CUSTOM_CURRENT_POINTS = 50
-
-function sharedPageZoom(viewportHeight: number): number {
-  const heightRatio = Math.max(1, viewportHeight - FIT_VIEWPORT_BUFFER_PX) / SHARED_PAGE_REFERENCE_HEIGHT_PX
-  return Math.max(MIN_PAGE_ZOOM, Math.min(1, heightRatio))
-}
 
 type SpectrumYAxisState = { domain: [number, number]; compactFrameCount: number }
 
@@ -90,8 +85,16 @@ function powerYAxisDomain(values: Array<number | null | undefined>): [number, nu
   if (finiteValues.length === 0) return undefined
   const minimum = Math.min(...finiteValues)
   const maximum = Math.max(...finiteValues)
-  const padding = minimum === maximum ? Math.max(Math.abs(minimum) * 0.1, 0.001) : (maximum - minimum) * 0.12
-  return [minimum >= 0 ? Math.max(0, minimum - padding) : minimum - padding, maximum <= 0 ? 0 : maximum + padding]
+  const center = (minimum + maximum) / 2
+
+  // ±3% 最小视窗保护（基于当前中心功率值，保底不少于 5mW）
+  const minHalfSpan = Math.max(Math.abs(center) * 0.03, 0.005)
+  const actualHalfSpan = (maximum - minimum) / 2
+  const targetHalfSpan = Math.max(actualHalfSpan * 1.15, minHalfSpan)
+
+  const domainMin = Math.max(0, center - targetHalfSpan)
+  const domainMax = center + targetHalfSpan
+  return [domainMin, domainMax]
 }
 
 function spectrumYAxisDomain(values: number[]): [number, number] {
@@ -188,14 +191,39 @@ function asNumber(value: string): number {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
+function formatTrimmedNumber(value: number | null | undefined, digits = 3): string {
+  if (value == null || !Number.isFinite(value)) return "--"
+  const formatted = value.toFixed(digits)
+  return formatted.includes(".") ? formatted.replace(/\.?0+$/, "") : formatted
+}
+
 function formatNumber(value: number | null | undefined, suffix = "", digits = 3): string {
-  return value == null || !Number.isFinite(value) ? "--" : `${value.toFixed(digits)}${suffix}`
+  if (value == null || !Number.isFinite(value)) return "--"
+  return `${formatTrimmedNumber(value, digits)}${suffix}`
 }
 
 const defaultSpectrometerResourceLabel = "自动选择首台可用设备"
 
 function powerMeterResourceValue(label: string): string {
+  if (label.startsWith("OPHIR::USB::")) return label
   return label.match(/ASRL\d+::INSTR/i)?.[0] ?? label
+}
+
+function powerMeterResourceLabel(resourceValue: string, resources: string[] = []): string {
+  if (!resourceValue) return "请选择串口资源"
+  const matched = resources.find((item) => powerMeterResourceValue(item) === resourceValue)
+  if (matched) return matched
+  if (resourceValue.includes("|") || resourceValue.includes("彩煌") || resourceValue.includes("Coherent") || resourceValue.includes("LaserPoint") || resourceValue.includes("Ophir")) {
+    return resourceValue
+  }
+  const asrlMatch = resourceValue.match(/ASRL(\d+)::INSTR/i)
+  if (asrlMatch) {
+    return `彩煌功率计 (COM${asrlMatch[1]} · ${resourceValue})`
+  }
+  if (resourceValue.startsWith("OPHIR::USB::")) {
+    return `Ophir 激光功率计 (${resourceValue.replace("OPHIR::USB::", "USB ")})`
+  }
+  return resourceValue
 }
 
 function pendingCommandLabel(method: string | null): string {
@@ -604,8 +632,8 @@ function CustomCurrentPlanEditor({ config, update, disabled, maximumCurrentA }: 
         {config.customCurrentPoints.map((point, index) => (
           <div className="custom-current-plan__row" key={index}>
             <span className="custom-current-plan__index">{index + 1}</span>
-            <Input aria-label={`第 ${index + 1} 个指定停留点`} disabled={disabled} max={holdCurrentMaximum} min={config.initialCurrentA} onChange={(event) => updatePoint(index, "currentA", asNumber(event.target.value))} step="0.1" type="number" value={point.currentA} />
-            <Input aria-label={`第 ${index + 1} 个电流点停留时间`} disabled={disabled} min="0.1" onChange={(event) => updatePoint(index, "dwellS", asNumber(event.target.value))} step="1" type="number" value={point.dwellS} />
+            <NumberInput aria-label={`第 ${index + 1} 个指定停留点`} disabled={disabled} max={holdCurrentMaximum} min={config.initialCurrentA} onChange={(val) => updatePoint(index, "currentA", val)} step="0.1" value={point.currentA} />
+            <NumberInput aria-label={`第 ${index + 1} 个电流点停留时间`} disabled={disabled} min={0.1} onChange={(val) => updatePoint(index, "dwellS", val)} step="1" value={point.dwellS} />
             <button aria-label={`删除第 ${index + 1} 个电流点`} className="custom-current-plan__remove" disabled={disabled || config.customCurrentPoints.length <= 1} onClick={() => removePoint(index)} type="button"><X className="size-4" /></button>
           </div>
         ))}
@@ -733,7 +761,11 @@ function PowerMeterSettingsForm({ snapshot, config, update, active, pending, run
         <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
           <NativeSelect value={selectedResource} onChange={(v) => update("powerMeterResource", v)}>
             <option value="">请选择串口资源</option>
-            {selectedResource && !resources.some((item) => powerMeterResourceValue(item) === selectedResource) && <option value={selectedResource}>{selectedResource}</option>}
+            {selectedResource && !resources.some((item) => powerMeterResourceValue(item) === selectedResource) && (
+              <option value={selectedResource}>
+                {powerMeterResourceLabel(selectedResource, resources)}
+              </option>
+            )}
             {resources.map((item) => <option key={item} value={powerMeterResourceValue(item)}>{item}</option>)}
           </NativeSelect>
           <Button disabled={!active || pending} onClick={() => void run("device.refresh", { device: "powerMeter" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
@@ -741,8 +773,8 @@ function PowerMeterSettingsForm({ snapshot, config, update, active, pending, run
       </Field>
       <NumberField label="校准波长 (nm)" value={config.powerMeterWavelengthNm} onChange={(v) => update("powerMeterWavelengthNm", v)} step="0.1" />
       <NumberField label="软件增益" value={config.softwareGain} onChange={(v) => update("softwareGain", v)} step="0.01" />
-      <Button className="w-full" disabled={!active || pending} onClick={() => void run(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
       <div className="device-settings-action-grid"><Button disabled={!active || pending || meter?.running} onClick={() => void run("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button disabled={!active || pending || meter?.running} onClick={() => void run("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></div>
+      <Button className="w-full" disabled={!active || pending} onClick={() => void run(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
       <p className="text-xs text-muted-foreground">实时功率 {formatNumber(meter?.powerW, " W")} · {meter?.stable ? "已稳定" : "稳定中"}</p>
     </div>
   )
@@ -941,7 +973,23 @@ function SpectrumSaturationDialog({ message, onClose }: { message: string; onClo
   )
 }
 
-function AutomaticCompletionDialog({ title, message, onClose }: { title: string; message: string; onClose: () => void }) {
+function AutomaticCompletionDialog({
+  title,
+  message,
+  onClose,
+  outcome,
+  stationId,
+  totalPoints,
+  completedPoints,
+}: {
+  title: string
+  message: string
+  onClose: () => void
+  outcome?: string | null
+  stationId?: "1" | "2"
+  totalPoints?: number
+  completedPoints?: number
+}) {
   const acknowledgeButtonRef = useRef<HTMLButtonElement>(null)
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
@@ -971,16 +1019,93 @@ function AutomaticCompletionDialog({ title, message, onClose }: { title: string;
     }
   }, [])
 
+  const isSuccess = outcome === "succeeded" || (!outcome && !title.includes("中止") && !title.includes("提前") && !title.includes("异常"))
+  const isStopped = outcome === "stopped_by_operator" || title.includes("提前")
+
+  const iconContainerClass = isSuccess
+    ? "bg-emerald-500/15 text-emerald-500 ring-1 ring-emerald-500/25"
+    : isStopped
+    ? "bg-amber-500/15 text-amber-500 ring-1 ring-amber-500/25"
+    : "bg-destructive/15 text-destructive ring-1 ring-destructive/25"
+
+  const subtitle = isSuccess
+    ? `老化站 ${stationId || "1"} · 测试流程已完成，电流已归零安全下电`
+    : isStopped
+    ? `老化站 ${stationId || "1"} · 测试由操作员手动终止，设备已安全下电`
+    : `老化站 ${stationId || "1"} · 测试异常中断，设备已执行安全保护下电`
+
+  const showDetailMessage = Boolean(message && message !== title && message !== "测试完成" && message !== "测试已完成")
+
   return (
     <DialogPortal>
-      <div className="motion-overlay-enter fixed inset-0 z-[80] flex items-center justify-center bg-black/65 p-4 backdrop-blur-[2px]">
-        <div aria-labelledby="automatic-completion-title" aria-modal="true" className="status-dialog motion-dialog-enter w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--app-success)_50%,transparent)] bg-popover shadow-2xl shadow-black/45" role="dialog">
-        <div className="flex items-start gap-4 border-b border-border px-5 py-5">
-          <div className="grid size-11 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,var(--app-success)_16%,transparent)] text-[var(--app-success)]"><CircleCheck className="size-6" /></div>
-          <div><h2 className="text-lg font-semibold" id="automatic-completion-title">{title}</h2><p className="mt-1 text-sm text-muted-foreground">测试流程已经结束，设备已完成安全下电</p></div>
-        </div>
-        <div className="px-5 py-5"><p className="whitespace-pre-line text-sm leading-6 text-foreground">{message}</p></div>
-          <div className="flex justify-end border-t border-border bg-background/35 px-5 py-3"><Button onClick={onClose} ref={acknowledgeButtonRef}>确定</Button></div>
+      <div className="motion-overlay-enter fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+        <div
+          aria-labelledby="automatic-completion-title"
+          aria-modal="true"
+          className="status-dialog motion-dialog-enter w-[min(480px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border/80 bg-popover shadow-2xl shadow-black/50"
+          role="dialog"
+        >
+          <div className="relative flex items-start gap-3.5 border-b border-border/70 px-6 py-5">
+            <div className={`grid size-10 shrink-0 place-items-center rounded-xl transition-all ${iconContainerClass}`}>
+              {isSuccess ? <Check className="size-5 stroke-[2.5]" /> : isStopped ? <Hand className="size-5" /> : <OctagonAlert className="size-5" />}
+            </div>
+            <div className="min-w-0 flex-1 pr-6">
+              <h2 className="text-base font-semibold tracking-tight text-foreground" id="automatic-completion-title">
+                {title}
+              </h2>
+              <p className="mt-0.5 text-xs text-muted-foreground leading-normal">
+                {subtitle}
+              </p>
+            </div>
+            <button
+              aria-label="关闭"
+              className="absolute right-4 top-4 rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              onClick={onClose}
+              type="button"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+
+          <div className="space-y-3.5 px-6 py-5">
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="rounded-lg border border-border/60 bg-muted/30 px-3.5 py-2.5">
+                <span className="text-[11px] font-medium text-muted-foreground">测试点进度</span>
+                <p className="mt-1 font-mono text-sm font-semibold text-foreground">
+                  {typeof totalPoints === "number" && totalPoints > 0
+                    ? `${completedPoints ?? totalPoints} / ${totalPoints} 点`
+                    : "全流程已执行"}
+                </p>
+              </div>
+              <div className="rounded-lg border border-border/60 bg-muted/30 px-3.5 py-2.5">
+                <span className="text-[11px] font-medium text-muted-foreground">下电保护状态</span>
+                <p className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                  <span className="size-1.5 rounded-full bg-emerald-500" />
+                  已安全归档 (0.00 A)
+                </p>
+              </div>
+            </div>
+
+            {showDetailMessage && (
+              <div className="rounded-lg border border-border/50 bg-muted/20 px-3.5 py-2.5">
+                <span className="text-[11px] font-medium text-muted-foreground">状态详情</span>
+                <p className="mt-0.5 whitespace-pre-line text-xs leading-relaxed text-foreground/90 font-mono">
+                  {message}
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end border-t border-border/70 bg-muted/20 px-6 py-3.5">
+            <Button
+              className="px-5 font-medium shadow-xs"
+              onClick={onClose}
+              ref={acknowledgeButtonRef}
+              size="sm"
+            >
+              确定
+            </Button>
+          </div>
         </div>
       </div>
     </DialogPortal>
@@ -1211,11 +1336,11 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
     ? Math.min(...Object.values(columns).map((values) => values.length))
     : data.length
   return (
-    <Card aria-label={title} className={`${compactHeader ? "gap-0" : ""} pb-1 shadow-none ${stretch ? "h-full min-h-0" : ""}`}>
-      <CardHeader className="flex min-h-9 flex-row items-center justify-between gap-3 pb-2"><ChartLegend lines={lines} />{headerRight}</CardHeader>
-      <CardContent className={`${stretch ? "min-h-0 flex-1" : heightClassName || (dataLength === 0 ? "h-40" : "h-56")} px-3 pb-0`}>
+    <Card aria-label={title} size="sm" className={`${compactHeader ? "gap-0" : ""} shadow-none ${stretch ? "h-full min-h-0 flex flex-col" : ""}`}>
+      <CardHeader className="flex min-h-8 flex-row items-center justify-between gap-3 px-3 py-1.5 shrink-0"><ChartLegend lines={lines} />{headerRight}</CardHeader>
+      <CardContent className={`${stretch ? "min-h-0 flex-1" : heightClassName || (dataLength === 0 ? "h-40" : "h-56")} px-3 pb-1.5 pt-0`}>
         {dataLength === 0 ? (
-          <div className="grid h-full place-items-center rounded-lg bg-background/30 text-sm text-muted-foreground/70">{empty}</div>
+          <div className="grid h-full min-h-[120px] place-items-center rounded-lg bg-background/30 text-xs text-muted-foreground/70">{empty}</div>
         ) : (
           <CanvasLineChart annotations={annotations} ariaLabel={`${title}曲线`} columns={columns} data={data} lines={lines} preserveAllPoints={preserveAllPoints} xDomain={xDomain} xKey={xKey} xTicks={xTicks} yDomain={yDomain} />
         )}
@@ -1271,7 +1396,7 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
 
 const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; stretch?: boolean; heightClassName?: string }) {
   const powerData = (snapshot?.measurements?.power ?? []) as Array<Record<string, number | null>>
-  const latestPowerW = powerData[powerData.length - 1]?.powerW
+  const latestPowerW = snapshot?.devices.powerMeter?.powerW ?? powerData[powerData.length - 1]?.powerW
   const latestElapsedS = powerData[powerData.length - 1]?.elapsedS
   const powerTimeDomain: [number, number] = typeof latestElapsedS === "number"
     ? [Math.max(0, latestElapsedS - POWER_PLOT_HISTORY_S), Math.max(10, latestElapsedS)]
@@ -1300,12 +1425,12 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch 
     ]
   }, [powerData, powerTimeDomain, referencePowerW])
   const powerYDomain = powerYAxisDomain(chartData.flatMap((row) => (
-    typeof row.elapsedS === "number" && row.elapsedS >= powerTimeDomain[0]
-      ? [row.powerW, row.referencePowerW]
+    typeof row.elapsedS === "number" && row.elapsedS >= powerTimeDomain[0] && typeof row.powerW === "number"
+      ? [row.powerW]
       : []
   )))
   const lines: CanvasChartLine[] = [
-    { key: "powerW", label: "本次功率 (W)", color: powerStabilityColor },
+    { key: "powerW", label: "功率 (W)", color: powerStabilityColor },
     ...(typeof referencePowerW === "number"
       ? [{ key: "referencePowerW", label: `历史参考 · ${reference?.station || "未填写站别"}`, color: HISTORY_CHART_SERIES.power, lineWidth: 1.2 }]
       : []),
@@ -1322,7 +1447,20 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch 
       xDomain={powerTimeDomain}
       xTicks={powerTimeTicks}
       yDomain={powerYDomain}
-      headerRight={<div className="flex items-center gap-3"><div className={`flex items-center gap-2 text-[24px] font-medium leading-none ${powerStable ? "text-[var(--app-success)]" : powerMeter?.running ? "text-[var(--app-validation)]" : "text-muted-foreground"}`}><span className={`size-2.5 rounded-full ${powerStable ? "bg-[var(--app-success)]" : powerMeter?.running ? "bg-[var(--app-validation)]" : "bg-muted-foreground/45"}`} />{powerStabilityLabel}</div><p className="text-[24px] font-semibold leading-none tabular-nums">{formatNumber(latestPowerW, " W")}</p></div>}
+      headerRight={
+        <div className="flex items-center gap-3">
+          <div className={`flex items-center gap-1.5 text-xs font-medium ${powerStable ? "text-[var(--app-success)]" : powerMeter?.running ? "text-[var(--app-validation)]" : "text-muted-foreground"}`}>
+            <span className={`size-2 rounded-full ${powerStable ? "bg-[var(--app-success)]" : powerMeter?.running ? "bg-[var(--app-validation)]" : "bg-muted-foreground/45"}`} />
+            {powerStabilityLabel}
+          </div>
+          <div className="flex items-baseline gap-1 font-mono leading-none">
+            <span className="text-2xl font-bold tracking-tight tabular-nums text-foreground">
+              {formatTrimmedNumber(latestPowerW, 3)}
+            </span>
+            <span className="text-xs font-medium text-muted-foreground">W</span>
+          </div>
+        </div>
+      }
     />
   )
 }, (previous, next) => {
@@ -1343,12 +1481,13 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch 
 })
 
 const powerEfficiencyLines: CanvasChartLine[] = [
-  { key: "powerW", label: "本次功率 (W)", color: PLM_CHART_SERIES.clay, showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 1.7 },
-  { key: "efficiencyPercent", label: "本次效率 (%)", color: PLM_CHART_SERIES.tan, yAxisId: "right", showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 1.7 },
+  { key: "powerW", label: "功率 (W)", color: PLM_CHART_SERIES.clay, showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 1.7 },
+  { key: "efficiencyPercent", label: "效率 (%)", color: PLM_CHART_SERIES.tan, yAxisId: "right", showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 1.7 },
 ]
 
 const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; stretch?: boolean; heightClassName?: string }) {
   const stableData = (snapshot?.measurements?.stable ?? []) as Array<Record<string, number | null>>
+  const latestStable = stableData.length > 0 ? stableData[stableData.length - 1] : null
   const currentDomain = useMemo<[number, number] | undefined>(() => {
     const currents = stableData
       .map((row) => row.currentA)
@@ -1370,6 +1509,37 @@ const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stre
       title="功率 / 效率"
       xDomain={currentDomain}
       xKey="currentA"
+      headerRight={
+        <div className="flex items-center gap-4">
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-xs text-muted-foreground">测试点</span>
+            <div className="flex items-baseline gap-1 font-mono leading-none">
+              <span className={`text-2xl font-bold tracking-tight tabular-nums ${latestStable && typeof latestStable.currentA === "number" ? "text-foreground" : "text-muted-foreground"}`}>
+                {latestStable && typeof latestStable.currentA === "number" ? formatTrimmedNumber(latestStable.currentA, 2) : "--"}
+              </span>
+              <span className="text-xs font-medium text-muted-foreground">A</span>
+            </div>
+          </div>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-xs text-muted-foreground">稳态功率</span>
+            <div className="flex items-baseline gap-1 font-mono leading-none">
+              <span className={`text-2xl font-bold tracking-tight tabular-nums ${latestStable && typeof latestStable.powerW === "number" ? "text-foreground" : "text-muted-foreground"}`}>
+                {latestStable && typeof latestStable.powerW === "number" ? formatTrimmedNumber(latestStable.powerW, 3) : "--"}
+              </span>
+              <span className="text-xs font-medium text-muted-foreground">W</span>
+            </div>
+          </div>
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-xs text-muted-foreground">效率</span>
+            <div className="flex items-baseline gap-1 font-mono leading-none">
+              <span className={`text-2xl font-bold tracking-tight tabular-nums ${latestStable && typeof latestStable.efficiencyPercent === "number" ? "text-foreground" : "text-muted-foreground"}`}>
+                {latestStable && typeof latestStable.efficiencyPercent === "number" ? formatTrimmedNumber(latestStable.efficiencyPercent, 2) : "--"}
+              </span>
+              <span className="text-xs font-medium text-muted-foreground">%</span>
+            </div>
+          </div>
+        </div>
+      }
     />
   )
 }, (previous, next) => previous.stretch === next.stretch
@@ -1377,8 +1547,6 @@ const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stre
   && sameRows(previous.snapshot?.measurements?.stable, next.snapshot?.measurements?.stable, ["currentA", "powerW", "efficiencyPercent"]))
 
 const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; stretch?: boolean; heightClassName?: string }) {
-  // The merged spectrum carries a gridRevision marker for the grid-cache
-  // protocol; charts only consume the two data arrays.
   const spectrumSource = snapshot?.measurements?.spectrum
   const spectrumData = spectrumSource
     ? { wavelengthNm: spectrumSource.wavelengthNm, intensity: spectrumSource.intensity }
@@ -1442,19 +1610,41 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
       annotations={spectrumPeaks.map((annotation) => ({ label: annotation.label, x: annotation.centroidNm, y: annotation.peakIntensity, color: PLM_CHART_SERIES.blue }))}
       headerRight={
         spectrum?.saturated
-          ? <div className="flex min-w-0 flex-1 items-center justify-end gap-2 text-sm font-medium text-[var(--app-warning)]"><OctagonAlert className="size-4" />光谱饱和 · 请缩短积分时间</div>
-          : <div className="grid min-w-0 flex-1 grid-cols-3 items-center gap-6 py-1 text-center">
-          <div className="flex flex-col items-center justify-center gap-1.5">
-            <p className="text-[24px] font-semibold leading-none tabular-nums">{formatNumber(spectrum?.peakWavelengthNm, " nm")}</p>
-            <p className="text-[20px] leading-none text-muted-foreground">中心波长</p>
+          ? <div className="flex min-w-0 flex-1 items-center justify-end gap-2 text-xs font-medium text-[var(--app-warning)]"><OctagonAlert className="size-3.5" />光谱饱和 · 请缩短积分时间</div>
+          : <div className="grid min-w-0 flex-1 grid-cols-3 items-center gap-4 py-0.5 text-center">
+          <div className="flex items-baseline justify-center gap-2">
+            <span className="text-xs text-muted-foreground">中心波长</span>
+            <div className="flex items-baseline gap-1 font-mono leading-none">
+              <span className="text-2xl font-bold tracking-tight tabular-nums text-foreground">
+                {formatTrimmedNumber(spectrum?.peakWavelengthNm, 3)}
+              </span>
+              <span className="text-xs font-medium text-muted-foreground">nm</span>
+            </div>
           </div>
-          <div className="flex flex-col items-center justify-center gap-1.5">
-            <p className="text-[24px] font-semibold leading-none tabular-nums">{formatNumber(spectrum?.fwhmNm, " nm")}</p>
-            <p className="text-[20px] leading-none text-muted-foreground">FWHM</p>
+          <div className="flex items-baseline justify-center gap-2">
+            <span className="text-xs text-muted-foreground">FWHM</span>
+            <div className="flex items-baseline gap-1 font-mono leading-none">
+              <span className="text-2xl font-bold tracking-tight tabular-nums text-foreground">
+                {formatTrimmedNumber(spectrum?.fwhmNm, 3)}
+              </span>
+              <span className="text-xs font-medium text-muted-foreground">nm</span>
+            </div>
           </div>
-          <div className="flex flex-col items-center justify-center gap-1.5">
-            <p className="text-[24px] font-semibold leading-none tabular-nums">{formatNumber(spectrum?.smsrDb, " dB", 2)}</p>
-            <p className="text-[20px] leading-none text-muted-foreground">SMSR</p>
+          <div className="flex items-baseline justify-center gap-2">
+            <span className="text-xs text-muted-foreground">PIB</span>
+            <div className="flex items-baseline gap-1 font-mono leading-none">
+              <span className="text-2xl font-bold tracking-tight tabular-nums text-foreground">
+                {(() => {
+                  const pibVal = spectrum?.pib ?? spectrum?.pibPercent
+                  if (pibVal != null && Number.isFinite(pibVal)) {
+                    const percent = pibVal <= 1.0 ? pibVal * 100 : pibVal
+                    return formatTrimmedNumber(percent, 2)
+                  }
+                  return "--"
+                })()}
+              </span>
+              <span className="text-xs font-medium text-muted-foreground">%</span>
+            </div>
           </div>
         </div>
       }
@@ -1473,43 +1663,261 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
     && previousSpectrum?.peakWavelengthNm === nextSpectrum?.peakWavelengthNm
     && previousSpectrum?.centroidNm === nextSpectrum?.centroidNm
     && previousSpectrum?.fwhmNm === nextSpectrum?.fwhmNm
-    && previousSpectrum?.smsrDb === nextSpectrum?.smsrDb
+    && (previousSpectrum?.pib ?? previousSpectrum?.pibPercent) === (nextSpectrum?.pib ?? nextSpectrum?.pibPercent)
     && previousSpectrum?.saturated === nextSpectrum?.saturated
     && previousSpectrum?.spectrumWindow?.centerNm === nextSpectrum?.spectrumWindow?.centerNm
     && previousSpectrum?.spectrumWindow?.halfRangeNm === nextSpectrum?.spectrumWindow?.halfRangeNm
 })
 
-function stationStateLabel(summary?: StationSummary): string {
-  if (!summary) return "就绪"
-  switch (summary.state) {
-    case "idle":
-      return summary.powerSupplyConnected ? "已连电源" : "空闲"
-    case "setting_current":
-    case "waiting_stable":
-    case "waiting_voltage":
-    case "holding":
-    case "ramping_down":
-      return `测试中 (${Math.round((summary.progress ?? 0) * 100)}%)`
-    case "paused":
-      return "已暂停"
-    case "completed":
-      return "完成"
-    case "error":
-      return "异常"
-    default:
-      return summary.state
+function StationStatusPill({
+  id,
+  summary,
+  isSelected,
+  onSelect,
+  disabled,
+}: {
+  id: "1" | "2"
+  summary?: StationSummary
+  isSelected: boolean
+  onSelect: () => void
+  disabled?: boolean
+}) {
+  const isRunning = [
+    "setting_current",
+    "waiting_stable",
+    "waiting_voltage",
+    "holding",
+    "ramping_down",
+  ].includes(summary?.state ?? "")
+  const isCompleted = summary?.state === "completed"
+  const isPaused = summary?.state === "paused"
+  const isError = summary?.state === "error"
+  const isStation1 = id === "1"
+
+  const themeStyles = isSelected
+    ? isStation1
+      ? "border-sky-400 bg-sky-500/20 text-sky-200 ring-2 ring-sky-500/30 shadow-xs"
+      : "border-amber-400 bg-amber-500/20 text-amber-200 ring-2 ring-amber-500/30 shadow-xs"
+    : "border-border/60 bg-muted/20 text-muted-foreground hover:border-border hover:bg-muted/50 hover:text-foreground"
+
+  const dotColor = isRunning
+    ? "bg-emerald-400 animate-pulse"
+    : isCompleted
+    ? "bg-blue-400"
+    : isPaused || isError
+    ? "bg-amber-400 animate-pulse"
+    : isSelected
+    ? (isStation1 ? "bg-sky-400" : "bg-amber-400")
+    : (isStation1 ? "bg-sky-400/50" : "bg-amber-400/50")
+
+  const hasCurrent = typeof summary?.activeCurrentA === "number" && summary.activeCurrentA > 0.01
+
+  let badgeText = ""
+  let labelText = ""
+
+  if (isRunning) {
+    badgeText = `${(summary?.activeCurrentA ?? 0).toFixed(1)} A`
+    labelText = `测试中 (${Math.round((summary?.progress ?? 0) * 100)}%)`
+  } else if (hasCurrent) {
+    badgeText = `${summary?.activeCurrentA?.toFixed(1)} A`
+    labelText = "手动输出"
+  } else if (isPaused) {
+    badgeText = "暂停"
+    labelText = "等待重试"
+  } else if (isCompleted) {
+    badgeText = "完成"
+    labelText = "已归档"
+  } else if (isError) {
+    badgeText = "异常"
+    labelText = "设备报警"
+  } else if (summary?.powerSupplyConnected) {
+    badgeText = "在线"
+    labelText = "空闲"
+  } else {
+    badgeText = "待机"
+    labelText = ""
   }
+
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onSelect}
+      className={`group relative flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all duration-150 ${themeStyles} ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+    >
+      <div className="flex items-center gap-1.5">
+        <span className={`size-2 rounded-full ${dotColor}`} />
+        <span className={isSelected ? "font-bold text-foreground" : "font-medium"}>工位 {id}</span>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <span className={`rounded px-1.5 py-0.5 text-[11px] font-mono font-medium ${
+          isSelected ? "bg-black/30 text-inherit" : "bg-background/60 text-muted-foreground"
+        }`}>
+          {badgeText}
+        </span>
+        {labelText && (
+          <span className="text-[11px] opacity-85">
+            {labelText}
+          </span>
+        )}
+      </div>
+    </button>
+  )
+}
+
+function AutomaticWorkflowStepper({
+  state,
+  currentIndex = -1,
+  totalPoints = 0,
+}: {
+  state?: string
+  currentIndex?: number
+  totalPoints?: number
+}) {
+  const isRunning = Boolean(state && !["idle", "completed"].includes(state))
+  const isPaused = state === "paused"
+  const isRampingDown = state === "ramping_down"
+  const isCompleted = state === "completed"
+  const pointNumber = Math.max(1, (currentIndex ?? -1) + 1)
+  const total = Math.max(1, totalPoints || 1)
+
+  const step1Done = isRunning || isCompleted
+
+  const step2Active = (state === "setting_current" || state === "waiting_voltage") && !isPaused
+  const step2Done = (state === "waiting_stable" || state === "holding" || isRampingDown || isCompleted) && !step2Active
+
+  const step3Active = state === "waiting_stable" && !isPaused
+  const step3Done = (state === "holding" || isRampingDown || isCompleted) && !step3Active
+
+  const step4Active = state === "holding" && !isPaused
+  const step4Done = (isRampingDown || isCompleted) && !step4Active
+
+  const step5Active = isRampingDown && !isPaused
+  const step5Done = isCompleted
+
+  return (
+    <div className="flex w-full items-center justify-between gap-1 py-0.5 text-xs">
+      <div className="flex items-center gap-1.5 shrink-0">
+        <div
+          className={`flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-medium transition-all ${
+            step1Done
+              ? "border border-emerald-500/40 bg-emerald-500/20 text-emerald-600 dark:text-emerald-400"
+              : state === "idle"
+              ? "border border-border bg-muted text-foreground/80 font-bold"
+              : "border border-border bg-muted text-muted-foreground/60"
+          }`}
+        >
+          {step1Done ? "✓" : "1"}
+        </div>
+        <span className={step1Done ? "text-foreground/80 font-normal" : "text-muted-foreground/70"}>
+          就绪检查
+        </span>
+      </div>
+
+      <div className="mx-1.5 h-0.5 w-2.5 bg-border/60 shrink-0" />
+
+      <div className={`flex flex-1 items-center justify-between rounded-lg border px-2.5 py-1 transition-all ${
+        isRunning && !isRampingDown
+          ? "border-primary/40 bg-primary/5 shadow-xs"
+          : isCompleted
+          ? "border-emerald-500/30 bg-emerald-500/5"
+          : "border-border/60 bg-muted/20"
+      }`}>
+        <div className="flex items-center gap-1 shrink-0 mr-2">
+          <span className={`text-[10px] font-mono font-bold tracking-tight uppercase px-1.5 py-0.5 rounded ${
+            isRunning && !isRampingDown
+              ? "bg-primary/20 text-primary animate-pulse"
+              : isCompleted
+              ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400"
+              : "bg-muted text-muted-foreground/70"
+          }`}>
+            {isCompleted ? "全部点完成" : isRunning && !isRampingDown ? `⟳ 点 ${pointNumber}/${total}` : "循环测试区"}
+          </span>
+        </div>
+
+        <div className="flex flex-1 items-center justify-around gap-1 min-w-0">
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className={`size-1.5 shrink-0 rounded-full transition-all ${
+              step2Active
+                ? "bg-primary animate-pulse ring-2 ring-primary/40"
+                : step2Done
+                ? "bg-emerald-500/80"
+                : isPaused
+                ? "bg-amber-500 animate-pulse"
+                : "bg-muted-foreground/30"
+            }`} />
+            <span className={`text-[11px] whitespace-nowrap transition-colors ${step2Active ? "font-bold text-primary" : step2Done ? "text-foreground/80" : "text-muted-foreground/70"}`}>
+              加载电流
+            </span>
+          </div>
+
+          <div className="h-0.5 w-2 bg-border/60 shrink-0" />
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className={`size-1.5 shrink-0 rounded-full transition-all ${
+              step3Active
+                ? "bg-primary animate-pulse ring-2 ring-primary/40"
+                : step3Done
+                ? "bg-emerald-500/80"
+                : isPaused
+                ? "bg-amber-500 animate-pulse"
+                : "bg-muted-foreground/30"
+            }`} />
+            <span className={`text-[11px] whitespace-nowrap transition-colors ${step3Active ? "font-bold text-primary" : step3Done ? "text-foreground/80" : "text-muted-foreground/70"}`}>
+              稳态判定
+            </span>
+          </div>
+
+          <div className="h-0.5 w-2 bg-border/60 shrink-0" />
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className={`size-1.5 shrink-0 rounded-full transition-all ${
+              step4Active
+                ? "bg-primary animate-pulse ring-2 ring-primary/40"
+                : step4Done
+                ? "bg-emerald-500/80"
+                : isPaused
+                ? "bg-amber-500 animate-pulse"
+                : "bg-muted-foreground/30"
+            }`} />
+            <span className={`text-[11px] whitespace-nowrap transition-colors ${step4Active ? "font-bold text-primary" : step4Done ? "text-foreground/80" : "text-muted-foreground/70"}`}>
+              数据采集
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="mx-1.5 h-0.5 w-2.5 bg-border/60 shrink-0" />
+
+      <div className="flex items-center gap-1.5 shrink-0">
+        <div
+          className={`flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-medium transition-all ${
+            step5Done
+              ? "border border-emerald-500/40 bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold"
+              : step5Active
+              ? "bg-primary text-primary-foreground font-bold animate-pulse ring-2 ring-primary/30"
+              : "border border-border bg-muted text-muted-foreground/60"
+          }`}
+        >
+          {step5Done ? "✓" : "3"}
+        </div>
+        <span className={step5Active ? "font-bold text-primary" : step5Done ? "text-foreground/80" : "text-muted-foreground/70"}>
+          降电归档
+        </span>
+      </div>
+    </div>
+  )
 }
 
 function App() {
-  const [page, setPage] = useState<Page>("automatic")
+  const [page, setPage] = useState<Page>(() => (typeof window !== "undefined" && (new URLSearchParams(window.location.search).get("page") as Page)) || "automatic")
   const [stationId, setStationId] = useState<"1" | "2">("1")
   const currentView: SnapshotView = page === "automatic"
     ? (stationId === "1" ? "automatic_1" : "automatic_2")
     : page === "manual"
     ? (stationId === "1" ? "manual_1" : "manual_2")
     : page
-  const { snapshot, error, loading, commandPending, pendingCommand, command } = useBackendSnapshot(currentView)
+  const { snapshot, error, commandPending, pendingCommand, command } = useBackendSnapshot(currentView)
   const [config, setConfig] = useState<AppConfiguration>(emptyConfig)
   const [dirty, setDirty] = useState(false)
   const configRef = useRef<AppConfiguration>(emptyConfig)
@@ -1529,8 +1937,6 @@ function App() {
   const [closeRequestPending, setCloseRequestPending] = useState(false)
   const closeRequestInFlightRef = useRef(false)
   const automaticRunSeenRef = useRef(false)
-  const fitWindowSizeRef = useRef<string | null>(null)
-  const [pageZoom, setPageZoom] = useState(() => sharedPageZoom(window.innerHeight))
   const pageScrollPositionsRef = useRef<Record<Page, number>>({ automatic: 0, manual: 0, pd: 0, shipping: 0 })
   const active = snapshot?.backend.mode === "active"
   const automaticWorkflowActive = Boolean(snapshot && !["idle", "completed"].includes(snapshot.automaticTest.state))
@@ -1612,42 +2018,12 @@ function App() {
     automaticHistoryCompletionSeenRef.current = completed
   }, [snapshot?.automaticTest.state, loadAutomaticHistory])
 
-  useEffect(() => {
-    let resizeTimer: number | undefined
-
-    const windowSizeKey = () => `${window.innerWidth}x${window.innerHeight}`
-    const fitPagesToViewport = () => {
-      const zoom = sharedPageZoom(window.innerHeight)
-      fitWindowSizeRef.current = windowSizeKey()
-      setPageZoom((current) => Math.abs(current - zoom) > 0.005 ? zoom : current)
-    }
-
-    const handleResize = () => {
-      if (fitWindowSizeRef.current === windowSizeKey()) return
-      if (resizeTimer !== undefined) window.clearTimeout(resizeTimer)
-      resizeTimer = window.setTimeout(() => {
-        resizeTimer = undefined
-        fitPagesToViewport()
-      }, 120)
-    }
-
-    window.addEventListener("resize", handleResize)
-    fitPagesToViewport()
-    return () => {
-      window.removeEventListener("resize", handleResize)
-      if (resizeTimer !== undefined) window.clearTimeout(resizeTimer)
-    }
-  }, [])
-
   const attemptGracefulClose = useCallback(async () => {
     if (!("__TAURI_INTERNALS__" in window) || closeRequestInFlightRef.current) return
     closeRequestInFlightRef.current = true
     setCloseRequestPending(true)
     setCloseFailure(null)
     try {
-      // The Python process owns QSettings. Commit the latest React form state
-      // before asking it to shut down so closing immediately after typing does
-      // not persist the previous snapshot instead.
       await automaticSaveFlightRef.current.catch(() => undefined)
       if (configHydratedRef.current) {
         await sendBackendRequest("app.configure", configRef.current as unknown as Record<string, unknown>)
@@ -1657,95 +2033,35 @@ function App() {
       await invoke("bridge_disconnect")
       await getCurrentWindow().destroy()
     } catch (reason) {
-      const detail = reason instanceof Error ? reason.message : String(reason)
-      setCloseFailure(detail)
-      setCloseRequestPending(false)
+      setCloseFailure(reason instanceof Error ? reason.message : String(reason))
+    } finally {
       closeRequestInFlightRef.current = false
+      setCloseRequestPending(false)
+    }
+  }, [])
+
+  const forceClose = useCallback(async () => {
+    try {
+      await invoke("force_exit")
+    } catch {
+      await getCurrentWindow().destroy().catch(() => undefined)
     }
   }, [])
 
   const cancelClose = useCallback(() => {
-    if (closeRequestInFlightRef.current) return
     setCloseFailure(null)
-  }, [])
-
-  const forceClose = useCallback(async () => {
-    if (!("__TAURI_INTERNALS__" in window) || closeRequestInFlightRef.current) return
-    closeRequestInFlightRef.current = true
-    setCloseRequestPending(true)
-    const forceDisconnect = invoke("bridge_force_disconnect").catch((reason) => {
-      console.error("强制终止 Python 后端失败，将继续关闭窗口", reason)
-    })
-    await Promise.race([
-      forceDisconnect,
-      new Promise<void>((resolve) => window.setTimeout(resolve, 1500)),
-    ])
-    try {
-      await getCurrentWindow().destroy()
-    } catch (reason) {
-      const detail = reason instanceof Error ? reason.message : String(reason)
-      setCloseFailure(`强制关闭窗口失败：${detail}`)
-      setCloseRequestPending(false)
-      closeRequestInFlightRef.current = false
-    }
   }, [])
 
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return
-    let unlisten: (() => void) | undefined
-    let cancelled = false
-    const appWindow = getCurrentWindow()
-    void appWindow.onCloseRequested((event) => {
+    const unlistenPromise = getCurrentWindow().onCloseRequested((event) => {
       event.preventDefault()
       void attemptGracefulClose()
-    }).then((dispose) => {
-      if (cancelled) dispose()
-      else unlisten = dispose
     })
     return () => {
-      cancelled = true
-      unlisten?.()
+      void unlistenPromise.then((unlisten) => unlisten())
     }
   }, [attemptGracefulClose])
-
-  const pageIsBlocked = useCallback((nextPage: Page) => {
-    if (nextPage === "pd") return false
-    if (nextPage === "automatic") return manualPowerOutputActive
-    if (nextPage === "manual") return automaticWorkflowActive && !automaticPaused
-    return automaticInteractionLocked
-  }, [automaticInteractionLocked, automaticPaused, automaticWorkflowActive, manualPowerOutputActive])
-
-  const changePage = useCallback((nextPage: Page) => {
-    if (nextPage === page) return
-    if (pageIsBlocked(nextPage)) return
-    pageScrollPositionsRef.current[page] = window.scrollY
-    setPage(nextPage)
-  }, [page, pageIsBlocked])
-
-  // Do not force the visible page from backend state snapshots. A manual
-  // current command produces several snapshots (configure, write, refresh),
-  // and a transient/stale automatic state must not navigate the operator away
-  // from Detailed Configuration. Automatic tests are started on their own page;
-  // if one is already active, the Automatic Test navigation item stays usable.
-
-  useLayoutEffect(() => {
-    window.scrollTo({ left: 0, top: pageScrollPositionsRef.current[page], behavior: "auto" })
-  }, [page])
-
-  useEffect(() => {
-    const handlePageShortcut = (event: KeyboardEvent) => {
-      if ((!event.metaKey && !event.ctrlKey) || event.altKey || event.shiftKey) return
-      const target = event.target
-      if (target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName))) return
-      const shortcutIndex = Number(event.key) - 1
-      const shortcutPage = pageShortcuts[shortcutIndex]
-      if (!shortcutPage) return
-      event.preventDefault()
-      changePage(shortcutPage)
-    }
-    document.addEventListener("keydown", handlePageShortcut)
-    return () => document.removeEventListener("keydown", handlePageShortcut)
-  }, [changePage])
 
   useEffect(() => {
     const currentConfig = snapshot?.configurations?.[stationId] ?? snapshot?.configuration
@@ -1760,67 +2076,6 @@ function App() {
       return next
     })
   }, [snapshot?.configurations, snapshot?.configuration, stationId, dirty])
-
-  useEffect(() => {
-    const automatic = snapshot?.automaticTest
-    if (!automatic) return
-    if (!["idle", "completed"].includes(automatic.state)) {
-      automaticRunSeenRef.current = true
-      setAutomaticCompletion(null)
-      return
-    }
-    if (
-      automatic.state !== "completed"
-      || !automaticRunSeenRef.current
-      || automatic.detail === "正在写入最终测试状态"
-      || !automatic.terminalOutcome
-    ) return
-
-    automaticRunSeenRef.current = false
-    const title = automatic.terminalOutcome === "succeeded"
-      ? "测试完成"
-      : automatic.terminalOutcome === "stopped_by_operator"
-        ? "测试已提前结束"
-        : "测试异常中止"
-    setAutomaticCompletion({ title, message: automatic.detail || title })
-  }, [snapshot?.automaticTest])
-
-  // Stable references so memoized pages do not re-render merely because App
-  // rendered while revision tracking prevents stale saves from overwriting edits.
-  const update = useCallback(<K extends keyof AppConfiguration>(key: K, value: AppConfiguration[K]) => {
-    configRevisionRef.current += 1
-    const next = { ...configRef.current, [key]: value }
-    configRef.current = next
-    setConfig(next)
-    setDirty(true)
-  }, [])
-
-  useEffect(() => {
-    if (!dirty || !active || commandPending || automaticInteractionLocked) return
-    const revision = configRevisionRef.current
-    const payload = { stationId, ...config }
-    const timer = window.setTimeout(() => {
-      const save = async () => {
-        const savedSnapshot = await sendBackendRequest<BackendSnapshot>(
-          "app.configure",
-          payload as unknown as Record<string, unknown>,
-        )
-        if (configRevisionRef.current === revision) {
-          const persisted = savedSnapshot.configurations?.[stationId] ?? savedSnapshot.configuration ?? config
-          pendingPersistedConfigRef.current = persisted
-          configRef.current = persisted
-          setConfig(persisted)
-          setDirty(false)
-        }
-      }
-      const flight = automaticSaveFlightRef.current.catch(() => undefined).then(save)
-      automaticSaveFlightRef.current = flight
-      // Keep the form dirty after a failed background save. The visible save
-      // button remains available and will report errors through command().
-      void flight.catch(() => undefined)
-    }, 800)
-    return () => window.clearTimeout(timer)
-  }, [active, automaticInteractionLocked, commandPending, config, dirty, stationId])
 
   const saveConfiguration = useCallback(async () => {
     if (!active) return
@@ -1839,26 +2094,67 @@ function App() {
     }
   }, [active, command, stationId])
 
-  const run = useCallback(async (method: string, params: Record<string, unknown> = {}, sync = false) => {
+  const run: RunCommand = useCallback(async (method, params, sync) => {
     if (!active) return
     if (sync && dirty) await saveConfiguration()
     await command(method, { stationId, ...params })
     if (method === "automatic.start") setDirty(false)
   }, [active, command, dirty, saveConfiguration, stationId])
 
+  const update: UpdateConfig = useCallback((key, value) => {
+    configRevisionRef.current += 1
+    const next = { ...configRef.current, [key]: value }
+    configRef.current = next
+    setConfig(next)
+    setDirty(true)
+  }, [])
+
+  const pageIsBlocked = useCallback((targetPage: Page): boolean => {
+    if (targetPage === "pd") return false
+    if (targetPage === "automatic") return manualPowerOutputActive
+    if (targetPage === "manual") return automaticWorkflowActive && !automaticPaused
+    return automaticInteractionLocked
+  }, [automaticInteractionLocked, automaticPaused, automaticWorkflowActive, manualPowerOutputActive])
+
+  const changePage = useCallback((nextPage: Page) => {
+    if (pageIsBlocked(nextPage)) return
+    pageScrollPositionsRef.current[page] = window.scrollY
+    setPage(nextPage)
+  }, [page, pageIsBlocked])
+
+  useLayoutEffect(() => {
+    const targetY = pageScrollPositionsRef.current[page] ?? 0
+    window.scrollTo({ top: targetY, behavior: "instant" })
+  }, [page])
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
+      const numericKey = Number(event.key)
+      if (!Number.isInteger(numericKey) || numericKey < 1 || numericKey > pageShortcuts.length) return
+      const targetPage = pageShortcuts[numericKey - 1]
+      if (!targetPage) return
+      event.preventDefault()
+      changePage(targetPage)
+    }
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [changePage])
+
+  const requiredDevices = config.useSpectrometer ? 3 : 2
   const devicesReady = [
     snapshot?.devices.powerSupply.connected,
     snapshot?.devices.powerMeter.ready,
     config.useSpectrometer && snapshot?.devices.spectrometer.ready,
   ].filter(Boolean).length
-  const requiredDevices = config.useSpectrometer ? 3 : 2
+
   const notices = snapshot?.backend.notices ?? []
   const notifications = [
     ...(error ? [{ key: `request-error:${error}`, level: "error" as const, title: "系统错误", message: error }] : []),
     ...notices.map((notice, index) => ({ ...notice, key: notice.id ? `backend-notice:${notice.id}` : `backend-notice:${notice.level}:${notice.title}:${notice.message}:${index}` })),
     ...(!active && snapshot ? [{ key: "runtime-warning", level: "warning" as const, title: "运行环境提示", message: "当前 Python 环境未加载所需设备驱动，因此控制功能暂不可用。请使用项目指定环境启动。" }] : []),
   ]
-  const [dismissedNotifications, setDismissedNotifications] = useState<Set<string>>(new Set())
+  const [dismissedNotifications, setDismissedNotifications] = useState<Set<string>>(() => new Set())
   const notificationKeys = notifications.map((notification) => notification.key)
   const notificationKey = notificationKeys.join("\n")
   useEffect(() => {
@@ -1868,6 +2164,7 @@ function App() {
       return retained.size === current.size ? current : retained
     })
   }, [notificationKey])
+
   const autoDismissNotificationKeys = notifications.filter((notification) => notification.level === "info").map((notification) => notification.key)
   const autoDismissNotificationKey = autoDismissNotificationKeys.join("\n")
   useEffect(() => {
@@ -1877,135 +2174,169 @@ function App() {
     }, INFO_TOAST_DURATION_MS)
     return () => window.clearTimeout(timer)
   }, [autoDismissNotificationKey])
+
+  useEffect(() => {
+    const auto = snapshot?.automaticTest
+    if (!auto) return
+    if (!["idle", "completed"].includes(auto.state)) {
+      automaticRunSeenRef.current = true
+      setAutomaticCompletion(null)
+      return
+    }
+    if (
+      auto.state !== "completed"
+      || !automaticRunSeenRef.current
+      || auto.detail === "正在写入最终测试状态"
+      || !auto.terminalOutcome
+    ) return
+
+    automaticRunSeenRef.current = false
+    const title = auto.terminalOutcome === "succeeded"
+      ? "测试完成"
+      : auto.terminalOutcome === "stopped_by_operator"
+        ? "测试已提前结束"
+        : "测试异常中止"
+    setAutomaticCompletion({ title, message: auto.detail || title })
+  }, [snapshot?.automaticTest])
+
   const visibleNotifications = notifications.filter((notification) => !dismissedNotifications.has(notification.key))
   const powerProtectionNotification = visibleNotifications.find((notification) => notification.title === "功率保护")
   const spectrumSaturationNotification = visibleNotifications.find((notification) => notification.title === "光谱饱和")
   const activeAlertNotification = powerProtectionNotification ?? spectrumSaturationNotification
   const toastNotifications = visibleNotifications.filter((notification) => notification !== powerProtectionNotification && notification !== spectrumSaturationNotification)
   const title = navigation.find((item) => item.id === page)?.label ?? "自动测试"
-  const sidebarBodyFontPx = Math.min(22, 26 * pageZoom)
-  const sidebarSecondaryFontPx = Math.min(20, 24 * pageZoom)
-  const sidebarIconPx = 16 * pageZoom
-  const headerIdentity = <div className="shrink-0">
-    <div className="flex items-center gap-2">
-      <h1 className="page-title-enter text-xl font-semibold tracking-tight" key={page}>{title}</h1>
-      <Badge variant="outline" className={active ? "border-[color-mix(in_srgb,var(--app-verified)_24%,transparent)] bg-[var(--app-verified-soft)] text-[var(--app-verified)]" : "border-[color-mix(in_srgb,var(--app-warning)_24%,transparent)] bg-[var(--app-warning-soft)] text-[var(--app-warning)]"}>{active ? "控制器已接入" : "只读兼容模式"}</Badge>
-    </div>
-    <p aria-live="polite" className="mt-1 flex min-h-4 items-center gap-1.5 text-xs text-muted-foreground">
-      {commandPending
-        ? <><LoaderCircle className="size-3 animate-spin text-primary" />{pendingCommandLabel(pendingCommand)}</>
-        : page === "automatic" ? null : snapshot?.status?.message ?? (loading ? "正在连接 Python 后端" : "等待后端")}
-    </p>
-  </div>
-  const headerActions = <div className="ml-auto flex shrink-0 items-center gap-2">
-    <Button aria-hidden={!dirty} className={`transition-opacity duration-200 ${dirty ? "opacity-100" : "pointer-events-none opacity-0"}`} disabled={!dirty || !active || commandPending || automaticInteractionLocked} onClick={() => void saveConfiguration()} size="sm" tabIndex={dirty && !automaticInteractionLocked ? 0 : -1} variant="outline"><Save className="size-4" />保存设置</Button>
-    <Button disabled={!active} onClick={() => void run("app.stopAll")} size="sm" variant="destructive"><OctagonAlert className="size-4" />紧急停止</Button>
-  </div>
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div className="grid min-h-screen grid-cols-[124px_minmax(0,1fr)]">
-        <aside className="shell-sidebar-enter sticky top-0 flex h-screen min-h-0 self-start flex-col border-r border-border bg-[var(--app-sidebar)] px-1.5 py-4 text-[var(--app-text)]">
-          <p className="px-1 font-medium uppercase tracking-[0.12em] text-[var(--app-text-tertiary)]" style={{ fontSize: `${sidebarSecondaryFontPx}px` }}>工作区</p>
-          <nav className="mt-2 space-y-0.5">
+    <div className="h-screen bg-background text-foreground overflow-hidden">
+      <div className="grid h-screen grid-cols-[130px_minmax(0,1fr)] overflow-hidden">
+        <aside className="shell-sidebar-enter flex h-screen min-h-0 flex-col border-r border-border bg-[var(--app-sidebar)] px-2 py-4 text-[var(--app-text)]">
+          <p className="px-2 font-semibold uppercase tracking-[0.1em] text-[var(--app-text-tertiary)] text-xs">工作区</p>
+          <nav className="mt-2.5 space-y-1.5">
             {navigation.map((item, index) => (
               <button
                 aria-current={page === item.id ? "page" : undefined}
                 aria-keyshortcuts={`Meta+${index + 1} Control+${index + 1}`}
-                className={`app-nav-item relative flex w-full items-center gap-1.5 rounded-lg px-1.5 py-1.5 outline-none transition-[color,background-color,box-shadow] duration-200 before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:origin-center before:rounded-full before:bg-primary before:transition-transform before:duration-200 focus-visible:ring-2 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:text-[var(--app-text-tertiary)] disabled:opacity-45 ${page === item.id ? "bg-[var(--app-selected-soft)] font-medium text-[var(--app-text)] before:scale-y-100" : "text-[var(--app-text-tertiary)] before:scale-y-0 hover:bg-[var(--app-hover-soft)] hover:text-[var(--app-text-secondary)] disabled:hover:bg-transparent"}`}
+                className={`app-nav-item relative flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-sm outline-none transition-[color,background-color,box-shadow] duration-200 before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:origin-center before:rounded-full before:bg-primary before:transition-transform before:duration-200 focus-visible:ring-2 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:text-[var(--app-text-tertiary)] disabled:opacity-45 ${page === item.id ? "bg-[var(--app-selected-soft)] font-medium text-[var(--app-text)] before:scale-y-100" : "text-[var(--app-text-tertiary)] before:scale-y-0 hover:bg-[var(--app-hover-soft)] hover:text-[var(--app-text-secondary)] disabled:hover:bg-transparent"}`}
                 disabled={pageIsBlocked(item.id)}
                 key={item.id}
                 onClick={() => changePage(item.id)}
-                style={{ fontSize: `${sidebarBodyFontPx}px` }}
                 title={
                   manualPowerOutputActive && item.id === "automatic"
-                    ? "手动电源正在输出，请先在详细配置中将电流归零"
+                    ? "手动电源正在输出，请先在手动配置中将电流归零"
                     : `${item.label}（⌘/Ctrl + ${index + 1}）`
                 }
                 type="button"
               >
-                <item.icon className="app-nav-icon shrink-0" style={{ height: `${sidebarIconPx}px`, width: `${sidebarIconPx}px` }} /><span className="whitespace-nowrap">{item.label}</span>
+                <item.icon className="app-nav-icon size-4.5 shrink-0" /><span className="whitespace-nowrap font-medium">{item.label}</span>
               </button>
             ))}
           </nav>
         </aside>
 
-        <main className="min-h-screen min-w-0">
-          <div className="min-h-screen" data-page-shell style={{ minHeight: `${100 / pageZoom}vh`, zoom: pageZoom }}>
-            <header className={`shell-header-enter sticky top-0 z-40 flex border-b border-border bg-[var(--app-header-bg)] px-6 backdrop-blur-md ${page === "automatic" ? "h-[76px] flex-col items-stretch justify-center gap-0 py-2 lg:h-[140px] lg:gap-2 lg:py-3" : "h-[72px] items-center gap-4"}`}>
-            {page === "automatic" ? <>
-              <div className="flex items-center justify-between gap-6">
-                {headerIdentity}
-                {headerActions}
+        <main className="flex h-screen min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <header className="shell-header-enter shrink-0 z-40 flex h-14 items-center justify-between border-b border-border bg-[var(--app-header-bg)] px-5 backdrop-blur-md">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <h1 className="text-base font-semibold tracking-tight" key={page}>{title}</h1>
+                <Badge variant="outline" className={active ? "border-[color-mix(in_srgb,var(--app-verified)_24%,transparent)] bg-[var(--app-verified-soft)] text-[var(--app-verified)] text-xs" : "border-[color-mix(in_srgb,var(--app-warning)_24%,transparent)] bg-[var(--app-warning-soft)] text-[var(--app-warning)] text-xs"}>
+                  {active ? "控制器已接入" : "只读兼容模式"}
+                </Badge>
               </div>
-              <div className="hidden min-w-0 grid-cols-[minmax(280px,1.55fr)_minmax(160px,0.55fr)_minmax(140px,0.45fr)_minmax(340px,1.35fr)] items-end gap-4 lg:grid">
-                <div className="space-y-1">
-                  <Label className="text-[10px] text-muted-foreground" htmlFor="automatic-output-directory"><FolderOpen className="mr-1 inline size-3" />输出目录</Label>
-                  <Input className="h-9" disabled={automaticInteractionLocked || manualPowerOutputActive} id="automatic-output-directory" onChange={(event) => update("outputDir", event.target.value)} value={config.outputDir} />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-[10px] text-muted-foreground" htmlFor="automatic-sn">壳体 SN</Label>
-                  <Input className="h-9" disabled={automaticInteractionLocked || manualPowerOutputActive} id="automatic-sn" onChange={(event) => update("sn", event.target.value)} value={config.sn} />
-                </div>
-                <div className="space-y-1">
-                  <Label className="text-[10px] text-muted-foreground" htmlFor="automatic-station">测试站别</Label>
-                  <Input className="h-9" disabled={automaticInteractionLocked || manualPowerOutputActive} id="automatic-station" onChange={(event) => update("station", event.target.value)} value={config.station} />
-                </div>
-                <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3" title={automaticHistoryError || undefined}>
-                  <div className="min-w-0 space-y-1">
-                    <Label className={`text-[10px] ${automaticHistoryError ? "text-[var(--app-warning)]" : "text-muted-foreground"}`}>历史参考{automaticHistoryLoading ? " · 自动更新中…" : ""}</Label>
-                      <NativeSelect disabled={automaticInteractionLocked || manualPowerOutputActive || automaticHistoryLoading} value={automaticReferencePath} onChange={setAutomaticReferencePath}>
-                        <option value="latest">上一次同 SN 完整测试（默认）</option>
-                        {automaticHistoryItems.map((item) => {
-                          const rawTime = item.startedAtUtc || new Date(item.modifiedAtMs).toISOString()
-                          const timestamp = new Date(rawTime)
-                          const timeLabel = Number.isNaN(timestamp.getTime()) ? rawTime : timestamp.toLocaleString()
-                          return <option key={item.sourcePath} value={item.sourcePath}>{timeLabel} · {item.station || "未填写站别"} · {item.pointCount} 点</option>
-                        })}
-                        <option value="none">不显示历史参考</option>
-                      </NativeSelect>
-                  </div>
-                  <label className={`flex shrink-0 flex-col items-center gap-1 text-[10px] ${automaticInteractionLocked || manualPowerOutputActive ? "cursor-not-allowed text-muted-foreground opacity-55" : "cursor-pointer text-muted-foreground"}`}><span>采集光谱</span><span className="flex h-9 items-center justify-center"><input className="size-5 shrink-0" checked={config.useSpectrometer} disabled={automaticInteractionLocked || manualPowerOutputActive} onChange={(event) => update("useSpectrometer", event.target.checked)} type="checkbox" /></span></label>
-                </div>
-              </div>
-            </> : <>
-              {headerIdentity}
-              <div className="flex-1" />
-              {headerActions}
-            </>}
-            </header>
-
-            {toastNotifications.length > 0 && <div className={`pointer-events-none fixed right-4 z-50 flex w-[min(420px,calc(100vw-2rem))] flex-col gap-2 ${page === "automatic" ? "top-[84px] lg:top-[148px]" : "top-20"}`}>
-            {toastNotifications.map((notification) => {
-              const isError = notification.level === "error"
-              const isWarning = notification.level === "warning"
-              return <div className={`notification-enter pointer-events-auto flex items-start gap-3 rounded-lg border bg-[var(--app-surface-muted)] px-4 py-3 text-sm text-[var(--app-text)] shadow-lg shadow-black/25 ${isError ? "border-[color-mix(in_srgb,var(--app-danger)_40%,transparent)]" : isWarning ? "border-[color-mix(in_srgb,var(--app-warning)_40%,transparent)]" : "border-[color-mix(in_srgb,var(--app-validation)_40%,transparent)]"}`} key={notification.key} role="alert">
-                <OctagonAlert className={`mt-0.5 size-4 shrink-0 ${isError ? "text-[var(--app-danger)]" : isWarning ? "text-[var(--app-warning)]" : "text-[var(--app-validation)]"}`} />
-                <div className="min-w-0 flex-1"><p className="font-medium">{notification.title}</p><p className="mt-1 leading-5 text-muted-foreground">{notification.message}</p></div>
-                <button aria-label="关闭提示" className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-muted-foreground" disabled={automaticInteractionLocked} onClick={() => setDismissedNotifications((current) => new Set(current).add(notification.key))} type="button"><X className="size-4" /></button>
-              </div>
-            })}
-            </div>}
-
-            {activeAlertNotification === powerProtectionNotification && powerProtectionNotification && <PowerProtectionDialog message={powerProtectionNotification.message} onClose={() => setDismissedNotifications((current) => new Set(current).add(powerProtectionNotification.key))} />}
-            {activeAlertNotification === spectrumSaturationNotification && spectrumSaturationNotification && <SpectrumSaturationDialog message={spectrumSaturationNotification.message} onClose={() => {
-              setDismissedNotifications((current) => new Set(current).add(spectrumSaturationNotification.key))
-              if (snapshot?.automaticTest.state === "paused") void run("automatic.retry")
-            }} />}
-            {automaticCompletion && !activeAlertNotification && !closeFailure && <AutomaticCompletionDialog message={automaticCompletion.message} onClose={() => setAutomaticCompletion(null)} title={automaticCompletion.title} />}
-            {closeFailure && <ShutdownFailureDialog message={closeFailure} onCancel={cancelClose} onForceExit={() => void forceClose()} onRetry={() => void attemptGracefulClose()} pending={closeRequestPending} />}
-
-            <div
-              className={`page-enter p-5 lg:p-6 ${page === "automatic" || page === "manual" ? "flex flex-col gap-4" : "space-y-4"}`}
-              data-page={page}
-              key={page}
-              style={page === "automatic" ? { height: `calc(${100 / pageZoom}vh - 140px)` } : undefined}
-            >
-              {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={active} controlsLocked={automaticInteractionLocked} pending={commandPending} readyCount={devicesReady} readyTotal={requiredDevices} run={run} saveConfiguration={saveConfiguration} historyItems={automaticHistoryItems} historyLoading={automaticHistoryLoading} historyError={automaticHistoryError} referencePath={automaticReferencePath} onReferencePathChange={setAutomaticReferencePath} stationId={stationId} onStationChange={setStationId} />}
-              {page === "manual" && <ManualPage snapshot={snapshot} config={config} update={update} active={active} pending={commandPending} run={run} stationId={stationId} onStationChange={setStationId} />}
-              {page === "pd" && <PdPage snapshot={snapshot} active={active} pending={commandPending} run={run} />}
-              {page === "shipping" && <ShippingReportPage active={active} controlsLocked={automaticInteractionLocked} pending={commandPending} />}
+              {commandPending && (
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <LoaderCircle className="size-3.5 animate-spin text-primary" />
+                  {pendingCommandLabel(pendingCommand)}
+                </span>
+              )}
             </div>
+
+            <div className="flex items-center gap-2">
+              <StationStatusPill
+                id="1"
+                summary={snapshot?.stations?.["1"]}
+                isSelected={stationId === "1"}
+                onSelect={() => setStationId("1")}
+                disabled={automaticInteractionLocked}
+              />
+              <StationStatusPill
+                id="2"
+                summary={snapshot?.stations?.["2"]}
+                isSelected={stationId === "2"}
+                onSelect={() => setStationId("2")}
+                disabled={automaticInteractionLocked}
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button
+                aria-hidden={!dirty}
+                className={`transition-opacity duration-200 ${dirty ? "opacity-100" : "pointer-events-none opacity-0"}`}
+                disabled={!dirty || !active || commandPending || automaticInteractionLocked}
+                onClick={() => void saveConfiguration()}
+                size="sm"
+                tabIndex={dirty && !automaticInteractionLocked ? 0 : -1}
+                variant="outline"
+              >
+                <Save className="size-4" />保存设置
+              </Button>
+              <Button
+                disabled={!active}
+                onClick={() => void run("app.stopAll")}
+                size="sm"
+                variant="destructive"
+              >
+                <OctagonAlert className="size-4" />紧急停止
+              </Button>
+            </div>
+          </header>
+
+          {toastNotifications.length > 0 && (
+            <div className="pointer-events-none fixed right-4 top-16 z-50 flex w-[min(420px,calc(100vw-2rem))] flex-col gap-2">
+              {toastNotifications.map((notification) => {
+                const isError = notification.level === "error"
+                const isWarning = notification.level === "warning"
+                return (
+                  <div
+                    className={`notification-enter pointer-events-auto flex items-start gap-3 rounded-lg border bg-[var(--app-surface-muted)] px-4 py-3 text-sm text-[var(--app-text)] shadow-lg shadow-black/25 ${isError ? "border-[color-mix(in_srgb,var(--app-danger)_40%,transparent)]" : isWarning ? "border-[color-mix(in_srgb,var(--app-warning)_40%,transparent)]" : "border-[color-mix(in_srgb,var(--app-validation)_40%,transparent)]"}`}
+                    key={notification.key}
+                    role="alert"
+                  >
+                    <OctagonAlert className={`mt-0.5 size-4 shrink-0 ${isError ? "text-[var(--app-danger)]" : isWarning ? "text-[var(--app-warning)]" : "text-[var(--app-validation)]"}`} />
+                    <div className="min-w-0 flex-1"><p className="font-medium">{notification.title}</p><p className="mt-1 leading-5 text-muted-foreground">{notification.message}</p></div>
+                    <button aria-label="关闭提示" className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-muted-foreground" disabled={automaticInteractionLocked} onClick={() => setDismissedNotifications((current) => new Set(current).add(notification.key))} type="button"><X className="size-4" /></button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {activeAlertNotification === powerProtectionNotification && powerProtectionNotification && <PowerProtectionDialog message={powerProtectionNotification.message} onClose={() => setDismissedNotifications((current) => new Set(current).add(powerProtectionNotification.key))} />}
+          {activeAlertNotification === spectrumSaturationNotification && spectrumSaturationNotification && <SpectrumSaturationDialog message={spectrumSaturationNotification.message} onClose={() => {
+            setDismissedNotifications((current) => new Set(current).add(spectrumSaturationNotification.key))
+            if (snapshot?.automaticTest.state === "paused") void run("automatic.retry")
+          }} />}
+          {automaticCompletion && !activeAlertNotification && !closeFailure && (
+            <AutomaticCompletionDialog
+              completedPoints={snapshot?.automaticTest.currentIndex !== undefined ? Math.min((snapshot.automaticTest.currentIndex + 1), (snapshot.automaticTest.currents?.length ?? 0)) : undefined}
+              message={automaticCompletion.message}
+              onClose={() => setAutomaticCompletion(null)}
+              outcome={snapshot?.automaticTest.terminalOutcome}
+              stationId={stationId}
+              title={automaticCompletion.title}
+              totalPoints={snapshot?.automaticTest.currents?.length}
+            />
+          )}
+          {closeFailure && <ShutdownFailureDialog message={closeFailure} onCancel={cancelClose} onForceExit={() => void forceClose()} onRetry={() => void attemptGracefulClose()} pending={closeRequestPending} />}
+
+          <div
+            className={`page-enter flex flex-1 min-h-0 flex-col overflow-y-auto p-4 ${page === "automatic" || page === "manual" ? "gap-3" : "space-y-4"}`}
+            data-page={page}
+            key={page}
+          >
+            {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={active} controlsLocked={automaticInteractionLocked} pending={commandPending} readyCount={devicesReady} readyTotal={requiredDevices} run={run} saveConfiguration={saveConfiguration} historyItems={automaticHistoryItems} historyLoading={automaticHistoryLoading} historyError={automaticHistoryError} referencePath={automaticReferencePath} onReferencePathChange={setAutomaticReferencePath} stationId={stationId} />}
+            {page === "manual" && <ManualPage snapshot={snapshot} config={config} update={update} active={active} pending={commandPending} run={run} stationId={stationId} />}
+            {page === "pd" && <PdPage snapshot={snapshot} active={active} pending={commandPending} run={run} />}
+            {page === "shipping" && <ShippingReportPage active={active} controlsLocked={automaticInteractionLocked} pending={commandPending} />}
           </div>
         </main>
       </div>
@@ -2357,58 +2688,162 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
   const outputPath = shippingOutputFilePath(outputDirectory, sn)
   return (
     <>
-      <div className="grid gap-4">
-        <Field label="Excel 测试数据路径">
-          <div className="flex min-w-0 gap-2">
-            <Input aria-label="Excel 测试数据路径" disabled={disabled || busy} onChange={(event) => { setSourcePath(event.target.value); setError("") }} placeholder="选择自动测试生成的 .xlsx 文件" value={sourcePath} />
-            <Button className="shrink-0" disabled={disabled || busy} onClick={() => void chooseSourcePath()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />浏览</Button>
-          </div>
-        </Field>
-        <Field label="本地 PDF 保存文件夹">
-          <div className="flex min-w-0 gap-2">
-            <Input aria-label="本地 PDF 保存文件夹" disabled={disabled || busy} onChange={(event) => { setOutputDirectory(event.target.value); setError("") }} placeholder="选择 PDF 保存文件夹，文件名将自动生成" value={outputDirectory} />
-            <Button className="shrink-0" disabled={disabled || busy} onClick={() => void chooseOutputDirectory()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />选择文件夹</Button>
-          </div>
-        </Field>
-      </div>
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-        <div className="min-w-0 text-xs text-muted-foreground">
-          {error && <p className="font-medium text-destructive">{error}</p>}
-          {lastOutputPath && <div className="flex min-w-0 flex-wrap items-center gap-2"><span className="max-w-[520px] truncate">已生成：{lastOutputPath}</span><Button onClick={() => void openPath(lastOutputPath)} size="sm" variant="outline"><FileText className="size-3.5" />打开 PDF</Button><Button onClick={() => void revealItemInDir(lastOutputPath)} size="sm" variant="outline"><FolderOpen className="size-3.5" />打开文件夹</Button></div>}
-          {!error && !lastOutputPath && <p>填写两个本地路径后，可配置报告参数并预览 PDF。</p>}
+      <div className="rounded-lg border border-border/70 bg-card/40 p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">
+            步骤 1 · 选择数据源与输出目录
+          </Badge>
         </div>
-        <Button disabled={disabled || busy} onClick={() => void configureReport()}><FileText className="size-4" />{busy && !inspection ? "正在读取…" : "配置报告"}</Button>
+        <div className="grid gap-4">
+          <Field label="Excel 测试数据路径">
+            <div className="flex min-w-0 gap-2">
+              <Input aria-label="Excel 测试数据路径" disabled={disabled || busy} onChange={(event) => { setSourcePath(event.target.value); setError("") }} placeholder="选择自动测试生成的 .xlsx 文件" value={sourcePath} />
+              <Button className="shrink-0" disabled={disabled || busy} onClick={() => void chooseSourcePath()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />浏览</Button>
+            </div>
+          </Field>
+          <Field label="本地 PDF 保存文件夹">
+            <div className="flex min-w-0 gap-2">
+              <Input aria-label="本地 PDF 保存文件夹" disabled={disabled || busy} onChange={(event) => { setOutputDirectory(event.target.value); setError("") }} placeholder="选择 PDF 保存文件夹，文件名将自动生成" value={outputDirectory} />
+              <Button className="shrink-0" disabled={disabled || busy} onClick={() => void chooseOutputDirectory()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />选择文件夹</Button>
+            </div>
+          </Field>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+          <div className="min-w-0 text-xs text-muted-foreground">
+            {error && <p className="font-medium text-destructive">{error}</p>}
+            {lastOutputPath && <div className="flex min-w-0 flex-wrap items-center gap-2"><span className="max-w-[520px] truncate">已生成：{lastOutputPath}</span><Button onClick={() => void openPath(lastOutputPath)} size="sm" variant="outline"><FileText className="size-3.5" />打开 PDF</Button><Button onClick={() => void revealItemInDir(lastOutputPath)} size="sm" variant="outline"><FolderOpen className="size-3.5" />打开文件夹</Button></div>}
+            {!error && !lastOutputPath && <p>填写数据路径与输出目录后，点击“读取数据”开始配置报告。</p>}
+          </div>
+          <Button disabled={disabled || busy} onClick={() => void configureReport()}><FileText className="size-4" />{busy && !inspection ? "正在读取…" : "读取并配置报告"}</Button>
+        </div>
       </div>
-      {inspection && <section aria-labelledby="shipping-report-title" className="mt-6 border-t border-border pt-6">
-          <div className="mb-5 flex items-start justify-between gap-4"><div><h2 className="text-base font-semibold" id="shipping-report-title">生成出货报告</h2><p className="mt-1 max-w-2xl truncate text-xs text-muted-foreground">{inspection.sourcePath}</p></div><button aria-label="收起报告配置" className="rounded-md p-1.5 text-muted-foreground hover:bg-muted" disabled={busy} onClick={() => setInspection(null)} type="button"><X className="size-4" /></button></div>
-            <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(365px,0.95fr)]">
-              <div className="min-w-0">
-                <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2">
-                  <Field label="报告类型"><NativeSelect value={reportType} onChange={(value) => changeReportType(value as ShippingReportType)}>{inspection.allowedReportTypes.includes("spectrum") && <option value="spectrum">含光谱测试报告</option>}<option value="pole">Pole 无光谱测试报告</option></NativeSelect></Field>
-                  <Field label="工作电流点"><NativeSelect value={String(operatingCurrentA)} onChange={(value) => changeOperatingCurrent(Number(value))}>{inspection.currents.map((current) => <option key={current} value={String(current)}>{Number.isInteger(current) ? current.toFixed(0) : String(current)} A</option>)}</NativeSelect></Field>
-                  <Field label="产品名称"><Input value={productName} onChange={(event) => changeProductName(event.target.value)} /></Field>
-                  <Field label="SN"><Input value={sn} onChange={(event) => setSn(event.target.value)} /></Field>
-                </div>
-                <Separator className="my-5" />
-                <div><div className="mb-3 flex items-end justify-between gap-4"><div><h3 className="text-sm font-semibold">报告参数</h3><p className="mt-1 text-xs text-muted-foreground">勾选需要出现在 PDF 中的参数；已勾选参数必须填写。</p></div><div className="flex shrink-0 items-center gap-3"><span className="text-xs text-muted-foreground">已选 {Object.values(fields).filter((item) => item.include).length} 项</span><Button disabled={busy} onClick={addCustomField} size="sm" type="button" variant="outline"><Plus className="size-3.5" />手动增加参数</Button></div></div>
-                  <div className="grid grid-cols-1 gap-x-6 gap-y-3 2xl:grid-cols-2">{definitions.filter((definition) => !customFields.some((field) => field.key === definition.key)).map((definition) => { const state = fields[definition.key] ?? { include: false, value: "" }; return <div className="grid grid-cols-[minmax(150px,0.9fr)_minmax(110px,1fr)_52px] items-center gap-2" key={definition.key}><label className="flex items-center gap-2 text-sm"><input checked={state.include} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" /><span>{definition.label}</span></label><Input aria-label={`${definition.label}数值`} className="h-8" value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} /><span className="text-xs text-muted-foreground">{definition.unit || "-"}</span></div> })}
-                    {customFields.map((definition) => { const state = fields[definition.key] ?? { include: true, value: "" }; return <div className="col-span-1 grid grid-cols-[auto_minmax(130px,0.8fr)_minmax(110px,1fr)_minmax(60px,0.35fr)_auto] items-center gap-2 rounded-md border border-dashed border-border bg-muted/20 p-2 2xl:col-span-2" key={definition.key}><input aria-label={`选择${definition.label}`} checked={state.include} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" /><Input aria-label="自定义参数名称" className="h-8" placeholder="参数名称" value={definition.label} onChange={(event) => updateCustomField(definition.key, { label: event.target.value })} /><Input aria-label={`${definition.label}数值`} className="h-8" placeholder="参数值" value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} /><Input aria-label={`${definition.label}单位`} className="h-8" placeholder="单位" value={definition.unit} onChange={(event) => updateCustomField(definition.key, { unit: event.target.value })} /><button aria-label={`删除${definition.label}`} className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => removeCustomField(definition.key)} type="button"><X className="size-4" /></button></div> })}
+
+      {inspection && (
+        <section aria-labelledby="shipping-report-title" className="mt-5 rounded-lg border border-border/70 bg-card/40 p-4">
+          <div className="mb-4 flex items-start justify-between gap-4">
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">
+                步骤 2 · 报告配置与参数勾选
+              </Badge>
+              <span className="max-w-md truncate text-xs text-muted-foreground">{inspection.sourcePath}</span>
+            </div>
+            <button aria-label="收起报告配置" className="rounded-md p-1 text-muted-foreground hover:bg-muted" disabled={busy} onClick={() => setInspection(null)} type="button">
+              <X className="size-4" />
+            </button>
+          </div>
+
+          <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
+            <div className="min-w-0">
+              <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2">
+                <Field label="报告类型"><NativeSelect value={reportType} onChange={(value) => changeReportType(value as ShippingReportType)}>{inspection.allowedReportTypes.includes("spectrum") && <option value="spectrum">含光谱测试报告</option>}<option value="pole">Pole 无光谱测试报告</option></NativeSelect></Field>
+                <Field label="工作电流点"><NativeSelect value={String(operatingCurrentA)} onChange={(value) => changeOperatingCurrent(Number(value))}>{inspection.currents.map((current) => <option key={current} value={String(current)}>{Number.isInteger(current) ? current.toFixed(0) : String(current)} A</option>)}</NativeSelect></Field>
+                <Field label="产品名称"><Input value={productName} onChange={(event) => changeProductName(event.target.value)} /></Field>
+                <Field label="SN"><Input value={sn} onChange={(event) => setSn(event.target.value)} /></Field>
+              </div>
+
+              <Separator className="my-5" />
+
+              <div>
+                <div className="mb-3 flex items-end justify-between gap-4">
+                  <div>
+                    <h3 className="text-sm font-semibold">报告判定参数</h3>
+                    <p className="mt-0.5 text-xs text-muted-foreground">勾选需要呈现在出货 PDF 中的参数</p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <span className="text-xs text-muted-foreground">已选 {Object.values(fields).filter((item) => item.include).length} 项</span>
+                    <Button disabled={busy} onClick={addCustomField} size="sm" type="button" variant="outline"><Plus className="size-3.5" />增加参数</Button>
                   </div>
                 </div>
-                {reportType === "spectrum" && <><Separator className="my-5" /><div><h3 className="text-sm font-semibold">光谱纵轴</h3><div className="mt-3 grid grid-cols-3 gap-4"><Field label="单位"><NativeSelect disabled value={axisMode} onChange={() => undefined}><option value="counts">原始强度 (counts)</option></NativeSelect></Field><NumberField label="下限" value={axisMinimum} onChange={setAxisMinimum} step="1" /><NumberField label="上限" value={axisMaximum} onChange={setAxisMaximum} step="1" /></div></div><Separator className="my-5" /><div><h3 className="text-sm font-semibold">光谱横轴</h3><div className="mt-3 grid grid-cols-2 gap-4"><NumberField label="下限 (nm)" value={wavelengthMinimum} onChange={setWavelengthMinimum} step="0.1" /><NumberField label="上限 (nm)" value={wavelengthMaximum} onChange={setWavelengthMaximum} step="0.1" /></div></div></>}
-                {error && <p className="mt-4 rounded-md bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">{error}</p>}
-              </div>
-              <aside aria-labelledby="shipping-report-preview-title" className="min-w-0 border-t border-border pt-5 lg:sticky lg:top-[88px] lg:self-start lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
-                <div className="flex items-start justify-between gap-3">
-                  <div><h3 className="text-sm font-semibold" id="shipping-report-preview-title">实时预览</h3><p aria-live="polite" className="mt-1 text-xs text-muted-foreground">{previewBusy ? "正在更新预览…" : previewPages.length ? "与导出的 PDF 使用同一渲染器" : "填写完整后将自动生成预览"}</p></div>
-                  {previewBusy && <LoaderCircle aria-label="正在更新预览" className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />}
+                <div className="grid grid-cols-1 gap-x-6 gap-y-3 2xl:grid-cols-2">
+                  {definitions.filter((definition) => !customFields.some((field) => field.key === definition.key)).map((definition) => {
+                    const state = fields[definition.key] ?? { include: false, value: "" }
+                    return (
+                      <div className="grid grid-cols-[minmax(150px,0.9fr)_minmax(110px,1fr)_52px] items-center gap-2" key={definition.key}>
+                        <label className="flex items-center gap-2 text-sm"><input checked={state.include} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" /><span>{definition.label}</span></label>
+                        <Input aria-label={`${definition.label}数值`} className="h-8" value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} />
+                        <span className="text-xs text-muted-foreground">{definition.unit || "-"}</span>
+                      </div>
+                    )
+                  })}
+                  {customFields.map((definition) => {
+                    const state = fields[definition.key] ?? { include: true, value: "" }
+                    return (
+                      <div className="col-span-1 grid grid-cols-[auto_minmax(130px,0.8fr)_minmax(110px,1fr)_minmax(60px,0.35fr)_auto] items-center gap-2 rounded-md border border-dashed border-border bg-muted/20 p-2 2xl:col-span-2" key={definition.key}>
+                        <input aria-label={`选择${definition.label}`} checked={state.include} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" />
+                        <Input aria-label="自定义参数名称" className="h-8" placeholder="参数名称" value={definition.label} onChange={(event) => updateCustomField(definition.key, { label: event.target.value })} />
+                        <Input aria-label={`${definition.label}数值`} className="h-8" placeholder="参数值" value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} />
+                        <Input aria-label={`${definition.label}单位`} className="h-8" placeholder="单位" value={definition.unit} onChange={(event) => updateCustomField(definition.key, { unit: event.target.value })} />
+                        <button aria-label={`删除${definition.label}`} className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => removeCustomField(definition.key)} type="button"><X className="size-4" /></button>
+                      </div>
+                    )
+                  })}
                 </div>
-                {previewError && <div className="mt-4 rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 text-xs text-amber-950"><p className="font-medium">当前输入暂无法预览</p><p className="mt-1 leading-relaxed">{previewError}</p></div>}
-                {previewPages.length > 0 ? <div className="mt-4 space-y-5">{previewPages.map((page, index) => <figure className="overflow-hidden rounded-sm border border-border bg-white shadow-sm" key={`${index}-${page.slice(-24)}`}><img alt={`出货报告预览，第 ${index + 1} 页`} className="block h-auto w-full" src={`data:image/png;base64,${page}`} /><figcaption className="border-t border-border bg-muted/30 px-3 py-1.5 text-center text-[11px] text-muted-foreground">第 {index + 1} 页</figcaption></figure>)}</div> : !previewError && !previewBusy && <div className="mt-4 grid min-h-56 place-items-center border border-dashed border-border bg-muted/20 px-6 text-center text-xs text-muted-foreground"><div><FileText className="mx-auto mb-2 size-5 opacity-60" /><p>正在准备报告预览</p></div></div>}
-              </aside>
+              </div>
+
+              {reportType === "spectrum" && (
+                <>
+                  <Separator className="my-5" />
+                  <div>
+                    <h3 className="text-sm font-semibold">光谱坐标轴配置</h3>
+                    <div className="mt-3 grid grid-cols-3 gap-4">
+                      <Field label="单位"><NativeSelect disabled value={axisMode} onChange={() => undefined}><option value="counts">原始强度 (counts)</option></NativeSelect></Field>
+                      <NumberField label="下限" value={axisMinimum} onChange={setAxisMinimum} step="1" />
+                      <NumberField label="上限" value={axisMaximum} onChange={setAxisMaximum} step="1" />
+                    </div>
+                  </div>
+                  <Separator className="my-5" />
+                  <div>
+                    <h3 className="text-sm font-semibold">光谱横轴</h3>
+                    <div className="mt-3 grid grid-cols-2 gap-4">
+                      <NumberField label="下限 (nm)" value={wavelengthMinimum} onChange={setWavelengthMinimum} step="0.1" />
+                      <NumberField label="上限 (nm)" value={wavelengthMaximum} onChange={setWavelengthMaximum} step="0.1" />
+                    </div>
+                  </div>
+                </>
+              )}
+              {error && <p className="mt-4 rounded-md bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">{error}</p>}
             </div>
-          <div className="mt-6 flex items-center justify-between gap-3 border-t border-border pt-4"><p className="max-w-[60%] truncate text-xs text-muted-foreground" title={outputPath}>将保存至：{outputPath}</p><div className="flex gap-2"><Button disabled={busy} onClick={() => setInspection(null)} variant="outline">取消</Button><Button disabled={busy} onClick={() => void generate()}>{busy ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}{busy ? "正在生成…" : "生成 PDF"}</Button></div></div>
-      </section>}
+
+            <aside aria-labelledby="shipping-report-preview-title" className="min-w-0 border-t border-border pt-5 lg:sticky lg:top-[88px] lg:self-start lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/30">
+                    步骤 3 · 实时预览与导出
+                  </Badge>
+                  <p aria-live="polite" className="mt-1 text-xs text-muted-foreground">{previewBusy ? "正在更新预览…" : previewPages.length ? "与导出的 PDF 使用同一渲染器" : "填写完整后将自动生成预览"}</p>
+                </div>
+                {previewBusy && <LoaderCircle aria-label="正在更新预览" className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />}
+              </div>
+              {previewError && <div className="mt-4 rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 text-xs text-amber-950"><p className="font-medium">当前输入暂无法预览</p><p className="mt-1 leading-relaxed">{previewError}</p></div>}
+              {previewPages.length > 0 ? (
+                <div className="mt-4 space-y-5">
+                  {previewPages.map((page, index) => (
+                    <figure className="overflow-hidden rounded-sm border border-border bg-white shadow-sm" key={`${index}-${page.slice(-24)}`}>
+                      <img alt={`出货报告预览，第 ${index + 1} 页`} className="block h-auto w-full" src={`data:image/png;base64,${page}`} />
+                      <figcaption className="border-t border-border bg-muted/30 px-3 py-1.5 text-center text-[11px] text-muted-foreground">第 {index + 1} 页</figcaption>
+                    </figure>
+                  ))}
+                </div>
+              ) : !previewError && !previewBusy && (
+                <div className="mt-4 grid min-h-56 place-items-center border border-dashed border-border bg-muted/20 px-6 text-center text-xs text-muted-foreground">
+                  <div>
+                    <FileText className="mx-auto mb-2 size-5 opacity-60" />
+                    <p>正在准备报告预览</p>
+                  </div>
+                </div>
+              )}
+            </aside>
+          </div>
+
+          <div className="mt-6 flex items-center justify-between gap-3 border-t border-border pt-4">
+            <p className="max-w-[60%] truncate text-xs text-muted-foreground" title={outputPath}>将保存至：{outputPath}</p>
+            <div className="flex gap-2">
+              <Button disabled={busy} onClick={() => setInspection(null)} variant="outline">取消</Button>
+              <Button disabled={busy} onClick={() => void generate()}>{busy ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}{busy ? "正在生成…" : "生成 PDF"}</Button>
+            </div>
+          </div>
+        </section>
+      )}
     </>
   )
 }
@@ -2797,8 +3232,7 @@ const AutomaticPage = memo(function AutomaticPage({
   historyError,
   referencePath,
   onReferencePathChange,
-  stationId,
-  onStationChange,
+  stationId: _stationId,
 }: {
   snapshot: BackendSnapshot | null
   config: AppConfiguration
@@ -2815,8 +3249,7 @@ const AutomaticPage = memo(function AutomaticPage({
   historyError: string
   referencePath: string
   onReferencePathChange: (path: string) => void
-  stationId: "1" | "2"
-  onStationChange: (station: "1" | "2") => void
+  stationId?: "1" | "2"
 }) {
   const auto = snapshot?.automaticTest
   const testStarted = Boolean(auto && auto.state !== "idle")
@@ -2835,139 +3268,208 @@ const AutomaticPage = memo(function AutomaticPage({
   const startAutomaticTest = () => {
     void run("automatic.start", { ...config, referencePath })
   }
-  const st1 = snapshot?.stations?.["1"]
-  const st2 = snapshot?.stations?.["2"]
   const powerSupplySummary = config.powerSupplyKind === "ch341"
     ? `CH341 · ${config.initialCurrentA}A → ${config.targetCurrentA}A (${config.currentStepA}A)`
     : `TDK · ${config.initialCurrentA}A → ${config.targetCurrentA}A (${config.tdkVoltageV}V)`
-  const powerMeterSummary = `${config.powerMeterResource ? powerMeterResourceValue(config.powerMeterResource) : "未选串口"} · ${config.powerMeterWavelengthNm} nm (×${config.softwareGain})`
+  const powerMeterSummary = `${config.powerMeterResource ? powerMeterResourceLabel(config.powerMeterResource, snapshot?.devices.powerMeter?.resources) : "未选串口"} · ${config.powerMeterWavelengthNm} nm (×${config.softwareGain})`
   const spectrometerSummary = config.useSpectrometer
     ? `${config.integrationTimeUs} μs · PIB ${config.pibCenterWavelengthNm}±${config.pibHalfRangeNm}nm`
     : "未启用光谱采集"
 
+  const chooseOutputDir = async () => {
+    if (controlsLocked) return
+    try {
+      const selected = await openDialog({
+        multiple: false,
+        directory: true,
+        title: "选择测试数据输出目录",
+        defaultPath: config.outputDir.trim() || undefined,
+      })
+      if (typeof selected === "string" && selected) {
+        update("outputDir", selected)
+      }
+    } catch {
+      // dialog cancelled or failed
+    }
+  }
+
   return (
     <>
-      <div className="flex items-center justify-between gap-4 border-b border-border/80 pb-2">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => onStationChange("1")}
-            className={`flex items-center gap-2.5 rounded-lg px-4 py-2 text-sm font-medium transition-all ${
-              stationId === "1"
-                ? "border border-sky-500/40 bg-sky-500/15 text-sky-600 dark:text-sky-300 shadow-sm"
-                : "bg-muted/40 text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-            }`}
-          >
-            <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-sky-500" />自动测试页面一</span>
-            <Badge
+      <div className="relative z-20 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[minmax(180px,1.2fr)_minmax(150px,1.1fr)_minmax(110px,0.8fr)_minmax(170px,1.3fr)_136px] items-end gap-3 rounded-lg border border-border/70 bg-card/40 p-3 shadow-none">
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground" htmlFor="automatic-output-directory">
+            <FolderOpen className="mr-1 inline size-3.5" />输出目录
+          </Label>
+          <div className="flex items-center gap-1.5">
+            <Input
+              className="h-9 min-w-0 flex-1 text-xs rounded-lg"
+              disabled={controlsLocked}
+              id="automatic-output-directory"
+              onChange={(event) => update("outputDir", event.target.value)}
+              placeholder="测试数据保存目录"
+              value={config.outputDir}
+            />
+            <Button
+              className="size-9 shrink-0 px-0"
+              disabled={controlsLocked}
+              onClick={() => void chooseOutputDir()}
+              size="sm"
+              type="button"
               variant="outline"
-              className={`text-xs ${
-                st1?.state === "setting_current" ||
-                st1?.state === "waiting_stable" ||
-                st1?.state === "waiting_voltage" ||
-                st1?.state === "holding" ||
-                st1?.state === "ramping_down"
-                  ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                  : st1?.state === "completed"
-                  ? "border-blue-500/40 bg-blue-500/15 text-blue-600 dark:text-blue-400"
-                  : st1?.state === "paused"
-                  ? "border-amber-500/40 bg-amber-500/15 text-amber-600 dark:text-amber-400"
-                  : "border-muted-foreground/30 text-muted-foreground"
-              }`}
+              title="选择输出目录"
             >
-              {stationStateLabel(st1)}
-            </Badge>
-          </button>
-          <button
-            type="button"
-            onClick={() => onStationChange("2")}
-            className={`flex items-center gap-2.5 rounded-lg px-4 py-2 text-sm font-medium transition-all ${
-              stationId === "2"
-                ? "border border-amber-500/40 bg-amber-500/15 text-amber-600 dark:text-amber-300 shadow-sm"
-                : "bg-muted/40 text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-            }`}
-          >
-            <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-amber-500" />自动测试页面二</span>
-            <Badge
-              variant="outline"
-              className={`text-xs ${
-                st2?.state === "setting_current" ||
-                st2?.state === "waiting_stable" ||
-                st2?.state === "waiting_voltage" ||
-                st2?.state === "holding" ||
-                st2?.state === "ramping_down"
-                  ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                  : st2?.state === "completed"
-                  ? "border-blue-500/40 bg-blue-500/15 text-blue-600 dark:text-blue-400"
-                  : st2?.state === "paused"
-                  ? "border-amber-500/40 bg-amber-500/15 text-amber-600 dark:text-amber-400"
-                  : "border-muted-foreground/30 text-muted-foreground"
-              }`}
-            >
-              {stationStateLabel(st2)}
-            </Badge>
-          </button>
+              <FolderOpen className="size-4" />
+            </Button>
+          </div>
         </div>
-        <div className="hidden text-xs text-muted-foreground lg:block">
-          两套工位硬件独立，支持同时连接与开始测试
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground" htmlFor="automatic-sn">
+            <QrCode className="mr-1 inline size-3.5" />壳体 SN
+          </Label>
+          <Input
+            className="h-9 text-xs font-mono rounded-lg"
+            disabled={controlsLocked}
+            id="automatic-sn"
+            onChange={(event) => update("sn", event.target.value)}
+            value={config.sn}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground" htmlFor="automatic-station">
+            <Milestone className="mr-1 inline size-3.5" />测试站别
+          </Label>
+          <Input
+            className="h-9 text-xs rounded-lg"
+            disabled={controlsLocked}
+            id="automatic-station"
+            onChange={(event) => update("station", event.target.value)}
+            value={config.station}
+          />
+        </div>
+        <div className="space-y-1 min-w-0" title={historyError || undefined}>
+          <Label className={`text-xs ${historyError ? "text-[var(--app-warning)]" : "text-muted-foreground"}`}>
+            <History className="mr-1 inline size-3.5" />历史参考{historyLoading ? " · 自动更新中…" : ""}
+          </Label>
+          <NativeSelect
+            disabled={controlsLocked || historyLoading}
+            value={referencePath}
+            onChange={onReferencePathChange}
+          >
+            <option value="latest">最新记录</option>
+            {historyItems.map((item) => {
+              const rawTime = item.startedAtUtc || new Date(item.modifiedAtMs).toISOString()
+              const timestamp = new Date(rawTime)
+              const timeLabel = Number.isNaN(timestamp.getTime()) ? rawTime : timestamp.toLocaleString()
+              return <option key={item.sourcePath} value={item.sourcePath}>{timeLabel} · {item.station || "未填写站别"} · {item.pointCount} 点</option>
+            })}
+            <option value="none">无</option>
+          </NativeSelect>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">
+            <Radio className="mr-1 inline size-3.5" />光谱采集
+          </Label>
+          <button
+            type="button"
+            disabled={controlsLocked}
+            onClick={() => update("useSpectrometer", !config.useSpectrometer)}
+            className={`flex h-9 w-full items-center justify-between gap-2 rounded-lg border px-3 text-xs transition-all ${
+              controlsLocked
+                ? "cursor-not-allowed opacity-50 border-border bg-muted/20 text-muted-foreground"
+                : config.useSpectrometer
+                ? "cursor-pointer border-primary/50 bg-primary/15 text-primary font-medium hover:bg-primary/20 shadow-xs"
+                : "cursor-pointer border-input bg-background text-muted-foreground hover:border-[var(--app-border-strong)] hover:bg-muted/25 hover:text-foreground"
+            }`}
+          >
+            <span className="font-medium">{config.useSpectrometer ? "已开启" : "已关闭"}</span>
+            <div className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors p-0.5 ${
+              config.useSpectrometer ? "bg-primary" : "bg-muted-foreground/30"
+            }`}>
+              <span className={`size-4 rounded-full transition-transform shadow-xs ${
+                config.useSpectrometer ? "translate-x-4 bg-primary-foreground" : "translate-x-0 bg-background"
+              }`} />
+            </div>
+          </button>
         </div>
       </div>
-      <section className="grid grid-cols-3 gap-4">
-        <DeviceCard title="电源" icon={<Power className="size-5" />} device={snapshot?.devices.powerSupply} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("powerSupply")} summary={powerSupplySummary} />
-        <DeviceCard title="功率计" icon={<Gauge className="size-5" />} device={snapshot?.devices.powerMeter} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("powerMeter")} summary={powerMeterSummary} />
-        <DeviceCard title="光谱仪" icon={<Radio className="size-5" />} device={snapshot?.devices.spectrometer} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("spectrometer")} summary={spectrometerSummary} />
+
+      <section className="grid grid-cols-3 gap-3">
+        <DeviceCard title="电源" icon={<Power className="size-4" />} device={snapshot?.devices.powerSupply} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("powerSupply")} summary={powerSupplySummary} />
+        <DeviceCard title="功率计" icon={<Gauge className="size-4" />} device={snapshot?.devices.powerMeter} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("powerMeter")} summary={powerMeterSummary} />
+        <DeviceCard title="光谱仪" icon={<Radio className="size-4" />} device={snapshot?.devices.spectrometer} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("spectrometer")} summary={spectrometerSummary} />
       </section>
-      <Card className="shadow-none lg:hidden" size="sm">
-        <CardContent className="grid grid-cols-1 gap-4 py-1 lg:grid-cols-[minmax(180px,0.7fr)_minmax(180px,0.7fr)_minmax(360px,1.6fr)] lg:items-start">
-          <Field label="输出目录"><Input disabled={controlsLocked} onChange={(event) => update("outputDir", event.target.value)} value={config.outputDir} /></Field>
-          <Field label="壳体 SN"><Input disabled={controlsLocked} onChange={(event) => update("sn", event.target.value)} value={config.sn} /></Field>
-          <Field label="测试站别"><Input disabled={controlsLocked} onChange={(event) => update("station", event.target.value)} value={config.station} /></Field>
-          <div>
-            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3">
-              <div className="min-w-0 space-y-1.5">
-                <Label>历史参考{historyLoading ? " · 自动更新中…" : ""}</Label>
-                <NativeSelect disabled={controlsLocked || historyLoading} value={referencePath} onChange={onReferencePathChange}>
-                  <option value="latest">上一次同 SN 完整测试（默认）</option>
-                  {historyItems.map((item) => {
-                    const rawTime = item.startedAtUtc || new Date(item.modifiedAtMs).toISOString()
-                    const timestamp = new Date(rawTime)
-                    const timeLabel = Number.isNaN(timestamp.getTime()) ? rawTime : timestamp.toLocaleString()
-                    return <option key={item.sourcePath} value={item.sourcePath}>{timeLabel} · {item.station || "未填写站别"} · {item.pointCount} 点</option>
-                  })}
-                  <option value="none">不显示历史参考</option>
-                </NativeSelect>
-              </div>
-              <label className={`flex shrink-0 flex-col items-center gap-1.5 text-xs ${controlsLocked ? "cursor-not-allowed text-muted-foreground opacity-55" : "cursor-pointer text-muted-foreground"}`}><span>采集光谱</span><span className="flex h-9 items-center justify-center"><input className="size-5 shrink-0" checked={config.useSpectrometer} disabled={controlsLocked} onChange={(event) => update("useSpectrometer", event.target.checked)} type="checkbox" /></span></label>
-            </div>
-            <p className={`mt-1.5 text-xs ${historyError ? "text-[var(--app-warning)]" : "text-muted-foreground"}`}>{historyError || (historyItems.length ? `已自动找到 ${historyItems.length} 次完整测试；默认使用最上一次。` : "填写输出目录和 SN 后，将自动匹配历史记录。")}</p>
+
+      <Card className="shadow-none border-border/80" size="sm">
+        <CardContent className="flex flex-col gap-3 py-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-col justify-center items-center text-center min-w-[170px] shrink-0">
+            {testStarted ? (
+              <>
+                <p className="text-2xl font-bold font-mono tracking-tight text-foreground tabular-nums">
+                  {formatNumber(displayedCurrentA, " A", 1)}
+                </p>
+                <p className="text-xs truncate max-w-[240px] text-muted-foreground" title={progressLabel}>
+                  {progressLabel}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className={`text-base font-bold tracking-tight tabular-nums ${
+                  readyCount === readyTotal ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"
+                }`}>
+                  {readyCount === readyTotal
+                    ? `✓ ${readyTotal} 台设备就绪`
+                    : `${readyCount} / ${readyTotal} 台设备就绪`}
+                </p>
+                <p className={`text-xs truncate max-w-[240px] ${auto?.settingsError ? "text-[var(--app-warning)] font-medium" : "text-muted-foreground"}`} title={progressLabel}>
+                  {progressLabel}
+                </p>
+              </>
+            )}
           </div>
-        </CardContent>
-      </Card>
-      <Card className="shadow-none" size="sm">
-        <CardContent className="grid grid-cols-1 gap-5 py-1 lg:grid-cols-5 lg:items-stretch lg:gap-0">
-          <div className="flex h-full min-h-12 min-w-0 items-center justify-center gap-2 lg:px-5">
-            <Badge variant="outline" className={`font-mono text-xs font-semibold shrink-0 ${stationId === "1" ? "border-sky-500/40 bg-sky-500/10 text-sky-600 dark:text-sky-400" : "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"}`}>工位 {stationId}</Badge>
-            <p className="text-2xl font-semibold tabular-nums">{testStarted ? formatNumber(displayedCurrentA, " A", 1) : `${readyCount} / ${readyTotal}`}</p>
+
+          <div className="min-w-0 flex-1 border-t lg:border-t-0 lg:border-x border-border/70 py-2 lg:py-0 lg:px-6">
+            <AutomaticWorkflowStepper
+              state={auto?.state}
+              currentIndex={auto?.currentIndex}
+              totalPoints={auto?.currents?.length}
+            />
           </div>
-          <div className="flex min-h-12 min-w-0 items-center gap-3 border-border lg:col-span-2 lg:border-l lg:px-5">
-            <p className={`min-w-0 flex-1 truncate text-sm font-medium ${auto?.settingsError && !testStarted ? "text-[var(--app-warning)]" : "text-muted-foreground"}`} title={progressLabel}>{progressLabel}</p>
-            {auto?.canRetry && <Button disabled={!active || pending} onClick={() => void run("automatic.retry")} size="sm" variant="outline"><RotateCcw className="size-4" />修复后重试</Button>}
-          </div>
-          <div className="flex min-h-12 items-center justify-center border-border lg:border-l lg:px-5">
-            <Button className="h-10 w-full max-w-40 gap-2 px-5" disabled={!active || pending || controlsLocked || historyLoading || !auto?.canStart} onClick={startAutomaticTest}><Play className="size-5" />开始</Button>
-          </div>
-          <div className="flex min-h-12 items-center justify-center lg:pl-5">
-            <Button className="h-10 w-full max-w-40 gap-2 px-5" disabled={!active || pending || !auto?.canEnd} onClick={() => void run("automatic.end")} variant="destructive"><Square className="size-5" />结束</Button>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {auto?.canRetry && (
+              <Button disabled={!active || pending} onClick={() => void run("automatic.retry")} size="sm" variant="outline">
+                <RotateCcw className="size-4 mr-1" />重试
+              </Button>
+            )}
+            <Button
+              className="h-9 min-w-24 gap-1.5 px-4 font-medium"
+              disabled={!active || pending || controlsLocked || historyLoading || !auto?.canStart}
+              onClick={startAutomaticTest}
+            >
+              <Play className="size-4" />开始测试
+            </Button>
+            <Button
+              className="h-9 min-w-20 gap-1.5 px-4"
+              disabled={!active || pending || !auto?.canEnd}
+              onClick={() => void run("automatic.end")}
+              variant="destructive"
+            >
+              <Square className="size-4" />结束
+            </Button>
           </div>
         </CardContent>
       </Card>
 
-      <div className={`grid min-h-0 flex-1 gap-4 ${config.useSpectrometer ? "grid-rows-2" : "grid-rows-1"}`}>
-        <section className="grid min-h-0 grid-cols-1 gap-4 lg:grid-cols-2">
+      <div className={`grid min-h-[360px] flex-1 gap-3 ${config.useSpectrometer ? "grid-rows-2" : "grid-rows-1"}`}>
+        <section className="grid min-h-0 grid-cols-1 gap-3 lg:grid-cols-2">
           <PowerRealtimeChart snapshot={snapshot} stretch />
           <PowerEfficiencyChart snapshot={snapshot} stretch />
         </section>
-        {config.useSpectrometer && <SpectrumRealtimeChart snapshot={snapshot} stretch />}
+        {config.useSpectrometer && (
+          <div className="min-h-0">
+            <SpectrumRealtimeChart snapshot={snapshot} stretch />
+          </div>
+        )}
       </div>
       {openSettings && <DeviceSettingsDialog active={active} config={config} kind={openSettings} onClose={closeSettings} onSave={saveConfiguration} open pending={pending} run={run} snapshot={snapshot} update={update} />}
     </>
@@ -3010,14 +3512,126 @@ const ShippingReportPage = memo(function ShippingReportPage({ active, controlsLo
   && previous.pending === next.pending
 ))
 
-function NumberField({ label, value, onChange, disabled = false, min, max, step = "1", layout = "stacked" }: { label: string; value: number; onChange: (value: number) => void; disabled?: boolean; min?: number; max?: number; step?: string; layout?: FieldLayout }) {
+function NumberInput({
+  value,
+  onChange,
+  disabled = false,
+  min,
+  max,
+  step = "1",
+  className,
+  "aria-label": ariaLabel,
+  id,
+}: {
+  value: number
+  onChange: (value: number) => void
+  disabled?: boolean
+  min?: number | string
+  max?: number | string
+  step?: string
+  className?: string
+  "aria-label"?: string
+  id?: string
+}) {
+  const [text, setText] = useState(() => (Number.isFinite(value) ? String(value) : ""))
+  const [isFocused, setIsFocused] = useState(false)
+
+  useEffect(() => {
+    if (!isFocused) {
+      setText(Number.isFinite(value) ? String(value) : "")
+    } else if (Number.isFinite(value) && Number(text) !== value && text !== "" && text !== "-") {
+      setText(String(value))
+    }
+  }, [value, isFocused])
+
+  const numMin = min !== undefined ? Number(min) : undefined
+  const numMax = max !== undefined ? Number(max) : undefined
+
   const handleChange = (rawValue: string) => {
-    let nextValue = asNumber(rawValue)
-    if (min !== undefined) nextValue = Math.max(min, nextValue)
-    if (max !== undefined) nextValue = Math.min(max, nextValue)
-    onChange(nextValue)
+    const normalized = rawValue.replace(/^(-?)0+(\d)/, "$1$2")
+    setText(normalized)
+    if (normalized === "" || normalized === "-" || normalized.endsWith(".")) {
+      return
+    }
+    const parsed = Number(normalized)
+    if (Number.isFinite(parsed)) {
+      let nextValue = parsed
+      if (numMax !== undefined && Number.isFinite(numMax) && nextValue > numMax) {
+        nextValue = numMax
+      }
+      onChange(nextValue)
+    }
   }
-  return <Field label={label} layout={layout}><Input disabled={disabled} type="number" min={min} max={max} step={step} value={value} onChange={(e) => handleChange(e.target.value)} /></Field>
+
+  const handleBlur = () => {
+    setIsFocused(false)
+    if (text === "" || text === "-" || !Number.isFinite(Number(text))) {
+      const fallback = numMin !== undefined && Number.isFinite(numMin) ? numMin : 0
+      setText(String(fallback))
+      onChange(fallback)
+      return
+    }
+    let num = Number(text)
+    if (numMin !== undefined && Number.isFinite(numMin)) num = Math.max(numMin, num)
+    if (numMax !== undefined && Number.isFinite(numMax)) num = Math.min(numMax, num)
+    setText(String(num))
+    onChange(num)
+  }
+
+  const handleFocus = (event: React.FocusEvent<HTMLInputElement>) => {
+    setIsFocused(true)
+    event.currentTarget.select()
+  }
+
+  return (
+    <Input
+      aria-label={ariaLabel}
+      className={className}
+      disabled={disabled}
+      id={id}
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      value={text}
+      onFocus={handleFocus}
+      onBlur={handleBlur}
+      onChange={(e) => handleChange(e.target.value)}
+    />
+  )
+}
+
+function NumberField({
+  label,
+  value,
+  onChange,
+  disabled = false,
+  min,
+  max,
+  step = "1",
+  layout = "stacked",
+}: {
+  label: string
+  value: number
+  onChange: (value: number) => void
+  disabled?: boolean
+  min?: number
+  max?: number
+  step?: string
+  layout?: FieldLayout
+}) {
+  return (
+    <Field label={label} layout={layout}>
+      <NumberInput
+        disabled={disabled}
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={onChange}
+      />
+    </Field>
+  )
 }
 
 const ManualPage = memo(function ManualPage({
@@ -3028,7 +3642,6 @@ const ManualPage = memo(function ManualPage({
   pending,
   run,
   stationId,
-  onStationChange,
 }: {
   snapshot: BackendSnapshot | null
   config: AppConfiguration
@@ -3037,7 +3650,6 @@ const ManualPage = memo(function ManualPage({
   pending: boolean
   run: RunCommand
   stationId: "1" | "2"
-  onStationChange: (station: "1" | "2") => void
 }) {
   const psu = snapshot?.devices.powerSupply
   const meter = snapshot?.devices.powerMeter
@@ -3058,49 +3670,12 @@ const ManualPage = memo(function ManualPage({
       commandLockRef.current = false
     }
   }
+  const isPsuActive = Boolean(psu?.connected || psu?.outputEnabled)
+  const isMeterActive = Boolean(meter?.running)
+  const isSpectrumActive = Boolean(spectrum?.running)
+
   return (
-    <div className="manual-page flex min-h-0 flex-1 flex-col gap-4">
-      <div className="flex items-center justify-between gap-4 border-b border-border/80 pb-2">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => onStationChange("1")}
-            className={`flex items-center gap-2.5 rounded-lg px-4 py-2 text-sm font-medium transition-all ${
-              stationId === "1"
-                ? "border border-sky-500/40 bg-sky-500/15 text-sky-600 dark:text-sky-300 shadow-sm"
-                : "bg-muted/40 text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-            }`}
-          >
-            <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-sky-500" />工位一硬件配置</span>
-            <Badge
-              variant="outline"
-              className="text-xs border-muted-foreground/30 text-muted-foreground"
-            >
-              {snapshot?.stations?.["1"]?.powerSupplyConnected ? "已连电源" : "未连接"}
-            </Badge>
-          </button>
-          <button
-            type="button"
-            onClick={() => onStationChange("2")}
-            className={`flex items-center gap-2.5 rounded-lg px-4 py-2 text-sm font-medium transition-all ${
-              stationId === "2"
-                ? "border border-amber-500/40 bg-amber-500/15 text-amber-600 dark:text-amber-300 shadow-sm"
-                : "bg-muted/40 text-muted-foreground hover:bg-muted/70 hover:text-foreground"
-            }`}
-          >
-            <span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-amber-500" />工位二硬件配置</span>
-            <Badge
-              variant="outline"
-              className="text-xs border-muted-foreground/30 text-muted-foreground"
-            >
-              {snapshot?.stations?.["2"]?.powerSupplyConnected ? "已连电源" : "未连接"}
-            </Badge>
-          </button>
-        </div>
-        <div className="hidden text-xs text-muted-foreground lg:block">
-          当前配置：工位 {stationId}（两套工位硬件独立绑定，避免端口冲突）
-        </div>
-      </div>
+    <div className="manual-page flex min-h-0 flex-1 flex-col gap-3">
       {otherConfig && (
         (() => {
           const conflicts: string[] = []
@@ -3133,7 +3708,7 @@ const ManualPage = memo(function ManualPage({
         })()
       )}
       <section className="manual-device-grid shrink-0">
-        <Card size="sm" className="shadow-none"><CardHeader><CardTitle className="text-base">电源控制</CardTitle></CardHeader><CardContent className="manual-control-content">
+        <Card size="sm" className="shadow-none"><CardHeader className="flex flex-row items-center justify-between"><CardTitle className="text-base">电源控制</CardTitle><Power className={`size-4 transition-colors ${isPsuActive ? "text-amber-500" : "text-muted-foreground"}`} /></CardHeader><CardContent className="manual-control-content">
           <Field label="控制器"><NativeSelect disabled={!active || pending || psu?.connected} value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
           {config.powerSupplyKind === "tdk" ? <>
             <Field label="TDK 串口">
@@ -3201,12 +3776,16 @@ const ManualPage = memo(function ManualPage({
           </>}
         </CardContent></Card>
 
-        <Card size="sm" className="shadow-none"><CardHeader><CardTitle className="text-base">功率计</CardTitle></CardHeader><CardContent className="manual-control-content">
+        <Card size="sm" className="shadow-none"><CardHeader className="flex flex-row items-center justify-between"><CardTitle className="text-base">功率计</CardTitle><Gauge className={`size-4 transition-colors ${isMeterActive ? "text-amber-500" : "text-muted-foreground"}`} /></CardHeader><CardContent className="manual-control-content">
           <Field label="串口资源">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
               <NativeSelect value={selectedPowerMeterResource} onChange={(v) => update("powerMeterResource", v)}>
                 <option value="">请选择串口资源</option>
-                {selectedPowerMeterResource && !powerMeterResources.some((item) => powerMeterResourceValue(item) === selectedPowerMeterResource) && <option value={selectedPowerMeterResource}>{selectedPowerMeterResource}</option>}
+                {selectedPowerMeterResource && !powerMeterResources.some((item) => powerMeterResourceValue(item) === selectedPowerMeterResource) && (
+                  <option value={selectedPowerMeterResource}>
+                    {powerMeterResourceLabel(selectedPowerMeterResource, powerMeterResources)}
+                  </option>
+                )}
                 {powerMeterResources.map((item) => <option key={item} value={powerMeterResourceValue(item)}>{item}</option>)}
               </NativeSelect>
               <Button disabled={!active} onClick={() => void runManualCommand("device.refresh", { device: "powerMeter" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
@@ -3216,11 +3795,11 @@ const ManualPage = memo(function ManualPage({
             <NumberField label="校准波长 (nm)" value={config.powerMeterWavelengthNm} onChange={(v) => update("powerMeterWavelengthNm", v)} step="0.1" />
             <NumberField label="软件增益" value={config.softwareGain} onChange={(v) => update("softwareGain", v)} step="0.01" />
           </div>
-          <Button className="w-full" disabled={!active} onClick={() => void runManualCommand(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
           <div className="grid grid-cols-2 gap-2"><Button disabled={!active || meter?.running} onClick={() => void runManualCommand("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button disabled={!active || meter?.running} onClick={() => void runManualCommand("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></div>
+          <Button className="w-full" disabled={!active} onClick={() => void runManualCommand(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
         </CardContent></Card>
 
-        <Card size="sm" className="shadow-none"><CardHeader><CardTitle className="text-base">光谱仪</CardTitle></CardHeader><CardContent className="manual-control-content">
+        <Card size="sm" className="shadow-none"><CardHeader className="flex flex-row items-center justify-between"><CardTitle className="text-base">光谱仪</CardTitle><Radio className={`size-4 transition-colors ${isSpectrumActive ? "text-amber-500" : "text-muted-foreground"}`} /></CardHeader><CardContent className="manual-control-content">
           <Field label="设备资源">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
               <NativeSelect value={config.spectrometerResource} onChange={(v) => update("spectrometerResource", v)}>
@@ -3241,13 +3820,15 @@ const ManualPage = memo(function ManualPage({
           <Button className="w-full" disabled={!active} onClick={() => void runManualCommand(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
         </CardContent></Card>
       </section>
-      <section className="grid min-h-0 flex-1 grid-cols-1 gap-4 lg:grid-cols-2">
-        <PowerRealtimeChart snapshot={snapshot} heightClassName="h-64" />
-        <PowerEfficiencyChart snapshot={snapshot} heightClassName="h-64" />
-        <div className="col-span-1 min-h-0 lg:col-span-2">
-          <SpectrumRealtimeChart snapshot={snapshot} heightClassName="h-72" />
+      <div className="grid min-h-[580px] flex-1 gap-3.5 grid-rows-[minmax(280px,1fr)_minmax(280px,1fr)] pb-2">
+        <section className="grid min-h-[280px] grid-cols-1 gap-3.5 lg:grid-cols-2">
+          <PowerRealtimeChart snapshot={snapshot} stretch />
+          <PowerEfficiencyChart snapshot={snapshot} stretch />
+        </section>
+        <div className="min-h-[280px]">
+          <SpectrumRealtimeChart snapshot={snapshot} stretch />
         </div>
-      </section>
+      </div>
     </div>
   )
 }, (previous, next) => (
@@ -3277,6 +3858,22 @@ const PdPage = memo(function PdPage({ snapshot, active, pending, run }: { snapsh
   useEffect(() => { if (!settings && pd?.settings) setSettings(pd.settings) }, [pd?.settings, settings])
   const current = settings ?? { device: "", channel: "", terminal: "DIFF", range: 10, sampleRateHz: 1000, blockSize: 100, scale: 1, offset: 0, unit: "V", save: true, outputDir: "" }
   const set = (key: string, value: unknown) => setSettings({ ...current, [key]: value })
+  const choosePdOutputDir = async () => {
+    if (!active || pending || pd?.state === "running") return
+    try {
+      const selected = await openDialog({
+        multiple: false,
+        directory: true,
+        title: "选择 PD 数据保存目录",
+        defaultPath: current.outputDir.trim() || undefined,
+      })
+      if (typeof selected === "string" && selected) {
+        set("outputDir", selected)
+      }
+    } catch {
+      // dialog cancelled or failed
+    }
+  }
   return (
     <>
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(360px,380px)_minmax(0,1fr)]">
@@ -3291,12 +3888,12 @@ const PdPage = memo(function PdPage({ snapshot, active, pending, run }: { snapsh
           <Field label="输入通道" className="pd-inline-field" layout="inline"><NativeSelect value={current.channel} onChange={(v) => set("channel", v)}><option value="">请选择</option>{pd?.channels.map((item) => <option key={item} value={item}>{item}</option>)}</NativeSelect></Field>
           <Field label="接线方式" className="pd-inline-field" layout="inline"><NativeSelect value={current.terminal} onChange={(v) => set("terminal", v)}><option value="DIFF">差分 DIFF</option><option value="RSE">参考单端 RSE</option></NativeSelect></Field>
           <Field label="输入量程" className="pd-inline-field" layout="inline"><NativeSelect value={String(current.range ?? "")} onChange={(v) => set("range", asNumber(v))}><option value="">自动</option>{pd?.ranges.map((item) => <option key={String(item.value)} value={String(item.value)}>{item.label}</option>)}</NativeSelect></Field>
-          <Field label="采样率 (S/s)" className="pd-inline-field" layout="inline"><Input type="number" value={current.sampleRateHz} onChange={(e) => set("sampleRateHz", asNumber(e.target.value))} /></Field>
+          <Field label="采样率 (S/s)" className="pd-inline-field" layout="inline"><NumberInput value={current.sampleRateHz} onChange={(v) => set("sampleRateHz", v)} /></Field>
           <Separator className="col-span-2 my-1" />
           <div className="col-span-2"><p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">标定参数</p></div>
-          <Field label="每批点数" className="pd-inline-field" layout="inline"><Input type="number" value={current.blockSize} onChange={(e) => set("blockSize", asNumber(e.target.value))} /></Field>
-          <Field label="标定比例" className="pd-inline-field" layout="inline"><Input type="number" value={current.scale} onChange={(e) => set("scale", asNumber(e.target.value))} /></Field>
-          <Field label="标定偏置" className="pd-inline-field" layout="inline"><Input type="number" value={current.offset} onChange={(e) => set("offset", asNumber(e.target.value))} /></Field>
+          <Field label="每批点数" className="pd-inline-field" layout="inline"><NumberInput value={current.blockSize} onChange={(v) => set("blockSize", v)} /></Field>
+          <Field label="标定比例" className="pd-inline-field" layout="inline"><NumberInput value={current.scale} onChange={(v) => set("scale", v)} step="0.01" /></Field>
+          <Field label="标定偏置" className="pd-inline-field" layout="inline"><NumberInput value={current.offset} onChange={(v) => set("offset", v)} step="0.01" /></Field>
           <Field label="显示单位" className="pd-inline-field" layout="inline"><Input value={current.unit} onChange={(e) => set("unit", e.target.value)} /></Field>
           <Separator className="col-span-2 my-1" />
           <div className="col-span-2 rounded-lg border border-[var(--plm-flat-border)] bg-background/30 p-3">
@@ -3304,7 +3901,27 @@ const PdPage = memo(function PdPage({ snapshot, active, pending, run }: { snapsh
               <div><p className="text-sm font-medium">保存设置</p><p className="mt-0.5 text-xs text-muted-foreground">可选：保存本次采集的原始数据</p></div>
               <label className="flex shrink-0 items-center gap-2 text-sm"><input checked={current.save} onChange={(e) => set("save", e.target.checked)} type="checkbox" />保存原始数据</label>
             </div>
-            <Field label="保存目录" className="pd-inline-field" layout="inline"><Input value={current.outputDir} onChange={(e) => set("outputDir", e.target.value)} /></Field>
+            <Field label="保存目录" className="pd-inline-field" layout="inline">
+              <div className="flex items-center gap-1.5">
+                <Input
+                  className="min-w-0 flex-1"
+                  value={current.outputDir}
+                  onChange={(e) => set("outputDir", e.target.value)}
+                  placeholder="留空则使用默认目录"
+                />
+                <Button
+                  className="size-9 shrink-0 px-0"
+                  disabled={!active || pending || pd?.state === "running"}
+                  onClick={() => void choosePdOutputDir()}
+                  size="sm"
+                  type="button"
+                  variant="outline"
+                  title="选择保存目录"
+                >
+                  <FolderOpen className="size-4" />
+                </Button>
+              </div>
+            </Field>
           </div>
           <div className="col-span-2 space-y-2">
             <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className="grid size-5 place-items-center rounded-full bg-primary/15 font-semibold text-primary">1</span><span>先识别采集卡，再开始采集</span></div>

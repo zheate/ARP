@@ -57,6 +57,26 @@ class RuntimeLoggingTests(unittest.TestCase):
 
             self.assertEqual(selected, Path(directory))
 
+    def test_clean_old_logs_removes_expired_files(self) -> None:
+        import os
+        import time
+        with tempfile.TemporaryDirectory() as directory:
+            dir_path = Path(directory)
+            old_log = dir_path / "backend_20200101_000000_pid100.log"
+            old_log.write_text("old", encoding="utf-8")
+            # Set mtime to 35 days ago
+            past_time = time.time() - 35 * 86400
+            os.utime(old_log, (past_time, past_time))
+
+            recent_log = dir_path / "backend_20260816_000000_pid200.log"
+            recent_log.write_text("recent", encoding="utf-8")
+
+            path = configure_runtime_logging(directory)
+            self.assertIsNotNone(path)
+            self.assertFalse(old_log.exists())
+            self.assertTrue(recent_log.exists())
+            shutdown_runtime_logging()
+
     def test_unhandled_exception_hook_records_traceback(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             previous_hook = sys.excepthook

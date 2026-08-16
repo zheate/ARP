@@ -992,10 +992,6 @@ class HeadlessBackend:
         self._pd_reader: Any | None = None
         self.series_revisions = {"pd": 0}
 
-        log_path = runtime_log_path()
-        if log_path is not None:
-            self.notify("info", "运行日志已启用", f"完整日志保存至：{log_path}")
-
     def _station(self, station_id: str | None = None) -> StationRuntime:
         key = str(station_id) if station_id is not None else "1"
         return self.stations.get(key, self.stations["1"])
@@ -1561,6 +1557,7 @@ class HeadlessBackend:
                     "peakWavelengthNm": None if spectrum_saturated else _finite(getattr(spectrum_stats, "peak_wavelength_nm", None)),
                     "centroidNm": None if spectrum_saturated else _finite(getattr(spectrum_stats, "centroid_nm", None)),
                     "fwhmNm": None if spectrum_saturated else _finite(getattr(spectrum_stats, "fwhm_nm", None)),
+                    "pib": None if frame is None or not math.isfinite(getattr(frame, "pib", math.nan)) else _finite(frame.pib * 100.0 if frame.pib <= 1.0 else frame.pib),
                     "smsrDb": None if frame is None or frame.smsr is None else _finite(frame.smsr.smsr_db),
                     "saturated": spectrum_saturated,
                     "spectrumWindow": None,

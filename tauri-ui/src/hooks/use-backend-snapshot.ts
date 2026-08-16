@@ -71,8 +71,8 @@ const DEMO_SNAPSHOT: BackendSnapshot = {
         connectedPort: { locationPath: "PCIROOT(0)#USB(1)", name: "1号工位", deviceIndex: 0 },
       },
     },
-    powerMeter: { state: "connected", label: "功率计", detail: "ASRL3::INSTR · 示例", connected: true, running: true, ready: true, stable: true, powerW: 0.86 },
-    spectrometer: { state: "connected", label: "光谱仪", detail: "Ocean Insight · 示例", connected: true, running: true, ready: true, resources: ["自动选择第一台 Ocean Insight"], peakWavelengthNm: 976.2, centroidNm: 976.2, fwhmNm: 0.42, smsrDb: null, spectrumWindow: { centerNm: 976.2, halfRangeNm: 20 } },
+    powerMeter: { state: "connected", label: "功率计", detail: "彩煌功率计 (ASRL3::INSTR)", connected: true, running: true, ready: true, stable: true, powerW: 0.86, resources: ["彩煌功率计 | ASRL3::INSTR | 通道 1", "Coherent功率计 | ASRL4::INSTR"] },
+    spectrometer: { state: "connected", label: "光谱仪", detail: "Ocean Insight · 示例", connected: true, running: true, ready: true, resources: ["自动选择第一台 Ocean Insight"], peakWavelengthNm: 976.2, centroidNm: 976.2, fwhmNm: 0.42, pib: 96.85, smsrDb: null, spectrumWindow: { centerNm: 976.2, halfRangeNm: 20 } },
   },
   automaticTest: {
     state: "waiting_stable",
@@ -109,13 +109,19 @@ const DEMO_SNAPSHOT: BackendSnapshot = {
   },
   measurements: {
     power: [
-      { elapsedS: 0, powerW: 0.12 },
-      { elapsedS: 2, powerW: 0.22 },
-      { elapsedS: 4, powerW: 0.34 },
-      { elapsedS: 6, powerW: 0.48 },
-      { elapsedS: 8, powerW: 0.63 },
-      { elapsedS: 10, powerW: 0.75 },
-      { elapsedS: 12, powerW: 0.86 },
+      { elapsedS: 0, powerW: 0.842 },
+      { elapsedS: 1, powerW: 0.849 },
+      { elapsedS: 2, powerW: 0.856 },
+      { elapsedS: 3, powerW: 0.853 },
+      { elapsedS: 4, powerW: 0.862 },
+      { elapsedS: 5, powerW: 0.858 },
+      { elapsedS: 6, powerW: 0.863 },
+      { elapsedS: 7, powerW: 0.859 },
+      { elapsedS: 8, powerW: 0.861 },
+      { elapsedS: 9, powerW: 0.859 },
+      { elapsedS: 10, powerW: 0.860 },
+      { elapsedS: 11, powerW: 0.860 },
+      { elapsedS: 12, powerW: 0.860 },
     ],
     stable: [
       { currentA: 2, powerW: 0.12, efficiencyPercent: 6.0 },
@@ -220,6 +226,69 @@ export function useBackendSnapshot(view: SnapshotView) {
     setPendingCommand(method)
     try {
       if (DEMO_PREVIEW_ENABLED) {
+        if (method === "automatic.start") {
+          let step = 0
+          const stages: Array<{ state: string; currentA: number; currentIndex: number; detail: string; powerW: number; stable: boolean; terminalOutcome?: string }> = [
+            { state: "setting_current", currentA: 2.0, currentIndex: 0, detail: "第 1 点：正在平滑加载电流至 2.0 A...", powerW: 0.15, stable: false },
+            { state: "waiting_stable", currentA: 2.0, currentIndex: 0, detail: "第 1 点：正在判定功率稳态 (0.28 W)...", powerW: 0.28, stable: false },
+            { state: "holding", currentA: 2.0, currentIndex: 0, detail: "第 1 点：稳态达成，正在采集光谱与计算特征峰...", powerW: 0.28, stable: true },
+            { state: "setting_current", currentA: 6.0, currentIndex: 1, detail: "第 2 点：正在平滑加载电流至 6.0 A...", powerW: 0.42, stable: false },
+            { state: "waiting_stable", currentA: 6.0, currentIndex: 1, detail: "第 2 点：正在判定功率稳态 (0.61 W)...", powerW: 0.61, stable: false },
+            { state: "holding", currentA: 6.0, currentIndex: 1, detail: "第 2 点：稳态达成，正在采集光谱与计算特征峰...", powerW: 0.61, stable: true },
+            { state: "setting_current", currentA: 10.0, currentIndex: 2, detail: "第 3 点：正在平滑加载电流至 10.0 A...", powerW: 0.68, stable: false },
+            { state: "waiting_stable", currentA: 10.0, currentIndex: 2, detail: "第 3 点：正在判定功率稳态 (0.76 W)...", powerW: 0.76, stable: false },
+            { state: "holding", currentA: 10.0, currentIndex: 2, detail: "第 3 点：稳态达成，正在采集光谱与计算特征峰...", powerW: 0.76, stable: true },
+            { state: "ramping_down", currentA: 2.0, currentIndex: 2, detail: "全部点完成，正在安全降电归零...", powerW: 0.05, stable: false },
+            { state: "completed", currentA: 0.0, currentIndex: 2, detail: "测试完成，数据已归档并安全下电", powerW: 0.0, stable: true, terminalOutcome: "succeeded" },
+          ]
+
+          const advance = () => {
+            if (step >= stages.length) return
+            const stage = stages[step]
+            step += 1
+            const nextSnap: BackendSnapshot = {
+              ...DEMO_SNAPSHOT,
+              devices: {
+                ...DEMO_SNAPSHOT.devices,
+                powerSupply: { ...DEMO_SNAPSHOT.devices.powerSupply, activeCurrentA: stage.currentA },
+                powerMeter: { ...DEMO_SNAPSHOT.devices.powerMeter, powerW: stage.powerW, stable: stage.stable },
+              },
+              automaticTest: {
+                ...DEMO_SNAPSHOT.automaticTest,
+                state: stage.state,
+                detail: stage.detail,
+                currentA: stage.currentA,
+                currentIndex: stage.currentIndex,
+                currents: [2, 6, 10],
+                canStart: stage.state === "completed" || stage.state === "idle",
+                canEnd: stage.state !== "completed" && stage.state !== "idle",
+                terminalOutcome: stage.terminalOutcome,
+              },
+            }
+            if (mountedRef.current) setSnapshot(nextSnap)
+            if (step < stages.length) {
+              window.setTimeout(advance, 1300)
+            }
+          }
+          advance()
+          return DEMO_SNAPSHOT
+        }
+
+        if (method === "automatic.end") {
+          const nextSnap: BackendSnapshot = {
+            ...DEMO_SNAPSHOT,
+            automaticTest: {
+              ...DEMO_SNAPSHOT.automaticTest,
+              state: "idle",
+              detail: "测试已手动终止并安全下电",
+              canStart: true,
+              canEnd: false,
+            },
+          }
+          if (mountedRef.current) setSnapshot(nextSnap)
+          return nextSnap
+        }
+
         setSnapshot(DEMO_SNAPSHOT)
         setError(null)
         return DEMO_SNAPSHOT

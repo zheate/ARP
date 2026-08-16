@@ -367,7 +367,7 @@ impl PythonBridge {
         &self,
         method: &str,
         params: Value,
-        queued_at: Instant,
+        _queued_at: Instant,
     ) -> Result<Value, PythonBridgeError> {
         let status = self
             .child
@@ -378,10 +378,6 @@ impl PythonBridge {
                 PythonBridgeError::Transport(format!("无法读取 Python 后端状态：{error}"))
             })?;
         if let Some(status) = status {
-            eprintln!(
-                "Python bridge timing | method={method} | queue_ms={:.3} | execution_ms=0.000",
-                queued_at.elapsed().as_secs_f64() * 1000.0,
-            );
             return Err(PythonBridgeError::Transport(format!(
                 "Python 后端已退出：{status}"
             )));
@@ -425,8 +421,6 @@ impl PythonBridge {
             return Err(error);
         }
 
-        let execution_started = Instant::now();
-        let queue_ms = execution_started.duration_since(queued_at).as_secs_f64() * 1000.0;
         let timeout = request_timeout(method);
         let result = match receiver.recv_timeout(timeout) {
             Ok(result) => result,
@@ -443,12 +437,6 @@ impl PythonBridge {
                 "Python 响应线程意外退出".to_string(),
             )),
         };
-        let execution_ms = execution_started.elapsed().as_secs_f64() * 1000.0;
-        if method != "app.snapshot" || queue_ms >= 50.0 || execution_ms >= 50.0 {
-            eprintln!(
-                "Python bridge timing | id={request_id} | method={method} | queue_ms={queue_ms:.3} | execution_ms={execution_ms:.3}"
-            );
-        }
         let result = result?;
         validate_columnar_spectrum(&result)?;
         if method == "app.shutdown"
@@ -680,6 +668,7 @@ fn stream_envelope(subscription_id: &str, message: Value) -> Value {
 
 struct StreamSender {
     subscription_id: String,
+    #[allow(dead_code)]
     webview: Webview,
     #[cfg(not(windows))]
     on_event: Channel<Value>,

@@ -151,16 +151,28 @@ function fixedScale(domain: [number, number], ticks?: number[], targetTickCount 
   if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) return createScale(0, 1)
   if (minimum > maximum) [minimum, maximum] = [maximum, minimum]
   if (minimum === maximum) maximum = minimum + 1
-  const candidates = ticks ?? (anchorBounds
-    ? Array.from(
-      { length: Math.max(2, targetTickCount) },
-      (_, index) => minimum + ((maximum - minimum) * index) / Math.max(1, targetTickCount - 1),
-    )
-    : createScale(minimum, maximum, targetTickCount).ticks)
+  if (ticks) {
+    return {
+      min: minimum,
+      max: maximum,
+      ticks: ticks.filter((value) => value >= minimum && value <= maximum),
+    }
+  }
+  if (anchorBounds) {
+    return {
+      min: minimum,
+      max: maximum,
+      ticks: Array.from(
+        { length: Math.max(2, targetTickCount) },
+        (_, index) => minimum + ((maximum - minimum) * index) / Math.max(1, targetTickCount - 1),
+      ),
+    }
+  }
+  const scale = createScale(minimum, maximum, targetTickCount)
   return {
-    min: minimum,
-    max: maximum,
-    ticks: candidates.filter((value) => value >= minimum && value <= maximum),
+    min: Math.min(minimum, scale.min),
+    max: Math.max(maximum, scale.max),
+    ticks: scale.ticks,
   }
 }
 
@@ -224,7 +236,7 @@ function buildLayout(
     plotWidth: Math.max(1, size.width - left - right),
     plotHeight,
     x,
-    leftY: yDomain ? fixedScale(yDomain, undefined, verticalTickTarget, true) : createScale(leftExtent[0], leftExtent[1], verticalTickTarget),
+    leftY: yDomain ? fixedScale(yDomain, undefined, verticalTickTarget, false) : createScale(leftExtent[0], leftExtent[1], verticalTickTarget),
     rightY: hasRightAxis ? createScale(rightExtent[0], rightExtent[1], verticalTickTarget) : null,
   }
 }

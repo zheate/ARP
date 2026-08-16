@@ -56,6 +56,8 @@ export interface DeviceSnapshot {
   peakWavelengthNm?: number | null
   centroidNm?: number | null
   fwhmNm?: number | null
+  pib?: number | null
+  pibPercent?: number | null
   smsrDb?: number | null
   saturated?: boolean
   spectrumWindow?: { centerNm: number; halfRangeNm: number } | null
