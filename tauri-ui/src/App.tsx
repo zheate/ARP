@@ -566,8 +566,7 @@ function DeviceCard({ title, icon, device, summary, disabled = false, onOpenSett
           <div className="flex items-center justify-between gap-2 text-sm font-medium">
             <span>{title}</span><StatusDot state={device?.state} />
           </div>
-          {summary && <p className="mt-0.5 truncate font-mono text-[11px] font-medium text-foreground/85" title={summary}>{summary}</p>}
-          <p className="mt-0.5 truncate text-[11px] text-muted-foreground" title={device?.detail}>{device?.detail || "未连接"}</p>
+          {summary && <p className="mt-1 truncate text-xs font-medium text-muted-foreground" title={summary}>{summary}</p>}
         </div>
       </CardContent>
     </Card>
