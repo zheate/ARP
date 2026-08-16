@@ -24,18 +24,18 @@
 
 - `tauri-ui` is the operator interface and stable desktop entry point.
 - `tauri_bridge` owns the Tauri-to-Python protocol.
-- `combined_test/window.py` is loaded only as the headless sidecar controller state; it is not an operator-facing Qt application.
+- `tauri_bridge/headless_backend.py` is the only product backend. Do not add a Qt-backed runtime, compatibility window, or backend switch.
 - `combined_test/devices.py` owns hardware loading, device selection helpers, and acquisition threads.
 - `combined_test/device_interfaces.py` defines the stable `PowerSupply`, `PowerMeter`, and `SpectrumMeter` ports plus the legacy/TDK power adapter.
 - `combined_test/automation.py` owns automatic-test planning and device-independent state transitions.
-- `combined_test/automatic_controller.py` owns the Qt-timed automatic-test lifecycle and coordinates the device/store ports.
+- `tauri_bridge/headless_backend.py` coordinates the automatic-test lifecycle and device/store ports without a GUI toolkit.
 - `combined_test/record_store.py` defines the `RecordStore` port and owns session/pending/saved record state.
 - `combined_test/spectrum.py` owns saturation detection and peak annotation analysis.
-- `combined_test/plots.py` owns realtime chart history, scaling, annotations, and render throttling.
+- `tauri-ui/src/components/canvas-line-chart.tsx` owns visible realtime chart rendering.
 - `combined_test/persistence.py` owns background Excel and CSV writes.
 - `combined_test/models.py` contains the immutable data passed between those modules.
-- `tools/` contains standalone device diagnostics and the legacy CH341 controller.
-- `tests/` contains the full test suite.
+- `tools/` contains standalone device diagnostics and the CH341 controller implementation; these are not alternate product UIs.
+- `tests/` covers the headless product backend and shared domain modules. Do not add tests for removed Qt product surfaces.
 
 ## UI Card Alignment Requirements
 

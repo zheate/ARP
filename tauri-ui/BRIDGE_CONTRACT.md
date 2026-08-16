@@ -24,11 +24,14 @@ The bridge being connected never means a physical device is connected. Every dev
 - Power supply: `powerSupply.connect`, `powerSupply.disconnect`, `powerSupply.setCurrent`, `powerSupply.setVoltage`, `powerSupply.setOutput`, `powerSupply.read`
 - Power meter: `powerMeter.start`, `powerMeter.stop`, `powerMeter.setRelativeZero`
 - Spectrometer: `spectrometer.start`, `spectrometer.stop`, `spectrometer.saveCsv`
-- Automatic test: `automatic.start`, `automatic.pause`, `automatic.retry`, `automatic.end`, `automatic.reset`
+- Automatic test: `automatic.references`, `automatic.start`, `automatic.pause`, `automatic.retry`, `automatic.end`, `automatic.reset`
+- Shipping report: `shippingReport.inspect`, `shippingReport.batchInspect`, `shippingReport.batchGenerateItem`, `shippingReport.preview`, `shippingReport.generate`
 - PD: `pd.refresh`, `pd.configure`, `pd.start`, `pd.stop`
 - Charts: `charts.reset`
 
 Every successful mutation returns a fresh full snapshot. The routine snapshot stream passes the active `view` (`automatic`, `manual`, `pd`, or `shipping`) so large chart and PD point arrays are only serialized for their consumer. Automatic and manual live views refresh at most five times per second, while PD and shipping refresh at most twice per second. Streaming pauses while the WebView is hidden. The acquisition threads continue at their configured hardware sampling rates.
+
+`automatic.start` accepts the selected history `referencePath`. The Python backend resolves it only against completed records for the current SN and returns the selected reference in `automaticTest.reference`; a path outside that set is rejected.
 
 After the first full response, the frontend returns `seriesRevisions` as `params.since`. Unchanged power, stable-point, spectrum, and PD arrays are omitted and the frontend retains the previous arrays. Power and PD additionally send their last displayed `elapsedS` values in `params.cursors`; when the bounded history is continuous, the response uses `seriesPatches` to append only newer points and supplies `startX` so the frontend can discard points that left the display window. A missing cursor, reset curve, page change, or explicit refresh falls back to a complete array.
 

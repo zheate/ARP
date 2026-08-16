@@ -2,6 +2,16 @@
   "name": "arp",
   "private": true,
   "scripts": {
-    "start": "npm --prefix tauri-ui start"
+    "start": "npm --prefix tauri-ui start",
+    "test:python": "conda run -n sth_eb314 python -m unittest discover -v",
+    "test:frontend": "npm --prefix tauri-ui test",
+    "test:tauri": "cargo test --manifest-path tauri-ui/src-tauri/Cargo.toml",
+    "test:realtime": "cargo test --manifest-path rust-realtime-core/Cargo.toml",
+    "test": "npm run test:python && npm run test:frontend && npm run test:tauri && npm run test:realtime",
+    "build": "npm --prefix tauri-ui run build",
+    "check": "npm run test && npm run build",
+    "check:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File ./packaging/check_windows_build.ps1",
+    "build:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File ./packaging/build_tauri_windows.ps1",
+    "build:windows:full": "powershell -NoProfile -ExecutionPolicy Bypass -File ./packaging/build_full_windows.ps1"
   }
 }

@@ -41,6 +41,8 @@ const DEMO_SNAPSHOT: BackendSnapshot = {
     autoIntegration: false,
     spectrometerIntervalMs: 100,
     spectrumAverageFrames: 5,
+    pibCenterWavelengthNm: 976,
+    pibHalfRangeNm: 1.5,
     stableWindowS: 3,
     stableToleranceW: 0.15,
     initialCurrentA: 2,

@@ -1,8 +1,4 @@
-"""Small JSON-lines protocol used by the local Tauri/Python bridge.
-
-The bridge intentionally exposes read-only methods first.  Hardware discovery,
-connection, and output commands are outside the phase-1 contract.
-"""
+"""Versioned JSON-lines protocol used by the local Tauri/Python bridge."""
 
 from __future__ import annotations
 

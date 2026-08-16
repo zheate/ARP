@@ -1,6 +1,6 @@
 [package]
 name = "tauri-ui"
-version = "0.1.0"
+version = "0.1.2"
 description = "Power Test Tauri 界面"
 authors = ["ARP"]
 edition = "2021"

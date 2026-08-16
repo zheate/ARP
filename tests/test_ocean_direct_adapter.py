@@ -4,7 +4,12 @@ from ctypes import c_double, c_long
 from pathlib import Path
 from unittest.mock import patch
 
-from combined_test.ocean_direct_adapter import OceanDirectControl, OceanDirectError
+from combined_test.ocean_direct_adapter import (
+    OceanDirectControl,
+    OceanDirectError,
+    _GLOBAL_SESSIONS,
+    _GLOBAL_SESSIONS_LOCK,
+)
 
 
 class FakeOceanDirectApi:
@@ -13,14 +18,22 @@ class FakeOceanDirectApi:
         self.initialize_count = 0
         self.shutdown_called = False
         self.shutdown_count = 0
-        self.opened_device_id = None
-        self.closed_device_id = None
+        self.opened_device_ids: list[int] = []
+        self.closed_device_ids: list[int] = []
         self.open_error = 0
         self.integration_error = 0
-        self.integration_time = 10000
+        self.integration_times = {101: 10000, 202: 20000}
         self.device_ids = [101, 202]
         self.wavelength = [975.0, 976.0, 977.0]
         self.intensity = [1.0, 5.0, 2.0]
+
+    @property
+    def opened_device_id(self) -> int | None:
+        return self.opened_device_ids[-1] if self.opened_device_ids else None
+
+    @property
+    def closed_device_id(self) -> int | None:
+        return self.closed_device_ids[-1] if self.closed_device_ids else None
 
     def odapi_initialize(self) -> None:
         self.initialized = True
@@ -44,11 +57,11 @@ class FakeOceanDirectApi:
 
     def odapi_open_device(self, device_id: int, err) -> None:
         err[0] = self.open_error
-        self.opened_device_id = int(device_id)
+        self.opened_device_ids.append(int(device_id))
 
     def odapi_close_device(self, device_id: int, err) -> None:
         err[0] = 0
-        self.closed_device_id = int(device_id)
+        self.closed_device_ids.append(int(device_id))
 
     def odapi_get_formatted_spectrum_length(self, device_id: int, err) -> int:
         err[0] = 0
@@ -56,11 +69,11 @@ class FakeOceanDirectApi:
 
     def odapi_set_integration_time_micros(self, device_id: int, err, value) -> None:
         err[0] = self.integration_error
-        self.integration_time = int(value.value)
+        self.integration_times[int(device_id)] = int(value.value)
 
     def odapi_get_integration_time_micros(self, device_id: int, err) -> int:
         err[0] = 0
-        return self.integration_time
+        return self.integration_times.get(int(device_id), 10000)
 
     def odapi_get_minimum_integration_time_micros(self, device_id: int, err) -> int:
         err[0] = 0
@@ -92,6 +105,10 @@ class FakeOceanDirectApi:
 
 
 class OceanDirectControlTests(unittest.TestCase):
+    def tearDown(self) -> None:
+        with _GLOBAL_SESSIONS_LOCK:
+            _GLOBAL_SESSIONS.clear()
+
     def test_uses_injected_api_to_find_open_read_and_close_device(self) -> None:
         api = FakeOceanDirectApi()
         control = OceanDirectControl(api=api)
@@ -132,6 +149,41 @@ class OceanDirectControlTests(unittest.TestCase):
 
         self.assertEqual(api.initialize_count, 2)
         self.assertEqual(api.shutdown_count, 2)
+
+    def test_dual_spectrometers_share_session_and_operate_independently(self) -> None:
+        api = FakeOceanDirectApi()
+        first = OceanDirectControl(api=api)
+        second = OceanDirectControl(api=api)
+
+        # Single initialization for shared SDK session
+        self.assertEqual(api.initialize_count, 1)
+
+        first.open_device(101)
+        second.open_device(202)
+        self.assertEqual(api.opened_device_ids, [101, 202])
+
+        first.set_integration_time(15000)
+        second.set_integration_time(35000)
+        self.assertEqual(first.get_integration_time(), 15000)
+        self.assertEqual(second.get_integration_time(), 35000)
+
+        # Reading from first does not interfere with second
+        self.assertEqual(list(first.get_wavelength()), [975.0, 976.0, 977.0])
+        self.assertEqual(list(second.get_intensity()), [1.0, 5.0, 2.0])
+
+        # Closing first device does not shutdown session for second device
+        first.shutdown()
+        self.assertEqual(api.closed_device_ids, [101])
+        self.assertFalse(api.shutdown_called)
+
+        # Second device can still read
+        self.assertEqual(second.get_integration_time(), 35000)
+
+        # Closing second device triggers session shutdown
+        second.shutdown()
+        self.assertEqual(api.closed_device_ids, [101, 202])
+        self.assertTrue(api.shutdown_called)
+        self.assertEqual(api.shutdown_count, 1)
 
     def test_open_device_error_preserves_sdk_code_and_message(self) -> None:
         api = FakeOceanDirectApi()

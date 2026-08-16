@@ -14,7 +14,7 @@ Tauri 是唯一的操作员界面。Python 代码作为随应用启动的无界�
 ## 本地运行
 
 ```sh
-npm install
+npm ci
 npm run tauri dev
 ```
 
@@ -49,5 +49,5 @@ CH341、OceanHR4、FTDI 和串口适配器驱动，然后运行：
 powershell -ExecutionPolicy Bypass -File .\packaging\build_full_windows.ps1
 ```
 
-产物位于 `release/full/Power Test_0.1.0_x64-full-setup.exe`。完整安装程序统一请求管理员权限，
+产物位于 `release/full/Power Test_<version>_x64-all-drivers-setup.exe`。应用版本唯一取自本目录的 `package.json`。完整安装程序统一请求管理员权限，
 自动安装缺失的系统驱动和运行环境，最后安装 Power Test；安装过程完全离线，完成后可能提示重启。

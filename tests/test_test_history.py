@@ -9,7 +9,8 @@ from combined_test import test_history as test_history_module
 from combined_test.excel_export import ExcelTestRecord, save_test_records
 from combined_test.record_store import SessionStatus
 from combined_test.test_history import clear_test_history_cache, find_test_history
-from tauri_bridge.legacy_backend import LegacyWindowBackend
+from tauri_bridge.headless_backend import HeadlessBackend
+from tauri_bridge.settings import JsonSettings
 
 
 class TestHistoryTests(unittest.TestCase):
@@ -79,13 +80,14 @@ class TestHistoryTests(unittest.TestCase):
             })
             self.assertFalse(hasattr(records[0].inspection.points[0], "wavelength"))
 
-            backend = object.__new__(LegacyWindowBackend)
-            backend.window = SimpleNamespace(
-                output_dir_field=SimpleNamespace(text=lambda: str(root)),
-                sn_field=SimpleNamespace(text=lambda: sn),
-            )
+            backend = HeadlessBackend(JsonSettings(root / "settings.json"))
+            backend.configuration.update({"outputDir": str(root), "sn": sn})
             backend._select_test_reference({"referencePath": "latest"})
             self.assertEqual(backend._test_reference.station, "站别 B")
+            self.assertEqual(
+                backend.snapshot({"view": "automatic"})["automaticTest"]["reference"]["station"],
+                "站别 B",
+            )
             backend._select_test_reference({"referencePath": str(records[-1].inspection.source_path)})
             self.assertEqual(backend._test_reference.station, "站别 A")
             with self.assertRaisesRegex(ValueError, "不属于当前壳体"):
@@ -161,16 +163,9 @@ class TestHistoryTests(unittest.TestCase):
         self.assertNotIn((str(paths[0]), 1), test_history_module._HISTORY_INDEX_CACHE)
         self.assertIn((str(paths[-1]), 1), test_history_module._HISTORY_INDEX_CACHE)
 
-    def test_explicit_history_params_do_not_read_qt_widgets(self) -> None:
-        def unexpected_widget_access() -> str:
-            raise AssertionError("background history lookup touched a Qt widget")
-
-        backend = object.__new__(LegacyWindowBackend)
-        backend.window = SimpleNamespace(
-            output_dir_field=SimpleNamespace(text=unexpected_widget_access),
-            sn_field=SimpleNamespace(text=unexpected_widget_access),
-        )
-        with patch("tauri_bridge.legacy_backend.find_test_history", return_value=()) as find:
+    def test_explicit_history_params_are_forwarded_by_the_headless_backend(self) -> None:
+        backend = HeadlessBackend(JsonSettings(Path("unused-settings.json")))
+        with patch("combined_test.test_history.find_test_history", return_value=()) as find:
             self.assertEqual(
                 backend._history_records({"outputDir": "C:/results", "sn": "SN-001"}),
                 (),

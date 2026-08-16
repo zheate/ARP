@@ -78,6 +78,8 @@ class SpectrometerSettings:
     device_id: int | None = None
     auto_integration_enabled: bool = False
     average_frames: int = 1
+    pib_center_wavelength_nm: float = 976.0
+    pib_half_range_nm: float = 1.5
 
 
 @dataclass(frozen=True)

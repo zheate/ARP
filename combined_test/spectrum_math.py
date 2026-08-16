@@ -274,63 +274,46 @@ def calculate_pib(
 
     x_array = np.asarray(wavelength_values, dtype=float)
     y_array = np.asarray(medfilt(np.asarray(intensity_values, dtype=float)), dtype=float)
-    peak_index = int(y_array.argmax())
-    move_length = 7
-
-    left_index = 0
-    for index in range(peak_index - move_length + 1):
-        if float(np.std(y_array[index : index + move_length])) > 200.0:
-            break
-        left_index = index
-
-    right_index = len(y_array) - 1
-    for index in range(len(y_array), peak_index + move_length, -1):
-        if float(np.std(y_array[index - move_length : index])) > 200.0:
-            break
-        right_index = index - 1
-
-    signal_wavelength = x_array[left_index : right_index + 1]
-    if signal_wavelength.size < 2:
+    if x_array.size < 2:
         return 0.0
-    noise = (y_array[left_index] + y_array[right_index]) / 2.0
-    signal_intensity = y_array[left_index : right_index + 1] - noise
-    spacing = signal_wavelength[1:] - signal_wavelength[:-1]
 
     if center_nm < 1e-6:
-        center_nm = _calculate_central_values(
-            signal_wavelength.tolist(),
-            signal_intensity.tolist(),
-        )
-        if not math.isfinite(center_nm):
-            return math.nan
+        peak_index = int(y_array.argmax())
+        center_nm = float(x_array[peak_index])
 
-    lower_index = int(
-        np.argmin(np.abs(signal_wavelength - (center_nm - half_range_nm)))
-    )
-    upper_index = int(
-        np.argmin(np.abs(signal_wavelength - (center_nm + half_range_nm)))
-    )
-    band_start = min(lower_index, upper_index)
-    band_stop = max(lower_index, upper_index) + 1
-    band_wavelength = signal_wavelength[band_start:band_stop]
-    band_intensity_values = signal_intensity[band_start:band_stop]
+    analysis_span_nm = 20.0
+    mask = (x_array >= center_nm - analysis_span_nm) & (x_array <= center_nm + analysis_span_nm)
+    if not np.any(mask):
+        mask = np.ones_like(x_array, dtype=bool)
 
-    total_intensity = float(
-        np.sum(spacing * (signal_intensity[:-1] + signal_intensity[1:]) / 2.0)
-    )
-    if abs(total_intensity) < 1e-6:
+    x_sub = x_array[mask]
+    y_sub = y_array[mask]
+    if x_sub.size < 2:
         return 0.0
 
-    band_spacing = band_wavelength[1:] - band_wavelength[:-1]
-    band_intensity = float(
-        np.sum(
-            band_spacing
-            * (band_intensity_values[:-1] + band_intensity_values[1:])
-            / 2.0
-        )
-    )
-    pib = band_intensity / total_intensity
-    return 1.0 if pib > 1.0 else pib
+    baseline = float(np.median(y_sub))
+    noise_sigma = 1.4826 * float(np.median(np.abs(y_sub - baseline)))
+    threshold = max(2.0 * noise_sigma, 1e-9)
+
+    y_corr = np.where(y_sub - baseline >= threshold, y_sub - baseline, 0.0)
+    spacing = x_sub[1:] - x_sub[:-1]
+    total_power = float(np.sum((y_corr[:-1] + y_corr[1:]) * spacing / 2.0))
+    if total_power < 1e-6:
+        return 0.0
+
+    band_mask = (x_sub >= center_nm - half_range_nm) & (x_sub <= center_nm + half_range_nm)
+    if not np.any(band_mask):
+        return 0.0
+
+    x_band = x_sub[band_mask]
+    y_band = y_corr[band_mask]
+    if x_band.size < 2:
+        return 0.0
+
+    band_spacing = x_band[1:] - x_band[:-1]
+    band_power = float(np.sum((y_band[:-1] + y_band[1:]) * band_spacing / 2.0))
+    pib = band_power / total_power
+    return 1.0 if pib > 1.0 else (0.0 if pib < 0.0 else pib)
 
 
 def calculate_smsr(

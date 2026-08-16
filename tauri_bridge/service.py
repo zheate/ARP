@@ -16,6 +16,14 @@ from .protocol import PROTOCOL_VERSION, error_response, success_response
 
 _LOGGER = get_runtime_logger("bridge_service")
 
+BACKGROUND_FILE_TASK_METHODS = frozenset(
+    {
+        "automatic.references",
+        "shippingReport.inspect",
+        "shippingReport.batchInspect",
+    }
+)
+
 
 class BridgeService:
     """Handle one request; an injected backend owns all mutable state."""
@@ -53,7 +61,7 @@ class BridgeService:
                     method,
                     queued_ms,
                     execution_ms,
-                    "file" if file_task else "qt",
+                    "file" if file_task else "main",
                 )
 
     def _handle_line(self, line: str, *, file_task: bool = False) -> dict[str, Any]:
@@ -171,7 +179,7 @@ class BridgeService:
             },
             "automaticTest": {
                 "state": "idle",
-                "detail": "等待后续接入现有 Python 自动测试控制器",
+                "detail": "只读模式不执行自动测试",
                 "controlsEnabled": False,
             },
             "safety": {

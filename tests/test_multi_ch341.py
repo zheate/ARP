@@ -451,7 +451,7 @@ class MultiCH341Test(unittest.TestCase):
     def test_legacy_device_index_is_not_loaded_or_persisted(self):
         with TemporaryDirectory() as directory:
             settings = JsonSettings(Path(directory) / "settings.json")
-            settings.setValue(
+            settings.set(
                 "runtime/configuration",
                 {"ch341DeviceIndex": 7, "powerSupplyKind": "ch341"},
             )
@@ -459,7 +459,7 @@ class MultiCH341Test(unittest.TestCase):
 
             self.assertNotIn("ch341DeviceIndex", reloaded.configuration)
             reloaded._persist_configuration()
-            stored = settings.value("runtime/configuration", {})
+            stored = settings.get("runtime/configuration", {})
             self.assertNotIn("ch341DeviceIndex", stored)
 
     def test_ch341_tdk_switch_clears_opposite_scan(self):

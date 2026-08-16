@@ -7,6 +7,12 @@ param(
 $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
+$preflightScript = Join-Path $PSScriptRoot "check_windows_build.ps1"
+& powershell -NoProfile -ExecutionPolicy Bypass -File $preflightScript
+if ($LASTEXITCODE -ne 0) {
+    throw "Windows packaging preflight failed."
+}
+
 $tauriRoot = Join-Path $projectRoot "tauri-ui"
 $binaryRoot = Join-Path $tauriRoot "src-tauri\binaries"
 $workRoot = Join-Path $projectRoot "build\tauri-sidecar"
@@ -15,11 +21,7 @@ $sidecarPath = Join-Path $binaryRoot "$sidecarName.exe"
 $realtimeManifest = Join-Path $projectRoot "rust-realtime-core\Cargo.toml"
 $realtimeDll = Join-Path $projectRoot "rust-realtime-core\target\release\arp_realtime_core.dll"
 
-$condaCommand = Get-Command conda.exe -CommandType Application -ErrorAction SilentlyContinue
-$condaExe = if ($condaCommand) { $condaCommand.Source } else { "D:\anaconda\Scripts\conda.exe" }
-if (-not (Test-Path -LiteralPath $condaExe)) {
-    throw "Conda was not found: $condaExe"
-}
+$condaExe = (Get-Command conda.exe -CommandType Application).Source
 
 $npmCommand = Get-Command npm.cmd -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 if (-not $npmCommand) {
@@ -71,17 +73,10 @@ $pyInstallerArgs = @(
 )
 
 $assetsRoot = Join-Path $projectRoot "assets"
-if (Test-Path -LiteralPath $assetsRoot) {
-    $pyInstallerArgs += @("--add-data", "$assetsRoot;assets")
-}
-else {
-    Write-Warning "The assets directory was not found; OceanDirect.dll will not be bundled."
-}
+$pyInstallerArgs += @("--add-data", "$assetsRoot;assets")
 
 $ch341Dll = Join-Path $projectRoot "local_drivers\ch341\CH341DLLA64.DLL"
-if (Test-Path -LiteralPath $ch341Dll) {
-    $pyInstallerArgs += @("--add-binary", "$ch341Dll;.")
-}
+$pyInstallerArgs += @("--add-binary", "$ch341Dll;.")
 
 $pyInstallerArgs += (Join-Path $PSScriptRoot "tauri_bridge_entry.py")
 
@@ -92,10 +87,8 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $sidecarPath)) {
 
 Push-Location $tauriRoot
 try {
-    if (-not (Test-Path -LiteralPath (Join-Path $tauriRoot "node_modules"))) {
-        & $npmExe install
-        if ($LASTEXITCODE -ne 0) { throw "npm install failed." }
-    }
+    & $npmExe ci
+    if ($LASTEXITCODE -ne 0) { throw "npm ci failed." }
     $tauriArgs = @(
         "run", "tauri", "build", "--",
         "--config", (Join-Path $PSScriptRoot "tauri.windows.conf.json")

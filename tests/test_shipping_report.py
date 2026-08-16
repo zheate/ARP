@@ -7,16 +7,10 @@ from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-
 from openpyxl import Workbook, load_workbook
-from PySide6.QtCore import QSettings
-from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
 
 from combined_test.excel_export import ExcelTestRecord, save_test_records
 from combined_test.record_store import SessionStatus
-from combined_test.shipping_report_dialog import ShippingReportConfigurationDialog
 from combined_test.shipping_report import (
     POLE_FIELD_DEFINITIONS,
     ReportFieldDefinition,
@@ -43,13 +37,10 @@ from combined_test.shipping_report import (
     suggested_field_values,
     validate_shipping_report_request,
 )
+from tauri_bridge.settings import JsonSettings
 
 
 class ShippingReportTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.app = QApplication.instance() or QApplication([])
-
     def _record(self, current_a: float, *, spectrum: bool = True) -> ExcelTestRecord:
         return ExcelTestRecord(
             current_a=current_a,
@@ -543,7 +534,7 @@ class ShippingReportTests(unittest.TestCase):
 
     def test_preferences_remember_selection_and_only_manual_values(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            settings = QSettings(str(Path(temp_dir) / "report.ini"), QSettings.Format.IniFormat)
+            settings = JsonSettings(Path(temp_dir) / "report.json")
             request = self._request(ShippingReportType.SPECTRUM)
 
             save_shipping_report_preferences(settings, request)
@@ -558,7 +549,7 @@ class ShippingReportTests(unittest.TestCase):
 
     def test_first_use_pole_preferences_match_the_approved_six_row_template(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            settings = QSettings(str(Path(temp_dir) / "report.ini"), QSettings.Format.IniFormat)
+            settings = JsonSettings(Path(temp_dir) / "report.json")
 
             preferences = load_shipping_report_preferences(settings)
 
@@ -587,7 +578,7 @@ class ShippingReportTests(unittest.TestCase):
             generate_shipping_report(source, output, request)
             self.assertTrue(output.read_bytes().startswith(b"%PDF"))
 
-            settings = QSettings(str(Path(temp_dir) / "report.ini"), QSettings.Format.IniFormat)
+            settings = JsonSettings(Path(temp_dir) / "report.json")
             save_shipping_report_preferences(settings, request)
             restored = load_shipping_report_preferences(settings)["pole"]
             self.assertEqual(restored["customFields"][0]["label"], "封装类型")
@@ -617,24 +608,6 @@ class ShippingReportTests(unittest.TestCase):
 
             self.assertEqual(len(pages), 1)
             self.assertTrue(base64.b64decode(pages[0]).startswith(b"\x89PNG\r\n\x1a\n"))
-
-    def test_qt_configuration_dialog_refreshes_the_preview_after_an_edit(self) -> None:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            source = Path(temp_dir) / "source.xlsx"
-            self._write(source)
-            dialog = ShippingReportConfigurationDialog(
-                inspect_shipping_workbook(source),
-                QSettings(str(Path(temp_dir) / "report.ini"), QSettings.Format.IniFormat),
-            )
-            dialog.show()
-            self.assertIn("slopeEfficiency", dialog.field_widgets)
-            self.assertEqual(dialog.field_widgets["slopeEfficiency"][0].text(), "Slope Efficiency")
-            dialog.field_widgets["power"][0].setChecked(True)
-            QTest.qWait(1_200)
-
-            self.assertTrue(dialog._preview_pixmaps)
-            self.assertIn("与导出的 PDF 一致", dialog.preview_status_label.text())
-            dialog.close()
 
     def test_schema_version_is_written_to_session_sheet(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

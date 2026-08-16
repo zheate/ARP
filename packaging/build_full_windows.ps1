@@ -18,9 +18,9 @@ $ophirInstaller = if ($ophirInstallerItem) {
 }
 $coherentArchive = Join-Path $projectRoot "local_drivers\coherent\coherent-meter-connection-v1.4.2.3-release-setup.zip"
 $tauriRoot = Join-Path $projectRoot "tauri-ui"
-$tauriConfigPath = Join-Path $tauriRoot "src-tauri\tauri.conf.json"
-$tauriConfig = Get-Content -LiteralPath $tauriConfigPath -Raw | ConvertFrom-Json
-$appVersion = [string]$tauriConfig.version
+$appPackagePath = Join-Path $tauriRoot "package.json"
+$appPackage = Get-Content -LiteralPath $appPackagePath -Raw | ConvertFrom-Json
+$appVersion = [string]$appPackage.version
 if ($appVersion -notmatch '^\d+\.\d+\.\d+$') {
     throw "Tauri app version must contain three numeric fields: $appVersion"
 }

@@ -89,7 +89,7 @@ DENSE_GOLDEN_RESULTS = {
             "0x1.e7ea35e941132p+9",
             "0x1.50ef393568000p-6",
         ),
-        "pib": "0x1.d20fdbb0d61cep-1",
+        "pib": "0x1.d1745d1745fb3p-1",
         "smsr": "0x1.4000000000000p+3",
         "annotations": (
             ("P1", "0x1.e800b3b2c92d8p+9", "0x1.e800b3b2c92d8p+9", "0x1.d4c0000000000p+13"),
@@ -104,7 +104,7 @@ DENSE_GOLDEN_RESULTS = {
             "0x1.e7e986ab46a87p+9",
             "0x1.333d0818d0000p-7",
         ),
-        "pib": "0x1.d1be33aa4428ep-1",
+        "pib": "0x1.d1745d17465fdp-1",
         "smsr": "0x1.4000000000000p+3",
         "annotations": (
             ("P1", "0x1.e80051ee244aep+9", "0x1.e80051ee244aep+9", "0x1.d4c0000000000p+13"),
@@ -223,7 +223,7 @@ class SpectrumMathTests(unittest.TestCase):
         )
         self.assertEqual(
             _float_hex(calculate_pib(flat_wavelength, saturated_intensity)),
-            "0x1.a7966ed869912p-1",
+            "0x1.51d07eae2f815p-1",
         )
         self.assertEqual(_float_hex(saturated_smsr.smsr_db), "nan")
         self.assertEqual(
@@ -439,7 +439,7 @@ class SpectrumMathTests(unittest.TestCase):
 
         pib = calculate_pib(wavelength, intensity)
 
-        self.assertAlmostEqual(pib, 0.8379997813298735)
+        self.assertAlmostEqual(pib, 0.8332952200066381)
 
     def test_pib_uses_fixed_976_nm_band_instead_of_following_a_shifted_peak(self) -> None:
         wavelength = np.arange(956.0, 996.0001, 0.1)
@@ -461,7 +461,21 @@ class SpectrumMathTests(unittest.TestCase):
             -0.5 * ((wavelength - 982.0) / 0.35) ** 2
         )
 
-        self.assertEqual(calculate_pib(wavelength, intensity, center_nm=0.0), 1.0)
+        self.assertAlmostEqual(calculate_pib(wavelength, intensity, center_nm=0.0), 0.9998772417169143)
+
+    def test_pib_supports_user_configured_target_center_and_half_range(self) -> None:
+        # 940nm locked laser peak
+        wavelength = np.arange(920.0, 960.0001, 0.1)
+        intensity = 100.0 + 5000.0 * np.exp(
+            -0.5 * ((wavelength - 940.0) / 0.35) ** 2
+        )
+
+        # Default (976.0 nm) returns 0.0 because 940 nm is outside [974.5, 977.5]
+        self.assertEqual(calculate_pib(wavelength, intensity), 0.0)
+
+        # Configured for 940.0 nm with 1.5 nm half-range captures the full peak
+        pib_940 = calculate_pib(wavelength, intensity, center_nm=940.0, half_range_nm=1.5)
+        self.assertAlmostEqual(pib_940, 0.9999542642392277, places=6)
 
     def test_smsr_uses_main_peak_over_highest_other_local_peak(self) -> None:
         wavelength = [973.0 + index * 0.1 for index in range(41)]

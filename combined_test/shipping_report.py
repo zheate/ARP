@@ -135,7 +135,7 @@ POLE_FIELD_DEFINITIONS = (
 
 # The approved Pole report sample presents this complete six-row summary.
 # Keep it as the first-use default while preserving any explicit user choice
-# (including an intentionally saved empty selection) in QSettings.
+# (including an intentionally saved empty selection) in the JSON settings store.
 DEFAULT_POLE_SELECTED_FIELD_KEYS = tuple(field.key for field in POLE_FIELD_DEFINITIONS)
 
 
@@ -1011,11 +1011,11 @@ def generate_shipping_report_batch_item(
 
 
 def load_shipping_report_preferences(settings: Any) -> dict[str, Any]:
-    """Return report preferences from QSettings without trusting stored shapes."""
+    """Return report preferences without trusting stored shapes."""
 
     def stored_float(key: str, default: float) -> float:
         try:
-            value = float(settings.value(key, default))
+            value = float(settings.get(key, default))
         except (TypeError, ValueError):
             return default
         return value if math.isfinite(value) else default
@@ -1023,10 +1023,10 @@ def load_shipping_report_preferences(settings: Any) -> dict[str, Any]:
     output: dict[str, Any] = {}
     for report_type in ShippingReportType:
         prefix = f"shipping_report/{report_type.value}/"
-        raw_selected = settings.value(prefix + "selected_fields", None)
+        raw_selected = settings.get(prefix + "selected_fields", None)
         try:
             selected = json.loads(str(raw_selected)) if raw_selected is not None else []
-            manual_values = json.loads(str(settings.value(prefix + "manual_values", "{}")))
+            manual_values = json.loads(str(settings.get(prefix + "manual_values", "{}")))
         except (TypeError, ValueError, json.JSONDecodeError):
             selected, manual_values = [], {}
         if not isinstance(selected, list):
@@ -1036,7 +1036,7 @@ def load_shipping_report_preferences(settings: Any) -> dict[str, Any]:
         if not isinstance(manual_values, dict):
             manual_values = {}
         try:
-            custom_fields = json.loads(str(settings.value(prefix + "custom_fields", "[]")))
+            custom_fields = json.loads(str(settings.get(prefix + "custom_fields", "[]")))
         except (TypeError, ValueError, json.JSONDecodeError):
             custom_fields = []
         if not isinstance(custom_fields, list):
@@ -1061,7 +1061,7 @@ def load_shipping_report_preferences(settings: Any) -> dict[str, Any]:
             "customFields": normalized_custom_fields,
         }
         if report_type is ShippingReportType.SPECTRUM:
-            mode = str(settings.value(prefix + "axis_mode", SpectrumAxisMode.RELATIVE_DB.value))
+            mode = str(settings.get(prefix + "axis_mode", SpectrumAxisMode.RELATIVE_DB.value))
             if mode not in {item.value for item in SpectrumAxisMode}:
                 mode = SpectrumAxisMode.RELATIVE_DB.value
             preference["spectrumAxis"] = {
@@ -1069,8 +1069,8 @@ def load_shipping_report_preferences(settings: Any) -> dict[str, Any]:
                 "minimum": stored_float(prefix + "axis_minimum", -80.0),
                 "maximum": stored_float(prefix + "axis_maximum", 0.0),
             }
-            wavelength_minimum = _finite_or_none(settings.value(prefix + "wavelength_minimum", None))
-            wavelength_maximum = _finite_or_none(settings.value(prefix + "wavelength_maximum", None))
+            wavelength_minimum = _finite_or_none(settings.get(prefix + "wavelength_minimum", None))
+            wavelength_maximum = _finite_or_none(settings.get(prefix + "wavelength_maximum", None))
             if (
                 wavelength_minimum is not None
                 and wavelength_maximum is not None
@@ -1092,26 +1092,26 @@ def save_shipping_report_preferences(settings: Any, request: ShippingReportReque
         if key in manual_keys and value.value
     }
     prefix = f"shipping_report/{request.report_type.value}/"
-    settings.setValue(prefix + "selected_fields", json.dumps(selected, ensure_ascii=False))
-    settings.setValue(prefix + "manual_values", json.dumps(manual_values, ensure_ascii=False))
-    settings.setValue(
+    settings.set(prefix + "selected_fields", json.dumps(selected, ensure_ascii=False))
+    settings.set(prefix + "manual_values", json.dumps(manual_values, ensure_ascii=False))
+    settings.set(
         prefix + "custom_fields",
         json.dumps([_field_payload(item) for item in request.custom_fields], ensure_ascii=False),
     )
     if request.spectrum_axis is not None:
-        settings.setValue(prefix + "axis_mode", request.spectrum_axis.mode.value)
-        settings.setValue(prefix + "axis_minimum", request.spectrum_axis.minimum)
-        settings.setValue(prefix + "axis_maximum", request.spectrum_axis.maximum)
+        settings.set(prefix + "axis_mode", request.spectrum_axis.mode.value)
+        settings.set(prefix + "axis_minimum", request.spectrum_axis.minimum)
+        settings.set(prefix + "axis_maximum", request.spectrum_axis.maximum)
         if (
             request.spectrum_axis.wavelength_minimum is not None
             and request.spectrum_axis.wavelength_maximum is not None
         ):
-            settings.setValue(prefix + "wavelength_minimum", request.spectrum_axis.wavelength_minimum)
-            settings.setValue(prefix + "wavelength_maximum", request.spectrum_axis.wavelength_maximum)
+            settings.set(prefix + "wavelength_minimum", request.spectrum_axis.wavelength_minimum)
+            settings.set(prefix + "wavelength_maximum", request.spectrum_axis.wavelength_maximum)
         else:
-            settings.remove(prefix + "wavelength_minimum")
-            settings.remove(prefix + "wavelength_maximum")
-    settings.sync()
+            settings.delete(prefix + "wavelength_minimum")
+            settings.delete(prefix + "wavelength_maximum")
+    settings.flush()
 
 
 def generate_shipping_report(

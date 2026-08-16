@@ -215,20 +215,26 @@ fn median_filter_three(values: &[f64]) -> Vec<f64> {
         .collect()
 }
 
-fn nearest_index(values: &[f64], target: f64) -> usize {
-    values
-        .iter()
-        .enumerate()
-        .min_by(|left, right| (left.1 - target).abs().total_cmp(&(right.1 - target).abs()))
-        .map(|(index, _)| index)
-        .unwrap_or(0)
-}
 
 fn trapezoidal_integral(x: &[f64], y: &[f64]) -> f64 {
     x.windows(2)
         .zip(y.windows(2))
         .map(|(x_pair, y_pair)| (x_pair[1] - x_pair[0]) * (y_pair[0] + y_pair[1]) / 2.0)
         .sum()
+}
+
+fn slice_median(values: &[f64]) -> f64 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    let mut sorted = values.to_vec();
+    sorted.sort_by(|a, b| a.total_cmp(b));
+    let mid = sorted.len() / 2;
+    if sorted.len() % 2 == 0 {
+        (sorted[mid - 1] + sorted[mid]) / 2.0
+    } else {
+        sorted[mid]
+    }
 }
 
 pub fn power_in_band(
@@ -245,25 +251,14 @@ pub fn power_in_band(
     }
 
     let filtered = median_filter_three(intensity);
-    let peak_index = filtered
-        .iter()
-        .enumerate()
-        .max_by(|left, right| left.1.total_cmp(right.1))
-        .map(|(index, _)| index)
-        .unwrap_or(0);
-    let (left_index, right_index) = signal_region(&filtered, peak_index);
-    let signal_wavelength = &wavelength[left_index..=right_index];
-    if signal_wavelength.len() < 2 {
-        return 0.0;
-    }
-    let noise = (filtered[left_index] + filtered[right_index]) / 2.0;
-    let signal_intensity: Vec<f64> = filtered[left_index..=right_index]
-        .iter()
-        .map(|value| value - noise)
-        .collect();
-
     let effective_center = if center_nm < 1e-6 {
-        calculate_central(signal_wavelength, &signal_intensity)
+        let peak_index = filtered
+            .iter()
+            .enumerate()
+            .max_by(|left, right| left.1.total_cmp(right.1))
+            .map(|(index, _)| index)
+            .unwrap_or(0);
+        wavelength[peak_index]
     } else {
         center_nm
     };
@@ -271,19 +266,63 @@ pub fn power_in_band(
         return f64::NAN;
     }
 
-    let lower_index = nearest_index(signal_wavelength, effective_center - half_range_nm);
-    let upper_index = nearest_index(signal_wavelength, effective_center + half_range_nm);
-    let band_start = lower_index.min(upper_index);
-    let band_stop = lower_index.max(upper_index) + 1;
-    let total_intensity = trapezoidal_integral(signal_wavelength, &signal_intensity);
-    if total_intensity.abs() < 1e-6 {
+    const ANALYSIS_SPAN_NM: f64 = 20.0;
+    let min_w = effective_center - ANALYSIS_SPAN_NM;
+    let max_w = effective_center + ANALYSIS_SPAN_NM;
+
+    let mut sub_w = Vec::new();
+    let mut sub_y = Vec::new();
+    for (&w, &y) in wavelength.iter().zip(filtered.iter()) {
+        if w >= min_w && w <= max_w {
+            sub_w.push(w);
+            sub_y.push(y);
+        }
+    }
+    if sub_w.len() < 2 {
+        sub_w = wavelength.to_vec();
+        sub_y = filtered;
+    }
+    if sub_w.len() < 2 {
         return 0.0;
     }
-    let band_intensity = trapezoidal_integral(
-        &signal_wavelength[band_start..band_stop],
-        &signal_intensity[band_start..band_stop],
-    );
-    (band_intensity / total_intensity).min(1.0)
+
+    let baseline = slice_median(&sub_y);
+    let abs_diffs: Vec<f64> = sub_y.iter().map(|&v| (v - baseline).abs()).collect();
+    let noise_sigma = 1.4826 * slice_median(&abs_diffs);
+    let threshold = (2.0 * noise_sigma).max(1e-9);
+
+    let corrected_y: Vec<f64> = sub_y
+        .iter()
+        .map(|&v| {
+            let diff = v - baseline;
+            if diff >= threshold {
+                diff
+            } else {
+                0.0
+            }
+        })
+        .collect();
+
+    let total_power = trapezoidal_integral(&sub_w, &corrected_y);
+    if total_power.abs() < 1e-6 {
+        return 0.0;
+    }
+
+    let band_min = effective_center - half_range_nm;
+    let band_max = effective_center + half_range_nm;
+    let mut band_w = Vec::new();
+    let mut band_y = Vec::new();
+    for (&w, &y) in sub_w.iter().zip(corrected_y.iter()) {
+        if w >= band_min && w <= band_max {
+            band_w.push(w);
+            band_y.push(y);
+        }
+    }
+    if band_w.len() < 2 {
+        return 0.0;
+    }
+    let band_power = trapezoidal_integral(&band_w, &band_y);
+    (band_power / total_power).clamp(0.0, 1.0)
 }
 
 pub fn sample_summary(values: &[f64]) -> Option<SampleSummary> {

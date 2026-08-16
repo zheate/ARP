@@ -19,7 +19,7 @@ def default_settings_path() -> Path:
 
 
 class JsonSettings:
-    """Minimal QSettings-compatible facade with atomic persistence."""
+    """Small JSON settings store with atomic persistence."""
 
     def __init__(self, path: Path | None = None) -> None:
         self.path = Path(path or default_settings_path())
@@ -35,29 +35,29 @@ class JsonSettings:
         if isinstance(loaded, dict):
             self._values = loaded
 
-    def value(self, key: str, default: Any = None, type: type[Any] | None = None) -> Any:
+    def get(self, key: str, default: Any = None, value_type: type[Any] | None = None) -> Any:
         with self._lock:
             value = self._values.get(str(key), default)
-        if type is None or value is None:
+        if value_type is None or value is None:
             return value
-        if type is bool and isinstance(value, str):
+        if value_type is bool and isinstance(value, str):
             return value.strip().lower() in {"1", "true", "yes", "on"}
         try:
-            return type(value)
+            return value_type(value)
         except (TypeError, ValueError):
             return default
 
-    def setValue(self, key: str, value: Any) -> None:
+    def set(self, key: str, value: Any) -> None:
         with self._lock:
             self._values[str(key)] = value
-            self.sync()
+            self.flush()
 
-    def remove(self, key: str) -> None:
+    def delete(self, key: str) -> None:
         with self._lock:
             self._values.pop(str(key), None)
-            self.sync()
+            self.flush()
 
-    def sync(self) -> None:
+    def flush(self) -> None:
         with self._lock:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             temporary = self.path.with_suffix(self.path.suffix + ".tmp")

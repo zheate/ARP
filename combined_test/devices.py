@@ -253,7 +253,11 @@ def open_spectrometer_device(spectrometer: Any, selected_device_id: int | None) 
             "然后重新插拔 USB 后重试。"
         )
 
-    device_id = selected_device_id if selected_device_id in device_ids else device_ids[0]
+    if int(selected_device_id) not in device_ids:
+        raise RuntimeError(
+            f"未找到指定的光谱仪设备 ID {selected_device_id}，当前在线设备: {device_ids}"
+        )
+    device_id = int(selected_device_id)
     spectrometer.control.open_device(device_id)
     spectrometer.device_id = device_id
     return int(device_id)
@@ -709,7 +713,12 @@ class SpectrometerReaderThread(WorkerThread):
         except TypeError:
             has_enough_pib_samples = True
         pib = (
-            calculate_pib(wavelength, intensity)
+            calculate_pib(
+                wavelength,
+                intensity,
+                center_nm=self.settings.pib_center_wavelength_nm,
+                half_range_nm=self.settings.pib_half_range_nm,
+            )
             if not self.headless and not saturation.saturated and has_enough_pib_samples
             else math.nan
         )

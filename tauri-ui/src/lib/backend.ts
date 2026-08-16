@@ -4,7 +4,7 @@ import { decodeColumnarSpectrum, mergeSpectrumColumns, type SpectrumColumns, typ
 
 export type BackendMode = "read_only" | "active"
 export type DeviceConnectionState = "disconnected" | "connecting" | "connected" | "error"
-export type SnapshotView = "automatic" | "manual" | "pd" | "shipping"
+export type SnapshotView = "automatic" | "automatic_1" | "automatic_2" | "manual" | "manual_1" | "manual_2" | "pd" | "shipping"
 export type SeriesRevisions = { power: number; stable: number; spectrum: number; pd: number }
 export type SeriesCursors = { power?: number; pd?: number }
 export type { SpectrumColumns } from "@/lib/spectrum-columns"
@@ -82,6 +82,8 @@ export interface AppConfiguration {
   autoIntegration: boolean
   spectrometerIntervalMs: number
   spectrumAverageFrames: number
+  pibCenterWavelengthNm: number
+  pibHalfRangeNm: number
   stableWindowS: number
   stableToleranceW: number
   initialCurrentA: number
@@ -94,6 +96,28 @@ export interface AppConfiguration {
   rampDownIntervalS: number
   pauseRampDownTimeoutS: number
   useSpectrometer: boolean
+}
+
+export interface StationSummary {
+  stationId: string
+  station: string
+  sn: string
+  productModel: string
+  batch: string
+  state: string
+  detail: string
+  progress: number
+  activeCurrentA?: number | null
+  powerW?: number | null
+  powerSupplyConnected: boolean
+  powerMeterRunning: boolean
+  spectrometerRunning: boolean
+  canStart?: boolean
+  canPause?: boolean
+  canRetry?: boolean
+  canEnd?: boolean
+  terminalOutcome?: string | null
+  terminalReason?: string
 }
 
 export interface TestHistoryCandidate {
@@ -113,6 +137,9 @@ export interface TestHistoryReference extends TestHistoryCandidate {
 export interface BackendSnapshot {
   capturedAt: string
   seriesRevisions?: SeriesRevisions
+  activeStation?: string
+  stations?: Record<string, StationSummary>
+  configurations?: Record<string, AppConfiguration>
   backend: {
     connected: boolean
     mode: BackendMode
