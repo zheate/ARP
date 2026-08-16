@@ -147,6 +147,43 @@ def load_legacy_ch341_controller_class() -> type:
     return controller_class
 
 
+from .ch341_ports import Ch341DeviceDescriptor, get_location_path_from_interface_path
+
+
+def scan_ch341_devices(max_devices: int = 16) -> list[Ch341DeviceDescriptor]:
+    """扫描并返回所有在线的 CH341 物理设备描述符列表。"""
+    controller_class = load_legacy_ch341_controller_class()
+    scanner = getattr(controller_class, "scan_devices", None)
+    if not callable(scanner):
+        return []
+    indices = [int(idx) for idx in scanner(max_devices=max_devices)]
+    if not indices:
+        return []
+
+    probe = controller_class()
+    if not probe.ch341_dll:
+        raise RuntimeError("未找到 CH341 DLL 驱动库，请确认驱动已正确安装")
+
+    descriptors: list[Ch341DeviceDescriptor] = []
+    for idx in indices:
+        iface_path = probe.get_device_interface_path(idx)
+        loc_path = get_location_path_from_interface_path(iface_path)
+        descriptors.append(
+            Ch341DeviceDescriptor(
+                device_index=idx,
+                interface_path=iface_path,
+                location_path=loc_path,
+            )
+        )
+    return descriptors
+
+
+def create_ch341_controller(device_index: int = 0) -> Any:
+    """创建指定 device_index 的独立 CH341 控制器实例。"""
+    controller_class = load_legacy_ch341_controller_class()
+    return controller_class(device_index=int(device_index))
+
+
 def parse_i2c_address(text: str) -> int:
     value = text.strip()
     if value.lower().startswith("0x"):

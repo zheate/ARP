@@ -14,7 +14,7 @@ import time
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from combined_test.automation import (
     AutomaticCurrentPoint,
@@ -29,10 +29,13 @@ from combined_test.devices import (
     PowerMeterDetectThread,
     PowerMeterReaderThread,
     SpectrometerReaderThread,
+    create_ch341_controller,
     extract_power_resource_name,
     load_legacy_ch341_controller_class,
     load_spectrometer_components,
+    scan_ch341_devices,
 )
+from combined_test.ch341_ports import Ch341DeviceDescriptor, get_location_path_from_interface_path
 from combined_test.excel_export import ExcelTestRecord, build_test_workbook_path, save_test_records
 from combined_test.models import (
     PowerMeterOption,
@@ -61,6 +64,8 @@ DEFAULT_CONFIGURATION: dict[str, Any] = {
     "station": "",
     "outputDir": "test_records",
     "powerSupplyKind": "ch341",
+    "ch341SelectedLocationPath": "",
+    "ch341PortBindings": [],
     "tdkResource": "",
     "setCurrentA": 0.0,
     "tdkVoltageV": 12.0,
@@ -117,7 +122,9 @@ class HeadlessBackend:
         stored = self.settings.value("runtime/configuration", {})
         self.configuration = dict(DEFAULT_CONFIGURATION)
         if isinstance(stored, dict):
-            self.configuration.update(stored)
+            self.configuration.update(
+                {key: value for key, value in stored.items() if key in DEFAULT_CONFIGURATION}
+            )
 
         self.notices: deque[dict[str, str]] = deque(maxlen=8)
         self._notice_sequence = 0
@@ -127,6 +134,11 @@ class HeadlessBackend:
         self.power_supply_kind = str(self.configuration["powerSupplyKind"])
         self.active_current_a: float | None = 0.0
         self.power_supply_resources: list[str] = []
+        self.ch341_discovery_state: Literal["not_scanned", "ready", "empty", "error"] = "not_scanned"
+        self.ch341_scan_error: str = ""
+        self.ch341_descriptors: list[Ch341DeviceDescriptor] = []
+        self.connected_ch341_port: dict[str, Any] | None = None
+        self.power_supply_identity_error = ""
         self.latest_tdk_current_a: float | None = None
         self.latest_tdk_voltage_v: float | None = None
 
@@ -271,6 +283,55 @@ class HeadlessBackend:
 
     def _configure(self, params: dict[str, Any]) -> None:
         with self._lock:
+            kind = str(params.get("powerSupplyKind", self.configuration["powerSupplyKind"])).lower()
+            if kind not in {"ch341", "tdk"}:
+                raise ValueError("powerSupplyKind must be ch341 or tdk")
+
+            if "ch341PortBindings" in params:
+                raw_bindings = params["ch341PortBindings"]
+                if not isinstance(raw_bindings, list):
+                    raise ValueError("ch341PortBindings 必须是列表")
+                cleaned_bindings = []
+                seen_paths = set()
+                seen_names = set()
+                for item in raw_bindings:
+                    if not isinstance(item, dict):
+                        raise ValueError("端口绑定项必须是对象")
+                    loc = str(item.get("locationPath", "")).strip()
+                    name = str(item.get("name", "")).strip()
+                    if not loc:
+                        raise ValueError("locationPath 不能为空")
+                    if not name:
+                        raise ValueError("工位名称不能为空")
+                    if loc in seen_paths:
+                        raise ValueError(f"存在重复的 locationPath: {loc}")
+                    if name in seen_names:
+                        raise ValueError(f"存在重复的工位名称: {name}")
+                    seen_paths.add(loc)
+                    seen_names.add(name)
+                    cleaned_bindings.append({"locationPath": loc, "name": name})
+
+                if self.power_supply_controller is not None and cleaned_bindings != self.configuration.get("ch341PortBindings", []):
+                    raise ValueError("请先断开电源，再修改端口绑定或切换工位")
+                params["ch341PortBindings"] = cleaned_bindings
+
+            if "ch341SelectedLocationPath" in params:
+                selected_loc = str(params["ch341SelectedLocationPath"]).strip()
+                if self.power_supply_controller is not None and selected_loc != self.configuration.get("ch341SelectedLocationPath", ""):
+                    raise ValueError("请先断开电源，再切换设备通道")
+                params["ch341SelectedLocationPath"] = selected_loc
+
+            if self.power_supply_controller is not None:
+                if kind != self.power_supply_kind:
+                    raise ValueError("请先断开电源，再切换控制器类型")
+
+            if kind != self.power_supply_kind:
+                # Reset opposite controller's scan status
+                self.power_supply_resources = []
+                self.ch341_discovery_state = "not_scanned"
+                self.ch341_descriptors = []
+                self.ch341_scan_error = ""
+
             for key in DEFAULT_CONFIGURATION:
                 if key in params:
                     self.configuration[key] = params[key]
@@ -280,17 +341,36 @@ class HeadlessBackend:
             points = self.configuration["customCurrentPoints"]
             if not isinstance(points, list):
                 raise ValueError("customCurrentPoints must be a list")
-            kind = str(self.configuration["powerSupplyKind"]).lower()
-            if kind not in {"ch341", "tdk"}:
-                raise ValueError("powerSupplyKind must be ch341 or tdk")
-            if self.power_supply_controller is not None and kind != self.power_supply_kind:
-                raise ValueError("请先断开电源，再切换控制器类型")
             self.power_supply_kind = kind
 
     def _refresh_device(self, params: dict[str, Any]) -> None:
         device = str(params.get("device", "all"))
-        if device in {"all", "powerSupply"} and self.power_supply_kind == "tdk":
-            self.power_supply_resources = list_tdk_serial_resources()
+        if device in {"all", "powerSupply"}:
+            if self.power_supply_kind == "tdk":
+                self.power_supply_resources = list_tdk_serial_resources()
+                self.ch341_discovery_state = "not_scanned"
+                self.ch341_descriptors = []
+                self.ch341_scan_error = ""
+                self.status_message = f"找到 {len(self.power_supply_resources)} 个可用 RS-232 串口"
+            else:
+                self.power_supply_resources = []
+                try:
+                    descriptors = scan_ch341_devices()
+                    self.ch341_descriptors = descriptors
+                    self.ch341_scan_error = ""
+                    if descriptors:
+                        self.ch341_discovery_state = "ready"
+                        self.status_message = f"扫描到 {len(descriptors)} 个 CH341 端口"
+                    else:
+                        self.ch341_discovery_state = "empty"
+                        self.status_message = "未检测到在线的 CH341 设备"
+                except Exception as exc:
+                    self.ch341_descriptors = []
+                    self.ch341_scan_error = str(exc)
+                    self.ch341_discovery_state = "error"
+                    self.status_message = f"CH341 扫描失败：{exc}"
+                    _LOGGER.warning("CH341 扫描异常: %s", exc)
+                    self.notify("error", "CH341 扫描失败", str(exc))
         if device in {"all", "powerMeter"}:
             self._detect_power_meters()
         if device in {"all", "spectrometer"}:
@@ -307,32 +387,120 @@ class HeadlessBackend:
             return
         if self.power_supply_kind == "tdk":
             controller = TdkLambdaPowerSupply(str(self.configuration["tdkResource"]))
+            connected, detail = controller.connect_device(0)
+            if not connected:
+                raise RuntimeError(str(detail))
+            self.power_supply_controller = controller
+            self.connected_ch341_port = None
+            self.power_supply_identity_error = ""
+            self.active_current_a = 0.0
+            self.status_message = f"电源已连接：{detail}"
         else:
-            controller = load_legacy_ch341_controller_class()()
+            selected_loc = str(self.configuration.get("ch341SelectedLocationPath", "")).strip()
+            if not selected_loc:
+                raise RuntimeError("请先选择要连接的 CH341 工位端口")
+
+            bindings = {b["locationPath"]: b["name"] for b in self.configuration.get("ch341PortBindings", []) if isinstance(b, dict)}
+            bound_name = bindings.get(selected_loc)
+            if not bound_name:
+                raise RuntimeError("未命名的端口不能连接，请先绑定工位名称")
+
+            # Perform fresh live scan
+            try:
+                descriptors = scan_ch341_devices()
+                self.ch341_descriptors = descriptors
+                self.ch341_scan_error = ""
+                self.ch341_discovery_state = "ready" if descriptors else "empty"
+            except Exception as exc:
+                self.ch341_descriptors = []
+                self.ch341_scan_error = str(exc)
+                self.ch341_discovery_state = "error"
+                raise RuntimeError(f"连接前扫描 CH341 端口失败：{exc}")
+
+            matching_desc = next((d for d in descriptors if d.location_path == selected_loc), None)
+            if matching_desc is None:
+                raise RuntimeError(f"工位 '{bound_name}' ({selected_loc}) 当前未检测到或已离线，请检查硬件连接并重新扫描")
+
+            target_index = matching_desc.device_index
+            controller = create_ch341_controller(device_index=target_index)
             controller.set_i2c_speed(0)
-        connected, detail = controller.connect_device(0)
-        if not connected:
-            raise RuntimeError(str(detail))
-        self.power_supply_controller = controller
-        self.active_current_a = 0.0
-        self.status_message = f"电源已连接：{detail}"
+            connected, detail = controller.connect_device(target_index)
+            if not connected:
+                raise RuntimeError(str(detail))
+
+            # Post-open verification: verify opened index still matches target locationPath
+            try:
+                verified_iface = controller.get_device_interface_path(target_index)
+                verified_loc = get_location_path_from_interface_path(verified_iface)
+                if verified_loc != selected_loc:
+                    raise RuntimeError(f"端口复核不一致（期望 {selected_loc}，实际 {verified_loc}）")
+            except Exception as exc:
+                disconnect_error = ""
+                try:
+                    disconnected = bool(controller.disconnect_device())
+                except Exception as close_exc:
+                    disconnected = False
+                    disconnect_error = str(close_exc)
+                if not disconnected:
+                    detail_text = f"连接后端口校验失败：{exc}；设备关闭失败"
+                    if disconnect_error:
+                        detail_text += f"：{disconnect_error}"
+                    self.power_supply_controller = controller
+                    self.connected_ch341_port = {
+                        "locationPath": selected_loc,
+                        "name": bound_name,
+                        "deviceIndex": target_index,
+                    }
+                    self.power_supply_identity_error = detail_text
+                    self.status_message = detail_text
+                    raise RuntimeError(detail_text) from exc
+                raise RuntimeError(f"连接后端口校验失败：{exc}")
+
+            self.power_supply_controller = controller
+            self.active_current_a = 0.0
+            self.power_supply_identity_error = ""
+            self.connected_ch341_port = {
+                "locationPath": selected_loc,
+                "name": bound_name,
+                "deviceIndex": target_index,
+            }
+            self.notify("info", "电源已连接", f"{bound_name}（当前 Device {target_index}）")
+            _LOGGER.info("已连接 CH341 电源: name=%s, locationPath=%s, deviceIndex=%d", bound_name, selected_loc, target_index)
 
     def _disconnect_power_supply(self) -> None:
+        if self.power_supply_identity_error and self.power_supply_controller is not None:
+            try:
+                disconnected = bool(self.power_supply_controller.disconnect_device())
+            except Exception as exc:
+                raise RuntimeError(f"身份校验失败的 CH341 仍无法关闭：{exc}") from exc
+            if not disconnected:
+                raise RuntimeError("身份校验失败的 CH341 仍无法关闭，请检查 USB 连接")
+            self.power_supply_controller = None
+            self.connected_ch341_port = None
+            self.power_supply_identity_error = ""
+            self.active_current_a = 0.0
+            self.status_message = "身份校验失败的 CH341 已断开"
+            return
         supply = self._power_supply()
         if supply is None:
             self.power_supply_controller = None
+            self.connected_ch341_port = None
+            self.power_supply_identity_error = ""
             return
-        try:
-            supply.set_current(0.0)
-            if self.power_supply_kind == "tdk":
-                supply.set_output_enabled(False)
-            self.active_current_a = 0.0
-            supply.disconnect()
-        finally:
-            self.power_supply_controller = None
-        self.status_message = "电源已安全断开"
+        bound_name = self.connected_ch341_port.get("name", "") if self.connected_ch341_port else ""
+        supply.set_current(0.0)
+        if self.power_supply_kind == "tdk":
+            supply.set_output_enabled(False)
+        self.active_current_a = 0.0
+        supply.disconnect()
+        self.power_supply_controller = None
+        self.connected_ch341_port = None
+        self.power_supply_identity_error = ""
+        self.status_message = f"电源已安全断开（{bound_name}）" if bound_name else "电源已安全断开"
 
     def _require_power_supply(self) -> ControllerPowerSupply:
+        if self.power_supply_identity_error:
+            raise RuntimeError("CH341 端口身份校验失败，只允许安全断开")
         supply = self._power_supply()
         if supply is None:
             raise RuntimeError("电源未连接")
@@ -699,6 +867,8 @@ class HeadlessBackend:
                 self.notify("error", "安全下电失败", str(shutdown_error))
 
     def _safe_ramp_down(self) -> None:
+        if self.power_supply_identity_error:
+            raise RuntimeError("CH341 端口身份校验失败，禁止下发电流指令；请先安全断开")
         supply = self._power_supply()
         if supply is None:
             return
@@ -994,6 +1164,38 @@ class HeadlessBackend:
         dwell_elapsed = None
         if self.automatic_hold_started_at is not None and self.automatic.current_dwell_s > 0.0:
             dwell_elapsed = min(self.automatic.current_dwell_s, max(0.0, time.monotonic() - self.automatic_hold_started_at))
+        bindings_map = {
+            b["locationPath"]: b["name"]
+            for b in self.configuration.get("ch341PortBindings", [])
+            if isinstance(b, dict) and "locationPath" in b
+        }
+        online_map = {d.location_path: d.device_index for d in self.ch341_descriptors}
+        all_paths = list(dict.fromkeys(list(bindings_map.keys()) + list(online_map.keys())))
+        ports = [
+            {
+                "locationPath": loc,
+                "name": bindings_map.get(loc),
+                "online": loc in online_map,
+                "deviceIndex": online_map.get(loc),
+            }
+            for loc in all_paths
+        ]
+        ch341_snapshot = {
+            "discoveryState": self.ch341_discovery_state,
+            "error": self.ch341_scan_error,
+            "ports": ports,
+            "connectedPort": self.connected_ch341_port,
+        }
+        if self.power_supply_identity_error:
+            power_supply_detail = self.power_supply_identity_error
+        elif supply is not None and self.power_supply_kind == "ch341" and self.connected_ch341_port:
+            power_supply_detail = (
+                f"{self.connected_ch341_port['name']} · 已连接 · "
+                f"Device {self.connected_ch341_port['deviceIndex']}"
+            )
+        else:
+            power_supply_detail = "已连接" if supply is not None else "未连接"
+
         return {
             "capturedAt": datetime.now(timezone.utc).isoformat(),
             "seriesRevisions": dict(self.series_revisions),
@@ -1007,13 +1209,14 @@ class HeadlessBackend:
             "configuration": dict(self.configuration),
             "devices": {
                 "powerSupply": {
-                    "state": _device_state(supply is not None, False, ""),
+                    "state": _device_state(supply is not None, False, self.power_supply_identity_error),
                     "label": "TDK RS232" if self.power_supply_kind == "tdk" else "CH341 I²C",
-                    "detail": "已连接" if supply is not None else "未连接",
+                    "detail": power_supply_detail,
                     "connected": supply is not None,
                     "outputEnabled": bool(supply and supply.output_enabled),
                     "activeCurrentA": _finite(self.active_current_a),
                     "resources": list(self.power_supply_resources),
+                    "ch341": ch341_snapshot,
                 },
                 "powerMeter": {
                     "state": "connecting" if self.power_meter_detect_thread is not None else _device_state(False, self.power_meter_reader is not None, self.power_meter_error),
@@ -1045,7 +1248,7 @@ class HeadlessBackend:
                 "state": self.automatic.state.value,
                 "detail": self.automatic_detail,
                 "controlsEnabled": True,
-                "canStart": supply is not None and float(self.active_current_a or 0.0) <= 0.0,
+                "canStart": supply is not None and not self.power_supply_identity_error and float(self.active_current_a or 0.0) <= 0.0,
                 "canRetry": self.automatic.state == AutomaticTestState.PAUSED,
                 "canPause": self.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED, AutomaticTestState.PAUSED, AutomaticTestState.RAMPING_DOWN},
                 "canEnd": self.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED, AutomaticTestState.RAMPING_DOWN},

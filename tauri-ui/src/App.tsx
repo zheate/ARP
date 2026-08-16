@@ -19,6 +19,8 @@ import {
   Save,
   SlidersHorizontal,
   Square,
+  Tag,
+  Trash2,
   X,
 } from "lucide-react"
 import { open as openDialog } from "@tauri-apps/plugin-dialog"
@@ -34,7 +36,7 @@ import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { useBackendSnapshot } from "@/hooks/use-backend-snapshot"
-import { sendBackendRequest, type AppConfiguration, type BackendSnapshot, type DeviceSnapshot, type ShippingReportBatchGenerationResult, type ShippingReportBatchInspection, type ShippingReportBatchItem, type ShippingReportFieldDefinition, type ShippingReportGenerationResult, type ShippingReportPointSuggestion, type ShippingReportPreviewResult, type ShippingReportType, type ShippingWorkbookInspection, type SpectrumAxisMode, type TestHistoryCandidate } from "@/lib/backend"
+import { sendBackendRequest, type AppConfiguration, type BackendSnapshot, type Ch341PortBinding, type DeviceSnapshot, type ShippingReportBatchGenerationResult, type ShippingReportBatchInspection, type ShippingReportBatchItem, type ShippingReportFieldDefinition, type ShippingReportGenerationResult, type ShippingReportPointSuggestion, type ShippingReportPreviewResult, type ShippingReportType, type ShippingWorkbookInspection, type SpectrumAxisMode, type TestHistoryCandidate } from "@/lib/backend"
 
 type Page = "automatic" | "manual" | "pd" | "shipping"
 
@@ -138,6 +140,8 @@ const emptyConfig: AppConfiguration = {
   station: "",
   outputDir: "",
   powerSupplyKind: "ch341",
+  ch341SelectedLocationPath: "",
+  ch341PortBindings: [],
   tdkResource: "",
   setCurrentA: 0,
   tdkVoltageV: 0,
@@ -171,7 +175,10 @@ const configurationKeys = Object.keys(emptyConfig) as Array<keyof AppConfigurati
 
 function configurationsEqual(left: AppConfiguration, right: AppConfiguration): boolean {
   if (!sameRows(left.customCurrentPoints, right.customCurrentPoints, ["currentA", "dwellS"])) return false
-  return configurationKeys.every((key) => key === "customCurrentPoints" || left[key] === right[key])
+  if (!sameRows(left.ch341PortBindings, right.ch341PortBindings, ["locationPath", "name"])) return false
+  return configurationKeys.every((key) => (
+    key === "customCurrentPoints" || key === "ch341PortBindings" || left[key] === right[key]
+  ))
 }
 
 function asNumber(value: string): number {
@@ -332,6 +339,164 @@ function NativeSelect({ value, onChange, children, disabled }: {
   )
 }
 
+function Ch341PortSelector({
+  config,
+  snapshot,
+  active,
+  pending,
+  layout = "stacked",
+  update,
+  onRefresh,
+}: {
+  config: AppConfiguration
+  snapshot: BackendSnapshot | null
+  active: boolean
+  pending: boolean
+  layout?: "stacked" | "inline"
+  update: UpdateConfig
+  onRefresh: () => void
+}) {
+  const psu = snapshot?.devices?.powerSupply
+  const isConnected = Boolean(psu?.connected && config.powerSupplyKind === "ch341")
+  const ch341 = psu?.ch341
+  const discoveryState = ch341?.discoveryState ?? "not_scanned"
+  const ports = ch341?.ports ?? []
+
+  const selectedLoc = config.ch341SelectedLocationPath || ""
+  const currentBinding = (config.ch341PortBindings || []).find((b) => b.locationPath === selectedLoc)
+  const currentPort = ports.find((p) => p.locationPath === selectedLoc)
+
+  const [nameInput, setNameInput] = useState("")
+  const trimmedName = nameInput.trim()
+  const duplicateNameBinding = (config.ch341PortBindings || []).find(
+    (binding) => binding.locationPath !== selectedLoc && binding.name === trimmedName,
+  )
+
+  useEffect(() => {
+    setNameInput(currentBinding?.name || "")
+  }, [currentBinding?.name, selectedLoc])
+
+  const handleSelectPort = (loc: string) => {
+    update("ch341SelectedLocationPath", loc)
+    const existing = (config.ch341PortBindings || []).find((b) => b.locationPath === loc)
+    setNameInput(existing?.name || "")
+  }
+
+  const handleSaveBinding = () => {
+    if (!selectedLoc || !trimmedName || duplicateNameBinding) return
+
+    const otherBindings = (config.ch341PortBindings || []).filter(
+      (binding) => binding.locationPath !== selectedLoc,
+    )
+    const nextBindings: Ch341PortBinding[] = [...otherBindings, { locationPath: selectedLoc, name: trimmedName }]
+    update("ch341PortBindings", nextBindings)
+  }
+
+  const handleRemoveBinding = () => {
+    if (!selectedLoc) return
+    const nextBindings = (config.ch341PortBindings || []).filter((b) => b.locationPath !== selectedLoc)
+    update("ch341PortBindings", nextBindings)
+    setNameInput("")
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <Field label="CH341 工位端口" layout={layout}>
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+          <NativeSelect
+            disabled={!active || pending || isConnected}
+            value={selectedLoc}
+            onChange={handleSelectPort}
+          >
+            {discoveryState === "not_scanned" && <option value="">请先点击识别固定端口</option>}
+            {discoveryState === "empty" && <option value="">未检测到 CH341 设备</option>}
+            {discoveryState === "error" && <option value="">扫描失败：{ch341?.error || "驱动异常"}</option>}
+            {discoveryState === "ready" && ports.length === 0 && <option value="">无可用端口</option>}
+            {discoveryState === "ready" && !selectedLoc && <option value="">请选择工位端口</option>}
+            {ports.map((port) => {
+              let label = ""
+              if (port.name && port.online) {
+                label = `${port.name} · 在线 (Device ${port.deviceIndex})`
+              } else if (port.name && !port.online) {
+                label = `${port.name} · 未检测到`
+              } else if (!port.name && port.online) {
+                label = `未命名端口 · Device ${port.deviceIndex}`
+              } else {
+                label = `未命名端口 (已离线)`
+              }
+              return (
+                <option key={port.locationPath} value={port.locationPath}>
+                  {label}
+                </option>
+              )
+            })}
+          </NativeSelect>
+          <Button
+            disabled={!active || pending || isConnected}
+            onClick={onRefresh}
+            variant="outline"
+          >
+            <RefreshCw className="size-4" />
+            识别
+          </Button>
+        </div>
+      </Field>
+
+      {selectedLoc ? (
+        <div className="flex items-center gap-2 rounded border border-border/50 bg-muted/20 px-2.5 py-1.5 text-xs">
+          <Tag className="size-3.5 shrink-0 text-muted-foreground" />
+          <Input
+            className="h-7 text-xs flex-1"
+            placeholder="填写工位名称 (如: 1号工位)"
+            value={nameInput}
+            onChange={(e) => setNameInput(e.target.value)}
+            disabled={!active || pending || isConnected}
+          />
+          <Button
+            size="sm"
+            className="h-7 text-xs px-2.5"
+            variant="secondary"
+            disabled={!active || pending || isConnected || !trimmedName || Boolean(duplicateNameBinding) || trimmedName === currentBinding?.name}
+            onClick={handleSaveBinding}
+          >
+            保存工位
+          </Button>
+          {currentBinding && (
+            <Button
+              size="sm"
+              className="h-7 text-xs px-2 text-destructive hover:text-destructive"
+              variant="ghost"
+              disabled={!active || pending || isConnected}
+              onClick={handleRemoveBinding}
+              title="解除工位绑定"
+            >
+              <Trash2 className="size-3.5" />
+            </Button>
+          )}
+        </div>
+      ) : null}
+
+      {duplicateNameBinding && (
+        <p className="text-[11px] text-destructive">
+          * 工位名称“{trimmedName}”已绑定到其他固定端口，请使用不同名称。
+        </p>
+      )}
+
+      {selectedLoc && !currentBinding?.name && (
+        <p className="text-[11px] text-amber-600 dark:text-amber-400">
+          * 当前端口尚未命名。未命名端口无法连接，请先输入工位名称并保存。
+        </p>
+      )}
+
+      {selectedLoc && currentBinding?.name && !currentPort?.online && (
+        <p className="text-[11px] text-destructive">
+          * 工位 “{currentBinding.name}” 当前处于离线状态，无法连接。请检查 USB 接线。
+        </p>
+      )}
+    </div>
+  )
+}
+
 function StatusDot({ state }: { state?: string }) {
   const color = state === "connected" || state === "running"
     ? "bg-[var(--app-success)]"
@@ -463,17 +628,27 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
           <p className="power-settings-section-description">连接设备并执行输出控制与状态读取</p>
         </div>
         <div className="power-settings-fields">
-          <Field label="控制器"><NativeSelect value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
-          {config.powerSupplyKind === "tdk" && <Field label="TDK 串口">
+          <Field label="控制器"><NativeSelect disabled={!active || pending || psu?.connected} value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
+          {config.powerSupplyKind === "tdk" ? <Field label="TDK 串口">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-              <NativeSelect value={selectedResource} onChange={(value) => update("tdkResource", value)}>
+              <NativeSelect disabled={!active || pending || psu?.connected} value={selectedResource} onChange={(value) => update("tdkResource", value)}>
                 <option value="">请点击识别电源</option>
                 {selectedResource && !resources.includes(selectedResource) && <option value={selectedResource}>{selectedResource}</option>}
                 {resources.map((resource) => <option key={resource} value={resource}>{resource}</option>)}
               </NativeSelect>
               <Button disabled={!active || pending || psu?.connected} onClick={() => void run("device.refresh", { device: "powerSupply" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
             </div>
-          </Field>}
+          </Field> : (
+            <Ch341PortSelector
+              config={config}
+              snapshot={snapshot}
+              active={active}
+              pending={pending}
+              layout="stacked"
+              update={update}
+              onRefresh={() => void run("device.refresh", { device: "powerSupply" }, true)}
+            />
+          )}
           <div className="power-settings-value-grid">
             {config.powerSupplyKind === "tdk" && <NumberField label="输出电压 (V)" value={config.tdkVoltageV} onChange={(v) => update("tdkVoltageV", v)} step="0.1" />}
             <NumberField label="设定电流 (A)" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
@@ -484,7 +659,30 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
             <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled ? "关闭输出" : "开启输出"}</Button>
             <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
           </div> : <div className="power-settings-action-grid">
-            <Button disabled={!active || pending} onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接电源"}</Button>
+            {(() => {
+              const selectedLoc = config.ch341SelectedLocationPath
+              const binding = (config.ch341PortBindings || []).find((b) => b.locationPath === selectedLoc)
+              const port = snapshot?.devices?.powerSupply?.ch341?.ports?.find((p) => p.locationPath === selectedLoc)
+              const isCh341ReadyToConnect = Boolean(
+                binding?.name &&
+                port?.online &&
+                snapshot?.devices?.powerSupply?.ch341?.discoveryState === "ready"
+              )
+              const btnText = psu?.connected
+                ? "安全断开"
+                : binding?.name
+                ? `连接 ${binding.name}`
+                : "连接电源"
+              return (
+                <Button
+                  disabled={!active || pending || (!psu?.connected && !isCh341ReadyToConnect)}
+                  onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)}
+                  variant={psu?.connected ? "outline" : "default"}
+                >
+                  {btnText}
+                </Button>
+              )
+            })()}
             <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
             <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline">读取输出电压</Button>
             <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline">读取输出电流</Button>
@@ -2699,17 +2897,27 @@ const ManualPage = memo(function ManualPage({ snapshot, config, update, active, 
     <div className="manual-page flex min-h-0 flex-1 flex-col gap-4">
       <section className="manual-device-grid shrink-0">
         <Card size="sm" className="shadow-none"><CardHeader><CardTitle className="text-base">电源控制</CardTitle></CardHeader><CardContent className="manual-control-content">
-          <Field label="控制器" layout="inline"><NativeSelect value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
-          {config.powerSupplyKind === "tdk" && <Field label="TDK 串口" layout="inline">
+          <Field label="控制器" layout="inline"><NativeSelect disabled={!active || pending || psu?.connected} value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
+          {config.powerSupplyKind === "tdk" ? <Field label="TDK 串口" layout="inline">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-              <NativeSelect value={selectedPowerSupplyResource} onChange={(value) => update("tdkResource", value)}>
+              <NativeSelect disabled={!active || pending || psu?.connected} value={selectedPowerSupplyResource} onChange={(value) => update("tdkResource", value)}>
                 <option value="">请点击识别电源</option>
                 {selectedPowerSupplyResource && !powerSupplyResources.includes(selectedPowerSupplyResource) && <option value={selectedPowerSupplyResource}>{selectedPowerSupplyResource}</option>}
                 {powerSupplyResources.map((resource) => <option key={resource} value={resource}>{resource}</option>)}
               </NativeSelect>
               <Button disabled={!active || pending || psu?.connected} onClick={() => void runManualCommand("device.refresh", { device: "powerSupply" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
             </div>
-          </Field>}
+          </Field> : (
+            <Ch341PortSelector
+              config={config}
+              snapshot={snapshot}
+              active={active}
+              pending={pending}
+              layout="inline"
+              update={update}
+              onRefresh={() => void runManualCommand("device.refresh", { device: "powerSupply" }, true)}
+            />
+          )}
           {config.powerSupplyKind === "tdk" && <NumberField label="输出电压 (V)" layout="inline" value={config.tdkVoltageV} onChange={(v) => update("tdkVoltageV", v)} step="0.1" />}
           <NumberField label="设定电流 (A)" layout="inline" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
           {config.powerSupplyKind === "tdk" ? <div className="grid grid-cols-2 gap-2">
@@ -2718,7 +2926,30 @@ const ManualPage = memo(function ManualPage({ snapshot, config, update, active, 
             <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled ? "关闭输出" : "开启输出"}</Button>
             <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
           </div> : <div className="grid grid-cols-2 gap-2">
-              <Button disabled={!active} onClick={() => void runManualCommand(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接电源"}</Button>
+              {(() => {
+                const selectedLoc = config.ch341SelectedLocationPath
+                const binding = (config.ch341PortBindings || []).find((b) => b.locationPath === selectedLoc)
+                const port = snapshot?.devices?.powerSupply?.ch341?.ports?.find((p) => p.locationPath === selectedLoc)
+                const isCh341ReadyToConnect = Boolean(
+                  binding?.name &&
+                  port?.online &&
+                  snapshot?.devices?.powerSupply?.ch341?.discoveryState === "ready"
+                )
+                const btnText = psu?.connected
+                  ? "安全断开"
+                  : binding?.name
+                  ? `连接 ${binding.name}`
+                  : "连接电源"
+                return (
+                  <Button
+                    disabled={!active || (!psu?.connected && !isCh341ReadyToConnect)}
+                    onClick={() => void runManualCommand(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)}
+                    variant={psu?.connected ? "outline" : "default"}
+                  >
+                    {btnText}
+                  </Button>
+                )
+              })()}
               <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
               <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline">读取输出电压</Button>
               <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline">读取输出电流</Button>

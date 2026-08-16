@@ -16,6 +16,29 @@ export interface Notice {
   message: string
 }
 
+export interface Ch341PortBinding {
+  locationPath: string
+  name: string
+}
+
+export interface Ch341PortInfo {
+  locationPath: string
+  name: string | null
+  online: boolean
+  deviceIndex: number | null
+}
+
+export interface Ch341State {
+  discoveryState: "not_scanned" | "ready" | "empty" | "error"
+  error: string
+  ports: Ch341PortInfo[]
+  connectedPort: {
+    locationPath: string
+    name: string
+    deviceIndex: number
+  } | null
+}
+
 export interface DeviceSnapshot {
   state: DeviceConnectionState
   label: string
@@ -25,6 +48,7 @@ export interface DeviceSnapshot {
   detecting?: boolean
   ready?: boolean
   resources?: string[]
+  ch341?: Ch341State
   outputEnabled?: boolean
   activeCurrentA?: number | null
   powerW?: number | null
@@ -44,6 +68,8 @@ export interface AppConfiguration {
   station: string
   outputDir: string
   powerSupplyKind: "ch341" | "tdk"
+  ch341SelectedLocationPath: string
+  ch341PortBindings: Ch341PortBinding[]
   tdkResource: string
   setCurrentA: number
   tdkVoltageV: number

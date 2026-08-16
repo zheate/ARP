@@ -8,8 +8,10 @@ import ctypes
 import ctypes.wintypes
 import sys
 
+import threading
+
 class CH341I2CController:
-    def __init__(self):
+    def __init__(self, device_index: int = 0):
         # 尝试加载CH341 DLL
         try:
             self.ch341_dll = ctypes.WinDLL("CH341DLLA64.dll")
@@ -23,10 +25,11 @@ class CH341I2CController:
                 self.ch341_dll = None
                 self.dll_version = None
         
-        self.device_index = 0
+        self.device_index = int(device_index)
         self.device_handle = None
         self.is_connected = False
         self.i2c_speed = 1  # 默认100KHz
+        self._lock = threading.RLock()
         
         if self.ch341_dll:
             self.init_dll_functions()
@@ -58,148 +61,198 @@ class CH341I2CController:
         self.CH341GetVersion = self.ch341_dll.CH341GetVersion
         self.CH341GetVersion.argtypes = []
         self.CH341GetVersion.restype = ctypes.c_ulong
-        
+
         self.CH341FlushBuffer = self.ch341_dll.CH341FlushBuffer
         self.CH341FlushBuffer.argtypes = [ctypes.c_ulong]
         self.CH341FlushBuffer.restype = ctypes.c_bool
-        
-    def connect_device(self, index=0):
+
+        if hasattr(self.ch341_dll, "CH341GetDeviceName"):
+            self.CH341GetDeviceName = self.ch341_dll.CH341GetDeviceName
+            self.CH341GetDeviceName.argtypes = [ctypes.c_ulong]
+            self.CH341GetDeviceName.restype = ctypes.c_void_p
+        else:
+            self.CH341GetDeviceName = None
+
+    def get_device_interface_path(self, index: int | None = None) -> str:
+        """获取指定 device_index 的 Windows 设备接口路径"""
+        with self._lock:
+            if not self.ch341_dll or not getattr(self, "CH341GetDeviceName", None):
+                raise RuntimeError("当前 CH341 DLL 未提供 CH341GetDeviceName 接口")
+            target_index = self.device_index if index is None else int(index)
+            ptr = self.CH341GetDeviceName(target_index)
+            if not ptr:
+                raise RuntimeError(f"获取 CH341 设备 (index {target_index}) 的接口路径失败")
+            raw = ctypes.string_at(ptr)
+            try:
+                return raw.decode("utf-8")
+            except UnicodeDecodeError:
+                return raw.decode("latin1", errors="replace")
+
+    @classmethod
+    def scan_devices(cls, max_devices: int = 16) -> list[int]:
+        """扫描并返回所有可用的 CH341 设备索引列表，DLL缺失时抛出明确异常"""
+        probe = cls()
+        if not probe.ch341_dll:
+            raise RuntimeError("未找到 CH341 DLL 驱动库，请确认驱动已正确安装")
+        found = []
+        for idx in range(max(0, min(max_devices, 32))):
+            try:
+                handle = probe.CH341OpenDevice(idx)
+                if handle and handle != -1 and handle != ctypes.c_void_p(-1).value:
+                    found.append(idx)
+                    probe.CH341CloseDevice(idx)
+            except Exception as e:
+                print(f"探测设备 index {idx} 发生异常: {e}", file=sys.stderr)
+        return found
+    def connect_device(self, index: int | None = None):
         """连接CH341设备"""
-        if not self.ch341_dll:
-            return False, "未找到CH341 DLL库"
-        
-        try:
-            self.device_handle = self.CH341OpenDevice(index)
-            if self.device_handle:
-                # 设置I2C模式
-                mode = self.i2c_speed
-                success = self.CH341SetStream(index, mode)
-                if success:
-                    self.device_index = index
-                    self.is_connected = True
-                    dll_version = self.CH341GetVersion()
-                    version_info = {
-                        'dll': dll_version,
-                        'dll_type': self.dll_version
-                    }
-                    return True, version_info
+        with self._lock:
+            if not self.ch341_dll:
+                return False, "未找到CH341 DLL库"
+
+            target_index = self.device_index if index is None else int(index)
+            try:
+                self.device_handle = self.CH341OpenDevice(target_index)
+                if self.device_handle and self.device_handle != -1 and self.device_handle != ctypes.c_void_p(-1).value:
+                    # 设置I2C模式
+                    mode = self.i2c_speed
+                    success = self.CH341SetStream(target_index, mode)
+                    if success:
+                        self.device_index = target_index
+                        self.is_connected = True
+                        dll_version = self.CH341GetVersion()
+                        version_info = {
+                            'dll': dll_version,
+                            'dll_type': self.dll_version,
+                            'device_index': self.device_index,
+                        }
+                        return True, version_info
+                    else:
+                        self.CH341CloseDevice(target_index)
+                        return False, "无法设置I2C模式"
                 else:
-                    self.CH341CloseDevice(index)
-                    return False, "无法设置I2C模式"
-            else:
-                return False, "无法打开设备，请检查设备连接"
-        except Exception as e:
-            return False, f"连接设备时出错: {str(e)}"
-    
-    def disconnect_device(self):
+                    return False, f"无法打开设备 (index {target_index})，请检查设备连接"
+            except Exception as e:
+                return False, f"连接设备时出错: {str(e)}"
+
+    def disconnect_device(self) -> bool:
         """断开CH341设备"""
-        if self.is_connected and self.ch341_dll:
-            self.CH341CloseDevice(self.device_index)
-            self.is_connected = False
-            self.device_handle = None
-        return True
-    
+        with self._lock:
+            if self.is_connected and self.ch341_dll:
+                try:
+                    self.CH341CloseDevice(self.device_index)
+                except Exception as e:
+                    print(f"关闭 CH341 设备 (index {self.device_index}) 失败: {e}", file=sys.stderr)
+                    return False
+                self.is_connected = False
+                self.device_handle = None
+            return True
+
     def set_i2c_speed(self, speed):
         """设置I2C速度"""
-        if speed in [0, 1, 2, 3]:
-            self.i2c_speed = speed
-            if self.is_connected and self.ch341_dll:
-                return self.CH341SetStream(self.device_index, speed)
-        return False
-    
+        with self._lock:
+            if speed in [0, 1, 2, 3]:
+                self.i2c_speed = speed
+                if self.is_connected and self.ch341_dll:
+                    return self.CH341SetStream(self.device_index, speed)
+            return False
+
     def flush_buffer(self):
         """清空缓冲区"""
-        if self.is_connected and self.ch341_dll:
-            return self.CH341FlushBuffer(self.device_index)
-        return False
-    
+        with self._lock:
+            if self.is_connected and self.ch341_dll:
+                return self.CH341FlushBuffer(self.device_index)
+            return False
+
     def i2c_write(self, device_addr_7bit, write_data):
-        """新增：I2C纯写操作 (不等待读回)"""
-        if not self.is_connected or not self.ch341_dll:
-            return False, "设备未连接"
-            
-        try:
-            if not self.CH341SetStream(self.device_index, self.i2c_speed):
-                return False, "设置I2C速度失败"
-                
-            self.flush_buffer()
-            
-            # 写操作
-            write_addr_8bit = (device_addr_7bit << 1) & 0xFE
-            write_buffer = (ctypes.c_ubyte * (len(write_data) + 1))()
-            write_buffer[0] = write_addr_8bit
-            
-            for i, byte in enumerate(write_data):
-                write_buffer[i + 1] = byte
-                
-            success = self.CH341StreamI2C(
-                self.device_index,
-                len(write_buffer),
-                ctypes.byref(write_buffer),
-                0,
-                None
-            )
-            
-            if success:
-                return True, "写入成功"
-            else:
-                return False, "写入失败"
-        except Exception as e:
-            return False, f"写操作出错: {str(e)}"
+        """I2C纯写操作 (不等待读回)"""
+        with self._lock:
+            if not self.is_connected or not self.ch341_dll:
+                return False, "设备未连接"
+
+            try:
+                if not self.CH341SetStream(self.device_index, self.i2c_speed):
+                    return False, "设置I2C速度失败"
+
+                self.flush_buffer()
+
+                # 写操作
+                write_addr_8bit = (device_addr_7bit << 1) & 0xFE
+                write_buffer = (ctypes.c_ubyte * (len(write_data) + 1))()
+                write_buffer[0] = write_addr_8bit
+
+                for i, byte in enumerate(write_data):
+                    write_buffer[i + 1] = byte
+
+                success = self.CH341StreamI2C(
+                    self.device_index,
+                    len(write_buffer),
+                    ctypes.byref(write_buffer),
+                    0,
+                    None
+                )
+
+                if success:
+                    return True, "写入成功"
+                else:
+                    return False, "写入失败"
+            except Exception as e:
+                return False, f"写操作出错: {str(e)}"
 
     def i2c_write_read(self, device_addr_7bit, write_data, read_length):
         """I2C先写后读操作"""
-        if not self.is_connected or not self.ch341_dll:
-            return False, "设备未连接"
-        
-        try:
-            if not self.CH341SetStream(self.device_index, self.i2c_speed):
-                return False, "设置I2C速度失败"
-            
-            self.flush_buffer()
-            
-            # 写操作
-            write_addr_8bit = (device_addr_7bit << 1) & 0xFE
-            write_buffer = (ctypes.c_ubyte * (len(write_data) + 1))()
-            write_buffer[0] = write_addr_8bit
-            
-            for i, byte in enumerate(write_data):
-                write_buffer[i + 1] = byte
-            
-            success1 = self.CH341StreamI2C(
-                self.device_index,
-                len(write_buffer),
-                ctypes.byref(write_buffer),
-                0,
-                None
-            )
-            
-            if not success1:
-                return False, "写入失败"
-            
-            time.sleep(0.001)  # 1ms延迟
-            
-            # 读操作
-            read_addr_8bit = (device_addr_7bit << 1) | 0x01
-            read_addr_buffer = (ctypes.c_ubyte * 1)()
-            read_addr_buffer[0] = read_addr_8bit
-            read_buffer = (ctypes.c_ubyte * read_length)()
-            
-            success2 = self.CH341StreamI2C(
-                self.device_index,
-                1,
-                ctypes.byref(read_addr_buffer),
-                read_length,
-                ctypes.byref(read_buffer)
-            )
-            
-            if success2:
-                data = [read_buffer[i] for i in range(read_length)]
-                return True, data
-            else:
-                return False, "读取失败"
-        except Exception as e:
-            return False, f"写读操作出错: {str(e)}"
+        with self._lock:
+            if not self.is_connected or not self.ch341_dll:
+                return False, "设备未连接"
+
+            try:
+                if not self.CH341SetStream(self.device_index, self.i2c_speed):
+                    return False, "设置I2C速度失败"
+
+                self.flush_buffer()
+
+                # 写操作
+                write_addr_8bit = (device_addr_7bit << 1) & 0xFE
+                write_buffer = (ctypes.c_ubyte * (len(write_data) + 1))()
+                write_buffer[0] = write_addr_8bit
+
+                for i, byte in enumerate(write_data):
+                    write_buffer[i + 1] = byte
+
+                success1 = self.CH341StreamI2C(
+                    self.device_index,
+                    len(write_buffer),
+                    ctypes.byref(write_buffer),
+                    0,
+                    None
+                )
+
+                if not success1:
+                    return False, "写入失败"
+
+                time.sleep(0.001)  # 1ms延迟
+
+                # 读操作
+                read_addr_8bit = (device_addr_7bit << 1) | 0x01
+                read_addr_buffer = (ctypes.c_ubyte * 1)()
+                read_addr_buffer[0] = read_addr_8bit
+                read_buffer = (ctypes.c_ubyte * read_length)()
+
+                success2 = self.CH341StreamI2C(
+                    self.device_index,
+                    1,
+                    ctypes.byref(read_addr_buffer),
+                    read_length,
+                    ctypes.byref(read_buffer)
+                )
+
+                if success2:
+                    data = [read_buffer[i] for i in range(read_length)]
+                    return True, data
+                else:
+                    return False, "读取失败"
+            except Exception as e:
+                return False, f"写读操作出错: {str(e)}"
 
 class SimpleI2CReaderApp:
     def __init__(self, root):
