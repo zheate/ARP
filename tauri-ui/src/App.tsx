@@ -61,7 +61,8 @@ const PLM_CHART_SERIES = {
   tan: "#d5a98b",
   olive: "#9a907c",
   green: "#70a58a",
-  blue: "#8298b8",
+  blue: "#5b9cd6",
+  yellow: "#eab308",
 } as const
 const HISTORY_CHART_SERIES = {
   power: "rgba(168, 171, 176, 0.46)",
@@ -669,7 +670,7 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
                 {selectedResource && !resources.includes(selectedResource) && <option value={selectedResource}>{selectedResource}</option>}
                 {resources.map((resource) => <option key={resource} value={resource}>{resource}</option>)}
               </NativeSelect>
-              <Button disabled={!active || pending || psu?.connected} onClick={() => void run("device.refresh", { device: "powerSupply" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
+              <Button className="btn-refresh-spin" disabled={!active || pending || psu?.connected} onClick={() => void run("device.refresh", { device: "powerSupply" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
             </div>
           </Field> : (
             <Ch341PortSelector
@@ -689,7 +690,7 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
           {config.powerSupplyKind === "tdk" ? <div className="power-settings-action-grid">
             <Button disabled={!active || pending} onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接 TDK"}</Button>
             <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setVoltage", { voltageV: config.tdkVoltageV }, true)} variant="outline">设置电压</Button>
-            <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled ? "关闭输出" : "开启输出"}</Button>
+            <Button className={psu?.outputEnabled ? "btn-power-active" : ""} disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled ? <><span className="size-2 rounded-full bg-white animate-pulse shrink-0 mr-1.5 inline-block" />关闭输出</> : "开启输出"}</Button>
             <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
           </div> : <div className="power-settings-action-grid">
             {(() => {
@@ -717,10 +718,10 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
               )
             })()}
             <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
-            <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline">读取输出电压</Button>
-            <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline">读取输出电流</Button>
-            <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "inputVoltage" })} size="sm" variant="outline">读取输入电压</Button>
-            <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "temperature" })} size="sm" variant="outline">读取模块温度</Button>
+            <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline">读取输出电压</Button>
+            <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline">读取输出电流</Button>
+            <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "inputVoltage" })} size="sm" variant="outline">读取输入电压</Button>
+            <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "temperature" })} size="sm" variant="outline">读取模块温度</Button>
           </div>}
         </div>
       </section>
@@ -768,13 +769,13 @@ function PowerMeterSettingsForm({ snapshot, config, update, active, pending, run
             )}
             {resources.map((item) => <option key={item} value={powerMeterResourceValue(item)}>{item}</option>)}
           </NativeSelect>
-          <Button disabled={!active || pending} onClick={() => void run("device.refresh", { device: "powerMeter" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
+          <Button className="btn-refresh-spin" disabled={!active || pending} onClick={() => void run("device.refresh", { device: "powerMeter" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
         </div>
       </Field>
       <NumberField label="校准波长 (nm)" value={config.powerMeterWavelengthNm} onChange={(v) => update("powerMeterWavelengthNm", v)} step="0.1" />
       <NumberField label="软件增益" value={config.softwareGain} onChange={(v) => update("softwareGain", v)} step="0.01" />
       <div className="device-settings-action-grid"><Button disabled={!active || pending || meter?.running} onClick={() => void run("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button disabled={!active || pending || meter?.running} onClick={() => void run("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></div>
-      <Button className="w-full" disabled={!active || pending} onClick={() => void run(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
+      <Button className={`w-full transition-all ${meter?.running ? "btn-running-pulse" : ""}`} disabled={!active || pending} onClick={() => void run(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
       <p className="text-xs text-muted-foreground">实时功率 {formatNumber(meter?.powerW, " W")} · {meter?.stable ? "已稳定" : "稳定中"}</p>
     </div>
   )
@@ -792,7 +793,7 @@ function SpectrometerSettingsForm({ snapshot, config, update, active, pending, r
             <option value="">{defaultSpectrometerResourceLabel}</option>
             {spectrum?.resources?.filter((item) => item !== defaultSpectrometerResourceLabel).map((item) => <option key={item} value={item}>{item}</option>)}
           </NativeSelect>
-          <Button disabled={!active || pending} onClick={() => void run("device.refresh", { device: "spectrometer" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
+          <Button className="btn-refresh-spin" disabled={!active || pending} onClick={() => void run("device.refresh", { device: "spectrometer" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
         </div>
       </Field>
       <div className="device-settings-field-grid">
@@ -803,7 +804,7 @@ function SpectrometerSettingsForm({ snapshot, config, update, active, pending, r
         <NumberField label="PIB 中心波长 (nm)" step="0.1" value={config.pibCenterWavelengthNm} onChange={(v) => update("pibCenterWavelengthNm", v)} />
         <NumberField label="PIB 半带宽 (nm)" step="0.1" value={config.pibHalfRangeNm} onChange={(v) => update("pibHalfRangeNm", v)} />
       </div>
-      <Button className="w-full" disabled={!active || pending} onClick={() => void run(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
+      <Button className={`w-full transition-all ${spectrum?.running ? "btn-running-pulse" : ""}`} disabled={!active || pending} onClick={() => void run(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
       <p className="text-xs text-muted-foreground">中心 {formatNumber(spectrum?.peakWavelengthNm, " nm")} · FWHM {formatNumber(spectrum?.fwhmNm, " nm")}</p>
     </div>
   )
@@ -846,12 +847,16 @@ function DeviceSettingsDialog({ kind, open, onClose, onSave, snapshot, config, u
     powerMeter: { title: "功率计设置", description: "配置串口资源、校准波长和采集参数", icon: <Gauge className="size-5" /> },
     spectrometer: { title: "光谱仪设置", description: "配置光谱仪硬件资源与光谱采集参数", icon: <Radio className="size-5" /> },
   }[kind]
+  const [saveSuccess, setSaveSuccess] = useState(false)
   const handleSave = async () => {
     if (saving || pending) return
     setSaving(true)
     try {
       await onSave()
-      onClose()
+      setSaveSuccess(true)
+      setTimeout(() => {
+        onClose()
+      }, 500)
     } finally {
       setSaving(false)
     }
@@ -890,7 +895,7 @@ function DeviceSettingsDialog({ kind, open, onClose, onSave, snapshot, config, u
             <p className="device-settings-dialog__hint">修改内容将保存到当前测试配置</p>
             <div className="device-settings-dialog__actions">
               <Button className="device-settings-dialog__cancel" onClick={onClose} variant="outline">关闭</Button>
-              <Button aria-busy={saving} aria-disabled={!active || pending || saving} className="device-settings-dialog__save" disabled={!active || saving} onClick={() => void handleSave()}>{saving ? "保存中…" : "保存设置"}</Button>
+              <Button aria-busy={saving} aria-disabled={!active || pending || saving} className="device-settings-dialog__save transition-all" disabled={!active || saving} onClick={() => void handleSave()}>{saving ? "保存中…" : saveSuccess ? "✓ 已保存" : "保存设置"}</Button>
             </div>
           </div>
         </div>
@@ -1356,6 +1361,7 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
         && line.color === other.color
         && line.yAxisId === other.yAxisId
         && line.showPoints === other.showPoints
+        && line.showLatestPoint === other.showLatestPoint
         && line.pointShape === other.pointShape
         && line.pointStyle === other.pointStyle
         && line.pointSize === other.pointSize
@@ -1430,7 +1436,7 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch 
       : []
   )))
   const lines: CanvasChartLine[] = [
-    { key: "powerW", label: "功率 (W)", color: powerStabilityColor },
+    { key: "powerW", label: "功率 (W)", color: powerStabilityColor, showLatestPoint: true },
     ...(typeof referencePowerW === "number"
       ? [{ key: "referencePowerW", label: `历史参考 · ${reference?.station || "未填写站别"}`, color: HISTORY_CHART_SERIES.power, lineWidth: 1.2 }]
       : []),
@@ -1453,8 +1459,8 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch 
             <span className={`size-2 rounded-full ${powerStable ? "bg-[var(--app-success)]" : powerMeter?.running ? "bg-[var(--app-validation)]" : "bg-muted-foreground/45"}`} />
             {powerStabilityLabel}
           </div>
-          <div className="flex items-baseline gap-1 font-mono leading-none">
-            <span className="text-2xl font-bold tracking-tight tabular-nums text-foreground">
+          <div className="flex items-baseline gap-1 font-din leading-none">
+            <span className="text-2xl font-bold tabular-nums text-foreground">
               {formatTrimmedNumber(latestPowerW, 3)}
             </span>
             <span className="text-xs font-medium text-muted-foreground">W</span>
@@ -1482,7 +1488,7 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch 
 
 const powerEfficiencyLines: CanvasChartLine[] = [
   { key: "powerW", label: "功率 (W)", color: PLM_CHART_SERIES.clay, showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 1.7 },
-  { key: "efficiencyPercent", label: "效率 (%)", color: PLM_CHART_SERIES.tan, yAxisId: "right", showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 1.7 },
+  { key: "efficiencyPercent", label: "效率 (%)", color: PLM_CHART_SERIES.blue, yAxisId: "right", showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 1.7 },
 ]
 
 const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; stretch?: boolean; heightClassName?: string }) {
@@ -1513,8 +1519,8 @@ const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stre
         <div className="flex items-center gap-4">
           <div className="flex items-baseline gap-1.5">
             <span className="text-xs text-muted-foreground">测试点</span>
-            <div className="flex items-baseline gap-1 font-mono leading-none">
-              <span className={`text-2xl font-bold tracking-tight tabular-nums ${latestStable && typeof latestStable.currentA === "number" ? "text-foreground" : "text-muted-foreground"}`}>
+            <div className="flex items-baseline gap-1 font-din leading-none">
+              <span className={`text-2xl font-bold tabular-nums ${latestStable && typeof latestStable.currentA === "number" ? "text-foreground" : "text-muted-foreground"}`}>
                 {latestStable && typeof latestStable.currentA === "number" ? formatTrimmedNumber(latestStable.currentA, 2) : "--"}
               </span>
               <span className="text-xs font-medium text-muted-foreground">A</span>
@@ -1522,8 +1528,8 @@ const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stre
           </div>
           <div className="flex items-baseline gap-1.5">
             <span className="text-xs text-muted-foreground">稳态功率</span>
-            <div className="flex items-baseline gap-1 font-mono leading-none">
-              <span className={`text-2xl font-bold tracking-tight tabular-nums ${latestStable && typeof latestStable.powerW === "number" ? "text-foreground" : "text-muted-foreground"}`}>
+            <div className="flex items-baseline gap-1 font-din leading-none">
+              <span className={`text-2xl font-bold tabular-nums ${latestStable && typeof latestStable.powerW === "number" ? "text-foreground" : "text-muted-foreground"}`}>
                 {latestStable && typeof latestStable.powerW === "number" ? formatTrimmedNumber(latestStable.powerW, 3) : "--"}
               </span>
               <span className="text-xs font-medium text-muted-foreground">W</span>
@@ -1531,8 +1537,8 @@ const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stre
           </div>
           <div className="flex items-baseline gap-1.5">
             <span className="text-xs text-muted-foreground">效率</span>
-            <div className="flex items-baseline gap-1 font-mono leading-none">
-              <span className={`text-2xl font-bold tracking-tight tabular-nums ${latestStable && typeof latestStable.efficiencyPercent === "number" ? "text-foreground" : "text-muted-foreground"}`}>
+            <div className="flex items-baseline gap-1 font-din leading-none">
+              <span className={`text-2xl font-bold tabular-nums ${latestStable && typeof latestStable.efficiencyPercent === "number" ? "text-foreground" : "text-muted-foreground"}`}>
                 {latestStable && typeof latestStable.efficiencyPercent === "number" ? formatTrimmedNumber(latestStable.efficiencyPercent, 2) : "--"}
               </span>
               <span className="text-xs font-medium text-muted-foreground">%</span>
@@ -1604,7 +1610,7 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
       xDomain={spectrumXDomain}
       yDomain={spectrumYDomain}
       preserveAllPoints
-      lines={[{ key: "intensity", label: "强度", color: PLM_CHART_SERIES.green }]}
+      lines={[{ key: "intensity", label: "光谱强度", color: PLM_CHART_SERIES.yellow }]}
       stretch={stretch}
       heightClassName={heightClassName}
       annotations={spectrumPeaks.map((annotation) => ({ label: annotation.label, x: annotation.centroidNm, y: annotation.peakIntensity, color: PLM_CHART_SERIES.blue }))}
@@ -1614,8 +1620,8 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
           : <div className="grid min-w-0 flex-1 grid-cols-3 items-center gap-4 py-0.5 text-center">
           <div className="flex items-baseline justify-center gap-2">
             <span className="text-xs text-muted-foreground">中心波长</span>
-            <div className="flex items-baseline gap-1 font-mono leading-none">
-              <span className="text-2xl font-bold tracking-tight tabular-nums text-foreground">
+            <div className="flex items-baseline gap-1 font-din leading-none">
+              <span className="text-2xl font-bold tabular-nums text-foreground">
                 {formatTrimmedNumber(spectrum?.peakWavelengthNm, 3)}
               </span>
               <span className="text-xs font-medium text-muted-foreground">nm</span>
@@ -1623,8 +1629,8 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
           </div>
           <div className="flex items-baseline justify-center gap-2">
             <span className="text-xs text-muted-foreground">FWHM</span>
-            <div className="flex items-baseline gap-1 font-mono leading-none">
-              <span className="text-2xl font-bold tracking-tight tabular-nums text-foreground">
+            <div className="flex items-baseline gap-1 font-din leading-none">
+              <span className="text-2xl font-bold tabular-nums text-foreground">
                 {formatTrimmedNumber(spectrum?.fwhmNm, 3)}
               </span>
               <span className="text-xs font-medium text-muted-foreground">nm</span>
@@ -1632,8 +1638,8 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
           </div>
           <div className="flex items-baseline justify-center gap-2">
             <span className="text-xs text-muted-foreground">PIB</span>
-            <div className="flex items-baseline gap-1 font-mono leading-none">
-              <span className="text-2xl font-bold tracking-tight tabular-nums text-foreground">
+            <div className="flex items-baseline gap-1 font-din leading-none">
+              <span className="text-2xl font-bold tabular-nums text-foreground">
                 {(() => {
                   const pibVal = spectrum?.pib ?? spectrum?.pibPercent
                   if (pibVal != null && Number.isFinite(pibVal)) {
@@ -3404,7 +3410,7 @@ const AutomaticPage = memo(function AutomaticPage({
           <div className="flex flex-col justify-center items-center text-center min-w-[170px] shrink-0">
             {testStarted ? (
               <>
-                <p className="text-2xl font-bold font-mono tracking-tight text-foreground tabular-nums">
+                <p className="text-2xl font-bold font-din text-foreground tabular-nums">
                   {formatNumber(displayedCurrentA, " A", 1)}
                 </p>
                 <p className="text-xs truncate max-w-[240px] text-muted-foreground" title={progressLabel}>
@@ -3442,14 +3448,16 @@ const AutomaticPage = memo(function AutomaticPage({
               </Button>
             )}
             <Button
-              className="h-9 min-w-24 gap-1.5 px-4 font-medium"
+              className="h-9 min-w-24 gap-1.5 px-4 font-medium transition-all"
               disabled={!active || pending || controlsLocked || historyLoading || !auto?.canStart}
               onClick={startAutomaticTest}
             >
               <Play className="size-4" />开始测试
             </Button>
             <Button
-              className="h-9 min-w-20 gap-1.5 px-4"
+              className={`h-9 min-w-20 gap-1.5 px-4 transition-all ${
+                auto?.state && !["idle", "completed"].includes(auto?.state) ? "btn-running-pulse" : ""
+              }`}
               disabled={!active || pending || !auto?.canEnd}
               onClick={() => void run("automatic.end")}
               variant="destructive"
@@ -3718,7 +3726,7 @@ const ManualPage = memo(function ManualPage({
                   {selectedPowerSupplyResource && !powerSupplyResources.includes(selectedPowerSupplyResource) && <option value={selectedPowerSupplyResource}>{selectedPowerSupplyResource}</option>}
                   {powerSupplyResources.map((resource) => <option key={resource} value={resource}>{resource}</option>)}
                 </NativeSelect>
-                <Button disabled={!active || pending || psu?.connected} onClick={() => void runManualCommand("device.refresh", { device: "powerSupply" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
+                <Button className="btn-refresh-spin" disabled={!active || pending || psu?.connected} onClick={() => void runManualCommand("device.refresh", { device: "powerSupply" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
               </div>
             </Field>
             <div className="device-settings-field-grid">
@@ -3728,7 +3736,7 @@ const ManualPage = memo(function ManualPage({
             <div className="grid grid-cols-2 gap-2">
               <Button disabled={!active} onClick={() => void runManualCommand(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接 TDK"}</Button>
               <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setVoltage", { voltageV: config.tdkVoltageV }, true)} variant="outline">设置电压</Button>
-              <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled ? "关闭输出" : "开启输出"}</Button>
+              <Button className={psu?.outputEnabled ? "btn-power-active" : ""} disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled ? <><span className="size-2 rounded-full bg-white animate-pulse shrink-0 mr-1.5 inline-block" />关闭输出</> : "开启输出"}</Button>
               <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
             </div>
           </> : <>
@@ -3768,10 +3776,10 @@ const ManualPage = memo(function ManualPage({
                 )
               })()}
               <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
-              <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline">读取输出电压</Button>
-              <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline">读取输出电流</Button>
-              <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "inputVoltage" })} size="sm" variant="outline">读取输入电压</Button>
-              <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "temperature" })} size="sm" variant="outline">读取模块温度</Button>
+              <Button className="active:bg-primary/20 transition-colors" disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline">读取输出电压</Button>
+              <Button className="active:bg-primary/20 transition-colors" disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline">读取输出电流</Button>
+              <Button className="active:bg-primary/20 transition-colors" disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "inputVoltage" })} size="sm" variant="outline">读取输入电压</Button>
+              <Button className="active:bg-primary/20 transition-colors" disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "temperature" })} size="sm" variant="outline">读取模块温度</Button>
             </div>
           </>}
         </CardContent></Card>
@@ -3788,7 +3796,7 @@ const ManualPage = memo(function ManualPage({
                 )}
                 {powerMeterResources.map((item) => <option key={item} value={powerMeterResourceValue(item)}>{item}</option>)}
               </NativeSelect>
-              <Button disabled={!active} onClick={() => void runManualCommand("device.refresh", { device: "powerMeter" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
+              <Button className="btn-refresh-spin" disabled={!active} onClick={() => void runManualCommand("device.refresh", { device: "powerMeter" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
             </div>
           </Field>
           <div className="device-settings-field-grid">
@@ -3796,7 +3804,7 @@ const ManualPage = memo(function ManualPage({
             <NumberField label="软件增益" value={config.softwareGain} onChange={(v) => update("softwareGain", v)} step="0.01" />
           </div>
           <div className="grid grid-cols-2 gap-2"><Button disabled={!active || meter?.running} onClick={() => void runManualCommand("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button disabled={!active || meter?.running} onClick={() => void runManualCommand("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></div>
-          <Button className="w-full" disabled={!active} onClick={() => void runManualCommand(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
+          <Button className={`w-full transition-all ${meter?.running ? "btn-running-pulse" : ""}`} disabled={!active} onClick={() => void runManualCommand(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
         </CardContent></Card>
 
         <Card size="sm" className="shadow-none"><CardHeader className="flex flex-row items-center justify-between"><CardTitle className="text-base">光谱仪</CardTitle><Radio className={`size-4 transition-colors ${isSpectrumActive ? "text-amber-500" : "text-muted-foreground"}`} /></CardHeader><CardContent className="manual-control-content">
@@ -3806,7 +3814,7 @@ const ManualPage = memo(function ManualPage({
                 <option value="">{defaultSpectrometerResourceLabel}</option>
                 {spectrum?.resources?.filter((item) => item !== defaultSpectrometerResourceLabel).map((item) => <option key={item} value={item}>{item}</option>)}
               </NativeSelect>
-              <Button disabled={!active} onClick={() => void runManualCommand("device.refresh", { device: "spectrometer" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
+              <Button className="btn-refresh-spin" disabled={!active} onClick={() => void runManualCommand("device.refresh", { device: "spectrometer" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
             </div>
           </Field>
           <div className="device-settings-field-grid">
@@ -3817,7 +3825,7 @@ const ManualPage = memo(function ManualPage({
             <NumberField label="PIB 中心波长 (nm)" step="0.1" value={config.pibCenterWavelengthNm} onChange={(v) => update("pibCenterWavelengthNm", v)} />
             <NumberField label="PIB 半带宽 (nm)" step="0.1" value={config.pibHalfRangeNm} onChange={(v) => update("pibHalfRangeNm", v)} />
           </div>
-          <Button className="w-full" disabled={!active} onClick={() => void runManualCommand(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
+          <Button className={`w-full transition-all ${spectrum?.running ? "btn-running-pulse" : ""}`} disabled={!active} onClick={() => void runManualCommand(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
         </CardContent></Card>
       </section>
       <div className="grid min-h-[580px] flex-1 gap-3.5 grid-rows-[minmax(280px,1fr)_minmax(280px,1fr)] pb-2">

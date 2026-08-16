@@ -6,6 +6,7 @@ export type CanvasChartLine = {
   color: string
   yAxisId?: "left" | "right"
   showPoints?: boolean
+  showLatestPoint?: boolean
   pointShape?: "circle" | "triangle"
   pointStyle?: "solid" | "hollow"
   pointSize?: number
@@ -425,6 +426,25 @@ function drawBaseChart(
           chartBackground,
         )
       }
+    } else if (line.showLatestPoint) {
+      for (let index = data.length - 1; index >= 0; index -= 1) {
+        const xValue = data.valueAt(index, xKey)
+        const yValue = data.valueAt(index, line.key)
+        if (xValue === null || yValue === null) continue
+        if (xValue >= layout.x.min && xValue <= layout.x.max) {
+          drawPoint(
+            context,
+            mapX(xValue, layout),
+            mapY(yValue, scale, layout),
+            line.color,
+            line.pointShape ?? "circle",
+            line.pointSize ?? 7,
+            line.pointStyle ?? "solid",
+            chartBackground,
+          )
+          break
+        }
+      }
     }
   }
 
@@ -447,7 +467,10 @@ function drawBaseChart(
     context.textAlign = index % 2 === 0 ? "left" : "right"
     context.textBaseline = "top"
     const labelX = index % 2 === 0 ? x + 5 : x - 5
-    context.fillText(`${annotation.label} ${annotation.x.toFixed(3)} nm`, labelX, layout.top + 4 + (index % 3) * 13)
+    const label = annotation.label.replace(/^PEAK\s*(\d+)$/i, "P$1")
+    const isMainPeak = index === 0 || /^P1$/i.test(label)
+    const text = isMainPeak ? label : `${label} ${annotation.x.toFixed(3)} nm`
+    context.fillText(text, labelX, layout.top + 4 + (index % 3) * 13)
     context.restore()
   })
   context.restore()
