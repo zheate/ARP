@@ -18,7 +18,7 @@ use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use tauri::{Manager, State, Webview};
+use tauri::{State, Webview};
 
 #[cfg(windows)]
 use windows_core::PCWSTR;
@@ -886,14 +886,6 @@ pub fn run() {
         .manage(BridgeState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .setup(|app| {
-            if let Some(window) = app.get_webview_window("main") {
-                window
-                    .set_zoom(1.0)
-                    .map_err(|error| format!("无法初始化 WebView2 页面缩放：{error}"))?;
-            }
-            Ok(())
-        })
         .invoke_handler(tauri::generate_handler![
             bridge_snapshot,
             bridge_request,

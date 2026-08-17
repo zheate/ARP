@@ -1801,7 +1801,7 @@ function AutomaticWorkflowStepper({
   const step5Done = isCompleted
 
   return (
-    <div className="flex w-full items-center justify-between gap-1 py-0.5 text-xs">
+    <div className="flex w-full items-center justify-between gap-1.5 py-0.5 text-xs">
       <div className="flex items-center gap-1.5 shrink-0">
         <div
           className={`flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-medium transition-all ${
@@ -1814,21 +1814,21 @@ function AutomaticWorkflowStepper({
         >
           {step1Done ? "✓" : "1"}
         </div>
-        <span className={step1Done ? "text-foreground/80 font-normal" : "text-muted-foreground/70"}>
+        <span className={`whitespace-nowrap text-xs ${step1Done ? "text-foreground/90 font-medium" : "text-muted-foreground/70"}`}>
           就绪检查
         </span>
       </div>
 
-      <div className="mx-1.5 h-0.5 w-2.5 bg-border/60 shrink-0" />
+      <div className="mx-1 h-[1px] w-3 bg-border/80 shrink-0" />
 
-      <div className={`flex flex-1 items-center justify-between rounded-lg border px-2.5 py-1 transition-all ${
+      <div className={`flex flex-1 items-center justify-between gap-2 rounded-lg border px-2.5 py-1 transition-all ${
         isRunning && !isRampingDown
           ? "border-primary/40 bg-primary/5 shadow-xs"
           : isCompleted
           ? "border-emerald-500/30 bg-emerald-500/5"
           : "border-border/60 bg-muted/20"
       }`}>
-        <div className="flex items-center gap-1 shrink-0 mr-2">
+        <div className="flex items-center gap-1 shrink-0">
           <span className={`text-[10px] font-mono font-bold tracking-tight uppercase px-1.5 py-0.5 rounded ${
             isRunning && !isRampingDown
               ? "bg-primary/20 text-primary animate-pulse"
@@ -1856,7 +1856,7 @@ function AutomaticWorkflowStepper({
             </span>
           </div>
 
-          <div className="h-0.5 w-2 bg-border/60 shrink-0" />
+          <div className="h-[1px] w-2 bg-border/60 shrink-0" />
 
           <div className="flex items-center gap-1.5 shrink-0">
             <span className={`size-1.5 shrink-0 rounded-full transition-all ${
@@ -1873,7 +1873,7 @@ function AutomaticWorkflowStepper({
             </span>
           </div>
 
-          <div className="h-0.5 w-2 bg-border/60 shrink-0" />
+          <div className="h-[1px] w-2 bg-border/60 shrink-0" />
 
           <div className="flex items-center gap-1.5 shrink-0">
             <span className={`size-1.5 shrink-0 rounded-full transition-all ${
@@ -1892,7 +1892,7 @@ function AutomaticWorkflowStepper({
         </div>
       </div>
 
-      <div className="mx-1.5 h-0.5 w-2.5 bg-border/60 shrink-0" />
+      <div className="mx-1 h-[1px] w-3 bg-border/80 shrink-0" />
 
       <div className="flex items-center gap-1.5 shrink-0">
         <div
@@ -1906,7 +1906,7 @@ function AutomaticWorkflowStepper({
         >
           {step5Done ? "✓" : "3"}
         </div>
-        <span className={step5Active ? "font-bold text-primary" : step5Done ? "text-foreground/80" : "text-muted-foreground/70"}>
+        <span className={`whitespace-nowrap text-xs ${step5Active ? "font-bold text-primary" : step5Done ? "text-foreground/90 font-medium" : "text-muted-foreground/70"}`}>
           降电归档
         </span>
       </div>
@@ -2334,7 +2334,7 @@ function App() {
           {closeFailure && <ShutdownFailureDialog message={closeFailure} onCancel={cancelClose} onForceExit={() => void forceClose()} onRetry={() => void attemptGracefulClose()} pending={closeRequestPending} />}
 
           <div
-            className={`page-enter flex flex-1 min-h-0 flex-col overflow-y-auto p-4 pb-16 ${page === "automatic" || page === "manual" ? "gap-3" : "space-y-4"}`}
+            className={`page-enter flex flex-1 min-h-0 flex-col overflow-y-auto p-4 ${page === "automatic" || page === "manual" ? "gap-3" : "space-y-4"}`}
             data-page={page}
             key={page}
           >
@@ -2400,9 +2400,22 @@ function suggestedSpectrumAxis(inspection: ShippingWorkbookInspection, currentA:
   return {
     mode: "counts" as const,
     minimum: 0,
-    maximum: maximumPeakCounts > 0 ? maximumPeakCounts * 1.05 : 1,
+    maximum: maximumPeakCounts > 0 ? maximumPeakCounts * 1.08 : 1,
     wavelengthMinimum: centerWavelength - 15,
     wavelengthMaximum: centerWavelength + 15,
+  }
+}
+
+function preferredSpectrumAxis(inspection: ShippingWorkbookInspection, currentA: number) {
+  const suggested = suggestedSpectrumAxis(inspection, currentA)
+  const saved = inspection.preferences.spectrum?.spectrumAxis
+  if (!saved) return suggested
+  return {
+    mode: saved.mode,
+    minimum: saved.minimum,
+    maximum: saved.mode === "counts" ? Math.max(saved.maximum, suggested.maximum) : saved.maximum,
+    wavelengthMinimum: saved.wavelengthMinimum ?? suggested.wavelengthMinimum,
+    wavelengthMaximum: saved.wavelengthMaximum ?? suggested.wavelengthMaximum,
   }
 }
 
@@ -2478,7 +2491,7 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
     setFields(nextFields)
     setCustomFields(nextCustomFields)
     if (nextType === "spectrum") {
-      const axis = suggestedSpectrumAxis(nextInspection, currentA)
+      const axis = preferredSpectrumAxis(nextInspection, currentA)
       setAxisMode(axis.mode)
       setAxisMinimum(axis.minimum)
       setAxisMaximum(axis.maximum)
@@ -2577,14 +2590,6 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
       key,
       measuredKeys.has(key) ? { ...state, value: shippingSuggestedValue(point, measuredKeys.get(key)) } : state,
     ])))
-    if (reportType === "spectrum") {
-      const axis = suggestedSpectrumAxis(inspection, currentA)
-      setAxisMode(axis.mode)
-      setAxisMinimum(axis.minimum)
-      setAxisMaximum(axis.maximum)
-      setWavelengthMinimum(axis.wavelengthMinimum)
-      setWavelengthMaximum(axis.wavelengthMaximum)
-    }
   }
 
   const addCustomField = () => {
@@ -2759,29 +2764,31 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
                     <Button disabled={busy} onClick={addCustomField} size="sm" type="button" variant="outline"><Plus className="size-3.5" />增加参数</Button>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 gap-x-6 gap-y-3 2xl:grid-cols-2">
-                  {definitions.filter((definition) => !customFields.some((field) => field.key === definition.key)).map((definition) => {
-                    const state = fields[definition.key] ?? { include: false, value: "" }
-                    return (
-                      <div className="grid grid-cols-[minmax(150px,0.9fr)_minmax(110px,1fr)_52px] items-center gap-2" key={definition.key}>
-                        <label className="flex items-center gap-2 text-sm"><input checked={state.include} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" /><span>{definition.label}</span></label>
-                        <Input aria-label={`${definition.label}数值`} className="h-8" value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} />
-                        <span className="text-xs text-muted-foreground">{definition.unit || "-"}</span>
-                      </div>
-                    )
-                  })}
-                  {customFields.map((definition) => {
-                    const state = fields[definition.key] ?? { include: true, value: "" }
-                    return (
-                      <div className="col-span-1 grid grid-cols-[auto_minmax(130px,0.8fr)_minmax(110px,1fr)_minmax(60px,0.35fr)_auto] items-center gap-2 rounded-md border border-dashed border-border bg-muted/20 p-2 2xl:col-span-2" key={definition.key}>
-                        <input aria-label={`选择${definition.label}`} checked={state.include} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" />
-                        <Input aria-label="自定义参数名称" className="h-8" placeholder="参数名称" value={definition.label} onChange={(event) => updateCustomField(definition.key, { label: event.target.value })} />
-                        <Input aria-label={`${definition.label}数值`} className="h-8" placeholder="参数值" value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} />
-                        <Input aria-label={`${definition.label}单位`} className="h-8" placeholder="单位" value={definition.unit} onChange={(event) => updateCustomField(definition.key, { unit: event.target.value })} />
-                        <button aria-label={`删除${definition.label}`} className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => removeCustomField(definition.key)} type="button"><X className="size-4" /></button>
-                      </div>
-                    )
-                  })}
+                <div className="max-h-[340px] 2xl:max-h-[440px] overflow-y-auto pr-1">
+                  <div className="grid grid-cols-1 gap-x-6 gap-y-3 2xl:grid-cols-2">
+                    {definitions.filter((definition) => !customFields.some((field) => field.key === definition.key)).map((definition) => {
+                      const state = fields[definition.key] ?? { include: false, value: "" }
+                      return (
+                        <div className="grid grid-cols-[minmax(150px,0.9fr)_minmax(110px,1fr)_52px] items-center gap-2" key={definition.key}>
+                          <label className="flex items-center gap-2 text-sm"><input checked={state.include} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" /><span>{definition.label}</span></label>
+                          <Input aria-label={`${definition.label}数值`} className="h-8" value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} />
+                          <span className="text-xs text-muted-foreground">{definition.unit || "-"}</span>
+                        </div>
+                      )
+                    })}
+                    {customFields.map((definition) => {
+                      const state = fields[definition.key] ?? { include: true, value: "" }
+                      return (
+                        <div className="col-span-1 grid grid-cols-[auto_minmax(130px,0.8fr)_minmax(110px,1fr)_minmax(60px,0.35fr)_auto] items-center gap-2 rounded-md border border-dashed border-border bg-muted/20 p-2 2xl:col-span-2" key={definition.key}>
+                          <input aria-label={`选择${definition.label}`} checked={state.include} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" />
+                          <Input aria-label="自定义参数名称" className="h-8" placeholder="参数名称" value={definition.label} onChange={(event) => updateCustomField(definition.key, { label: event.target.value })} />
+                          <Input aria-label={`${definition.label}数值`} className="h-8" placeholder="参数值" value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} />
+                          <Input aria-label={`${definition.label}单位`} className="h-8" placeholder="单位" value={definition.unit} onChange={(event) => updateCustomField(definition.key, { unit: event.target.value })} />
+                          <button aria-label={`删除${definition.label}`} className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground" onClick={() => removeCustomField(definition.key)} type="button"><X className="size-4" /></button>
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
               </div>
 
@@ -2903,7 +2910,7 @@ function BatchShippingReportWorkflow({ disabled }: { disabled: boolean }) {
     ])))
     setCustomFields(nextCustomFields)
     if (nextType === "spectrum") {
-      const axis = suggestedSpectrumAxis(inspection, currentA)
+      const axis = preferredSpectrumAxis(inspection, currentA)
       setAxisMode(axis.mode)
       setAxisMinimum(axis.minimum)
       setAxisMaximum(axis.maximum)
@@ -2919,14 +2926,6 @@ function BatchShippingReportWorkflow({ disabled }: { disabled: boolean }) {
       key,
       measuredKeys.has(key) ? { ...state, value: shippingSuggestedValue(point, measuredKeys.get(key)) } : state,
     ])))
-    if (nextType === "spectrum") {
-      const axis = suggestedSpectrumAxis(inspection, currentA)
-      setAxisMode(axis.mode)
-      setAxisMinimum(axis.minimum)
-      setAxisMaximum(axis.maximum)
-      setWavelengthMinimum(axis.wavelengthMinimum)
-      setWavelengthMaximum(axis.wavelengthMaximum)
-    }
   }, [])
 
   const inspectRepresentative = useCallback(async (item: ShippingReportBatchItem, nextType: ShippingReportType, currentA: number, resetFields: boolean) => {
@@ -3212,7 +3211,7 @@ function BatchShippingReportWorkflow({ disabled }: { disabled: boolean }) {
         <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(365px,0.95fr)]"><div className="min-w-0">
           <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2"><Field label="报告类型"><NativeSelect disabled={busy} value={reportType} onChange={(value) => void changeReportType(value as ShippingReportType)}>{reportTypes.includes("spectrum") && <option value="spectrum">含光谱测试报告</option>}<option value="pole">Pole 无光谱测试报告</option></NativeSelect></Field><Field label="统一工作电流"><NativeSelect disabled={busy} value={Number.isFinite(operatingCurrentA) ? String(operatingCurrentA) : ""} onChange={(value) => void changeOperatingCurrent(Number(value))}><option disabled value="">请选择工作电流</option>{batch.unionCurrents.map((current) => <option key={current} value={String(current)}>{Number.isInteger(current) ? current.toFixed(0) : String(current)} A{batch.commonCurrents.includes(current) ? " · 全部共有" : ""}</option>)}</NativeSelect></Field><Field className="2xl:col-span-2" label="统一产品名称"><Input disabled={busy} value={productName} onChange={(event) => changeProductName(event.target.value)} /></Field></div>
           <Separator className="my-5" />
-          <div><div className="mb-3 flex items-end justify-between gap-4"><div><h3 className="text-sm font-semibold">报告参数</h3><p className="mt-1 text-xs text-muted-foreground">测量参数会按每份 Excel 重新取值；手工参数统一应用。</p></div><div className="flex shrink-0 items-center gap-3"><span className="text-xs text-muted-foreground">已选 {Object.values(fields).filter((item) => item.include).length} 项</span><Button disabled={busy} onClick={addCustomField} size="sm" type="button" variant="outline"><Plus className="size-3.5" />手动增加参数</Button></div></div><div className="grid grid-cols-1 gap-x-6 gap-y-3 2xl:grid-cols-2">{definitions.filter((definition) => !customFields.some((field) => field.key === definition.key)).map((definition) => { const state = fields[definition.key] ?? { include: false, value: "" }; return <div className="grid grid-cols-[minmax(150px,0.9fr)_minmax(110px,1fr)_52px] items-center gap-2" key={definition.key}><label className="flex items-center gap-2 text-sm"><input checked={state.include} disabled={busy} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" /><span>{definition.label}</span></label><Input aria-label={`${definition.label}数值`} className="h-8" disabled={busy || Boolean(definition.measuredKey)} value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} /><span className="text-xs text-muted-foreground">{definition.unit || "-"}</span></div>})}{customFields.map((definition) => { const state = fields[definition.key] ?? { include: true, value: "" }; return <div className="col-span-1 grid grid-cols-[auto_minmax(130px,0.8fr)_minmax(110px,1fr)_minmax(60px,0.35fr)_auto] items-center gap-2 rounded-md border border-dashed border-border bg-muted/20 p-2 2xl:col-span-2" key={definition.key}><input checked={state.include} disabled={busy} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" /><Input className="h-8" disabled={busy} placeholder="参数名称" value={definition.label} onChange={(event) => updateCustomField(definition.key, { label: event.target.value })} /><Input className="h-8" disabled={busy} placeholder="参数值" value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} /><Input className="h-8" disabled={busy} placeholder="单位" value={definition.unit} onChange={(event) => updateCustomField(definition.key, { unit: event.target.value })} /><button aria-label={`删除${definition.label}`} disabled={busy} onClick={() => removeCustomField(definition.key)} type="button"><X className="size-4" /></button></div>})}</div></div>
+          <div><div className="mb-3 flex items-end justify-between gap-4"><div><h3 className="text-sm font-semibold">报告参数</h3><p className="mt-1 text-xs text-muted-foreground">测量参数会按每份 Excel 重新取值；手工参数统一应用。</p></div><div className="flex shrink-0 items-center gap-3"><span className="text-xs text-muted-foreground">已选 {Object.values(fields).filter((item) => item.include).length} 项</span><Button disabled={busy} onClick={addCustomField} size="sm" type="button" variant="outline"><Plus className="size-3.5" />手动增加参数</Button></div></div><div className="max-h-[340px] 2xl:max-h-[440px] overflow-y-auto pr-1"><div className="grid grid-cols-1 gap-x-6 gap-y-3 2xl:grid-cols-2">{definitions.filter((definition) => !customFields.some((field) => field.key === definition.key)).map((definition) => { const state = fields[definition.key] ?? { include: false, value: "" }; return <div className="grid grid-cols-[minmax(150px,0.9fr)_minmax(110px,1fr)_52px] items-center gap-2" key={definition.key}><label className="flex items-center gap-2 text-sm"><input checked={state.include} disabled={busy} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" /><span>{definition.label}</span></label><Input aria-label={`${definition.label}数值`} className="h-8" disabled={busy || Boolean(definition.measuredKey)} value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} /><span className="text-xs text-muted-foreground">{definition.unit || "-"}</span></div>})}{customFields.map((definition) => { const state = fields[definition.key] ?? { include: true, value: "" }; return <div className="col-span-1 grid grid-cols-[auto_minmax(130px,0.8fr)_minmax(110px,1fr)_minmax(60px,0.35fr)_auto] items-center gap-2 rounded-md border border-dashed border-border bg-muted/20 p-2 2xl:col-span-2" key={definition.key}><input checked={state.include} disabled={busy} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" /><Input className="h-8" disabled={busy} placeholder="参数名称" value={definition.label} onChange={(event) => updateCustomField(definition.key, { label: event.target.value })} /><Input className="h-8" disabled={busy} placeholder="参数值" value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} /><Input className="h-8" disabled={busy} placeholder="单位" value={definition.unit} onChange={(event) => updateCustomField(definition.key, { unit: event.target.value })} /><button aria-label={`删除${definition.label}`} disabled={busy} onClick={() => removeCustomField(definition.key)} type="button"><X className="size-4" /></button></div>})}</div></div></div>
           {reportType === "spectrum" && <><Separator className="my-5" /><div><h3 className="text-sm font-semibold">光谱纵轴</h3><div className="mt-3 grid grid-cols-3 gap-4"><Field label="单位"><NativeSelect disabled value={axisMode} onChange={() => undefined}><option value="counts">原始强度 (counts)</option></NativeSelect></Field><NumberField disabled={busy} label="下限" value={axisMinimum} onChange={setAxisMinimum} /><NumberField disabled={busy} label="上限" value={axisMaximum} onChange={setAxisMaximum} /></div></div><Separator className="my-5" /><div><h3 className="text-sm font-semibold">光谱横轴</h3><div className="mt-3 grid grid-cols-2 gap-4"><NumberField disabled={busy} label="下限 (nm)" value={wavelengthMinimum} onChange={setWavelengthMinimum} step="0.1" /><NumberField disabled={busy} label="上限 (nm)" value={wavelengthMaximum} onChange={setWavelengthMaximum} step="0.1" /></div></div></>}
         </div><aside className="min-w-0 border-t border-border pt-5 lg:sticky lg:top-2 lg:self-start lg:max-h-[calc(100vh-140px)] lg:overflow-y-auto lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0 pr-1"><div className="flex items-center justify-between"><div><h3 className="text-sm font-semibold">代表文件预览</h3><p className="mt-1 text-xs text-muted-foreground">SN：{representative.sn}</p></div>{previewBusy && <LoaderCircle className="size-4 animate-spin text-muted-foreground" />}</div>{previewError && <p className="mt-4 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-950">{previewError}</p>}{previewPages.length ? <div className="mt-4 space-y-5">{previewPages.map((page, index) => <img alt={`批量出货报告代表预览，第 ${index + 1} 页`} className="w-full border border-border bg-white" key={`${index}-${page.slice(-24)}`} src={`data:image/png;base64,${page}`} />)}</div> : !previewBusy && !previewError && <div className="mt-4 grid min-h-56 place-items-center border border-dashed border-border text-xs text-muted-foreground">等待有效配置</div>}</aside></div>
         <div className="mt-6 border-t border-border pt-4">{generationProgress.total > 0 && <div className="mb-4"><div className="mb-2 flex justify-between text-xs text-muted-foreground"><span>批量生成进度</span><span>{generationProgress.completed} / {generationProgress.total}</span></div><Progress value={generationProgress.total ? generationProgress.completed / generationProgress.total * 100 : 0} /></div>}<div className="flex flex-wrap items-center justify-between gap-3"><div className="text-xs text-muted-foreground">{resultValues.length ? `成功 ${successCount}，跳过 ${skippedCount}，失败 ${failedCount}` : `输出目录：${outputDirectory || "未选择"}`}</div><div className="flex gap-2">{resultValues.length > 0 && <Button disabled={!outputDirectory.trim()} onClick={() => void openOutputDirectory()} variant="outline"><FolderOpen className="size-4" />打开输出文件夹</Button>}<Button disabled={disabled || busy} onClick={() => void generateBatch()}>{generating ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}{generating ? "正在批量生成…" : "批量生成 PDF"}</Button></div></div></div>
@@ -3300,7 +3299,7 @@ const AutomaticPage = memo(function AutomaticPage({
 
   return (
     <>
-      <div className="relative z-20 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[minmax(180px,1.2fr)_minmax(150px,1.1fr)_minmax(110px,0.8fr)_minmax(170px,1.3fr)_136px] items-end gap-3 rounded-lg border border-border/70 bg-card/40 p-3 shadow-none">
+      <div className="relative z-20 shrink-0 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[minmax(180px,1.2fr)_minmax(150px,1.1fr)_minmax(110px,0.8fr)_minmax(170px,1.3fr)_136px] items-end gap-3 rounded-lg border border-border/70 bg-card/40 p-3 shadow-none">
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground" htmlFor="automatic-output-directory">
             <FolderOpen className="mr-1 inline size-3.5" />输出目录
@@ -3398,41 +3397,41 @@ const AutomaticPage = memo(function AutomaticPage({
         </div>
       </div>
 
-      <section className="grid grid-cols-3 gap-3">
+      <section className="grid grid-cols-3 gap-3 shrink-0">
         <DeviceCard title="电源" icon={<Power className="size-4" />} device={snapshot?.devices.powerSupply} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("powerSupply")} summary={powerSupplySummary} />
         <DeviceCard title="功率计" icon={<Gauge className="size-4" />} device={snapshot?.devices.powerMeter} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("powerMeter")} summary={powerMeterSummary} />
         <DeviceCard title="光谱仪" icon={<Radio className="size-4" />} device={snapshot?.devices.spectrometer} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("spectrometer")} summary={spectrometerSummary} />
       </section>
 
-      <Card className="shadow-none border-border/80" size="sm">
-        <CardContent className="flex flex-col gap-3 py-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-col justify-center items-center text-center min-w-[170px] shrink-0">
+      <Card className="shadow-none border-border/80 shrink-0" size="sm">
+        <CardContent className="flex flex-col gap-3 py-3 xl:flex-row xl:items-center xl:justify-between min-h-[58px]">
+          <div className="flex flex-col justify-center items-center text-center w-full xl:w-48 shrink-0 min-w-0">
             {testStarted ? (
               <>
-                <p className="text-2xl font-bold font-din text-foreground tabular-nums">
+                <p className="text-2xl font-bold font-din text-foreground tabular-nums leading-tight">
                   {formatNumber(displayedCurrentA, " A", 1)}
                 </p>
-                <p className="text-xs truncate max-w-[240px] text-muted-foreground" title={progressLabel}>
+                <p className="w-full text-xs truncate text-muted-foreground px-1" title={progressLabel}>
                   {progressLabel}
                 </p>
               </>
             ) : (
               <>
-                <p className={`text-base font-bold tracking-tight tabular-nums ${
+                <p className={`text-base font-bold tracking-tight tabular-nums leading-tight ${
                   readyCount === readyTotal ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"
                 }`}>
                   {readyCount === readyTotal
                     ? `✓ ${readyTotal} 台设备就绪`
                     : `${readyCount} / ${readyTotal} 台设备就绪`}
                 </p>
-                <p className={`text-xs truncate max-w-[240px] ${auto?.settingsError ? "text-[var(--app-warning)] font-medium" : "text-muted-foreground"}`} title={progressLabel}>
+                <p className={`w-full text-xs truncate px-1 ${auto?.settingsError ? "text-[var(--app-warning)] font-medium" : "text-muted-foreground"}`} title={progressLabel}>
                   {progressLabel}
                 </p>
               </>
             )}
           </div>
 
-          <div className="min-w-0 flex-1 border-t lg:border-t-0 lg:border-x border-border/70 py-2 lg:py-0 lg:px-6">
+          <div className="min-w-0 flex-1 border-t xl:border-t-0 xl:border-x border-border/70 py-2 xl:py-0 xl:px-4 flex items-center justify-center">
             <AutomaticWorkflowStepper
               state={auto?.state}
               currentIndex={auto?.currentIndex}
@@ -3440,7 +3439,7 @@ const AutomaticPage = memo(function AutomaticPage({
             />
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center justify-center xl:justify-end gap-2 shrink-0">
             {auto?.canRetry && (
               <Button disabled={!active || pending} onClick={() => void run("automatic.retry")} size="sm" variant="outline">
                 <RotateCcw className="size-4 mr-1" />重试
@@ -3504,7 +3503,7 @@ const ShippingReportPage = memo(function ShippingReportPage({ active, controlsLo
   const [mode, setMode] = useState<"single" | "batch">("single")
   const disabled = !active || controlsLocked || pending
   return (
-    <Card className="shadow-none mb-6">
+    <Card className="mb-6 shrink-0 shadow-none">
       <CardHeader>
         <div className="flex flex-wrap items-start justify-between gap-4"><div><CardTitle className="text-base">出货报告</CardTitle><CardDescription>{mode === "single" ? "填写测试 Excel 和本地 PDF 保存文件夹，再配置报告参数并导出。" : "递归扫描同一批次 Excel，一次配置并逐份生成出货报告。"}</CardDescription></div><div className="inline-flex rounded-md border border-border bg-muted/30 p-1"><button className={`rounded px-3 py-1.5 text-xs font-medium ${mode === "single" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}`} disabled={disabled} onClick={() => setMode("single")} type="button">单个生成</button><button className={`rounded px-3 py-1.5 text-xs font-medium ${mode === "batch" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}`} disabled={disabled} onClick={() => setMode("batch")} type="button">批量生成</button></div></div>
       </CardHeader>

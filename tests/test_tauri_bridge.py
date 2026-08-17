@@ -21,6 +21,43 @@ from tauri_bridge.settings import JsonSettings
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+class JsonSettingsMigrationTests(unittest.TestCase):
+    def test_legacy_report_preferences_are_migrated_without_overwriting_json(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            settings_path = (
+                Path(temp_dir)
+                / "Changguang Huaxin"
+                / "Pump Driver Integrated Test"
+                / "settings.json"
+            )
+            settings_path.parent.mkdir(parents=True)
+            settings_path.write_text(
+                json.dumps({"shipping_report/pole/manual_values": '{"coolingTemperature":"20"}'}),
+                encoding="utf-8",
+            )
+            legacy_values = {
+                "shipping_report/pole/selected_fields": '["coolingTemperature","power"]',
+                "shipping_report/pole/manual_values": '{"coolingTemperature":"25"}',
+                "shipping_report/spectrum/axis_mode": "counts",
+            }
+
+            with (
+                patch.dict(os.environ, {"LOCALAPPDATA": temp_dir, "ARP_SETTINGS_PATH": ""}),
+                patch("tauri_bridge.settings._legacy_shipping_report_settings", return_value=legacy_values),
+            ):
+                settings = JsonSettings()
+
+            self.assertEqual(
+                settings.get("shipping_report/pole/selected_fields"),
+                '["coolingTemperature","power"]',
+            )
+            self.assertEqual(
+                settings.get("shipping_report/pole/manual_values"),
+                '{"coolingTemperature":"20"}',
+            )
+            self.assertEqual(settings.get("shipping_report/spectrum/axis_mode"), "counts")
+
+
 class _FakePowerController:
     def __init__(self, *, measured_current_a: float = 0.0) -> None:
         self.is_connected = True
