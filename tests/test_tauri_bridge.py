@@ -128,6 +128,134 @@ class HeadlessBackendContractTests(unittest.TestCase):
         self.assertEqual(shipping["measurements"], {})
         self.assertNotIn("points", shipping["pd"])
 
+    def test_live_snapshot_only_sends_new_power_points(self) -> None:
+        self.backend.power_points.extend(
+            [
+                {"elapsedS": 0.1, "powerW": 1.0},
+                {"elapsedS": 0.2, "powerW": 2.0},
+            ]
+        )
+        self.backend.stations["1"].series_revisions["power"] = 2
+        initial = self.backend.snapshot({"view": "automatic"})
+
+        self.backend.power_points.append({"elapsedS": 0.3, "powerW": 3.0})
+        self.backend.stations["1"].series_revisions["power"] += 1
+        incremental = self.backend.snapshot(
+            {
+                "view": "automatic",
+                "since": initial["seriesRevisions"],
+                "cursors": {"power": 0.2},
+            }
+        )
+
+        self.assertNotIn("power", incremental["measurements"])
+        self.assertEqual(
+            incremental["seriesPatches"]["power"],
+            {
+                "startX": 0.1,
+                "points": [{"elapsedS": 0.3, "powerW": 3.0}],
+            },
+        )
+        self.assertNotIn("stable", incremental["measurements"])
+        self.assertNotIn("spectrum", incremental["measurements"])
+
+        unchanged = self.backend.snapshot(
+            {
+                "view": "automatic",
+                "since": incremental["seriesRevisions"],
+                "cursors": {"power": 0.3},
+            }
+        )
+        self.assertEqual(unchanged["measurements"], {})
+        self.assertNotIn("seriesPatches", unchanged)
+
+    def test_live_snapshot_falls_back_to_full_power_series_for_stale_cursor(self) -> None:
+        self.backend.power_points.extend(
+            [
+                {"elapsedS": 1.0, "powerW": 1.0},
+                {"elapsedS": 1.1, "powerW": 2.0},
+            ]
+        )
+        self.backend.stations["1"].series_revisions["power"] = 2
+
+        snapshot = self.backend.snapshot(
+            {
+                "view": "automatic",
+                "since": {"power": 1, "stable": 0, "spectrum": 0, "pd": 0},
+                "cursors": {"power": 0.9},
+            }
+        )
+
+        self.assertEqual(snapshot["measurements"]["power"], list(self.backend.power_points))
+        self.assertNotIn("seriesPatches", snapshot)
+
+    def test_incremental_spectrum_reuses_unchanged_wavelength_grid(self) -> None:
+        self.backend.latest_spectrum = SimpleNamespace(
+            wavelength=[974.0, 974.5, 975.0],
+            intensity=[1.0, 4.0, 1.0],
+            saturation=None,
+            stats=SimpleNamespace(
+                peak_wavelength_nm=974.5,
+                centroid_nm=974.5,
+                fwhm_nm=0.5,
+            ),
+            smsr=None,
+            peak_annotations=(),
+        )
+        self.backend.stations["1"].series_revisions["spectrum"] = 1
+        initial = self.backend.snapshot({"view": "automatic"})
+
+        self.backend.latest_spectrum.intensity = [2.0, 8.0, 2.0]
+        self.backend.stations["1"].series_revisions["spectrum"] += 1
+        incremental = self.backend.snapshot(
+            {"view": "automatic", "since": initial["seriesRevisions"]}
+        )
+
+        spectrum = incremental["measurements"]["spectrum"]
+        self.assertNotIn("wavelengthNm", spectrum)
+        self.assertEqual(spectrum["intensity"], [2.0, 8.0, 2.0])
+        self.assertEqual(
+            spectrum["gridRevision"],
+            initial["measurements"]["spectrum"]["gridRevision"],
+        )
+
+        self.backend.latest_spectrum.wavelength = [975.0, 975.5, 976.0]
+        self.backend.stations["1"].series_revisions["spectrum"] += 1
+        changed_grid = self.backend.snapshot(
+            {"view": "automatic", "since": incremental["seriesRevisions"]}
+        )
+        self.assertEqual(
+            changed_grid["measurements"]["spectrum"]["wavelengthNm"],
+            [975.0, 975.5, 976.0],
+        )
+
+    def test_pd_snapshot_only_sends_new_points(self) -> None:
+        self.backend.pd_state["points"] = [
+            {"elapsedS": 0.1, "value": 0.5},
+            {"elapsedS": 0.2, "value": 0.6},
+        ]
+        self.backend.series_revisions["pd"] = 1
+        initial = self.backend.snapshot({"view": "pd"})
+
+        self.backend.pd_state["points"].append({"elapsedS": 0.3, "value": 0.7})
+        self.backend.series_revisions["pd"] += 1
+        incremental = self.backend.snapshot(
+            {
+                "view": "pd",
+                "since": initial["seriesRevisions"],
+                "cursors": {"pd": 0.2},
+            }
+        )
+
+        self.assertNotIn("points", incremental["pd"])
+        self.assertEqual(
+            incremental["seriesPatches"]["pd"],
+            {
+                "startX": 0.1,
+                "points": [{"elapsedS": 0.3, "value": 0.7}],
+            },
+        )
+
     def test_ch341_rejects_current_above_twenty_amperes(self) -> None:
         controller = _FakePowerController()
         self.backend.power_supply_controller = controller

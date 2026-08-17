@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from combined_test.device_interfaces import ControllerPowerSupply, PowerSupply
 from combined_test.devices import (
+    open_spectrometer_device,
     SpectrumFrameAverager,
     SpectrometerReaderThread,
     TdkReaderThread,
@@ -38,7 +39,8 @@ class FakeController:
         command: list[int],
         _read_length: int,
     ) -> tuple[bool, list[int]]:
-        value = 12.34 if command[1] == 0x8B else 4.56
+        values = {0x88: 24.68, 0x8B: 12.34, 0x8C: 4.56, 0x8D: 37.25}
+        value = values[command[1]]
         integer = int(value)
         return True, [0, 0, integer, round((value - integer) * 100)]
 
@@ -54,6 +56,38 @@ class FakeController:
 
 
 class DeviceInterfaceTests(unittest.TestCase):
+    def test_stale_spectrometer_id_rebinds_to_the_only_online_device(self) -> None:
+        class Control:
+            def __init__(self) -> None:
+                self.opened: list[int] = []
+
+            def find_usb_devices(self) -> None:
+                return
+
+            def get_device_ids(self) -> list[int]:
+                return [7]
+
+            def open_device(self, device_id: int) -> None:
+                self.opened.append(device_id)
+
+        spectrometer = SimpleNamespace(control=Control(), device_id=None)
+
+        opened_id = open_spectrometer_device(spectrometer, 5)
+
+        self.assertEqual(opened_id, 7)
+        self.assertEqual(spectrometer.device_id, 7)
+        self.assertEqual(spectrometer.control.opened, [7])
+
+    def test_stale_spectrometer_id_does_not_guess_between_multiple_devices(self) -> None:
+        control = SimpleNamespace(
+            find_usb_devices=lambda: None,
+            get_device_ids=lambda: [7, 9],
+        )
+        spectrometer = SimpleNamespace(control=control, device_id=None)
+
+        with self.assertRaisesRegex(RuntimeError, r"设备 ID 5.*\[7, 9\]"):
+            open_spectrometer_device(spectrometer, 5)
+
     def test_spectrum_frame_averager_emits_rolling_native_point_mean(self) -> None:
         averager = SpectrumFrameAverager(3)
         wavelength = [975.0, 976.0]
@@ -462,8 +496,10 @@ class DeviceInterfaceTests(unittest.TestCase):
 
         reader = SpectrometerReaderThread(SpectrometerSettings(10_000, 50))
         ready: list[bool] = []
+        opened_device_ids: list[int] = []
         failures: list[str] = []
         reader.ready.connect(lambda: ready.append(True))
+        reader.device_opened.connect(opened_device_ids.append)
         reader.failed.connect(failures.append)
         with (
             patch(
@@ -482,6 +518,7 @@ class DeviceInterfaceTests(unittest.TestCase):
             reader.run()
 
         self.assertEqual(len(attempts), 2)
+        self.assertEqual(opened_device_ids, [7])
         self.assertEqual(ready, [True])
         self.assertEqual(failures, [])
 
@@ -549,8 +586,10 @@ class DeviceInterfaceTests(unittest.TestCase):
         supply.set_current(3.25)
 
         self.assertEqual(controller.writes, [(0x41, [0xB4, 0xFF, 3, 25])])
+        self.assertAlmostEqual(supply.read_input_voltage(), 24.68)
         self.assertAlmostEqual(supply.read_output_voltage(), 12.34)
         self.assertAlmostEqual(supply.read_output_current(), 4.56)
+        self.assertAlmostEqual(supply.read_temperature(), 37.25)
         supply.set_voltage(24.0)
         supply.set_output_enabled(False)
         self.assertEqual(controller.voltage_v, 24.0)

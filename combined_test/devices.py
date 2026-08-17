@@ -254,10 +254,17 @@ def open_spectrometer_device(spectrometer: Any, selected_device_id: int | None) 
         )
 
     if int(selected_device_id) not in device_ids:
-        raise RuntimeError(
-            f"未找到指定的光谱仪设备 ID {selected_device_id}，当前在线设备: {device_ids}"
-        )
-    device_id = int(selected_device_id)
+        if len(device_ids) != 1:
+            raise RuntimeError(
+                f"未找到指定的光谱仪设备 ID {selected_device_id}，当前在线设备: {device_ids}"
+            )
+        # OceanDirect IDs are enumeration handles rather than persistent USB
+        # identities. After a close/reopen or USB reset the same single device
+        # may receive another ID, so safely rebind when the choice is
+        # unambiguous. Multiple online devices still require explicit choice.
+        device_id = device_ids[0]
+    else:
+        device_id = int(selected_device_id)
     spectrometer.control.open_device(device_id)
     spectrometer.device_id = device_id
     return int(device_id)
@@ -590,6 +597,7 @@ class SpectrometerReaderThread(WorkerThread):
     status = Signal(str)
     ready = Signal()
     failed = Signal(str)
+    device_opened = Signal(int)
     integration_time_changed = Signal(int)
     full_scale_changed = Signal(float)
     auto_integration_failed = Signal(object)
@@ -847,6 +855,7 @@ class SpectrometerReaderThread(WorkerThread):
                 ) from startup_error
             if self._stop_requested.is_set():
                 return
+            self.device_opened.emit(device_id)
             if current_integration_us != self.settings.integration_time_us:
                 self.integration_time_changed.emit(current_integration_us)
                 self.status.emit(

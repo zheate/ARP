@@ -129,6 +129,14 @@ class ControllerPowerSupply:
             [0xB4, 0x8B, 0x00, 0x00],
         )
 
+    def read_input_voltage(self) -> float:
+        """Read CH341 input voltage with the command used by the main UI."""
+        return read_power_status_value(
+            self.controller,
+            self.address,
+            [0xB4, 0x88, 0x00, 0x00],
+        )
+
     def read_output_current(self) -> float:
         reader = getattr(self.controller, "read_output_current", None)
         if callable(reader):
@@ -137,6 +145,14 @@ class ControllerPowerSupply:
             self.controller,
             self.address,
             [0xB4, 0x8C, 0x00, 0x00],
+        )
+
+    def read_temperature(self) -> float:
+        """Read CH341 module temperature with the command used by the main UI."""
+        return read_power_status_value(
+            self.controller,
+            self.address,
+            [0xB4, 0x8D, 0x00, 0x00],
         )
 
     def disconnect(self) -> None:

@@ -35,7 +35,10 @@ class OceanDirectSession:
         self.api = api if api is not None else self._load_api(dll_path)
         self.dll_key = str(Path(dll_path).resolve()) if dll_path is not None else str(DEFAULT_OCEAN_DIRECT_DLL.resolve())
         self._lock = threading.RLock()
-        self._device_locks: dict[int, threading.Lock] = {}
+        # Opening a device queries its spectrum length before releasing this
+        # per-device lock. That query follows the normal SDK call path and
+        # acquires the same lock again, so it must be reentrant.
+        self._device_locks: dict[int, threading.RLock] = {}
         self._ref_count = 0
         self._is_initialized = False
         self._configure_return_types()
@@ -79,10 +82,10 @@ class OceanDirectSession:
                     self._is_initialized = False
                     self._device_locks.clear()
 
-    def get_device_lock(self, device_id: int) -> threading.Lock:
+    def get_device_lock(self, device_id: int) -> threading.RLock:
         with self._lock:
             if device_id not in self._device_locks:
-                self._device_locks[device_id] = threading.Lock()
+                self._device_locks[device_id] = threading.RLock()
             return self._device_locks[device_id]
 
 

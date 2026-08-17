@@ -33,13 +33,20 @@ class _FakeSetupApi:
         def get_property(
             _info_set,
             _device_info,
-            _property_key,
+            property_key,
             property_type,
             property_buffer,
             _property_buffer_size,
             required_size,
             _flags,
         ):
+            actual_key = ctypes.cast(
+                property_key, ctypes.POINTER(ch341_ports.DEVPROPKEY)
+            ).contents
+            if actual_key.pid != 37:
+                raise AssertionError(
+                    f"LocationPaths property id must be 37, got {actual_key.pid}"
+                )
             ctypes.cast(required_size, ctypes.POINTER(ctypes.c_ulong)).contents.value = len(raw)
             if not property_buffer:
                 return False

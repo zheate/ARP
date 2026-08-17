@@ -50,7 +50,11 @@ from combined_test.models import (
 )
 from combined_test.persistence import save_spectrum_curve
 from combined_test.runtime_logging import get_runtime_logger, runtime_log_path
-from combined_test.spectrum import SPECTRUM_CENTER_LOCK_HALF_RANGE_NM
+from combined_test.spectrum import (
+    SPECTRUM_CENTER_LOCK_HALF_RANGE_NM,
+    SPECTRUM_CENTER_LOCK_REQUIRED_SAMPLES,
+    SPECTRUM_CENTER_LOCK_TOLERANCE_NM,
+)
 from combined_test.spectrum_math import calculate_pib
 from combined_test.tdk_power_supply import TdkLambdaPowerSupply, list_tdk_serial_resources
 
@@ -219,8 +223,10 @@ class StationRuntime:
         self.active_current_a: float | None = 0.0
         self.connected_ch341_port: dict[str, Any] | None = None
         self.power_supply_identity_error = ""
-        self.latest_tdk_current_a: float | None = None
-        self.latest_tdk_voltage_v: float | None = None
+        self.latest_power_supply_input_voltage_v: float | None = None
+        self.latest_power_supply_output_voltage_v: float | None = None
+        self.latest_power_supply_output_current_a: float | None = None
+        self.latest_power_supply_temperature_c: float | None = None
 
         self.power_meter_detect_thread: PowerMeterDetectThread | None = None
         self.power_meter_reader: PowerMeterReaderThread | None = None
@@ -235,6 +241,11 @@ class StationRuntime:
         self.spectrum_revision = 0
         self.spectrum_grid_revision = 0
         self._last_spectrum_grid: list[float] = []
+        self.spectrum_center_candidate_nm: float | None = None
+        self.spectrum_center_candidate_count = 0
+        self.spectrum_centroid_candidate_nm: float | None = None
+        self.spectrum_centroid_candidate_count = 0
+        self.spectrum_center_locked_nm: float | None = None
 
         self.stable_power_points: dict[float, float] = {}
         self.efficiency_points: dict[float, float] = {}
@@ -364,24 +375,57 @@ class StationRuntime:
             if desc is None:
                 raise RuntimeError(f"指定的 CH341 设备端口未在线：{selected_loc}")
 
-            controller = create_ch341_controller(device_index=desc.device_index)
-            actual_iface = controller.get_device_interface_path(desc.device_index)
-            actual_loc = get_location_path_from_interface_path(actual_iface)
-            if actual_loc != selected_loc:
-                self.power_supply_identity_error = f"端口身份校验失败：期望 {selected_loc}，实际 {actual_loc}"
-                raise RuntimeError(self.power_supply_identity_error)
+            target_index = desc.device_index
+            controller = create_ch341_controller(device_index=target_index)
+            # The power controller used by this application requires the same
+            # 20 kHz mode as the legacy/main implementation.  Merely creating
+            # the wrapper does not open the CH341 device.
+            controller.set_i2c_speed(0)
+            connected, detail = controller.connect_device(target_index)
+            if not connected:
+                raise RuntimeError(str(detail))
+
+            # Verify the physical port again after opening.  DLL indices can
+            # change when Windows re-enumerates multiple CH341 adapters.
+            try:
+                actual_iface = controller.get_device_interface_path(target_index)
+                actual_loc = get_location_path_from_interface_path(actual_iface)
+                if actual_loc != selected_loc:
+                    raise RuntimeError(
+                        f"端口复核不一致（期望 {selected_loc}，实际 {actual_loc}）"
+                    )
+            except Exception as exc:
+                disconnect_error = ""
+                try:
+                    disconnected = bool(controller.disconnect_device())
+                except Exception as close_exc:
+                    disconnected = False
+                    disconnect_error = str(close_exc)
+                if not disconnected:
+                    error = f"连接后端口校验失败：{exc}；设备关闭失败"
+                    if disconnect_error:
+                        error += f"：{disconnect_error}"
+                    self.power_supply_controller = controller
+                    self.connected_ch341_port = {
+                        "locationPath": selected_loc,
+                        "name": f"端口 {target_index}",
+                        "deviceIndex": target_index,
+                    }
+                    self.power_supply_identity_error = error
+                    raise RuntimeError(error) from exc
+                raise RuntimeError(f"连接后端口校验失败：{exc}") from exc
 
             bindings = {b["locationPath"]: b["name"] for b in self.configuration.get("ch341PortBindings", []) if isinstance(b, dict)}
-            name = bindings.get(selected_loc, f"端口 {desc.device_index}")
+            name = bindings.get(selected_loc, f"端口 {target_index}")
             self.connected_ch341_port = {
                 "locationPath": selected_loc,
                 "name": name,
-                "deviceIndex": desc.device_index,
+                "deviceIndex": target_index,
             }
             self.power_supply_controller = controller
             self.power_supply_identity_error = ""
             self.active_current_a = 0.0
-            self.notify("info", "电源连接", f"CH341 {name} 已连接 (Device {desc.device_index})")
+            self.notify("info", "电源连接", f"CH341 {name} 已连接 (Device {target_index})")
 
     def disconnect_power_supply(self) -> None:
         with self._lock:
@@ -399,6 +443,10 @@ class StationRuntime:
             self.connected_ch341_port = None
             self.active_current_a = 0.0
             self.power_supply_identity_error = ""
+            self.latest_power_supply_input_voltage_v = None
+            self.latest_power_supply_output_voltage_v = None
+            self.latest_power_supply_output_current_a = None
+            self.latest_power_supply_temperature_c = None
             self.notify("info", "电源断开", "电源控制器已安全断开")
 
     def set_current(self, params: dict[str, Any]) -> None:
@@ -428,13 +476,47 @@ class StationRuntime:
             supply = self._require_power_supply()
             supply.set_output_enabled(enabled)
 
-    def read_power_supply(self, _params: dict[str, Any]) -> dict[str, Any]:
+    def read_power_supply(self, params: dict[str, Any]) -> None:
         with self._lock:
             supply = self._require_power_supply()
-            return {
-                "currentA": supply.read_output_current(),
-                "voltageV": supply.read_output_voltage(),
+            value_name = str(params.get("value", ""))
+            readers: dict[str, tuple[Callable[[], float], str, str, str]] = {
+                "inputVoltage": (
+                    supply.read_input_voltage,
+                    "输入电压",
+                    "V",
+                    "latest_power_supply_input_voltage_v",
+                ),
+                "outputVoltage": (
+                    supply.read_output_voltage,
+                    "输出电压",
+                    "V",
+                    "latest_power_supply_output_voltage_v",
+                ),
+                "outputCurrent": (
+                    supply.read_output_current,
+                    "输出电流",
+                    "A",
+                    "latest_power_supply_output_current_a",
+                ),
+                "temperature": (
+                    supply.read_temperature,
+                    "模块温度",
+                    "°C",
+                    "latest_power_supply_temperature_c",
+                ),
             }
+            operation = readers.get(value_name)
+            if operation is None:
+                raise ValueError("未知电源读取项")
+            if self.power_supply_kind != "ch341" and value_name in {"inputVoltage", "temperature"}:
+                raise ValueError("TDK 电源不支持该读取项")
+            reader, label, unit, cache_name = operation
+            measured = float(reader())
+            if not math.isfinite(measured):
+                raise RuntimeError(f"电源返回的{label}不是有效数值")
+            setattr(self, cache_name, measured)
+            self.notify("info", "电源读取", f"{label}：{measured:.2f} {unit}")
 
     def start_power_meter(self) -> None:
         with self._lock:
@@ -457,6 +539,9 @@ class StationRuntime:
             reader = PowerMeterReaderThread(settings)
             self.power_meter_reader = reader
             self.power_meter_error = ""
+            self.latest_power = None
+            self.power_points.clear()
+            self.series_revisions["power"] += 1
             reader.reading.connect(self._on_power_reading)
             reader.ready.connect(self._on_power_ready)
             reader.failed.connect(self._on_power_failed)
@@ -473,7 +558,7 @@ class StationRuntime:
     def _on_power_reading(self, reading: PowerMeterReading) -> None:
         with self._lock:
             self.latest_power = reading
-            self.power_points.append({"elapsedS": reading.timestamp, "powerW": reading.power_w})
+            self.power_points.append({"elapsedS": reading.elapsed_s, "powerW": reading.power_w})
             self.series_revisions["power"] += 1
 
     def _on_power_ready(self) -> None:
@@ -519,6 +604,7 @@ class StationRuntime:
             reader.ready.connect(self._on_spectrometer_ready)
             reader.failed.connect(self._on_spectrometer_failed)
             reader.status.connect(lambda msg: self.backend.set_status(f"[工位 {self.station_id}] {msg}"))
+            reader.device_opened.connect(self._on_spectrometer_device_opened)
             reader.integration_time_changed.connect(self._on_integration_changed)
             reader.finished.connect(self._on_spectrometer_finished)
             reader.start()
@@ -534,10 +620,85 @@ class StationRuntime:
         frame = reader.take_latest_spectrum() if reader is not None else None
         with self._lock:
             self.latest_spectrometer_reading = reading
+            self._update_spectrum_center_lock(reading)
             if frame is not None:
                 self.latest_spectrum = frame
                 self.spectrum_revision += 1
                 self.series_revisions["spectrum"] += 1
+
+    def _update_spectrum_center_lock(self, reading: SpectrometerReading) -> None:
+        locked_center: float | None = None
+        lock_reference = ""
+        current_lock = self.spectrum_center_locked_nm
+        if current_lock is not None:
+            peak_nm = float(reading.peak_wavelength_nm)
+            if (
+                not math.isfinite(peak_nm)
+                or abs(peak_nm - current_lock) <= SPECTRUM_CENTER_LOCK_HALF_RANGE_NM
+            ):
+                self.spectrum_center_candidate_nm = None
+                self.spectrum_center_candidate_count = 0
+                return
+            (
+                self.spectrum_center_candidate_nm,
+                self.spectrum_center_candidate_count,
+            ) = self._advance_spectrum_center_candidate(
+                peak_nm,
+                self.spectrum_center_candidate_nm,
+                self.spectrum_center_candidate_count,
+            )
+            if self.spectrum_center_candidate_count >= SPECTRUM_CENTER_LOCK_REQUIRED_SAMPLES:
+                locked_center = self.spectrum_center_candidate_nm
+                lock_reference = "新主峰"
+        else:
+            (
+                self.spectrum_center_candidate_nm,
+                self.spectrum_center_candidate_count,
+            ) = self._advance_spectrum_center_candidate(
+                reading.peak_wavelength_nm,
+                self.spectrum_center_candidate_nm,
+                self.spectrum_center_candidate_count,
+            )
+            (
+                self.spectrum_centroid_candidate_nm,
+                self.spectrum_centroid_candidate_count,
+            ) = self._advance_spectrum_center_candidate(
+                reading.centroid_nm,
+                self.spectrum_centroid_candidate_nm,
+                self.spectrum_centroid_candidate_count,
+            )
+            if self.spectrum_center_candidate_count >= SPECTRUM_CENTER_LOCK_REQUIRED_SAMPLES:
+                locked_center = self.spectrum_center_candidate_nm
+                lock_reference = "主峰"
+            elif self.spectrum_centroid_candidate_count >= SPECTRUM_CENTER_LOCK_REQUIRED_SAMPLES:
+                locked_center = self.spectrum_centroid_candidate_nm
+                lock_reference = "中心波长"
+
+        if locked_center is None:
+            return
+        self.spectrum_center_locked_nm = locked_center
+        self.spectrum_center_candidate_nm = None
+        self.spectrum_center_candidate_count = 0
+        self.spectrum_centroid_candidate_nm = None
+        self.spectrum_centroid_candidate_count = 0
+        self.backend.set_status(
+            f"[工位 {self.station_id}] 光谱横轴已按{lock_reference}锁定："
+            f"{locked_center:.3f} nm ± {SPECTRUM_CENTER_LOCK_HALF_RANGE_NM:g} nm"
+        )
+
+    @staticmethod
+    def _advance_spectrum_center_candidate(
+        raw_center_nm: float,
+        candidate_nm: float | None,
+        candidate_count: int,
+    ) -> tuple[float | None, int]:
+        center = float(raw_center_nm)
+        if not math.isfinite(center):
+            return None, 0
+        if candidate_nm is None or abs(center - candidate_nm) > SPECTRUM_CENTER_LOCK_TOLERANCE_NM:
+            return center, 1
+        next_count = candidate_count + 1
+        return candidate_nm + (center - candidate_nm) / next_count, next_count
 
     def _on_spectrometer_ready(self) -> None:
         self.automatic.mark_spectrum_meter_ready()
@@ -550,6 +711,44 @@ class StationRuntime:
 
     def _on_spectrometer_finished(self) -> None:
         self.spectrometer_reader = None
+
+    def _on_spectrometer_device_opened(self, device_id: int) -> None:
+        actual_device_id = int(device_id)
+        with self._lock:
+            previous_value = self.configuration.get("spectrometerDeviceId")
+            previous_device_id = (
+                None if previous_value in {None, ""} else int(previous_value)
+            )
+            if previous_device_id != actual_device_id:
+                self.backend.check_device_conflicts(
+                    self.station_id,
+                    "spectrometer",
+                    actual_device_id,
+                )
+            label = f"Ocean Insight | 设备 ID {actual_device_id}"
+            self.configuration["spectrometerDeviceId"] = actual_device_id
+            self.configuration["spectrometerResource"] = label
+
+        with self.backend._lock:
+            self.backend.spectrometer_resources = [
+                resource
+                for resource in self.backend.spectrometer_resources
+                if int(resource.get("deviceId", -1)) not in {
+                    previous_device_id,
+                    actual_device_id,
+                }
+            ]
+            self.backend.spectrometer_resources.append(
+                {"label": label, "deviceId": actual_device_id}
+            )
+            self.backend._persist_configuration()
+
+        if previous_device_id is not None and previous_device_id != actual_device_id:
+            self.notify(
+                "warning",
+                "光谱仪设备已重绑定",
+                f"原设备 ID {previous_device_id} 已失效，已自动切换并打开当前唯一在线设备 ID {actual_device_id}。",
+            )
 
     def _on_integration_changed(self, value: int) -> None:
         self.configuration["integrationTimeUs"] = int(value)
@@ -625,6 +824,43 @@ class StationRuntime:
         )
         self._automatic_thread.start()
 
+    def _begin_automatic_measurement_window(self) -> tuple[int, int]:
+        """Return boundaries that exclude samples from the previous setpoint."""
+        reader = self.power_meter_reader
+        if reader is None:
+            raise RuntimeError("功率计采集线程未运行")
+        stability_generation = reader.reset_stability_window()
+        with self._lock:
+            spectrum_revision = self.spectrum_revision
+        return stability_generation, spectrum_revision
+
+    def _fresh_automatic_measurement(
+        self,
+        *,
+        stability_generation: int,
+        spectrum_revision: int,
+        use_spectrometer: bool,
+    ) -> tuple[PowerMeterReading, Any] | None:
+        """Return a stable sample only when every input is from this setpoint."""
+        with self._lock:
+            reading = self.latest_power
+            frame = self.latest_spectrum
+            current_spectrum_revision = self.spectrum_revision
+
+        if (
+            reading is None
+            or reading.stability_generation != stability_generation
+            or not reading.stable
+        ):
+            return None
+        if not use_spectrometer:
+            return reading, None
+        if frame is None or current_spectrum_revision <= spectrum_revision:
+            return None
+        if bool(getattr(frame.saturation, "saturated", False)):
+            return None
+        return reading, frame
+
     def _run_automatic(self) -> None:
         records: list[ExcelTestRecord] = []
         try:
@@ -646,23 +882,24 @@ class StationRuntime:
                 self.automatic.set_state(AutomaticTestState.SETTING_CURRENT)
                 self.automatic_detail = f"正在设置 {current_a:g} A"
                 self.set_current({"currentA": current_a})
+                stability_generation, spectrum_revision = (
+                    self._begin_automatic_measurement_window()
+                )
                 self.automatic.set_state(AutomaticTestState.WAITING_STABLE)
                 point_deadline = time.monotonic() + settings.point_timeout_s
                 stable_reading: PowerMeterReading | None = None
+                stable_frame = None
                 while time.monotonic() < point_deadline:
                     if self._automatic_stop.is_set():
                         break
                     self._automatic_resume.wait()
-                    reading = self.latest_power
-                    spectrum_ok = (
-                        not settings.use_spectrometer
-                        or (
-                            self.latest_spectrum is not None
-                            and not bool(getattr(self.latest_spectrum.saturation, "saturated", False))
-                        )
+                    measurement = self._fresh_automatic_measurement(
+                        stability_generation=stability_generation,
+                        spectrum_revision=spectrum_revision,
+                        use_spectrometer=settings.use_spectrometer,
                     )
-                    if reading is not None and reading.stable and spectrum_ok:
-                        stable_reading = reading
+                    if measurement is not None:
+                        stable_reading, stable_frame = measurement
                         break
                     time.sleep(0.05)
                 if self._automatic_stop.is_set():
@@ -682,7 +919,7 @@ class StationRuntime:
                     if current_a > 0.0 and voltage_v > 0.0
                     else math.nan
                 )
-                frame = self.latest_spectrum
+                frame = stable_frame
                 stats = None if frame is None else frame.stats
                 record = ExcelTestRecord(
                     current_a=current_a,
@@ -814,6 +1051,11 @@ class StationRuntime:
             self.stable_power_points.clear()
             self.efficiency_points.clear()
             self.latest_spectrum = None
+            self.spectrum_center_candidate_nm = None
+            self.spectrum_center_candidate_count = 0
+            self.spectrum_centroid_candidate_nm = None
+            self.spectrum_centroid_candidate_count = 0
+            self.spectrum_center_locked_nm = None
             for key in self.series_revisions:
                 self.series_revisions[key] += 1
 
@@ -874,40 +1116,45 @@ class StationRuntime:
             "terminalReason": self.automatic_terminal_reason,
         }
 
-    def build_snapshot_measurements(self, include_live: bool) -> dict[str, Any]:
+    def build_stable_snapshot(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "currentA": current,
+                "powerW": power,
+                "efficiencyPercent": self.efficiency_points.get(current),
+            }
+            for current, power in sorted(self.stable_power_points.items())
+        ]
+
+    def build_spectrum_snapshot(
+        self,
+        *,
+        allow_cached_grid: bool,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         frame = self.latest_spectrum
         wavelength = [] if frame is None else [float(v) for v in frame.wavelength]
         intensity = [] if frame is None else [float(v) for v in frame.intensity]
-        if wavelength != self._last_spectrum_grid:
+        grid_changed = wavelength != self._last_spectrum_grid
+        if grid_changed:
             self._last_spectrum_grid = wavelength
             self.spectrum_grid_revision += 1
 
-        measurements: dict[str, Any] = {}
-        if include_live:
-            measurements["power"] = list(self.power_points)
-            measurements["stable"] = [
-                {
-                    "currentA": current,
-                    "powerW": power,
-                    "efficiencyPercent": self.efficiency_points.get(current),
-                }
-                for current, power in sorted(self.stable_power_points.items())
-            ]
-            measurements["spectrum"] = {
-                "gridRevision": self.spectrum_grid_revision,
-                "wavelengthNm": wavelength,
-                "intensity": intensity,
+        spectrum: dict[str, Any] = {
+            "gridRevision": self.spectrum_grid_revision,
+            "intensity": intensity,
+        }
+        if not allow_cached_grid or grid_changed:
+            spectrum["wavelengthNm"] = wavelength
+        peaks = [
+            {
+                "label": item.label,
+                "centroidNm": _finite(item.centroid_nm),
+                "peakWavelengthNm": _finite(item.peak_wavelength_nm),
+                "peakIntensity": _finite(item.peak_intensity),
             }
-            measurements["spectrumPeaks"] = [
-                {
-                    "label": item.label,
-                    "centroidNm": _finite(item.centroid_nm),
-                    "peakWavelengthNm": _finite(item.peak_wavelength_nm),
-                    "peakIntensity": _finite(item.peak_intensity),
-                }
-                for item in (() if frame is None else frame.peak_annotations)
-            ]
-        return measurements
+            for item in (() if frame is None else frame.peak_annotations)
+        ]
+        return spectrum, peaks
 
 
 class HeadlessBackend:
@@ -1457,7 +1704,74 @@ class HeadlessBackend:
         spectrum_saturated = bool(frame and frame.saturation and frame.saturation.saturated)
         spectrum_stats = None if frame is None else frame.stats
 
-        measurements = active_st.build_snapshot_measurements(include_live)
+        raw_since = params.get("since")
+        since_revisions = raw_since if isinstance(raw_since, dict) else None
+        raw_cursors = params.get("cursors")
+        series_cursors = raw_cursors if isinstance(raw_cursors, dict) else {}
+        merged_revisions = {
+            "power": active_st.series_revisions["power"],
+            "stable": active_st.series_revisions["stable"],
+            "spectrum": active_st.series_revisions["spectrum"],
+            "pd": self.series_revisions["pd"],
+        }
+
+        def include_series(name: str, active_for_view: bool) -> bool:
+            if not active_for_view:
+                return False
+            if since_revisions is None:
+                return True
+            previous = since_revisions.get(name)
+            return not isinstance(previous, (int, float)) or int(previous) != merged_revisions[name]
+
+        def append_patch(
+            name: str,
+            points: list[dict[str, Any]],
+            x_key: str,
+        ) -> dict[str, Any] | None:
+            cursor = _finite(series_cursors.get(name))
+            if since_revisions is None or cursor is None or not points:
+                return None
+            cursor_index = next(
+                (
+                    index
+                    for index, point in enumerate(points)
+                    if math.isclose(float(point[x_key]), cursor, rel_tol=0.0, abs_tol=1e-9)
+                ),
+                None,
+            )
+            if cursor_index is None or cursor_index >= len(points) - 1:
+                return None
+            return {
+                "startX": float(points[0][x_key]),
+                "points": points[cursor_index + 1 :],
+            }
+
+        measurements: dict[str, Any] = {}
+        series_patches: dict[str, Any] = {}
+        if include_series("power", include_live):
+            power_points = list(active_st.power_points)
+            power_patch = append_patch("power", power_points, "elapsedS")
+            if power_patch is None:
+                measurements["power"] = power_points
+            else:
+                series_patches["power"] = power_patch
+        if include_series("stable", include_live):
+            measurements["stable"] = active_st.build_stable_snapshot()
+        if include_series("spectrum", include_live):
+            spectrum, spectrum_peaks = active_st.build_spectrum_snapshot(
+                allow_cached_grid=since_revisions is not None,
+            )
+            measurements["spectrum"] = spectrum
+            measurements["spectrumPeaks"] = spectrum_peaks
+
+        pd_snapshot = {key: value for key, value in self.pd_state.items() if key != "points"}
+        if include_series("pd", include_pd):
+            pd_points = list(self.pd_state["points"])
+            pd_patch = append_patch("pd", pd_points, "elapsedS")
+            if pd_patch is None:
+                pd_snapshot["points"] = pd_points
+            else:
+                series_patches["pd"] = pd_patch
 
         # CH341 device ports map
         bindings_map = {
@@ -1503,18 +1817,12 @@ class HeadlessBackend:
                 max(0.0, time.monotonic() - active_st.automatic_hold_started_at),
             )
 
-        merged_revisions = {
-            "power": active_st.series_revisions["power"],
-            "stable": active_st.series_revisions["stable"],
-            "spectrum": active_st.series_revisions["spectrum"],
-            "pd": self.series_revisions["pd"],
-        }
-
         stations_summary = {sid: st.summary_snapshot() for sid, st in self.stations.items()}
 
         return {
             "capturedAt": datetime.now(timezone.utc).isoformat(),
             "seriesRevisions": merged_revisions,
+            **({"seriesPatches": series_patches} if series_patches else {}),
             "activeStation": active_station_id,
             "stations": stations_summary,
             "backend": {
@@ -1534,6 +1842,10 @@ class HeadlessBackend:
                     "connected": supply is not None,
                     "outputEnabled": bool(supply and supply.output_enabled),
                     "activeCurrentA": _finite(active_st.active_current_a),
+                    "inputVoltageV": _finite(active_st.latest_power_supply_input_voltage_v),
+                    "outputVoltageV": _finite(active_st.latest_power_supply_output_voltage_v),
+                    "outputCurrentA": _finite(active_st.latest_power_supply_output_current_a),
+                    "temperatureC": _finite(active_st.latest_power_supply_temperature_c),
                     "resources": list(self.power_supply_resources),
                     "ch341": ch341_snapshot,
                 },
@@ -1560,7 +1872,14 @@ class HeadlessBackend:
                     "pib": None if frame is None or not math.isfinite(getattr(frame, "pib", math.nan)) else _finite(frame.pib * 100.0 if frame.pib <= 1.0 else frame.pib),
                     "smsrDb": None if frame is None or frame.smsr is None else _finite(frame.smsr.smsr_db),
                     "saturated": spectrum_saturated,
-                    "spectrumWindow": None,
+                    "spectrumWindow": (
+                        {
+                            "centerNm": active_st.spectrum_center_locked_nm,
+                            "halfRangeNm": SPECTRUM_CENTER_LOCK_HALF_RANGE_NM,
+                        }
+                        if active_st.spectrum_center_locked_nm is not None
+                        else None
+                    ),
                     "resources": [item["label"] for item in self.spectrometer_resources],
                 },
             },
@@ -1591,10 +1910,7 @@ class HeadlessBackend:
                 ),
             },
             "measurements": measurements,
-            "pd": {
-                **{key: value for key, value in self.pd_state.items() if key != "points"},
-                **({"points": list(self.pd_state["points"])} if include_pd else {}),
-            },
+            "pd": pd_snapshot,
             "safety": {
                 "hardwareAccess": True,
                 "commandMode": "controller_owned",

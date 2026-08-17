@@ -64,7 +64,7 @@ DEVPKEY_DEVICE_LOCATION_PATHS = DEVPROPKEY(
         0x4EFD,
         (ctypes.c_ubyte * 8)(0x80, 0x20, 0x67, 0xD1, 0x46, 0xA8, 0x50, 0xE0),
     ),
-    35,
+    37,
 )
 
 

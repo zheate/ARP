@@ -86,16 +86,8 @@ function powerYAxisDomain(values: Array<number | null | undefined>): [number, nu
   if (finiteValues.length === 0) return undefined
   const minimum = Math.min(...finiteValues)
   const maximum = Math.max(...finiteValues)
-  const center = (minimum + maximum) / 2
-
-  // ±3% 最小视窗保护（基于当前中心功率值，保底不少于 5mW）
-  const minHalfSpan = Math.max(Math.abs(center) * 0.03, 0.005)
-  const actualHalfSpan = (maximum - minimum) / 2
-  const targetHalfSpan = Math.max(actualHalfSpan * 1.15, minHalfSpan)
-
-  const domainMin = Math.max(0, center - targetHalfSpan)
-  const domainMax = center + targetHalfSpan
-  return [domainMin, domainMax]
+  const padding = minimum === maximum ? Math.max(Math.abs(minimum) * 0.1, 0.001) : (maximum - minimum) * 0.12
+  return [minimum >= 0 ? Math.max(0, minimum - padding) : minimum - padding, maximum <= 0 ? 0 : maximum + padding]
 }
 
 function spectrumYAxisDomain(values: number[]): [number, number] {
@@ -721,6 +713,9 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
             <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline">读取输出电流</Button>
             <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "inputVoltage" })} size="sm" variant="outline">读取输入电压</Button>
             <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "temperature" })} size="sm" variant="outline">读取模块温度</Button>
+            <p className="col-span-full text-xs text-muted-foreground">
+              回读：输入 {formatNumber(psu?.inputVoltageV, " V", 2)} · 输出 {formatNumber(psu?.outputVoltageV, " V", 2)} · 电流 {formatNumber(psu?.outputCurrentA, " A", 2)} · 温度 {formatNumber(psu?.temperatureC, " °C", 2)}
+            </p>
           </div>}
         </div>
       </section>
@@ -1430,8 +1425,8 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch 
     ]
   }, [powerData, powerTimeDomain, referencePowerW])
   const powerYDomain = powerYAxisDomain(chartData.flatMap((row) => (
-    typeof row.elapsedS === "number" && row.elapsedS >= powerTimeDomain[0] && typeof row.powerW === "number"
-      ? [row.powerW]
+    typeof row.elapsedS === "number" && row.elapsedS >= powerTimeDomain[0]
+      ? [row.powerW, row.referencePowerW]
       : []
   )))
   const lines: CanvasChartLine[] = [
@@ -3778,6 +3773,9 @@ const ManualPage = memo(function ManualPage({
               <Button className="active:bg-primary/20 transition-colors" disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline">读取输出电流</Button>
               <Button className="active:bg-primary/20 transition-colors" disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "inputVoltage" })} size="sm" variant="outline">读取输入电压</Button>
               <Button className="active:bg-primary/20 transition-colors" disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "temperature" })} size="sm" variant="outline">读取模块温度</Button>
+              <p className="col-span-2 text-xs text-muted-foreground">
+                回读：输入 {formatNumber(psu?.inputVoltageV, " V", 2)} · 输出 {formatNumber(psu?.outputVoltageV, " V", 2)} · 电流 {formatNumber(psu?.outputCurrentA, " A", 2)} · 温度 {formatNumber(psu?.temperatureC, " °C", 2)}
+              </p>
             </div>
           </>}
         </CardContent></Card>

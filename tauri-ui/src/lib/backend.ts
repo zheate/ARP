@@ -51,6 +51,10 @@ export interface DeviceSnapshot {
   ch341?: Ch341State
   outputEnabled?: boolean
   activeCurrentA?: number | null
+  inputVoltageV?: number | null
+  outputVoltageV?: number | null
+  outputCurrentA?: number | null
+  temperatureC?: number | null
   powerW?: number | null
   stable?: boolean
   peakWavelengthNm?: number | null
