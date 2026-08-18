@@ -143,6 +143,37 @@ class CoherentPowerMeterTests(unittest.TestCase):
         self.assertEqual(detected[0].driver_kind, "coherent")
         self.assertIn("PM150-50C", detected[0].detail)
 
+    def test_ophir_detection_recovers_when_saved_serial_is_no_longer_present(self) -> None:
+        replacement = power_meter_mvp.ProbeResult(
+            "OPHIR::USB::963826",
+            "Ophir USB",
+            "USB SN 963826",
+            "ophir",
+        )
+
+        class ResourceManager:
+            def list_resources(self) -> tuple[str, ...]:
+                return ()
+
+        @contextmanager
+        def fake_visa_resource_manager():
+            yield ResourceManager()
+
+        def probe_all(resource: str = "", timeout_ms: int = 1000):
+            del timeout_ms
+            return [replacement] if resource == "" else []
+
+        detected: list[object] = []
+        thread = PowerMeterDetectThread(preferred_resource="OPHIR::USB::3103403")
+        thread.detected.connect(detected.extend)
+        with (
+            patch("combined_test.devices.visa_resource_manager", fake_visa_resource_manager),
+            patch.object(power_meter_mvp.OphirPowerMeter, "probe_all", side_effect=probe_all),
+        ):
+            thread.run()
+
+        self.assertEqual([option.resource for option in detected], ["OPHIR::USB::963826"])
+
     def test_combined_reader_configures_selected_coherent_driver(self) -> None:
         actions: list[object] = []
 

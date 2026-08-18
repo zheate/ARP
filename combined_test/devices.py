@@ -363,7 +363,7 @@ class PowerMeterDetectThread(WorkerThread):
                 probe_all = getattr(OphirPowerMeter, "probe_all", None)
                 if callable(probe_all):
                     for result in probe_all(
-                        preferred if preferred.startswith("OPHIR::USB::") else "",
+                        "",
                         timeout_ms=POWER_METER_PROBE_TIMEOUT_MS,
                     ):
                         options.append(
