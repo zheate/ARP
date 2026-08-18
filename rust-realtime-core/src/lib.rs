@@ -6,7 +6,7 @@
 
 use std::slice;
 
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 2;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]

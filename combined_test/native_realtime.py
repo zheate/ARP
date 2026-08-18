@@ -19,7 +19,7 @@ from typing import Iterable
 import numpy as np
 
 
-NATIVE_ABI_VERSION = 1
+NATIVE_ABI_VERSION = 2
 NATIVE_DLL_NAME = "arp_realtime_core.dll" if sys.platform == "win32" else "libarp_realtime_core.so"
 DISABLE_ENVIRONMENT_VARIABLE = "ARP_DISABLE_NATIVE_REALTIME"
 DLL_ENVIRONMENT_VARIABLE = "ARP_REALTIME_CORE_DLL"

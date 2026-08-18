@@ -7,7 +7,7 @@ const SNAPSHOT_REQUEST_TIMEOUT_SECS: u64 = 15;
 const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 60;
 const FILE_SCAN_REQUEST_TIMEOUT_SECS: u64 = 120;
 const REPORT_REQUEST_TIMEOUT_SECS: u64 = 10 * 60;
-const SHUTDOWN_REQUEST_TIMEOUT_SECS: u64 = 30;
+const SHUTDOWN_REQUEST_TIMEOUT_SECS: u64 = 90;
 use std::collections::HashMap;
 use std::env;
 use std::io::{BufRead, BufReader, BufWriter, Write};
@@ -18,7 +18,7 @@ use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use tauri::{State, Webview};
+use tauri::{Manager, State, Webview};
 
 #[cfg(windows)]
 use windows_core::PCWSTR;
@@ -883,6 +883,13 @@ fn open_directory(path: String) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .manage(BridgeState::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -922,7 +929,7 @@ mod tests {
         assert_eq!(request_timeout("app.snapshot").as_secs(), 15);
         assert_eq!(request_timeout("automatic.references").as_secs(), 120);
         assert_eq!(request_timeout("shippingReport.generate").as_secs(), 600);
-        assert_eq!(request_timeout("app.shutdown").as_secs(), 30);
+        assert_eq!(request_timeout("app.shutdown").as_secs(), 90);
         assert_eq!(request_timeout("automatic.start").as_secs(), 60);
     }
 

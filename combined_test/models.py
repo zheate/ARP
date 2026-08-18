@@ -101,7 +101,7 @@ class SpectrometerReading:
     fwhm_nm: float
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class SpectrumFrame:
     wavelength: Any
     intensity: Any
@@ -113,6 +113,47 @@ class SpectrumFrame:
     saturation: SpectrumSaturationResult | None = None
     peak_annotations: tuple[SpectrumPeakAnnotation, ...] = ()
     peak_intensity: float = 0.0
+
+    @staticmethod
+    def _values_equal(left: Any, right: Any) -> bool:
+        try:
+            left_values = list(left)
+            right_values = list(right)
+        except TypeError:
+            return left == right
+        if len(left_values) != len(right_values):
+            return False
+        for left_value, right_value in zip(left_values, right_values):
+            try:
+                left_number = float(left_value)
+                right_number = float(right_value)
+            except (TypeError, ValueError):
+                if left_value != right_value:
+                    return False
+            else:
+                if math.isnan(left_number) and math.isnan(right_number):
+                    continue
+                if left_number != right_number:
+                    return False
+        return True
+
+    @staticmethod
+    def _numbers_equal(left: float, right: float) -> bool:
+        return (math.isnan(float(left)) and math.isnan(float(right))) or float(left) == float(right)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, SpectrumFrame):
+            return NotImplemented
+        return (
+            self._values_equal(self.wavelength, other.wavelength)
+            and self._values_equal(self.intensity, other.intensity)
+            and self.stats == other.stats
+            and self._numbers_equal(self.pib, other.pib)
+            and self.smsr == other.smsr
+            and self.saturation == other.saturation
+            and self.peak_annotations == other.peak_annotations
+            and self._numbers_equal(self.peak_intensity, other.peak_intensity)
+        )
 
 
 @dataclass(frozen=True)

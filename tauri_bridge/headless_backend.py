@@ -24,9 +24,18 @@ from combined_test.automation import (
     AutomaticTestOrchestrator,
     AutomaticTestSettings,
     AutomaticTestState,
+    MIN_POWER_SUPPLY_COMMAND_INTERVAL_S,
+    PowerDropProtectionDetector,
+    build_custom_hold_ramp_currents,
     build_ramp_down_currents,
     validate_automatic_test_settings,
 )
+from combined_test.automatic_samples import (
+    AutomaticSampleRecorder,
+    AutomaticSecondSample,
+    automatic_sample_path,
+)
+from combined_test.core import WavelengthStabilityDetector
 from combined_test.device_interfaces import ControllerPowerSupply
 from combined_test.devices import (
     PowerMeterDetectThread,
@@ -49,6 +58,12 @@ from combined_test.models import (
     SpectrometerSettings,
 )
 from combined_test.persistence import save_spectrum_curve
+from combined_test.record_store import (
+    AttemptValidity,
+    DeviceSnapshot,
+    SessionRecordStore,
+    SessionStatus,
+)
 from combined_test.runtime_logging import get_runtime_logger, runtime_log_path
 from combined_test.spectrum import (
     SPECTRUM_CENTER_LOCK_HALF_RANGE_NM,
@@ -56,12 +71,28 @@ from combined_test.spectrum import (
     SPECTRUM_CENTER_LOCK_TOLERANCE_NM,
 )
 from combined_test.spectrum_math import calculate_pib
-from combined_test.tdk_power_supply import TdkLambdaPowerSupply, list_tdk_serial_resources
+from combined_test.tdk_power_supply import (
+    TdkLambdaPowerSupply,
+    compensate_tdk_output_voltage,
+    list_tdk_serial_resources,
+)
 
 from .settings import JsonSettings
 
 
 _LOGGER = get_runtime_logger("headless_backend")
+MIN_SPECTRUM_PEAK_INTENSITY = 500.0
+
+
+class _AutomaticPointRetry(RuntimeError):
+    """Internal control-flow signal used to restart the active current point."""
+
+
+class _AutomaticPointQualityError(RuntimeError):
+    def __init__(self, validity: AttemptValidity, message: str, *, hold_current: bool = False) -> None:
+        super().__init__(message)
+        self.validity = validity
+        self.hold_current = bool(hold_current)
 
 
 DEFAULT_CONFIGURATION: dict[str, Any] = {
@@ -126,6 +157,9 @@ class ExportTask:
     target_path: Path
     records: list[ExcelTestRecord]
     callback: Callable[[str | None, Exception | None], None] | None = None
+    session: Any | None = None
+    attempts: tuple[Any, ...] = ()
+    automatic_samples_path: Path | None = None
 
 
 class ExportQueueWorker:
@@ -174,7 +208,14 @@ class ExportQueueWorker:
             out_path: str | None = None
             error: Exception | None = None
             try:
-                out_path = save_test_records(task.target_path, task.records)
+                saved_path = save_test_records(
+                    task.target_path,
+                    task.records,
+                    session=task.session,
+                    attempts=task.attempts,
+                    automatic_samples_path=task.automatic_samples_path,
+                )
+                out_path = str(saved_path)
                 duration_ms = (time.perf_counter() - started_at) * 1000.0
                 _LOGGER.info(
                     "工位 %s Excel 导出完成 | path=%s | duration_ms=%.2f",
@@ -227,17 +268,22 @@ class StationRuntime:
         self.latest_power_supply_output_voltage_v: float | None = None
         self.latest_power_supply_output_current_a: float | None = None
         self.latest_power_supply_temperature_c: float | None = None
+        self._last_power_supply_command_at: float | None = None
 
         self.power_meter_detect_thread: PowerMeterDetectThread | None = None
         self.power_meter_reader: PowerMeterReaderThread | None = None
         self.power_meter_error = ""
         self.latest_power: PowerMeterReading | None = None
+        self.latest_power_received_monotonic_s: float | None = None
         self.power_points: deque[dict[str, float]] = deque(maxlen=1_200)
+        self.power_drop_protection = PowerDropProtectionDetector()
+        self._expected_power_meter_stop = False
 
         self.spectrometer_reader: SpectrometerReaderThread | None = None
         self.spectrometer_error = ""
         self.latest_spectrometer_reading: SpectrometerReading | None = None
         self.latest_spectrum: SpectrumFrame | None = None
+        self.latest_spectrum_received_monotonic_s: float | None = None
         self.spectrum_revision = 0
         self.spectrum_grid_revision = 0
         self._last_spectrum_grid: list[float] = []
@@ -246,10 +292,18 @@ class StationRuntime:
         self.spectrum_centroid_candidate_nm: float | None = None
         self.spectrum_centroid_candidate_count = 0
         self.spectrum_center_locked_nm: float | None = None
+        self.wavelength_stability_detector = WavelengthStabilityDetector(3.0, 0.2)
+        self.latest_wavelength_stable = False
+        self.latest_wavelength_span_nm = math.inf
 
         self.stable_power_points: dict[float, float] = {}
         self.efficiency_points: dict[float, float] = {}
         self.series_revisions = {"power": 0, "stable": 0, "spectrum": 0}
+        self.pending_manual_stable_current_a: float | None = None
+        self.pending_manual_stability_generation: int | None = None
+        self.recorded_manual_stable_current_a: float | None = None
+        self.recorded_manual_stability_generation: int | None = None
+        self._manual_voltage_timer_generation = 0
 
         self.automatic = AutomaticTestOrchestrator()
         self.automatic_detail = "准备测试"
@@ -259,13 +313,24 @@ class StationRuntime:
         self.automatic_terminal_reason = ""
         self.automatic_output_shutdown_unconfirmed = False
         self.automatic_sample_path = ""
+        self.automatic_sample_recorder: AutomaticSampleRecorder | None = None
+        self.record_store = SessionRecordStore()
         self._automatic_thread: threading.Thread | None = None
         self._automatic_stop = threading.Event()
         self._automatic_resume = threading.Event()
         self._automatic_resume.set()
+        self._automatic_retry_requested = False
+        self._automatic_retry_reason = ""
+        self._automatic_pause_holds_current = False
+        self._automatic_pause_generation = 0
+        self._emergency_ramp_thread: threading.Thread | None = None
+        self._safe_ramp_lock = threading.Lock()
+        self._supply_io_lock = threading.RLock()
+        self._expected_spectrometer_stop = False
         self._test_reference: Any | None = None
         self.export_status: str = "idle"
         self.export_path: str = ""
+        self.export_error: str = ""
 
     def notify(self, level: str, title: str, message: str) -> None:
         self.backend.notify(level, f"[工位 {self.station_id}] {title}", message)
@@ -280,6 +345,355 @@ class StationRuntime:
         if self.power_supply_identity_error:
             raise RuntimeError(f"电源状态异常：{self.power_supply_identity_error}")
         return supply
+
+    def _reserve_power_supply_command(self, *, wait: bool) -> None:
+        """Keep CH341 commands outside the controller's unsafe 1.1 s window."""
+        if self.power_supply_kind != "ch341":
+            return
+        now = time.monotonic()
+        previous = self._last_power_supply_command_at
+        remaining = (
+            0.0
+            if previous is None
+            else MIN_POWER_SUPPLY_COMMAND_INTERVAL_S - (now - previous)
+        )
+        if remaining > 0.0:
+            if not wait:
+                raise RuntimeError(f"电源命令过快，请等待 {remaining:.1f} 秒后重试")
+            automatic_active = self.automatic.state not in {
+                AutomaticTestState.IDLE,
+                AutomaticTestState.COMPLETED,
+            }
+            if automatic_active:
+                if self._automatic_stop.wait(remaining):
+                    raise RuntimeError("自动测试已停止")
+            else:
+                time.sleep(remaining)
+        self._last_power_supply_command_at = time.monotonic()
+
+    def _device_snapshots(self) -> tuple[DeviceSnapshot, ...]:
+        ch341 = self.connected_ch341_port or {}
+        return (
+            DeviceSnapshot(
+                role="电源",
+                kind=self.power_supply_kind,
+                resource=(
+                    str(self.configuration.get("tdkResource", ""))
+                    if self.power_supply_kind == "tdk"
+                    else str(ch341.get("locationPath", self.configuration.get("ch341SelectedLocationPath", "")))
+                ),
+                detail=str(ch341.get("name", "")),
+            ),
+            DeviceSnapshot(
+                role="功率计",
+                kind=str(self.configuration.get("powerMeterDriverKind", "")),
+                resource=str(self.configuration.get("powerMeterResource", "")),
+            ),
+            DeviceSnapshot(
+                role="光谱仪",
+                kind="Ocean Insight" if self.configuration.get("spectrometerResource") else "",
+                resource=str(self.configuration.get("spectrometerResource", "")),
+            ),
+        )
+
+    def _begin_recording_session(self, settings: AutomaticTestSettings) -> Path:
+        started_at = datetime.now()
+        workbook_path = self.record_store.begin_session(
+            Path(str(self.configuration["outputDir"])),
+            str(self.configuration["sn"]),
+            started_at,
+            test_station=str(self.configuration["station"]),
+            mode="automatic",
+            product_model=str(self.configuration.get("productModel", "")),
+            batch=str(self.configuration.get("batch", "")),
+            settings=dict(self.configuration),
+            devices=self._device_snapshots(),
+        )
+        self.record_store.configure_sequence(self.automatic.currents)
+        self._close_automatic_sample_recorder()
+        self.automatic_sample_path = ""
+        # The one-second trace belongs only to TDK custom-hold plans. CH341
+        # must never run this extra polling path.
+        if self.power_supply_kind != "tdk" or settings.current_plan_mode != "custom":
+            return workbook_path
+        sample_path = automatic_sample_path(workbook_path)
+        self.automatic_sample_recorder = AutomaticSampleRecorder(sample_path)
+        self.automatic_sample_path = str(sample_path)
+        return workbook_path
+
+    def _close_automatic_sample_recorder(self) -> None:
+        recorder = self.automatic_sample_recorder
+        self.automatic_sample_recorder = None
+        if recorder is not None:
+            recorder.close()
+
+    def _start_emergency_ramp_down(self, reason: str) -> None:
+        """Start physical shutdown independently of Excel or acquisition callbacks."""
+        with self._lock:
+            current = self._emergency_ramp_thread
+            if current is not None and current.is_alive():
+                return
+
+            def run() -> None:
+                try:
+                    self.safe_ramp_down()
+                except Exception as exc:
+                    self.automatic_output_shutdown_unconfirmed = True
+                    self.notify("error", "安全下电失败", f"{reason}：{exc}")
+
+            self._emergency_ramp_thread = threading.Thread(
+                target=run,
+                name=f"emergency-ramp-station-{self.station_id}",
+                daemon=True,
+            )
+            self._emergency_ramp_thread.start()
+
+    def _schedule_pause_safety_timeout(self) -> None:
+        settings = self.automatic.settings
+        timeout_s = 0.0 if settings is None else settings.pause_ramp_down_timeout_s
+        if timeout_s <= 0.0 or self._automatic_pause_holds_current:
+            return
+        self._automatic_pause_generation += 1
+        generation = self._automatic_pause_generation
+
+        def wait_for_timeout() -> None:
+            if self._automatic_resume.wait(timeout_s):
+                return
+            if (
+                generation != self._automatic_pause_generation
+                or self.automatic.state != AutomaticTestState.PAUSED
+                or self._automatic_pause_holds_current
+            ):
+                return
+            self.automatic_terminal_reason = self.automatic.pause_reason or "暂停等待超时"
+            self._automatic_stop.set()
+            self._automatic_resume.set()
+            self._start_emergency_ramp_down("暂停等待超时")
+
+        threading.Thread(
+            target=wait_for_timeout,
+            name=f"pause-safety-station-{self.station_id}",
+            daemon=True,
+        ).start()
+
+    def _request_automatic_point_retry(
+        self,
+        validity: AttemptValidity,
+        reason: str,
+        *,
+        hold_current: bool = False,
+    ) -> None:
+        if self.automatic.state in {
+            AutomaticTestState.IDLE,
+            AutomaticTestState.COMPLETED,
+            AutomaticTestState.RAMPING_DOWN,
+        }:
+            return
+        if not self._automatic_retry_requested:
+            current_a = self.automatic.current_a
+            if current_a is not None:
+                self.record_store.record_invalid_attempt(
+                    current_a,
+                    validity,
+                    reason,
+                    integration_time_us=int(self.configuration["integrationTimeUs"]),
+                )
+        self._automatic_retry_requested = True
+        self._automatic_retry_reason = str(reason)
+        self._automatic_pause_holds_current = bool(hold_current)
+        self.automatic.pause(reason)
+        self.automatic_detail = f"已暂停：{reason}"
+        self._automatic_resume.clear()
+        self._schedule_pause_safety_timeout()
+
+    def _write_automatic_second_sample(
+        self,
+        *,
+        point_index: int,
+        elapsed_s: float,
+        target_current_a: float,
+    ) -> None:
+        recorder = self.automatic_sample_recorder
+        if recorder is None or self.power_supply_kind != "tdk":
+            return
+        errors: list[str] = []
+        output_voltage_raw_v: float | None = None
+        output_voltage_v: float | None = None
+        supply = self._require_power_supply()
+        try:
+            with self._supply_io_lock:
+                output_current_a = float(supply.read_output_current())
+                output_voltage_raw_v = float(supply.read_output_voltage())
+            output_voltage_v = compensate_tdk_output_voltage(
+                output_voltage_raw_v,
+                output_current_a,
+            )
+        except Exception as exc:
+            output_current_a = None
+            errors.append(f"电流/电压读取失败：{exc}")
+        with self._lock:
+            power = self.latest_power
+            frame = self.latest_spectrum
+        stats = None if frame is None else frame.stats
+        pib = None
+        if frame is not None:
+            try:
+                pib = calculate_pib(
+                    frame.wavelength,
+                    frame.intensity,
+                    center_nm=float(self.configuration.get("pibCenterWavelengthNm", 976.0)),
+                    half_range_nm=float(self.configuration.get("pibHalfRangeNm", 1.5)),
+                )
+            except Exception as exc:
+                errors.append(f"PIB 计算失败：{exc}")
+        recorder.write(
+            AutomaticSecondSample(
+                point_index=point_index,
+                point_elapsed_s=elapsed_s,
+                target_current_a=target_current_a,
+                output_current_a=output_current_a,
+                output_voltage_raw_v=output_voltage_raw_v,
+                output_voltage_v=output_voltage_v,
+                optical_power_w=None if power is None else power.power_w,
+                peak_wavelength_nm=None if stats is None else stats.peak_wavelength_nm,
+                centroid_nm=None if stats is None else stats.centroid_nm,
+                fwhm_nm=None if stats is None else stats.fwhm_nm,
+                pib=pib,
+                spectrum_wavelengths_nm=() if frame is None else tuple(float(v) for v in frame.wavelength),
+                spectrum_intensities=() if frame is None else tuple(float(v) for v in frame.intensity),
+                error="；".join(errors),
+            )
+        )
+
+    def _await_automatic_resume(self) -> float | None:
+        if self._automatic_stop.is_set():
+            return None
+        if self._automatic_resume.is_set():
+            if self._automatic_retry_requested:
+                self._automatic_retry_requested = False
+                raise _AutomaticPointRetry(
+                    self._automatic_retry_reason or "重试当前测试点"
+                )
+            return 0.0
+        paused_at = time.monotonic()
+        while not self._automatic_resume.is_set():
+            if self._automatic_stop.wait(0.05):
+                return None
+        paused_duration = time.monotonic() - paused_at
+        if self._automatic_stop.is_set():
+            return None
+        if self._automatic_retry_requested:
+            self._automatic_retry_requested = False
+            raise _AutomaticPointRetry(self._automatic_retry_reason or "重试当前测试点")
+        return paused_duration
+
+    def _wait_automatic_duration(
+        self,
+        duration_s: float,
+        *,
+        sample_point_index: int | None = None,
+        target_current_a: float = 0.0,
+        on_tick: Callable[[], None] | None = None,
+    ) -> bool:
+        active_elapsed = 0.0
+        next_sample_s = 1.0
+        last_tick = time.monotonic()
+        while active_elapsed < max(0.0, duration_s):
+            paused_duration = self._await_automatic_resume()
+            if paused_duration is None or self._automatic_stop.is_set():
+                return False
+            last_tick += paused_duration
+            remaining = duration_s - active_elapsed
+            if self._automatic_stop.wait(min(0.05, remaining)):
+                return False
+            now = time.monotonic()
+            active_elapsed += max(0.0, now - last_tick)
+            last_tick = now
+            if on_tick is not None:
+                on_tick()
+            while sample_point_index is not None and next_sample_s <= min(active_elapsed, duration_s) + 0.05:
+                self._write_automatic_second_sample(
+                    point_index=sample_point_index,
+                    elapsed_s=min(next_sample_s, duration_s),
+                    target_current_a=target_current_a,
+                )
+                next_sample_s += 1.0
+        return True
+
+    def _save_record_store(self) -> Path | None:
+        records = tuple(self.record_store.snapshot())
+        session = self.record_store.current_session
+        path = self.record_store.workbook_path
+        if not records or session is None or path is None:
+            return None
+        recorder = self.automatic_sample_recorder
+        if recorder is not None:
+            recorder.flush_now()
+        attempts = self.record_store.list_attempts(session.session_id)
+        worker = getattr(self.backend, "export_worker", None)
+        if worker is None:
+            saved_path = save_test_records(
+                path,
+                records,
+                session=session,
+                attempts=attempts,
+                automatic_samples_path=(
+                    Path(self.automatic_sample_path) if self.automatic_sample_path else None
+                ),
+            )
+        else:
+            completed = threading.Event()
+            result: dict[str, Any] = {}
+
+            def on_export_done(out_path: str | None, error: Exception | None) -> None:
+                result["path"] = out_path
+                result["error"] = error
+                completed.set()
+
+            submitted = worker.submit(
+                ExportTask(
+                    station_id=self.station_id,
+                    target_path=path,
+                    records=list(records),
+                    callback=on_export_done,
+                    session=session,
+                    attempts=attempts,
+                    automatic_samples_path=(
+                        Path(self.automatic_sample_path) if self.automatic_sample_path else None
+                    ),
+                )
+            )
+            if not submitted:
+                raise RuntimeError("Excel 保存队列已满，请稍后重试")
+            safety_started = False
+            while not completed.wait(0.05):
+                if self._automatic_stop.is_set() and not safety_started:
+                    safety_started = True
+                    self._start_emergency_ramp_down(
+                        self.automatic_terminal_reason or "保存期间收到停止请求"
+                    )
+            error = result.get("error")
+            if error is not None:
+                raise error
+            out_path = result.get("path")
+            if not out_path:
+                raise RuntimeError("Excel 保存未返回目标路径")
+            saved_path = Path(str(out_path))
+        self.record_store.mark_saved(records)
+        self.export_path = str(saved_path)
+        return saved_path
+
+    def _delete_embedded_automatic_samples(self, saved_path: Path | None) -> None:
+        """Remove the temporary CSV only after its final workbook was saved."""
+        if saved_path is None or not self.automatic_sample_path:
+            return
+        sample_path = Path(self.automatic_sample_path)
+        expected_path = automatic_sample_path(Path(saved_path))
+        if sample_path.resolve(strict=False) != expected_path.resolve(strict=False):
+            self.notify("error", "逐秒记录", f"临时 CSV 路径不匹配，未删除：{sample_path}")
+            return
+        sample_path.unlink(missing_ok=True)
+        self.automatic_sample_path = ""
 
     def configure(self, params: dict[str, Any]) -> None:
         with self._lock:
@@ -328,6 +742,12 @@ class StationRuntime:
                 if key in params:
                     self.configuration[key] = params[key]
 
+            if self.power_meter_reader is not None:
+                self.power_meter_reader.update_stability_settings(
+                    float(self.configuration["stableWindowS"]),
+                    float(self.configuration["stableToleranceW"]),
+                )
+
             if "spectrometerResource" in params:
                 resource_str = str(self.configuration.get("spectrometerResource", "")).strip()
                 match = re.search(r"(?:设备\s*ID|ID|Device\s*ID)\s*[:：]?\s*(\d+)", resource_str, re.IGNORECASE)
@@ -354,11 +774,18 @@ class StationRuntime:
                 if not resource:
                     raise ValueError("请选择 TDK 串口资源")
                 self.backend.check_device_conflicts(self.station_id, "tdk", resource)
-                supply = TdkLambdaPowerSupply.open_resource(resource)
-                supply.set_voltage(float(self.configuration["tdkVoltageV"]))
+                supply = TdkLambdaPowerSupply(resource)
+                connected, detail = supply.connect_device(0)
+                if not connected:
+                    raise RuntimeError(str(detail))
                 self.power_supply_controller = supply
                 self.power_supply_identity_error = ""
-                self.active_current_a = supply.read_output_current()
+                try:
+                    self.active_current_a = float(supply.read_output_current())
+                except Exception:
+                    supply.disconnect_device()
+                    self.power_supply_controller = None
+                    raise
                 self.notify("info", "电源连接", f"TDK 电源已连接：{resource}")
                 return
 
@@ -366,14 +793,24 @@ class StationRuntime:
             selected_loc = str(self.configuration.get("ch341SelectedLocationPath", "")).strip()
             if not selected_loc:
                 raise ValueError("请先选择 CH341 物理端口")
+            bindings = {
+                b["locationPath"]: b["name"]
+                for b in self.configuration.get("ch341PortBindings", [])
+                if isinstance(b, dict)
+            }
+            name = str(bindings.get(selected_loc, "")).strip()
+            if not name:
+                raise RuntimeError("未命名的端口不能连接；请先绑定工位名称")
             self.backend.check_device_conflicts(self.station_id, "ch341", selected_loc)
 
-            # Resolve location to device index via backend descriptors
-            if self.backend.ch341_discovery_state != "ready":
-                self.backend.scan_ch341()
+            # Always rescan immediately before opening: CH341 DLL indices are
+            # enumeration-order handles and can swap after USB re-enumeration.
+            self.backend.scan_ch341()
+            if self.backend.ch341_discovery_state == "error":
+                raise RuntimeError(self.backend.ch341_scan_error or "CH341 扫描失败")
             desc = next((d for d in self.backend.ch341_descriptors if d.location_path == selected_loc), None)
             if desc is None:
-                raise RuntimeError(f"指定的 CH341 设备端口未在线：{selected_loc}")
+                raise RuntimeError(f"指定的 CH341 设备端口离线或未在线：{selected_loc}")
 
             target_index = desc.device_index
             controller = create_ch341_controller(device_index=target_index)
@@ -415,8 +852,6 @@ class StationRuntime:
                     raise RuntimeError(error) from exc
                 raise RuntimeError(f"连接后端口校验失败：{exc}") from exc
 
-            bindings = {b["locationPath"]: b["name"] for b in self.configuration.get("ch341PortBindings", []) if isinstance(b, dict)}
-            name = bindings.get(selected_loc, f"端口 {target_index}")
             self.connected_ch341_port = {
                 "locationPath": selected_loc,
                 "name": name,
@@ -425,20 +860,43 @@ class StationRuntime:
             self.power_supply_controller = controller
             self.power_supply_identity_error = ""
             self.active_current_a = 0.0
+            self._last_power_supply_command_at = None
             self.notify("info", "电源连接", f"CH341 {name} 已连接 (Device {target_index})")
 
     def disconnect_power_supply(self) -> None:
         with self._lock:
             if self.power_supply_controller is None:
                 return
-            if self.active_current_a and abs(self.active_current_a) > 0.01:
-                self.safe_ramp_down()
-            disconnect = getattr(self.power_supply_controller, "disconnect_device", None)
-            if callable(disconnect):
-                try:
-                    disconnect()
-                except Exception:
-                    pass
+            if self.power_supply_kind == "ch341" and self.power_supply_identity_error:
+                # A post-open port identity mismatch forbids current commands,
+                # but must never make the retained handle impossible to close.
+                ControllerPowerSupply(self.power_supply_controller).disconnect()
+                self.power_supply_controller = None
+                self.connected_ch341_port = None
+                self.active_current_a = 0.0
+                self.power_supply_identity_error = ""
+                self._last_power_supply_command_at = None
+                self._manual_voltage_timer_generation += 1
+                self.notify("info", "电源断开", "身份异常的 CH341 控制器已断开")
+                return
+            supply = self._require_power_supply()
+            with self._supply_io_lock:
+                if self.power_supply_kind == "tdk":
+                    # The cached output flag starts false after connecting and
+                    # cannot prove the physical supply is off. Always send PC 0
+                    # and OUT 0 before releasing the serial session.
+                    supply.set_current(0.0)
+                    supply.set_output_enabled(False)
+                    measured_current_a = float(supply.read_output_current())
+                    if not math.isfinite(measured_current_a) or abs(measured_current_a) > 0.01:
+                        raise RuntimeError(
+                            f"安全断开已取消：无法确认 TDK 输出电流归零（{measured_current_a:.3f} A）"
+                        )
+                    self.active_current_a = 0.0
+                    self.configuration["setCurrentA"] = 0.0
+                elif self.active_current_a and abs(self.active_current_a) > 0.01:
+                    self.safe_ramp_down()
+                ControllerPowerSupply(self.power_supply_controller).disconnect()
             self.power_supply_controller = None
             self.connected_ch341_port = None
             self.active_current_a = 0.0
@@ -447,9 +905,13 @@ class StationRuntime:
             self.latest_power_supply_output_voltage_v = None
             self.latest_power_supply_output_current_a = None
             self.latest_power_supply_temperature_c = None
+            self._last_power_supply_command_at = None
+            self._manual_voltage_timer_generation += 1
+            self.pending_manual_stable_current_a = None
+            self.pending_manual_stability_generation = None
             self.notify("info", "电源断开", "电源控制器已安全断开")
 
-    def set_current(self, params: dict[str, Any]) -> None:
+    def set_current(self, params: dict[str, Any], *, wait_for_slot: bool = False) -> None:
         with self._lock:
             current_a = float(params["currentA"])
             if current_a < 0.0:
@@ -457,9 +919,22 @@ class StationRuntime:
             if self.power_supply_kind == "ch341" and current_a > 20.0:
                 raise ValueError("CH341 最大电流不能超过 20 A")
             supply = self._require_power_supply()
-            supply.set_current(current_a)
+            with self._supply_io_lock:
+                self._reserve_power_supply_command(wait=wait_for_slot)
+                supply.set_current(current_a)
             self.active_current_a = current_a
             self.configuration["setCurrentA"] = current_a
+            if self.automatic.state in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED}:
+                self.pending_manual_stable_current_a = current_a
+                self.recorded_manual_stable_current_a = None
+                self.recorded_manual_stability_generation = None
+                self.efficiency_points.pop(current_a, None)
+                self._manual_voltage_timer_generation += 1
+                self.pending_manual_stability_generation = (
+                    self.power_meter_reader.reset_stability_window()
+                    if self.power_meter_reader is not None
+                    else None
+                )
 
     def set_voltage(self, params: dict[str, Any]) -> None:
         with self._lock:
@@ -467,14 +942,36 @@ class StationRuntime:
             if self.power_supply_kind != "tdk":
                 raise ValueError("仅 TDK 电源支持设置电压")
             supply = self._require_power_supply()
-            supply.set_voltage(voltage_v)
+            with self._supply_io_lock:
+                supply.set_voltage(voltage_v)
             self.configuration["tdkVoltageV"] = voltage_v
 
     def set_output(self, params: dict[str, Any]) -> None:
         with self._lock:
             enabled = bool(params.get("enabled", False))
             supply = self._require_power_supply()
-            supply.set_output_enabled(enabled)
+            with self._supply_io_lock:
+                if enabled and self.power_supply_kind == "tdk":
+                    supply.set_current(0.0)
+                    self.active_current_a = 0.0
+                    self.configuration["setCurrentA"] = 0.0
+                    self._manual_voltage_timer_generation += 1
+                    measured_current_a = float(supply.read_output_current())
+                    if not math.isfinite(measured_current_a) or abs(measured_current_a) > 0.01:
+                        raise RuntimeError(
+                            "开启输出已取消：TDK 电流未归零，"
+                            f"当前实测 {measured_current_a:.3f} A"
+                        )
+                supply.set_output_enabled(enabled)
+                if not enabled and self.power_supply_kind == "tdk":
+                    measured_current_a = float(supply.read_output_current())
+                    if not math.isfinite(measured_current_a) or abs(measured_current_a) > 0.01:
+                        raise RuntimeError(
+                            f"TDK 输出已关闭，但无法确认输出电流归零：{measured_current_a:.3f} A"
+                        )
+                    self.active_current_a = 0.0
+                    self.configuration["setCurrentA"] = 0.0
+                    self._manual_voltage_timer_generation += 1
 
     def read_power_supply(self, params: dict[str, Any]) -> None:
         with self._lock:
@@ -512,11 +1009,18 @@ class StationRuntime:
             if self.power_supply_kind != "ch341" and value_name in {"inputVoltage", "temperature"}:
                 raise ValueError("TDK 电源不支持该读取项")
             reader, label, unit, cache_name = operation
-            measured = float(reader())
+            with self._supply_io_lock:
+                self._reserve_power_supply_command(wait=False)
+                measured = float(reader())
             if not math.isfinite(measured):
                 raise RuntimeError(f"电源返回的{label}不是有效数值")
             setattr(self, cache_name, measured)
             self.notify("info", "电源读取", f"{label}：{measured:.2f} {unit}")
+        if value_name == "outputVoltage" and self.automatic.state in {
+            AutomaticTestState.IDLE,
+            AutomaticTestState.COMPLETED,
+        }:
+            self._record_manual_voltage_point(measured)
 
     def start_power_meter(self) -> None:
         with self._lock:
@@ -552,14 +1056,203 @@ class StationRuntime:
     def stop_power_meter(self) -> None:
         reader = self.power_meter_reader
         if reader is not None:
-            reader.stop()
-            reader.wait(3_000)
+            self._expected_power_meter_stop = True
+            try:
+                reader.stop()
+                reader.wait(3_000)
+            finally:
+                self._expected_power_meter_stop = False
 
     def _on_power_reading(self, reading: PowerMeterReading) -> None:
         with self._lock:
             self.latest_power = reading
+            self.latest_power_received_monotonic_s = time.monotonic()
             self.power_points.append({"elapsedS": reading.elapsed_s, "powerW": reading.power_w})
             self.series_revisions["power"] += 1
+            automatic_active = self.automatic.state in {
+                AutomaticTestState.SETTING_CURRENT,
+                AutomaticTestState.WAITING_STABLE,
+                AutomaticTestState.WAITING_VOLTAGE,
+                AutomaticTestState.SAVING_POINT,
+            }
+            current_a = float(self.active_current_a or 0.0)
+        if automatic_active and current_a > 0.0:
+            result = self.power_drop_protection.observe(reading.power_w, reading.elapsed_s)
+            if result.triggered and result.reference_power_w is not None:
+                drop_percent = result.drop_w / result.reference_power_w * 100.0
+                reason = (
+                    f"功率从 {result.reference_power_w:.6g} W 降至 {reading.power_w:.6g} W，"
+                    f"下降 {drop_percent:.1f}%"
+                )
+                self.automatic_terminal_reason = reason
+                self._automatic_stop.set()
+                self._automatic_resume.set()
+                self._start_emergency_ramp_down(reason)
+                self.notify("error", "功率保护", f"检测到功率异常下降，正在立即安全下电：{reason}")
+        elif self.automatic.state in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED}:
+            if reading.stable:
+                self._capture_manual_stable_point(reading)
+            else:
+                current_a = self.recorded_manual_stable_current_a
+                generation = self.recorded_manual_stability_generation
+                if (
+                    current_a is not None
+                    and current_a == self.active_current_a
+                    and generation == reading.stability_generation
+                    and current_a not in self.efficiency_points
+                ):
+                    self._manual_voltage_timer_generation += 1
+                    self.recorded_manual_stable_current_a = None
+                    self.recorded_manual_stability_generation = None
+                    self.pending_manual_stable_current_a = current_a
+                    self.pending_manual_stability_generation = (
+                        self.power_meter_reader.reset_stability_window()
+                        if self.power_meter_reader is not None
+                        else None
+                    )
+
+    def _capture_manual_stable_point(self, reading: PowerMeterReading) -> None:
+        current_a = self.pending_manual_stable_current_a
+        generation = self.pending_manual_stability_generation
+        if current_a is None or current_a <= 0.0 or current_a != self.active_current_a:
+            return
+        if generation is not None and reading.stability_generation != generation:
+            return
+        power_w = self._stable_power_w(reading)
+        with self._lock:
+            self.stable_power_points[current_a] = power_w
+            self.efficiency_points.pop(current_a, None)
+            self.pending_manual_stable_current_a = None
+            self.pending_manual_stability_generation = None
+            self.recorded_manual_stable_current_a = current_a
+            self.recorded_manual_stability_generation = reading.stability_generation
+            self.series_revisions["stable"] += 1
+            self._manual_voltage_timer_generation += 1
+            timer_generation = self._manual_voltage_timer_generation
+
+        def delayed_read() -> None:
+            time.sleep(5.0)
+            if (
+                timer_generation != self._manual_voltage_timer_generation
+                or self.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED}
+                or self.active_current_a != current_a
+            ):
+                return
+            try:
+                with self._supply_io_lock:
+                    self._reserve_power_supply_command(wait=True)
+                    raw_voltage_v = float(self._require_power_supply().read_output_voltage())
+                self.latest_power_supply_output_voltage_v = raw_voltage_v
+                self._record_manual_voltage_point(raw_voltage_v)
+            except Exception as exc:
+                self.notify("error", "手动效率记录", str(exc))
+
+        threading.Thread(
+            target=delayed_read,
+            name=f"manual-voltage-station-{self.station_id}",
+            daemon=True,
+        ).start()
+
+    def _ensure_manual_recording_session(self) -> None:
+        session = self.record_store.current_session
+        if session is not None and session.mode == "manual" and session.ended_at_utc is None:
+            return
+        self.record_store.begin_session(
+            Path(str(self.configuration["outputDir"])),
+            str(self.configuration["sn"]),
+            datetime.now(),
+            test_station=str(self.configuration["station"]),
+            mode="manual",
+            product_model=str(self.configuration.get("productModel", "")),
+            batch=str(self.configuration.get("batch", "")),
+            settings=dict(self.configuration),
+            devices=self._device_snapshots(),
+        )
+
+    def _record_manual_voltage_point(self, raw_voltage_v: float) -> None:
+        current_a = self.recorded_manual_stable_current_a
+        generation = self.recorded_manual_stability_generation
+        reading = self.latest_power
+        if (
+            current_a is None
+            or generation is None
+            or reading is None
+            or current_a <= 0.0
+            or current_a != self.active_current_a
+            or reading.stability_generation != generation
+            or not reading.stable
+        ):
+            return
+        power_w = self._stable_power_w(reading)
+        voltage_v = (
+            compensate_tdk_output_voltage(raw_voltage_v, current_a)
+            if self.power_supply_kind == "tdk"
+            else raw_voltage_v
+        )
+        if not math.isfinite(voltage_v) or voltage_v <= 0.0:
+            raise RuntimeError("输出电压无效，未记录效率点")
+        frame = self.latest_spectrum
+        try:
+            self._validate_automatic_spectrum(frame)
+        except _AutomaticPointQualityError as exc:
+            self.notify("warning", "手动测试点未记录", str(exc))
+            return
+        efficiency = power_w / current_a / voltage_v
+        stats = None if frame is None else frame.stats
+        self._ensure_manual_recording_session()
+        self.record_store.queue(
+            ExcelTestRecord(
+                current_a=current_a,
+                voltage_v=voltage_v,
+                power_w=power_w,
+                efficiency=efficiency,
+                peak_wavelength_nm=math.nan if stats is None else stats.peak_wavelength_nm,
+                centroid_nm=math.nan if stats is None else stats.centroid_nm,
+                fwhm_nm=math.nan if stats is None else stats.fwhm_nm,
+                pib=(
+                    math.nan
+                    if frame is None
+                    else calculate_pib(
+                        frame.wavelength,
+                        frame.intensity,
+                        center_nm=float(self.configuration.get("pibCenterWavelengthNm", 976.0)),
+                        half_range_nm=float(self.configuration.get("pibHalfRangeNm", 1.5)),
+                    )
+                ),
+                wavelength=[] if frame is None else list(frame.wavelength),
+                intensity=[] if frame is None else list(frame.intensity),
+                smsr_db=math.nan if frame is None or frame.smsr is None else frame.smsr.smsr_db,
+                test_station=str(self.configuration["station"]),
+            ),
+            actual_current_a=float(self.active_current_a or current_a),
+            voltage_raw_v=raw_voltage_v,
+            stable_span_w=reading.stable_span_w,
+            stable_window_s=reading.stable_window_s,
+            stable_tolerance_w=float(self.configuration["stableToleranceW"]),
+            integration_time_us=int(self.configuration["integrationTimeUs"]),
+        )
+        with self._lock:
+            self.stable_power_points[current_a] = power_w
+            self.efficiency_points[current_a] = efficiency * 100.0
+            self.series_revisions["stable"] += 1
+        self.export_status = "recording"
+        self.notify("info", "手动测试点", f"已暂存 {current_a:g} A 测试点，可保存 Excel")
+
+    def save_manual_records(self) -> dict[str, Any]:
+        session = self.record_store.current_session
+        if session is None or session.mode != "manual" or not self.record_store.unsaved_records():
+            raise ValueError("没有尚未保存的手动测试点")
+        self.export_status = "exporting"
+        try:
+            saved_path = self._save_record_store()
+        except Exception as exc:
+            self.export_status = "failed"
+            self.export_error = str(exc)
+            raise
+        self.export_status = "completed"
+        self.export_path = "" if saved_path is None else str(saved_path)
+        self.notify("info", "导出完成", f"手动测试记录已保存：{self.export_path}")
+        return {"outputPath": self.export_path}
 
     def _on_power_ready(self) -> None:
         self.automatic.mark_power_meter_ready()
@@ -568,16 +1261,43 @@ class StationRuntime:
         self.power_meter_error = str(message)
         self.notify("error", "功率计", message)
         if self.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED}:
-            self.automatic.pause(str(message))
+            self.automatic.power_meter_ready = False
+            self._request_automatic_point_retry(
+                AttemptValidity.DEVICE_ERROR,
+                f"功率计错误：{message}",
+            )
 
     def _on_power_finished(self) -> None:
         self.power_meter_reader = None
+        self.automatic.power_meter_ready = False
+        if not self._expected_power_meter_stop:
+            self._request_automatic_point_retry(
+                AttemptValidity.DEVICE_ERROR,
+                "功率计采集已停止",
+            )
 
     def set_relative_zero(self, params: dict[str, Any]) -> None:
-        zero = float(params.get("zeroW", 0.0))
-        reader = self.power_meter_reader
-        if reader is not None:
-            reader.set_relative_zero(zero)
+        if self.power_meter_reader is not None:
+            raise RuntimeError("请先停止功率采集，再切换相对调零")
+        resource = str(self.configuration.get("powerMeterResource", "")).strip()
+        if not resource:
+            raise ValueError("请先选择功率计资源")
+        enabled = bool(params.get("enabled", False))
+        driver_kind = str(self.configuration.get("powerMeterDriverKind", "caihuang")).lower()
+        if driver_kind == "ophir":
+            raise RuntimeError("Ophir 不支持当前的相对调零指令")
+        if driver_kind == "laserpoint":
+            raise RuntimeError("LaserPoint 不支持彩煌的相对调零指令")
+        from tools.power_meter_mvp import CaihuangPowerMeter, CoherentPowerMeter
+
+        meter_class = CoherentPowerMeter if driver_kind == "coherent" else CaihuangPowerMeter
+        meter = meter_class(resource)
+        try:
+            meter.set_relative_zero(enabled)
+        finally:
+            meter.close()
+        state = "已启用" if enabled else "已停用"
+        self.notify("info", "相对调零", f"功率计相对调零{state}")
 
     def start_spectrometer(self) -> None:
         with self._lock:
@@ -612,8 +1332,12 @@ class StationRuntime:
     def stop_spectrometer(self) -> None:
         reader = self.spectrometer_reader
         if reader is not None:
-            reader.stop()
-            reader.wait(3_000)
+            self._expected_spectrometer_stop = True
+            try:
+                reader.stop()
+                reader.wait(3_000)
+            finally:
+                self._expected_spectrometer_stop = False
 
     def _on_spectrometer_reading(self, reading: SpectrometerReading) -> None:
         reader = self.spectrometer_reader
@@ -621,10 +1345,31 @@ class StationRuntime:
         with self._lock:
             self.latest_spectrometer_reading = reading
             self._update_spectrum_center_lock(reading)
+            wavelength_stability = self.wavelength_stability_detector.add_sample(
+                time.monotonic(),
+                reading.centroid_nm,
+            )
+            self.latest_wavelength_stable = wavelength_stability.stable
+            self.latest_wavelength_span_nm = wavelength_stability.span_w
             if frame is not None:
                 self.latest_spectrum = frame
+                self.latest_spectrum_received_monotonic_s = time.monotonic()
                 self.spectrum_revision += 1
                 self.series_revisions["spectrum"] += 1
+                saturated = bool(frame.saturation and frame.saturation.saturated)
+            else:
+                saturated = False
+        if saturated and self.automatic.state in {
+            AutomaticTestState.WAITING_STABLE,
+            AutomaticTestState.WAITING_VOLTAGE,
+        }:
+            reason = "光谱饱和；请缩短积分时间或调整光路后重试当前测试点"
+            self._request_automatic_point_retry(
+                AttemptValidity.SATURATED,
+                reason,
+                hold_current=True,
+            )
+            self.notify("warning", "光谱饱和", f"{reason}；当前电流保持不变")
 
     def _update_spectrum_center_lock(self, reading: SpectrometerReading) -> None:
         locked_center: float | None = None
@@ -707,10 +1452,20 @@ class StationRuntime:
         self.spectrometer_error = str(message)
         self.notify("error", "光谱仪", message)
         if self.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED}:
-            self.automatic.pause(str(message))
+            self.automatic.spectrum_meter_ready = False
+            self._request_automatic_point_retry(
+                AttemptValidity.DEVICE_ERROR,
+                f"光谱仪错误：{message}",
+            )
 
     def _on_spectrometer_finished(self) -> None:
         self.spectrometer_reader = None
+        self.automatic.spectrum_meter_ready = False
+        if not self._expected_spectrometer_stop and self.automatic.settings is not None and self.automatic.settings.use_spectrometer:
+            self._request_automatic_point_retry(
+                AttemptValidity.DEVICE_ERROR,
+                "光谱仪采集已停止",
+            )
 
     def _on_spectrometer_device_opened(self, device_id: int) -> None:
         actual_device_id = int(device_id)
@@ -783,6 +1538,10 @@ class StationRuntime:
             maximum_current_a=None if self.power_supply_kind == "tdk" else 20.0,
             current_plan_mode=str(self.configuration["currentPlanMode"]),
             custom_current_points=points,
+            custom_hold_ramp_enabled=(
+                str(self.configuration["currentPlanMode"]).lower() == "custom"
+                and self.power_supply_kind == "tdk"
+            ),
         )
         return validate_automatic_test_settings(
             settings,
@@ -802,11 +1561,7 @@ class StationRuntime:
             raise ValueError("开始自动测试前必须先将输出电流归零")
 
         settings = self._automatic_settings()
-        if self.power_meter_reader is None:
-            self.start_power_meter()
-        if settings.use_spectrometer and self.spectrometer_reader is None:
-            self.start_spectrometer()
-
+        self.reset_charts()
         self.automatic.start(
             settings,
             power_meter_ready=bool(self.power_meter_reader and self.power_meter_reader.is_ready),
@@ -817,6 +1572,57 @@ class StationRuntime:
         self.automatic_terminal_reason = ""
         self._automatic_stop.clear()
         self._automatic_resume.set()
+        self.power_drop_protection.reset()
+        self.wavelength_stability_detector = WavelengthStabilityDetector(
+            float(self.configuration["stableWindowS"]),
+            0.2,
+        )
+        self.latest_wavelength_stable = False
+        self.latest_wavelength_span_nm = math.inf
+        self.export_status = "recording"
+        self.export_path = ""
+        self.export_error = ""
+        self._automatic_retry_requested = False
+        self._automatic_retry_reason = ""
+        self._automatic_pause_holds_current = False
+        try:
+            self._begin_recording_session(settings)
+        except Exception as exc:
+            self.automatic = AutomaticTestOrchestrator()
+            self.record_store = SessionRecordStore()
+            self.export_status = "failed"
+            self.export_error = str(exc)
+            self._close_automatic_sample_recorder()
+            raise
+        started_power_reader = self.power_meter_reader is None
+        started_spectrum_reader = settings.use_spectrometer and self.spectrometer_reader is None
+        try:
+            if self.power_meter_reader is None:
+                self.start_power_meter()
+            else:
+                self.power_meter_reader.update_stability_settings(
+                    float(self.configuration["stableWindowS"]),
+                    float(self.configuration["stableToleranceW"]),
+                )
+            if settings.use_spectrometer:
+                self.configuration["autoIntegration"] = False
+                if self.spectrometer_reader is None:
+                    self.start_spectrometer()
+                if self.spectrometer_reader is not None:
+                    self.spectrometer_reader.use_fixed_integration_time(
+                        int(self.configuration["integrationTimeUs"])
+                    )
+        except Exception as exc:
+            if started_power_reader:
+                self.stop_power_meter()
+            if started_spectrum_reader:
+                self.stop_spectrometer()
+            self._close_automatic_sample_recorder()
+            self.record_store = SessionRecordStore()
+            self.automatic = AutomaticTestOrchestrator()
+            self.export_status = "failed"
+            self.export_error = str(exc)
+            raise
         self._automatic_thread = threading.Thread(
             target=self._run_automatic,
             name=f"automatic-test-station-{self.station_id}",
@@ -840,12 +1646,15 @@ class StationRuntime:
         stability_generation: int,
         spectrum_revision: int,
         use_spectrometer: bool,
+        minimum_received_monotonic_s: float | None = None,
     ) -> tuple[PowerMeterReading, Any] | None:
         """Return a stable sample only when every input is from this setpoint."""
         with self._lock:
             reading = self.latest_power
             frame = self.latest_spectrum
             current_spectrum_revision = self.spectrum_revision
+            power_received_at = self.latest_power_received_monotonic_s
+            spectrum_received_at = self.latest_spectrum_received_monotonic_s
 
         if (
             reading is None
@@ -853,188 +1662,557 @@ class StationRuntime:
             or not reading.stable
         ):
             return None
+        if (
+            minimum_received_monotonic_s is not None
+            and (power_received_at is None or power_received_at < minimum_received_monotonic_s)
+        ):
+            return None
         if not use_spectrometer:
             return reading, None
-        if frame is None or current_spectrum_revision <= spectrum_revision:
+        if (
+            frame is None
+            or current_spectrum_revision <= spectrum_revision
+        ):
+            return None
+        if (
+            minimum_received_monotonic_s is not None
+            and (spectrum_received_at is None or spectrum_received_at < minimum_received_monotonic_s)
+        ):
             return None
         if bool(getattr(frame.saturation, "saturated", False)):
             return None
+        if not self.latest_wavelength_stable:
+            return None
         return reading, frame
 
-    def _run_automatic(self) -> None:
-        records: list[ExcelTestRecord] = []
+    def _wait_for_automatic_stability(
+        self,
+        settings: AutomaticTestSettings,
+        current_a: float,
+        *,
+        retry_reason: str = "",
+    ) -> tuple[PowerMeterReading, Any, int, int]:
+        """Wait for a fresh joint-stability latch for the active setpoint."""
+        self.wavelength_stability_detector = WavelengthStabilityDetector(
+            float(self.configuration["stableWindowS"]),
+            0.2,
+        )
+        self.latest_wavelength_stable = False
+        self.latest_wavelength_span_nm = math.inf
+        stability_generation, spectrum_revision = self._begin_automatic_measurement_window()
+        self.automatic.set_state(AutomaticTestState.WAITING_STABLE)
+        self.automatic_detail = (
+            f"{retry_reason}，正在重新判稳" if retry_reason else f"正在等待 {current_a:g} A 稳定"
+        )
+        point_deadline = time.monotonic() + settings.point_timeout_s
+        while time.monotonic() < point_deadline:
+            if self._automatic_stop.is_set():
+                raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
+            paused_duration = self._await_automatic_resume()
+            if paused_duration is None:
+                raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
+            point_deadline += paused_duration
+            measurement = self._fresh_automatic_measurement(
+                stability_generation=stability_generation,
+                spectrum_revision=spectrum_revision,
+                use_spectrometer=settings.use_spectrometer,
+            )
+            if measurement is not None:
+                reading, frame = measurement
+                return reading, frame, stability_generation, spectrum_revision
+            time.sleep(0.05)
+        raise TimeoutError(f"{current_a:g} A 测试点等待稳定超时")
+
+    @staticmethod
+    def _stable_power_w(reading: PowerMeterReading) -> float:
+        """Use the stability-window median for LIV points, matching main."""
+        median_w = float(reading.stable_median_w)
+        return median_w if math.isfinite(median_w) else float(reading.power_w)
+
+    def _wait_for_automatic_acquisition(self, timeout_s: float = 15.0) -> None:
+        deadline = time.monotonic() + timeout_s
+        while not self.automatic.acquisition_ready:
+            if self._automatic_stop.wait(0.05):
+                raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
+            self._await_automatic_resume()
+            if time.monotonic() >= deadline:
+                raise TimeoutError("采集设备在 15 秒内未全部就绪")
+
+    def _set_automatic_current(self, current_a: float) -> None:
         try:
-            deadline = time.monotonic() + 15.0
-            while not self.automatic.acquisition_ready:
-                if self._automatic_stop.wait(0.05):
-                    raise RuntimeError("自动测试已停止")
-                if time.monotonic() >= deadline:
-                    raise TimeoutError("设备启动超时")
+            self.set_current({"currentA": current_a}, wait_for_slot=True)
+        except Exception:
+            if self.power_supply_kind != "ch341" or self._automatic_stop.is_set():
+                raise
+            # main retries one legacy CH341 write after the mandatory command
+            # interval; transient I2C failures must not lose the whole point.
+            if not self._wait_automatic_duration(MIN_POWER_SUPPLY_COMMAND_INTERVAL_S):
+                raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
+            self.set_current({"currentA": current_a}, wait_for_slot=True)
+
+    def _validate_automatic_spectrum(self, frame: SpectrumFrame | None) -> None:
+        if frame is None:
+            return
+        peak = float(frame.peak_intensity)
+        if not math.isfinite(peak) or peak < MIN_SPECTRUM_PEAK_INTENSITY:
+            raise _AutomaticPointQualityError(
+                AttemptValidity.WEAK_SIGNAL,
+                f"光谱信号过弱：峰值 {peak:.0f} counts，必须至少达到 "
+                f"{MIN_SPECTRUM_PEAK_INTENSITY:.0f} counts",
+            )
+        if bool(frame.saturation and frame.saturation.saturated):
+            raise _AutomaticPointQualityError(
+                AttemptValidity.SATURATED,
+                f"光谱饱和（峰值 {frame.saturation.peak_intensity:.0f} counts）；"
+                "请缩短积分时间或调整光路后重试当前测试点",
+                hold_current=True,
+            )
+
+    def _run_automatic_point(
+        self,
+        index: int,
+        current_a: float,
+        settings: AutomaticTestSettings,
+    ) -> None:
+        self._wait_for_automatic_acquisition()
+        self.automatic.set_state(AutomaticTestState.SETTING_CURRENT)
+        self.automatic_detail = f"正在设置 {current_a:g} A"
+        if settings.custom_hold_ramp_enabled:
+            ramp_currents = build_custom_hold_ramp_currents(
+                max(0.0, float(self.active_current_a or 0.0)),
+                current_a,
+            )
+            for ramp_index, ramp_current_a in enumerate(ramp_currents):
+                self._set_automatic_current(ramp_current_a)
+                if ramp_index < len(ramp_currents) - 1 and not self._wait_automatic_duration(0.5):
+                    raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
+        else:
+            self._set_automatic_current(current_a)
+
+        (
+            stable_reading,
+            stable_frame,
+            stability_generation,
+            spectrum_revision,
+        ) = self._wait_for_automatic_stability(settings, current_a)
+
+        dwell_s = self.automatic.current_dwell_s
+        self.automatic_hold_started_at = time.monotonic()
+        stable_power_w = self._stable_power_w(stable_reading)
+        with self._lock:
+            self.stable_power_points[current_a] = stable_power_w
+            self.efficiency_points.pop(current_a, None)
+            self.series_revisions["stable"] += 1
+
+        def refresh_stable_point() -> None:
+            nonlocal stable_reading, stable_frame, stable_power_w
+            measurement = self._fresh_automatic_measurement(
+                stability_generation=stability_generation,
+                spectrum_revision=spectrum_revision,
+                use_spectrometer=settings.use_spectrometer,
+            )
+            if measurement is None:
+                return
+            stable_reading, stable_frame = measurement
+            next_power_w = self._stable_power_w(stable_reading)
+            if next_power_w == stable_power_w:
+                return
+            stable_power_w = next_power_w
+            with self._lock:
+                self.stable_power_points[current_a] = stable_power_w
+                self.series_revisions["stable"] += 1
+
+        self.automatic.set_state(AutomaticTestState.WAITING_VOLTAGE)
+        delay_started_at = time.monotonic()
+        with self._lock:
+            delay_spectrum_revision = self.spectrum_revision
+        if dwell_s > 0.0 and not self._wait_automatic_duration(
+            dwell_s,
+            sample_point_index=(index + 1 if self.automatic_sample_recorder is not None else None),
+            target_current_a=current_a,
+            on_tick=refresh_stable_point,
+        ):
+            raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
+        post_stable_delay_s = 10.0 if index == len(self.automatic.currents) - 1 else 5.0
+        remaining_post_stable_s = max(0.0, post_stable_delay_s - dwell_s)
+        if remaining_post_stable_s > 0.0 and not self._wait_automatic_duration(
+            remaining_post_stable_s,
+            on_tick=refresh_stable_point,
+        ):
+            raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
+
+        final_measurement = self._fresh_automatic_measurement(
+            stability_generation=stability_generation,
+            spectrum_revision=max(spectrum_revision, delay_spectrum_revision),
+            use_spectrometer=settings.use_spectrometer,
+            minimum_received_monotonic_s=delay_started_at,
+        )
+        if dwell_s > 0.0:
+            # Designated holds latch the first stable point, but both readers
+            # must still have produced data during the hold.
+            with self._lock:
+                power_progressed = bool(
+                    self.latest_power_received_monotonic_s is not None
+                    and self.latest_power_received_monotonic_s >= delay_started_at
+                )
+                spectrum_progressed = bool(
+                    not settings.use_spectrometer
+                    or (
+                        self.latest_spectrum_received_monotonic_s is not None
+                        and self.latest_spectrum_received_monotonic_s >= delay_started_at
+                        and self.spectrum_revision > delay_spectrum_revision
+                    )
+                )
+            if self.power_meter_reader is None or not power_progressed:
+                raise RuntimeError("读取电压前功率计数据未继续更新")
+            if settings.use_spectrometer and (self.spectrometer_reader is None or not spectrum_progressed):
+                raise RuntimeError("读取电压前光谱仪数据未继续更新")
+            if final_measurement is not None:
+                stable_reading, stable_frame = final_measurement
+        else:
+            # No designated hold: silently return to joint stability detection.
+            while final_measurement is None:
+                (
+                    stable_reading,
+                    stable_frame,
+                    stability_generation,
+                    spectrum_revision,
+                ) = self._wait_for_automatic_stability(
+                    settings,
+                    current_a,
+                    retry_reason="读取电压前测试点波动",
+                )
+                self.automatic.set_state(AutomaticTestState.WAITING_VOLTAGE)
+                delay_started_at = time.monotonic()
+                with self._lock:
+                    delay_spectrum_revision = self.spectrum_revision
+                if not self._wait_automatic_duration(post_stable_delay_s, on_tick=refresh_stable_point):
+                    raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
+                final_measurement = self._fresh_automatic_measurement(
+                    stability_generation=stability_generation,
+                    spectrum_revision=delay_spectrum_revision,
+                    use_spectrometer=settings.use_spectrometer,
+                    minimum_received_monotonic_s=delay_started_at,
+                )
+            stable_reading, stable_frame = final_measurement
+
+        self._validate_automatic_spectrum(stable_frame)
+        stable_power_w = self._stable_power_w(stable_reading)
+        with self._supply_io_lock:
+            self._reserve_power_supply_command(wait=True)
+            raw_voltage_v = self._require_power_supply().read_output_voltage()
+        self.latest_power_supply_output_voltage_v = float(raw_voltage_v)
+        voltage_v = (
+            compensate_tdk_output_voltage(raw_voltage_v, current_a)
+            if self.power_supply_kind == "tdk"
+            else raw_voltage_v
+        )
+        efficiency = (
+            stable_power_w / current_a / voltage_v * 100.0
+            if current_a > 0.0 and voltage_v > 0.0
+            else math.nan
+        )
+        if self.automatic_sample_recorder is not None:
+            self._write_automatic_second_sample(
+                point_index=index + 1,
+                elapsed_s=max(dwell_s, time.monotonic() - (self.automatic_hold_started_at or time.monotonic())),
+                target_current_a=current_a,
+            )
+        frame = stable_frame
+        stats = None if frame is None else frame.stats
+        record = ExcelTestRecord(
+            current_a=current_a,
+            voltage_v=voltage_v,
+            power_w=stable_power_w,
+            efficiency=efficiency / 100.0,
+            peak_wavelength_nm=math.nan if stats is None else stats.peak_wavelength_nm,
+            centroid_nm=math.nan if stats is None else stats.centroid_nm,
+            fwhm_nm=math.nan if stats is None else stats.fwhm_nm,
+            pib=(
+                math.nan
+                if frame is None
+                else calculate_pib(
+                    frame.wavelength,
+                    frame.intensity,
+                    center_nm=float(self.configuration.get("pibCenterWavelengthNm", 976.0)),
+                    half_range_nm=float(self.configuration.get("pibHalfRangeNm", 1.5)),
+                )
+            ),
+            wavelength=[] if frame is None else list(frame.wavelength),
+            intensity=[] if frame is None else list(frame.intensity),
+            smsr_db=math.nan if frame is None or frame.smsr is None else frame.smsr.smsr_db,
+            test_station=str(self.configuration["station"]),
+        )
+        self.record_store.queue(
+            record,
+            actual_current_a=float(self.active_current_a or current_a),
+            voltage_raw_v=raw_voltage_v,
+            stable_span_w=stable_reading.stable_span_w,
+            stable_window_s=stable_reading.stable_window_s,
+            stable_tolerance_w=float(self.configuration["stableToleranceW"]),
+            integration_time_us=int(self.configuration["integrationTimeUs"]),
+        )
+        with self._lock:
+            self.stable_power_points[current_a] = stable_power_w
+            self.efficiency_points[current_a] = efficiency
+            self.series_revisions["stable"] += 1
+        self.automatic.set_state(AutomaticTestState.SAVING_POINT)
+        while True:
+            self.export_status = "exporting"
+            try:
+                saved_path = self._save_record_store()
+                break
+            except Exception as exc:
+                reason = f"Excel 保存失败：{exc}"
+                self.export_status = "failed"
+                self.export_error = str(exc)
+                self.automatic.pause(reason)
+                self.automatic_detail = f"已暂停：{reason}"
+                self._automatic_pause_holds_current = False
+                self._automatic_resume.clear()
+                self._schedule_pause_safety_timeout()
+                self.notify("error", "导出失败", f"{reason}；请重试当前保存")
+                try:
+                    if self._await_automatic_resume() is None:
+                        raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
+                except _AutomaticPointRetry:
+                    # A device callback may also arrive while saving. The
+                    # measurement is already buffered, so reconnect devices
+                    # but retry this exact record instead of re-measuring it.
+                    pass
+                self.automatic.set_state(AutomaticTestState.SAVING_POINT)
+        self.export_status = "recording"
+        self.automatic_detail = f"{current_a:g} A 已保存：{saved_path}"
+        if self.automatic.state == AutomaticTestState.PAUSED:
+            # The point is durably saved. A device callback that arrived while
+            # Excel was writing must not cause this current to be measured twice.
+            self._automatic_retry_requested = False
+            if self._await_automatic_resume() is None:
+                raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
+
+    def _run_automatic(self) -> None:
+        try:
             settings = self.automatic.settings
             if settings is None:
                 raise RuntimeError("自动测试配置不可用")
 
             for index, current_a in enumerate(self.automatic.currents):
                 self.automatic.current_index = index
-                self._automatic_resume.wait()
-                if self._automatic_stop.is_set():
-                    break
-                self.automatic.set_state(AutomaticTestState.SETTING_CURRENT)
-                self.automatic_detail = f"正在设置 {current_a:g} A"
-                self.set_current({"currentA": current_a})
-                stability_generation, spectrum_revision = (
-                    self._begin_automatic_measurement_window()
-                )
-                self.automatic.set_state(AutomaticTestState.WAITING_STABLE)
-                point_deadline = time.monotonic() + settings.point_timeout_s
-                stable_reading: PowerMeterReading | None = None
-                stable_frame = None
-                while time.monotonic() < point_deadline:
-                    if self._automatic_stop.is_set():
+                while True:
+                    try:
+                        self._run_automatic_point(index, current_a, settings)
                         break
-                    self._automatic_resume.wait()
-                    measurement = self._fresh_automatic_measurement(
-                        stability_generation=stability_generation,
-                        spectrum_revision=spectrum_revision,
-                        use_spectrometer=settings.use_spectrometer,
-                    )
-                    if measurement is not None:
-                        stable_reading, stable_frame = measurement
-                        break
-                    time.sleep(0.05)
-                if self._automatic_stop.is_set():
-                    break
-                if stable_reading is None:
-                    raise TimeoutError(f"{current_a:g} A 测试点等待稳定超时")
-
-                dwell_s = self.automatic.current_dwell_s
-                self.automatic_hold_started_at = time.monotonic()
-                if dwell_s > 0.0 and self._automatic_stop.wait(dwell_s):
-                    break
-
-                self.automatic.set_state(AutomaticTestState.WAITING_VOLTAGE)
-                voltage_v = self._require_power_supply().read_output_voltage()
-                efficiency = (
-                    stable_reading.power_w / current_a / voltage_v * 100.0
-                    if current_a > 0.0 and voltage_v > 0.0
-                    else math.nan
-                )
-                frame = stable_frame
-                stats = None if frame is None else frame.stats
-                record = ExcelTestRecord(
-                    current_a=current_a,
-                    voltage_v=voltage_v,
-                    power_w=stable_reading.power_w,
-                    efficiency=efficiency,
-                    peak_wavelength_nm=math.nan if stats is None else stats.peak_wavelength_nm,
-                    centroid_nm=math.nan if stats is None else stats.centroid_nm,
-                    fwhm_nm=math.nan if stats is None else stats.fwhm_nm,
-                    pib=(
-                        math.nan
-                        if frame is None
-                        else calculate_pib(
-                            frame.wavelength,
-                            frame.intensity,
-                            center_nm=float(self.configuration.get("pibCenterWavelengthNm", 976.0)),
-                            half_range_nm=float(self.configuration.get("pibHalfRangeNm", 1.5)),
+                    except _AutomaticPointRetry:
+                        continue
+                    except _AutomaticPointQualityError as exc:
+                        self._request_automatic_point_retry(
+                            exc.validity,
+                            str(exc),
+                            hold_current=exc.hold_current,
                         )
-                    ),
-                    wavelength=[] if frame is None else list(frame.wavelength),
-                    intensity=[] if frame is None else list(frame.intensity),
-                    smsr_db=math.nan if frame is None or frame.smsr is None else frame.smsr.smsr_db,
-                    test_station=str(self.configuration["station"]),
-                )
-                records.append(record)
-                with self._lock:
-                    self.stable_power_points[current_a] = stable_reading.power_w
-                    self.efficiency_points[current_a] = efficiency
-                    self.series_revisions["stable"] += 1
-
-            if records and not self._automatic_stop.is_set():
-                self.automatic.set_state(AutomaticTestState.SAVING_POINT)
-                output = Path(str(self.configuration["outputDir"])).expanduser()
-                path = build_test_workbook_path(
-                    output,
-                    str(self.configuration["sn"]),
-                    datetime.now(),
-                    str(self.configuration["station"]),
-                )
-                self.export_status = "exporting"
-                # Submit to non-blocking sequential background export worker
-                def on_export_done(target: str | None, err: Exception | None) -> None:
-                    if err:
-                        self.export_status = "failed"
-                        self.notify("error", "导出失败", str(err))
-                    else:
-                        self.export_status = "completed"
-                        self.export_path = str(target)
-                        self.notify("info", "导出完成", f"测试记录已保存：{target}")
-
-                task = ExportTask(
-                    station_id=self.station_id,
-                    target_path=path,
-                    records=list(records),
-                    callback=on_export_done,
-                )
-                if not self.backend.export_worker.submit(task):
-                    # Fallback synchronous save if queue is full
-                    save_test_records(path, records)
-                    on_export_done(str(path), None)
+                    except TimeoutError as exc:
+                        self._request_automatic_point_retry(AttemptValidity.TIMEOUT, str(exc))
+                    except Exception as exc:
+                        if self._automatic_stop.is_set():
+                            raise
+                        self._request_automatic_point_retry(AttemptValidity.DEVICE_ERROR, str(exc))
+                    try:
+                        self._await_automatic_resume()
+                    except _AutomaticPointRetry:
+                        continue
 
             self.safe_ramp_down()
+            self.record_store.complete_session(
+                SessionStatus.COMPLETED,
+                "所有计划测试点均已保存",
+                shutdown_confirmed=True,
+            )
+            self.export_status = "exporting"
+            saved_path = self._save_record_store()
+            self._close_automatic_sample_recorder()
+            self._delete_embedded_automatic_samples(saved_path)
+            self.export_status = "completed"
+            self.export_path = "" if saved_path is None else str(saved_path)
             self.automatic.complete()
-            self.automatic_terminal_outcome = "succeeded" if not self._automatic_stop.is_set() else "stopped_by_operator"
+            self.automatic_terminal_outcome = "succeeded"
+            self.automatic_terminal_reason = "所有计划测试点均已保存"
             self.automatic_detail = "自动测试已安全完成"
+            self.notify("info", "导出完成", f"测试记录已保存：{self.export_path}")
         except Exception as exc:
             _LOGGER.exception("工位 %s 自动测试异常", self.station_id)
-            self.automatic.pause(str(exc))
-            self.automatic_detail = str(exc)
-            self.automatic_terminal_outcome = "aborted_safely"
-            self.automatic_terminal_reason = str(exc)
+            reason = self.automatic_terminal_reason or str(exc)
+            operator_stopped = reason in {"操作者提前结束测试", "自动测试已停止"}
+            self.automatic_detail = reason
+            self.automatic_terminal_outcome = (
+                "stopped_by_operator" if operator_stopped else "aborted_safely"
+            )
+            self.automatic_terminal_reason = reason
+            shutdown_confirmed = False
             try:
                 self.safe_ramp_down()
+                shutdown_confirmed = True
             except Exception as shutdown_error:
                 self.automatic_output_shutdown_unconfirmed = True
                 self.notify("error", "安全下电失败", str(shutdown_error))
+                reason = f"{reason}；安全下电失败：{shutdown_error}"
+                self.automatic_terminal_reason = reason
+            current_a = self.automatic.current_a
+            if current_a is not None:
+                validity = (
+                    AttemptValidity.TIMEOUT
+                    if isinstance(exc, TimeoutError)
+                    else AttemptValidity.DEVICE_ERROR
+                )
+                self.record_store.record_invalid_attempt(current_a, validity, reason)
+            self.record_store.complete_session(
+                SessionStatus.STOPPED_BY_OPERATOR if operator_stopped else SessionStatus.ABORTED_SAFELY,
+                reason,
+                shutdown_confirmed=shutdown_confirmed,
+            )
+            saved_path: Path | None = None
+            try:
+                self.export_status = "exporting"
+                saved_path = self._save_record_store()
+                self.export_path = "" if saved_path is None else str(saved_path)
+                self.export_status = "completed" if saved_path is not None else "idle"
+            except Exception as export_error:
+                self.export_status = "failed"
+                self.export_error = str(export_error)
+                self.notify("error", "导出失败", str(export_error))
+            try:
+                self._close_automatic_sample_recorder()
+                self._delete_embedded_automatic_samples(saved_path)
+            except Exception as sample_error:
+                self.notify("error", "逐秒记录失败", str(sample_error))
+            self.automatic.complete()
 
     def safe_ramp_down(self) -> None:
+        with self._safe_ramp_lock:
+            with self._supply_io_lock:
+                self._safe_ramp_down_impl()
+
+    def _safe_ramp_down_impl(self) -> None:
         if self.power_supply_identity_error:
             raise RuntimeError("CH341 端口身份校验失败，禁止下发电流指令；请先安全断开")
         supply = self._power_supply()
         if supply is None:
             return
-        settings = self.automatic.settings or self._automatic_settings()
+        settings = self.automatic.settings
+        if settings is None:
+            try:
+                configured_step = float(self.configuration.get("rampDownStepA", 5.0))
+            except (TypeError, ValueError):
+                configured_step = 5.0
+            if not math.isfinite(configured_step) or configured_step <= 0.0:
+                configured_step = 5.0
+            try:
+                configured_interval = float(self.configuration.get("rampDownIntervalS", 1.1))
+            except (TypeError, ValueError):
+                configured_interval = 1.1
+            if not math.isfinite(configured_interval) or configured_interval < 0.0:
+                configured_interval = 1.1
+            if self.power_supply_kind == "ch341":
+                configured_interval = max(
+                    configured_interval,
+                    MIN_POWER_SUPPLY_COMMAND_INTERVAL_S,
+                )
+            settings = AutomaticTestSettings(
+                ramp_down_step_a=configured_step,
+                ramp_down_interval_s=configured_interval,
+                maximum_current_a=None if self.power_supply_kind == "tdk" else 20.0,
+            )
         start = max(0.0, float(self.active_current_a or 0.0))
-        self.automatic.set_state(AutomaticTestState.RAMPING_DOWN)
-        for current_a in build_ramp_down_currents(start, settings.ramp_down_step_a, maximum_current_a=settings.maximum_current_a):
-            supply.set_current(current_a)
+        automatic_active = self.automatic.state not in {
+            AutomaticTestState.IDLE,
+            AutomaticTestState.COMPLETED,
+        }
+        if automatic_active:
+            self.automatic.set_state(AutomaticTestState.RAMPING_DOWN)
+        ramp_currents = build_ramp_down_currents(
+            start,
+            settings.ramp_down_step_a,
+            maximum_current_a=settings.maximum_current_a,
+        )
+        for current_a in ramp_currents:
+            if self.power_supply_kind == "ch341":
+                previous = self._last_power_supply_command_at
+                if previous is not None:
+                    remaining = MIN_POWER_SUPPLY_COMMAND_INTERVAL_S - (time.monotonic() - previous)
+                    if remaining > 0.0:
+                        time.sleep(remaining)
+                self._last_power_supply_command_at = time.monotonic()
+            try:
+                supply.set_current(current_a)
+            except Exception:
+                if self.power_supply_kind == "tdk":
+                    supply.set_output_enabled(False)
+                    measured_current_a = float(supply.read_output_current())
+                    if not math.isfinite(measured_current_a) or abs(measured_current_a) > 0.01:
+                        raise RuntimeError(
+                            f"无法确认电源输出电流已归零：{measured_current_a:.3f} A"
+                        )
+                    self.active_current_a = 0.0
+                    self.configuration["setCurrentA"] = 0.0
+                    return
+                raise
             self.active_current_a = current_a
             if current_a > 0.0:
                 time.sleep(settings.ramp_down_interval_s)
-        supply.set_current(0.0)
+        if not ramp_currents or ramp_currents[-1] != 0.0:
+            supply.set_current(0.0)
         self.active_current_a = 0.0
         self.configuration["setCurrentA"] = 0.0
+        if self.power_supply_kind == "tdk":
+            # Always send OUT 0; the cached flag cannot prove the physical
+            # state immediately after connecting to an already-running supply.
+            supply.set_output_enabled(False)
+        if self.power_supply_kind == "tdk":
+            measured_current_a = float(supply.read_output_current())
+            if not math.isfinite(measured_current_a) or abs(measured_current_a) > 0.01:
+                raise RuntimeError(f"无法确认电源输出电流已归零：{measured_current_a:.3f} A")
         self.automatic_output_shutdown_unconfirmed = False
 
     def pause_automatic(self) -> None:
         if self.automatic.state in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED, AutomaticTestState.PAUSED}:
             raise ValueError("当前状态不能暂停")
+        if self.automatic.state == AutomaticTestState.SAVING_POINT:
+            self.automatic_detail = "当前测试点正在保存，保存完成后再暂停"
+            return
         self.automatic.pause("操作员暂停")
+        self._automatic_pause_holds_current = False
         self._automatic_resume.clear()
+        self._schedule_pause_safety_timeout()
 
     def resume_automatic(self) -> None:
         if self.automatic.state != AutomaticTestState.PAUSED:
             raise ValueError("当前状态不能重试")
+        settings = self.automatic.settings
+        if self.power_meter_reader is None:
+            self.start_power_meter()
+        if settings is not None and settings.use_spectrometer:
+            if self.spectrometer_reader is None:
+                self.start_spectrometer()
+            if self.spectrometer_reader is not None:
+                self.spectrometer_reader.use_fixed_integration_time(
+                    int(self.configuration["integrationTimeUs"])
+                )
         self.automatic.set_state(self.automatic.paused_from_state)
         self.automatic.pause_reason = ""
+        self._automatic_pause_holds_current = False
+        self._automatic_pause_generation += 1
         self._automatic_resume.set()
 
     def end_automatic(self) -> None:
+        if self._automatic_thread is not None and self._automatic_thread.is_alive():
+            if not self.automatic_terminal_reason:
+                self.automatic_terminal_reason = "操作者提前结束测试"
         self._automatic_stop.set()
         self._automatic_resume.set()
         thread = self._automatic_thread
         if thread is not None:
-            thread.join(15.0)
+            thread.join(30.0)
+            if thread.is_alive():
+                raise RuntimeError("自动测试安全下电超时，后台线程仍在运行")
 
     def reset_automatic(self) -> None:
         if self._automatic_thread is not None and self._automatic_thread.is_alive():
@@ -1044,6 +2222,8 @@ class StationRuntime:
         self.automatic_terminal_outcome = None
         self.automatic_terminal_reason = ""
         self._test_reference = None
+        self.export_status = "idle"
+        self.export_error = ""
 
     def reset_charts(self) -> None:
         with self._lock:
@@ -1060,13 +2240,26 @@ class StationRuntime:
                 self.series_revisions[key] += 1
 
     def stop_all(self) -> None:
-        self.end_automatic()
-        self.stop_power_meter()
-        self.stop_spectrometer()
+        errors: list[str] = []
+        try:
+            self.end_automatic()
+        except Exception as exc:
+            errors.append(f"自动测试停止失败：{exc}")
+        try:
+            self.stop_power_meter()
+        except Exception as exc:
+            errors.append(f"功率计停止失败：{exc}")
+        try:
+            self.stop_spectrometer()
+        except Exception as exc:
+            errors.append(f"光谱仪停止失败：{exc}")
         try:
             self.safe_ramp_down()
-        except Exception:
-            pass
+        except Exception as exc:
+            self.automatic_output_shutdown_unconfirmed = True
+            errors.append(f"安全下电失败：{exc}")
+        if errors:
+            raise RuntimeError("；".join(errors))
 
     def _history_records(self, params: dict[str, Any]) -> tuple[Any, ...]:
         from combined_test.test_history import find_test_history
@@ -1114,6 +2307,9 @@ class StationRuntime:
             "canEnd": self.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED, AutomaticTestState.RAMPING_DOWN},
             "terminalOutcome": self.automatic_terminal_outcome,
             "terminalReason": self.automatic_terminal_reason,
+            "exportStatus": self.export_status,
+            "exportPath": self.export_path,
+            "exportError": self.export_error,
         }
 
     def build_stable_snapshot(self) -> list[dict[str, Any]]:
@@ -1332,6 +2528,42 @@ class HeadlessBackend:
     def spectrometer_reader(self, value: SpectrometerReaderThread | None) -> None:
         self.stations["1"].spectrometer_reader = value
 
+    @property
+    def connected_ch341_port(self) -> dict[str, Any] | None:
+        return self.stations["1"].connected_ch341_port
+
+    @connected_ch341_port.setter
+    def connected_ch341_port(self, value: dict[str, Any] | None) -> None:
+        self.stations["1"].connected_ch341_port = value
+
+    @property
+    def power_supply_identity_error(self) -> str:
+        return self.stations["1"].power_supply_identity_error
+
+    @power_supply_identity_error.setter
+    def power_supply_identity_error(self, value: str) -> None:
+        self.stations["1"].power_supply_identity_error = str(value)
+
+    @property
+    def _test_reference(self) -> Any | None:
+        return self.stations["1"]._test_reference
+
+    @_test_reference.setter
+    def _test_reference(self, value: Any | None) -> None:
+        self.stations["1"]._test_reference = value
+
+    def _connect_power_supply(self) -> None:
+        self.stations["1"].connect_power_supply()
+
+    def _disconnect_power_supply(self) -> None:
+        self.stations["1"].disconnect_power_supply()
+
+    def _history_records(self, params: dict[str, Any]) -> tuple[Any, ...]:
+        return self.stations["1"]._history_records(params)
+
+    def _select_test_reference(self, params: dict[str, Any]) -> None:
+        self.stations["1"]._select_test_reference(params)
+
     def check_device_conflicts(self, target_station_id: str, device_type: str, resource_identifier: Any) -> None:
         """Prevent Station 1 and Station 2 from binding to the same physical hardware."""
         for other_id, other_st in self.stations.items():
@@ -1396,6 +2628,7 @@ class HeadlessBackend:
             "powerMeter.start": lambda p: self._station(p.get("stationId", p.get("station", "1"))).start_power_meter(),
             "powerMeter.stop": lambda p: self._station(p.get("stationId", p.get("station", "1"))).stop_power_meter(),
             "powerMeter.setRelativeZero": lambda p: self._station(p.get("stationId", p.get("station", "1"))).set_relative_zero(p),
+            "manual.saveExcel": lambda p: self._station(p.get("stationId", p.get("station", "1"))).save_manual_records(),
             "spectrometer.start": lambda p: self._station(p.get("stationId", p.get("station", "1"))).start_spectrometer(),
             "spectrometer.stop": lambda p: self._station(p.get("stationId", p.get("station", "1"))).stop_spectrometer(),
             "spectrometer.saveCsv": lambda p: self._station(p.get("stationId", p.get("station", "1"))).save_spectrum_csv(p),
@@ -1438,7 +2671,16 @@ class HeadlessBackend:
     def _configure(self, params: dict[str, Any]) -> None:
         target_station_id = str(params.get("stationId", params.get("station", "1")))
         if target_station_id in self.stations:
+            previous_kind = self.stations[target_station_id].power_supply_kind
             self.stations[target_station_id].configure(params)
+            current_kind = self.stations[target_station_id].power_supply_kind
+            if previous_kind == "ch341" and current_kind == "tdk" and not any(
+                st.power_supply_kind == "ch341" and st.power_supply_controller is not None
+                for st in self.stations.values()
+            ):
+                self.ch341_discovery_state = "not_scanned"
+                self.ch341_scan_error = ""
+                self.ch341_descriptors = []
         else:
             for st in self.stations.values():
                 st.configure(params)
@@ -1452,6 +2694,7 @@ class HeadlessBackend:
             self.ch341_discovery_state = "error"
             self.ch341_scan_error = str(exc)
             self.ch341_descriptors = []
+            self.notify("error", "CH341 扫描失败", str(exc))
 
     def _refresh_device(self, params: dict[str, Any]) -> None:
         device = str(params.get("device", "all"))
@@ -1468,15 +2711,28 @@ class HeadlessBackend:
     def _refresh_power_meter(self, params: dict[str, Any]) -> None:
         if self.power_meter_detect_thread is not None:
             return
-        preferred = str(params.get("preferredResource", self.stations["1"].configuration["powerMeterResource"]))
+        target_station_id = str(params.get("stationId", params.get("station", "1")))
+        target_station = self._station(target_station_id)
+        preferred = str(
+            params.get("preferredResource", target_station.configuration["powerMeterResource"])
+        )
         thread = PowerMeterDetectThread(preferred_resource=preferred)
         self.power_meter_detect_thread = thread
 
         def on_detected(options: list[PowerMeterOption]) -> None:
             self.power_meter_options = list(options)
-            for st in self.stations.values():
-                if options and not st.configuration["powerMeterResource"]:
-                    st.configuration["powerMeterResource"] = options[0].resource
+            if not options:
+                return
+            selected = next((item for item in options if item.resource == preferred), None)
+            if selected is None:
+                claimed = {
+                    str(st.configuration.get("powerMeterResource", ""))
+                    for sid, st in self.stations.items()
+                    if sid != target_station_id and st.power_meter_reader is not None
+                }
+                selected = next((item for item in options if item.resource not in claimed), options[0])
+            target_station.configuration["powerMeterResource"] = selected.resource
+            target_station.configuration["powerMeterDriverKind"] = selected.driver_kind
 
         def on_finished() -> None:
             self.power_meter_detect_thread = None
@@ -1669,9 +2925,18 @@ class HeadlessBackend:
         self.pd_state["status"] = "已停止"
 
     def _stop_all(self) -> None:
+        errors: list[str] = []
         for st in self.stations.values():
-            st.stop_all()
-        self._stop_pd()
+            try:
+                st.stop_all()
+            except Exception as exc:
+                errors.append(f"工位 {st.station_id}：{exc}")
+        try:
+            self._stop_pd()
+        except Exception as exc:
+            errors.append(f"PD：{exc}")
+        if errors:
+            raise RuntimeError("停止未完全确认：" + "；".join(errors))
 
     def _shutdown(self) -> dict[str, bool]:
         self._stop_all()
@@ -1903,11 +3168,25 @@ class HeadlessBackend:
                 "pauseReason": active_st.automatic.pause_reason,
                 "terminalOutcome": active_st.automatic_terminal_outcome,
                 "terminalReason": active_st.automatic_terminal_reason,
+                "exportStatus": active_st.export_status,
+                "exportPath": active_st.export_path,
+                "exportError": active_st.export_error,
                 "reference": (
                     active_st._test_reference.reference_payload()
                     if active_st._test_reference is not None
                     else None
                 ),
+            },
+            "manualTest": {
+                "pendingCount": (
+                    len(active_st.record_store.unsaved_records())
+                    if active_st.record_store.current_session is not None
+                    and active_st.record_store.current_session.mode == "manual"
+                    else 0
+                ),
+                "exportStatus": active_st.export_status,
+                "exportPath": active_st.export_path,
+                "exportError": active_st.export_error,
             },
             "measurements": measurements,
             "pd": pd_snapshot,

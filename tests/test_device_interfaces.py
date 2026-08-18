@@ -179,7 +179,7 @@ class DeviceInterfaceTests(unittest.TestCase):
         self.assertEqual(latest_frame.peak_intensity, 60.0)
         self.assertTrue(math.isnan(latest_frame.pib))
 
-    def test_analyzed_frame_skips_pib_when_headless(self) -> None:
+    def test_analyzed_frame_keeps_pib_for_headless_snapshot(self) -> None:
         reader = SpectrometerReaderThread(
             SpectrometerSettings(10_000, 50),
             headless=True,
@@ -197,7 +197,7 @@ class DeviceInterfaceTests(unittest.TestCase):
 
         frame = reader.take_latest_spectrum()
         self.assertIsNotNone(frame)
-        self.assertTrue(math.isnan(frame.pib))
+        self.assertTrue(math.isfinite(frame.pib))
         self.assertIsNotNone(frame.saturation)
         self.assertFalse(frame.saturation.saturated)
         self.assertEqual(frame.peak_intensity, 100.0)

@@ -37,6 +37,7 @@ type CanvasLineChartProps = {
   xDomain?: [number, number]
   xTicks?: number[]
   yDomain?: [number, number]
+  rightYDomain?: [number, number]
   annotations?: CanvasChartAnnotation[]
   ariaLabel: string
   preserveAllPoints?: boolean
@@ -196,6 +197,7 @@ function buildLayout(
   xDomain?: [number, number],
   xTicks?: number[],
   yDomain?: [number, number],
+  rightYDomain?: [number, number],
 ): ChartLayout {
   const hasRightAxis = lines.some((line) => line.yAxisId === "right")
   const left = 64
@@ -238,7 +240,11 @@ function buildLayout(
     plotHeight,
     x,
     leftY: yDomain ? fixedScale(yDomain, undefined, verticalTickTarget, false) : createScale(leftExtent[0], leftExtent[1], verticalTickTarget),
-    rightY: hasRightAxis ? createScale(rightExtent[0], rightExtent[1], verticalTickTarget) : null,
+    rightY: hasRightAxis
+      ? rightYDomain
+        ? fixedScale(rightYDomain, undefined, verticalTickTarget, false)
+        : createScale(rightExtent[0], rightExtent[1], verticalTickTarget)
+      : null,
   }
 }
 
@@ -544,7 +550,7 @@ function tooltipNumber(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }
 
-export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, annotations = [], ariaLabel, preserveAllPoints = false }: CanvasLineChartProps) {
+export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, rightYDomain, annotations = [], ariaLabel, preserveAllPoints = false }: CanvasLineChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const baseCanvasRef = useRef<HTMLCanvasElement>(null)
   const hoverCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -557,8 +563,8 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
   const hoverDrawnRef = useRef(false)
   const chartData = useMemo(() => chartDataFrom(data, columns), [columns, data])
   const layout = useMemo(
-    () => buildLayout(chartData, xKey, lines, size, xDomain, xTicks, yDomain),
-    [chartData, lines, size, xDomain, xKey, xTicks, yDomain],
+    () => buildLayout(chartData, xKey, lines, size, xDomain, xTicks, yDomain, rightYDomain),
+    [chartData, lines, rightYDomain, size, xDomain, xKey, xTicks, yDomain],
   )
   const visibleIndexes = useMemo(
     () => {

@@ -7,11 +7,17 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from combined_test.automation import AutomaticTestState
+from combined_test.automation import AutomaticTestSettings, AutomaticTestState
 from combined_test.excel_export import ExcelTestRecord
 from combined_test.ch341_ports import Ch341DeviceDescriptor
 from combined_test.models import PowerMeterReading, SpectrometerReading
-from tauri_bridge.headless_backend import ExportQueueWorker, ExportTask, HeadlessBackend
+from combined_test.record_store import AttemptValidity
+from tauri_bridge.headless_backend import (
+    ExportQueueWorker,
+    ExportTask,
+    HeadlessBackend,
+    _AutomaticPointRetry,
+)
 from tauri_bridge.settings import JsonSettings
 
 
@@ -132,6 +138,115 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertEqual(self.backend.stations["1"].active_current_a, 3.0)
         self.assertEqual(self.backend.stations["2"].active_current_a, 6.0)
 
+    def test_tdk_output_is_not_enabled_until_zero_current_is_verified(self) -> None:
+        station = self.backend.stations["1"]
+        controller = MagicMock()
+        controller.is_connected = True
+        controller.output_enabled = False
+        controller.read_output_current.return_value = 0.25
+        station.power_supply_kind = "tdk"
+        station.power_supply_controller = controller
+
+        with self.assertRaisesRegex(RuntimeError, "电流未归零"):
+            station.set_output({"enabled": True})
+
+        controller.set_output_current.assert_called_once_with(0.0)
+        controller.set_output_enabled.assert_not_called()
+
+    def test_failed_disconnect_keeps_controller_state_for_retry(self) -> None:
+        station = self.backend.stations["1"]
+        controller = MagicMock()
+        controller.is_connected = True
+        controller.disconnect_device.return_value = False
+        station.power_supply_controller = controller
+
+        with self.assertRaisesRegex(RuntimeError, "无法确认设备已经断开"):
+            station.disconnect_power_supply()
+
+        self.assertIs(station.power_supply_controller, controller)
+
+    def test_ch341_does_not_create_or_write_second_samples(self) -> None:
+        station = self.backend.stations["1"]
+        controller = MagicMock()
+        controller.is_connected = True
+        station.power_supply_kind = "ch341"
+        station.power_supply_controller = controller
+        station.automatic_sample_recorder = MagicMock()
+        recorder = station.automatic_sample_recorder
+
+        station._write_automatic_second_sample(
+            point_index=2,
+            elapsed_s=1.0,
+            target_current_a=4.0,
+        )
+
+        controller.read_output_current.assert_not_called()
+        controller.read_output_voltage.assert_not_called()
+        recorder.write.assert_not_called()
+
+    def test_ch341_manual_reads_share_the_command_interval_guard(self) -> None:
+        station = self.backend.stations["1"]
+        controller = MagicMock()
+        controller.is_connected = True
+        station.power_supply_kind = "ch341"
+        station.power_supply_controller = controller
+        station._last_power_supply_command_at = time.monotonic()
+
+        with self.assertRaisesRegex(RuntimeError, "电源命令过快"):
+            station.read_power_supply({"value": "outputVoltage"})
+
+        controller.read_output_voltage.assert_not_called()
+
+    def test_acquisition_failure_pauses_and_retries_current_point(self) -> None:
+        station = self.backend.stations["1"]
+        station.configuration["outputDir"] = self.temp_dir.name
+        station.configuration["sn"] = "AUTO-RETRY"
+        station.automatic.start(
+            AutomaticTestSettings(use_spectrometer=False),
+            power_meter_ready=True,
+            spectrum_meter_ready=False,
+        )
+        station.automatic.set_state(AutomaticTestState.WAITING_STABLE)
+        station._begin_recording_session(station.automatic.settings)
+
+        station._on_power_failed("serial timeout")
+
+        self.assertEqual(station.automatic.state, AutomaticTestState.PAUSED)
+        self.assertFalse(station._automatic_stop.is_set())
+        attempts = station.record_store.list_attempts(
+            station.record_store.current_session.session_id
+        )
+        self.assertEqual(attempts[-1].validity, AttemptValidity.DEVICE_ERROR)
+        station.power_meter_reader = MagicMock(is_ready=True)
+        station.resume_automatic()
+        with self.assertRaises(_AutomaticPointRetry):
+            station._await_automatic_resume()
+
+    def test_manual_stable_point_can_be_saved_to_excel(self) -> None:
+        station = self.backend.stations["1"]
+        station.configuration.update({"outputDir": self.temp_dir.name, "sn": "MANUAL-01"})
+        station.active_current_a = 2.0
+        station.recorded_manual_stable_current_a = 2.0
+        station.recorded_manual_stability_generation = 3
+        station.latest_power = PowerMeterReading(
+            elapsed_s=5.0,
+            power_w=4.0,
+            stable=True,
+            stable_span_w=0.02,
+            stable_window_s=3.0,
+            stable_median_w=4.0,
+            stability_generation=3,
+        )
+
+        station._record_manual_voltage_point(10.0)
+
+        self.assertAlmostEqual(station.efficiency_points[2.0], 20.0)
+        snapshot = self.backend.snapshot({"view": "manual_1"})
+        self.assertEqual(snapshot["manualTest"]["pendingCount"], 1)
+        result = self.backend.dispatch("manual.saveExcel", {"stationId": "1"})
+        self.assertTrue(Path(result["outputPath"]).exists())
+        self.assertEqual(station.record_store.unsaved_records(), ())
+
     def test_power_supply_read_returns_snapshot_and_only_reads_requested_value(self) -> None:
         station = self.backend.stations["1"]
         controller = MagicMock()
@@ -202,6 +317,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         )
 
         station.spectrum_revision = 13
+        station.latest_wavelength_stable = True
         measurement = station._fresh_automatic_measurement(
             stability_generation=generation,
             spectrum_revision=spectrum_revision,
@@ -212,6 +328,20 @@ class DualStationRuntimeTests(unittest.TestCase):
         reading, frame = measurement
         self.assertEqual(reading.power_w, 0.2)
         self.assertIs(frame, station.latest_spectrum)
+
+    def test_power_efficiency_curve_uses_stability_window_median_like_main(self) -> None:
+        station = self.backend.stations["1"]
+        reading = PowerMeterReading(
+            elapsed_s=1.0,
+            power_w=0.123,
+            stable=True,
+            stable_span_w=0.01,
+            stable_window_s=3.0,
+            stable_median_w=0.115,
+            stability_generation=1,
+        )
+
+        self.assertEqual(station._stable_power_w(reading), 0.115)
 
     def test_ch341_reads_use_the_same_four_operations_as_main(self) -> None:
         station = self.backend.stations["1"]
@@ -245,6 +375,9 @@ class DualStationRuntimeTests(unittest.TestCase):
         station.power_supply_kind = "ch341"
 
         for value_name in ("inputVoltage", "outputVoltage", "outputCurrent", "temperature"):
+            # This test verifies the command bytes independently; command-rate
+            # enforcement is covered by a dedicated regression test below.
+            station._last_power_supply_command_at = None
             snapshot = self.backend.dispatch(
                 "powerSupply.read",
                 {"stationId": "1", "value": value_name},
@@ -320,11 +453,12 @@ class DualStationRuntimeTests(unittest.TestCase):
             "tauri_bridge.headless_backend.create_ch341_controller",
             return_value=controller,
         ) as create_controller:
-            with patch(
-                "tauri_bridge.headless_backend.get_location_path_from_interface_path",
-                return_value=location,
-            ):
-                station.connect_power_supply()
+            with patch.object(self.backend, "scan_ch341", return_value=None):
+                with patch(
+                    "tauri_bridge.headless_backend.get_location_path_from_interface_path",
+                    return_value=location,
+                ):
+                    station.connect_power_supply()
 
         create_controller.assert_called_once_with(device_index=1)
         controller.set_i2c_speed.assert_called_once_with(0)
@@ -336,6 +470,9 @@ class DualStationRuntimeTests(unittest.TestCase):
         location = "PCIROOT(0)#USB(1)"
         station = self.backend.stations["1"]
         station.configuration["ch341SelectedLocationPath"] = location
+        station.configuration["ch341PortBindings"] = [
+            {"locationPath": location, "name": "1号工位"}
+        ]
         station.power_supply_kind = "ch341"
         self.backend.ch341_discovery_state = "ready"
         self.backend.ch341_descriptors = [
@@ -348,8 +485,9 @@ class DualStationRuntimeTests(unittest.TestCase):
             "tauri_bridge.headless_backend.create_ch341_controller",
             return_value=controller,
         ):
-            with self.assertRaisesRegex(RuntimeError, "无法打开设备"):
-                station.connect_power_supply()
+            with patch.object(self.backend, "scan_ch341", return_value=None):
+                with self.assertRaisesRegex(RuntimeError, "无法打开设备"):
+                    station.connect_power_supply()
 
         self.assertIsNone(station.power_supply_controller)
         controller.get_device_interface_path.assert_not_called()
@@ -358,6 +496,9 @@ class DualStationRuntimeTests(unittest.TestCase):
         location = "PCIROOT(0)#USB(1)"
         station = self.backend.stations["1"]
         station.configuration["ch341SelectedLocationPath"] = location
+        station.configuration["ch341PortBindings"] = [
+            {"locationPath": location, "name": "1号工位"}
+        ]
         station.power_supply_kind = "ch341"
         self.backend.ch341_discovery_state = "ready"
         self.backend.ch341_descriptors = [
@@ -372,12 +513,13 @@ class DualStationRuntimeTests(unittest.TestCase):
             "tauri_bridge.headless_backend.create_ch341_controller",
             return_value=controller,
         ):
-            with patch(
-                "tauri_bridge.headless_backend.get_location_path_from_interface_path",
-                return_value="PCIROOT(0)#USB(2)",
-            ):
-                with self.assertRaisesRegex(RuntimeError, "端口复核不一致"):
-                    station.connect_power_supply()
+            with patch.object(self.backend, "scan_ch341", return_value=None):
+                with patch(
+                    "tauri_bridge.headless_backend.get_location_path_from_interface_path",
+                    return_value="PCIROOT(0)#USB(2)",
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "端口复核不一致"):
+                        station.connect_power_supply()
 
         controller.disconnect_device.assert_called_once_with()
         self.assertIsNone(station.power_supply_controller)

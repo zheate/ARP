@@ -578,7 +578,7 @@ def save_test_records(
     session: Any | None = None,
     attempts: Iterable[Any] = (),
     automatic_samples_path: Path | None = None,
-) -> None:
+) -> Path:
     """Generate a complete current-sorted workbook with XlsxWriter."""
     records_by_current: dict[float, tuple[ExcelTestRecord, list[float], list[float]]] = {}
     for record in records:
@@ -640,6 +640,7 @@ def save_test_records(
             f"Excel 文件暂时被占用，无法更新 {target.name}；"
             f"完整临时文件已保留：{temporary}"
         ) from exc
+    return target
 
 
 def append_test_record(path: Path, record: ExcelTestRecord) -> None:

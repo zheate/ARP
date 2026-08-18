@@ -1249,10 +1249,18 @@ function sameAutomaticTestState(
   if (left === right) return true
   if (!left || !right) return false
   return left.state === right.state
+    && left.detail === right.detail
     && left.currentA === right.currentA
     && left.currentIndex === right.currentIndex
     && left.currentDwellS === right.currentDwellS
     && left.currentDwellElapsedS === right.currentDwellElapsedS
+    && left.progress === right.progress
+    && left.pauseReason === right.pauseReason
+    && left.terminalOutcome === right.terminalOutcome
+    && left.terminalReason === right.terminalReason
+    && left.exportStatus === right.exportStatus
+    && left.exportPath === right.exportPath
+    && left.exportError === right.exportError
     && left.settingsError === right.settingsError
     && left.canStart === right.canStart
     && left.canRetry === right.canRetry
@@ -1314,7 +1322,7 @@ function ChartLegend({ lines }: { lines: CanvasChartLine[] }) {
   )
 }
 
-const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, lines, empty = "暂无实时数据", heightClassName, headerRight, annotations, stretch = false, compactHeader = false, xDomain, xTicks, yDomain, preserveAllPoints = false }: {
+const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, lines, empty = "暂无实时数据", heightClassName, headerRight, annotations, stretch = false, compactHeader = false, xDomain, xTicks, yDomain, rightYDomain, preserveAllPoints = false }: {
   title: string
   data?: Array<Record<string, number | null>>
   columns?: CanvasColumnarData
@@ -1329,6 +1337,7 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
   xDomain?: [number, number]
   xTicks?: number[]
   yDomain?: [number, number]
+  rightYDomain?: [number, number]
   preserveAllPoints?: boolean
 }) {
   const dataLength = columns
@@ -1341,7 +1350,7 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
         {dataLength === 0 ? (
           <div className="grid h-full min-h-[120px] place-items-center rounded-lg bg-background/30 text-xs text-muted-foreground/70">{empty}</div>
         ) : (
-          <CanvasLineChart annotations={annotations} ariaLabel={`${title}曲线`} columns={columns} data={data} lines={lines} preserveAllPoints={preserveAllPoints} xDomain={xDomain} xKey={xKey} xTicks={xTicks} yDomain={yDomain} />
+          <CanvasLineChart annotations={annotations} ariaLabel={`${title}曲线`} columns={columns} data={data} lines={lines} preserveAllPoints={preserveAllPoints} rightYDomain={rightYDomain} xDomain={xDomain} xKey={xKey} xTicks={xTicks} yDomain={yDomain} />
         )}
       </CardContent>
     </Card>
@@ -1389,6 +1398,7 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
     && sameNumbers(previous.xDomain, next.xDomain)
     && sameNumbers(previous.xTicks, next.xTicks)
     && sameNumbers(previous.yDomain, next.yDomain)
+    && sameNumbers(previous.rightYDomain, next.rightYDomain)
     && previous.headerRight === undefined
     && next.headerRight === undefined
     && sameRows(previous.annotations, next.annotations, ["label", "x", "y", "color"])
@@ -1493,10 +1503,25 @@ const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stre
       .map((row) => row.currentA)
       .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
     if (!currents.length) return undefined
+    const minimumCurrent = Math.min(...currents)
     const maximumCurrent = Math.max(...currents)
-    if (maximumCurrent <= 0) return undefined
-    const rightPadding = Math.max(0.25, Math.min(1, maximumCurrent * 0.04))
-    return [0, maximumCurrent + rightPadding]
+    const padding = minimumCurrent === maximumCurrent
+      ? Math.max(Math.abs(minimumCurrent) * 0.1, 1)
+      : (maximumCurrent - minimumCurrent) * 0.12
+    return [minimumCurrent - padding, maximumCurrent + padding]
+  }, [stableData])
+  const powerDomain = useMemo(
+    () => powerYAxisDomain(stableData.map((row) => row.powerW)),
+    [stableData],
+  )
+  const currentTicks = useMemo(() => {
+    const currents = stableData
+      .map((row) => row.currentA)
+      .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+    if (currents.length <= 7) return currents
+    return Array.from(
+      new Set(Array.from({ length: 7 }, (_, index) => currents[Math.round(index * (currents.length - 1) / 6)])),
+    )
   }, [stableData])
 
   return (
@@ -1509,6 +1534,8 @@ const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stre
       title="功率 / 效率"
       xDomain={currentDomain}
       xKey="currentA"
+      xTicks={currentTicks}
+      yDomain={powerDomain}
       headerRight={
         <div className="flex items-center gap-4">
           <div className="flex items-baseline gap-1.5">
@@ -3674,6 +3701,7 @@ const ManualPage = memo(function ManualPage({
   const isPsuActive = Boolean(psu?.connected || psu?.outputEnabled)
   const isMeterActive = Boolean(meter?.running)
   const isSpectrumActive = Boolean(spectrum?.running)
+  const manualTest = snapshot?.manualTest
 
   return (
     <div className="manual-page flex min-h-0 flex-1 flex-col gap-3">
@@ -3731,6 +3759,11 @@ const ManualPage = memo(function ManualPage({
               <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setVoltage", { voltageV: config.tdkVoltageV }, true)} variant="outline">设置电压</Button>
               <Button className={psu?.outputEnabled ? "btn-power-active" : ""} disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled ? <><span className="size-2 rounded-full bg-white animate-pulse shrink-0 mr-1.5 inline-block" />关闭输出</> : "开启输出"}</Button>
               <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
+              <Button className="active:bg-primary/20 transition-colors" disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline">读取输出电压</Button>
+              <Button className="active:bg-primary/20 transition-colors" disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline">读取输出电流</Button>
+              <p className="col-span-2 text-xs text-muted-foreground">
+                回读：输出 {formatNumber(psu?.outputVoltageV, " V", 2)} · 电流 {formatNumber(psu?.outputCurrentA, " A", 2)}
+              </p>
             </div>
           </> : <>
             <Ch341PortSelector
@@ -3824,6 +3857,23 @@ const ManualPage = memo(function ManualPage({
           <Button className={`w-full transition-all ${spectrum?.running ? "btn-running-pulse" : ""}`} disabled={!active} onClick={() => void runManualCommand(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
         </CardContent></Card>
       </section>
+      <div className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2">
+        <p className="text-xs text-muted-foreground">
+          {manualTest?.pendingCount
+            ? `已有 ${manualTest.pendingCount} 个未保存测试点`
+            : manualTest?.exportPath
+              ? `最近保存：${manualTest.exportPath}`
+              : "电流点稳定后自动读取电压并暂存记录"}
+        </p>
+        <Button
+          disabled={!active || pending || !manualTest?.pendingCount || manualTest.exportStatus === "exporting"}
+          onClick={() => void runManualCommand("manual.saveExcel", {}, true)}
+          size="sm"
+        >
+          {manualTest?.exportStatus === "exporting" ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}
+          保存 Excel
+        </Button>
+      </div>
       <div className="grid min-h-[580px] flex-1 gap-3.5 grid-rows-[minmax(280px,1fr)_minmax(280px,1fr)] pb-2">
         <section className="grid min-h-[280px] grid-cols-1 gap-3.5 lg:grid-cols-2">
           <PowerRealtimeChart snapshot={snapshot} stretch />
@@ -3843,6 +3893,9 @@ const ManualPage = memo(function ManualPage({
   && sameDeviceSnapshot(previous.snapshot?.devices.powerSupply, next.snapshot?.devices.powerSupply)
   && sameDeviceSnapshot(previous.snapshot?.devices.powerMeter, next.snapshot?.devices.powerMeter)
   && sameDeviceSnapshot(previous.snapshot?.devices.spectrometer, next.snapshot?.devices.spectrometer)
+  && previous.snapshot?.manualTest?.pendingCount === next.snapshot?.manualTest?.pendingCount
+  && previous.snapshot?.manualTest?.exportStatus === next.snapshot?.manualTest?.exportStatus
+  && previous.snapshot?.manualTest?.exportPath === next.snapshot?.manualTest?.exportPath
   && sameMeasurements(previous.snapshot?.measurements, next.snapshot?.measurements)
 ))
 

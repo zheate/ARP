@@ -727,7 +727,7 @@ class SpectrometerReaderThread(WorkerThread):
                 center_nm=self.settings.pib_center_wavelength_nm,
                 half_range_nm=self.settings.pib_half_range_nm,
             )
-            if not self.headless and not saturation.saturated and has_enough_pib_samples
+            if not saturation.saturated and has_enough_pib_samples
             else math.nan
         )
         smsr = calculate_smsr(wavelength, intensity) if not saturation.saturated else None

@@ -124,6 +124,9 @@ export interface StationSummary {
   canEnd?: boolean
   terminalOutcome?: string | null
   terminalReason?: string
+  exportStatus?: string
+  exportPath?: string
+  exportError?: string
 }
 
 export interface TestHistoryCandidate {
@@ -180,7 +183,16 @@ export interface BackendSnapshot {
     pauseReason?: string
     terminalOutcome?: string | null
     terminalReason?: string
+    exportStatus?: string
+    exportPath?: string
+    exportError?: string
     reference?: TestHistoryReference | null
+  }
+  manualTest?: {
+    pendingCount: number
+    exportStatus: string
+    exportPath: string
+    exportError: string
   }
   measurements?: {
     power: Array<{ elapsedS: number; powerW: number }>
