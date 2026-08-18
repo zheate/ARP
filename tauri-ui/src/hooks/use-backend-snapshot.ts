@@ -13,6 +13,7 @@ const DEMO_SPECTRUM = {
 
 const DEMO_SNAPSHOT: BackendSnapshot = {
   capturedAt: "2026-07-19T12:00:00.000Z",
+  seriesRevisions: { power: 1, stable: 1, spectrum: 1, pd: 0 },
   backend: {
     connected: true,
     mode: "active",
@@ -228,26 +229,33 @@ export function useBackendSnapshot(view: SnapshotView) {
       if (DEMO_PREVIEW_ENABLED) {
         if (method === "automatic.start") {
           let step = 0
-          const stages: Array<{ state: string; currentA: number; currentIndex: number; detail: string; powerW: number; stable: boolean; terminalOutcome?: string }> = [
+          const stages: Array<{ state: string; currentA: number; currentIndex: number; detail: string; powerW: number; stable: boolean; stablePoint?: { currentA: number; powerW: number; efficiencyPercent: number }; terminalOutcome?: string }> = [
             { state: "setting_current", currentA: 2.0, currentIndex: 0, detail: "第 1 点：正在平滑加载电流至 2.0 A...", powerW: 0.15, stable: false },
             { state: "waiting_stable", currentA: 2.0, currentIndex: 0, detail: "第 1 点：正在判定功率稳态 (0.28 W)...", powerW: 0.28, stable: false },
-            { state: "holding", currentA: 2.0, currentIndex: 0, detail: "第 1 点：稳态达成，正在采集光谱与计算特征峰...", powerW: 0.28, stable: true },
+            { state: "waiting_voltage", currentA: 2.0, currentIndex: 0, detail: "第 1 点：稳态达成，正在读取输出电压并记录数据...", powerW: 0.28, stable: true, stablePoint: { currentA: 2, powerW: 0.28, efficiencyPercent: 6.2 } },
             { state: "setting_current", currentA: 6.0, currentIndex: 1, detail: "第 2 点：正在平滑加载电流至 6.0 A...", powerW: 0.42, stable: false },
             { state: "waiting_stable", currentA: 6.0, currentIndex: 1, detail: "第 2 点：正在判定功率稳态 (0.61 W)...", powerW: 0.61, stable: false },
-            { state: "holding", currentA: 6.0, currentIndex: 1, detail: "第 2 点：稳态达成，正在采集光谱与计算特征峰...", powerW: 0.61, stable: true },
+            { state: "waiting_voltage", currentA: 6.0, currentIndex: 1, detail: "第 2 点：稳态达成，正在读取输出电压并记录数据...", powerW: 0.61, stable: true, stablePoint: { currentA: 6, powerW: 0.61, efficiencyPercent: 8.0 } },
             { state: "setting_current", currentA: 10.0, currentIndex: 2, detail: "第 3 点：正在平滑加载电流至 10.0 A...", powerW: 0.68, stable: false },
             { state: "waiting_stable", currentA: 10.0, currentIndex: 2, detail: "第 3 点：正在判定功率稳态 (0.76 W)...", powerW: 0.76, stable: false },
-            { state: "holding", currentA: 10.0, currentIndex: 2, detail: "第 3 点：稳态达成，正在采集光谱与计算特征峰...", powerW: 0.76, stable: true },
+            { state: "waiting_voltage", currentA: 10.0, currentIndex: 2, detail: "第 3 点：稳态达成，正在读取输出电压并记录数据...", powerW: 0.76, stable: true, stablePoint: { currentA: 10, powerW: 0.76, efficiencyPercent: 8.5 } },
+            { state: "saving_point", currentA: 10.0, currentIndex: 2, detail: "全部测试点完成，正在归档数据...", powerW: 0.76, stable: true },
             { state: "ramping_down", currentA: 2.0, currentIndex: 2, detail: "全部点完成，正在安全降电归零...", powerW: 0.05, stable: false },
             { state: "completed", currentA: 0.0, currentIndex: 2, detail: "测试完成，数据已归档并安全下电", powerW: 0.0, stable: true, terminalOutcome: "succeeded" },
           ]
+          const stablePoints: Array<{ currentA: number; powerW: number; efficiencyPercent: number }> = []
 
           const advance = () => {
             if (step >= stages.length) return
             const stage = stages[step]
             step += 1
+            if (stage.stablePoint) stablePoints.push(stage.stablePoint)
             const nextSnap: BackendSnapshot = {
               ...DEMO_SNAPSHOT,
+              seriesRevisions: {
+                ...DEMO_SNAPSHOT.seriesRevisions!,
+                stable: 1 + stablePoints.length,
+              },
               devices: {
                 ...DEMO_SNAPSHOT.devices,
                 powerSupply: { ...DEMO_SNAPSHOT.devices.powerSupply, activeCurrentA: stage.currentA },
@@ -263,6 +271,10 @@ export function useBackendSnapshot(view: SnapshotView) {
                 canStart: stage.state === "completed" || stage.state === "idle",
                 canEnd: stage.state !== "completed" && stage.state !== "idle",
                 terminalOutcome: stage.terminalOutcome,
+              },
+              measurements: {
+                ...DEMO_SNAPSHOT.measurements!,
+                stable: [...stablePoints],
               },
             }
             if (mountedRef.current) setSnapshot(nextSnap)

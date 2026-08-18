@@ -1096,3 +1096,11 @@ html.dark {
   animation: flash-pulse 300ms ease-out forwards;
 }
 
+@keyframes workflow-data-flash {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.58; }
+}
+
+.workflow-data-flash {
+  animation: workflow-data-flash 450ms ease-in-out 2;
+}
