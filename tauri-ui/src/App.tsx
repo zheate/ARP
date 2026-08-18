@@ -42,6 +42,7 @@ import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { useBackendSnapshot } from "@/hooks/use-backend-snapshot"
 import { sendBackendRequest, type AppConfiguration, type BackendSnapshot, type Ch341PortBinding, type DeviceSnapshot, type ShippingReportBatchGenerationResult, type ShippingReportBatchInspection, type ShippingReportBatchItem, type ShippingReportFieldDefinition, type ShippingReportGenerationResult, type ShippingReportPointSuggestion, type ShippingReportPreviewResult, type ShippingReportType, type ShippingWorkbookInspection, type SnapshotView, type SpectrumAxisMode, type TestHistoryCandidate } from "@/lib/backend"
+import { powerMeterResourceValue } from "@/lib/power-meter-resource"
 
 type Page = "automatic" | "manual" | "pd" | "shipping"
 
@@ -208,11 +209,6 @@ function formatNumber(value: number | null | undefined, suffix = "", digits = 3)
 }
 
 const defaultSpectrometerResourceLabel = "自动选择首台可用设备"
-
-function powerMeterResourceValue(label: string): string {
-  if (label.startsWith("OPHIR::USB::")) return label
-  return label.match(/ASRL\d+::INSTR/i)?.[0] ?? label
-}
 
 function powerMeterResourceLabel(resourceValue: string, resources: string[] = []): string {
   if (!resourceValue) return "请选择串口资源"
