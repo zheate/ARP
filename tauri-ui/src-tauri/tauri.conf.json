@@ -14,10 +14,16 @@
       {
         "title": "Power Test",
         "width": 1440,
-        "height": 900,
+        "height": 810,
         "minWidth": 1180,
         "minHeight": 720,
         "center": true,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "trafficLightPosition": {
+          "x": 18,
+          "y": 18
+        },
         "zoomHotkeysEnabled": false,
         "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection"
       }

@@ -4,6 +4,7 @@ import {
   BarChart3,
   Check,
   ChevronDown,
+  Clock3,
   CircleGauge,
   FileText,
   FolderOpen,
@@ -11,6 +12,7 @@ import {
   Hand,
   History,
   LoaderCircle,
+  Lightbulb,
   Milestone,
   OctagonAlert,
   Play,
@@ -21,11 +23,13 @@ import {
   RefreshCw,
   RotateCcw,
   Save,
+  Settings,
   Square,
   Tag,
   Trash2,
   X,
 } from "lucide-react"
+import packageMetadata from "../package.json"
 import { open as openDialog } from "@tauri-apps/plugin-dialog"
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener"
 import { invoke } from "@tauri-apps/api/core"
@@ -39,7 +43,7 @@ import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { useBackendSnapshot } from "@/hooks/use-backend-snapshot"
-import { sendBackendRequest, type AppConfiguration, type BackendSnapshot, type Ch341PortBinding, type DeviceSnapshot, type ShippingReportBatchGenerationResult, type ShippingReportBatchInspection, type ShippingReportBatchItem, type ShippingReportFieldDefinition, type ShippingReportGenerationResult, type ShippingReportPointSuggestion, type ShippingReportPreviewResult, type ShippingReportType, type ShippingWorkbookInspection, type SnapshotView, type SpectrumAxisMode, type StationSummary, type TestHistoryCandidate } from "@/lib/backend"
+import { sendBackendRequest, type AppConfiguration, type BackendSnapshot, type Ch341PortBinding, type DeviceSnapshot, type ShippingReportBatchGenerationResult, type ShippingReportBatchInspection, type ShippingReportBatchItem, type ShippingReportFieldDefinition, type ShippingReportGenerationResult, type ShippingReportPointSuggestion, type ShippingReportPreviewResult, type ShippingReportType, type ShippingWorkbookInspection, type SnapshotView, type SpectrumAxisMode, type TestHistoryCandidate } from "@/lib/backend"
 
 type Page = "automatic" | "manual" | "pd" | "shipping"
 
@@ -57,22 +61,29 @@ const SPECTRUM_Y_AXIS_SHRINK_TRIGGER_FRACTION = 0.72
 const SPECTRUM_Y_AXIS_SHRINK_REQUIRED_FRAMES = 6
 const SHIPPING_PRODUCT_NAME_STORAGE_KEY = "power-test.shipping-report.product-name"
 const PLM_CHART_SERIES = {
-  clay: "#d97957",
+  clay: "#ff7a1a",
   tan: "#d5a98b",
   olive: "#9a907c",
   green: "#70a58a",
-  blue: "#5b9cd6",
-  yellow: "#eab308",
+  blue: "#4ca4ff",
+  yellow: "#ffcc00",
 } as const
 const HISTORY_CHART_SERIES = {
   power: "rgba(168, 171, 176, 0.46)",
 } as const
+const AUTOMATIC_RESULT_SPEC = {
+  fwhmMaximumNm: 0.6,
+  pibMinimumPercent: 95,
+  slopeEfficiencyMinimumWPerA: 0.08,
+} as const
 
 const navigation = [
-  { id: "automatic" as const, label: "自动测试", icon: CircleGauge },
-  { id: "manual" as const, label: "手动配置", icon: Hand },
-  { id: "pd" as const, label: "PD 采集", icon: BarChart3 },
-  { id: "shipping" as const, label: "出货报告", icon: FileText },
+  { id: "automatic" as const, label: "自动测试", icon: CircleGauge, shortcut: 1 },
+  { id: "manual" as const, label: "手动配置", icon: Hand, shortcut: 2 },
+  { id: "pd" as const, label: "PD 采集", icon: BarChart3, shortcut: 3 },
+  { id: "data" as const, label: "数据浏览", icon: FileText, unavailable: true },
+  { id: "shipping" as const, label: "出货报告", icon: FileText, shortcut: 4 },
+  { id: "settings" as const, label: "系统设置", icon: Settings, unavailable: true },
 ]
 
 const pageShortcuts: Page[] = ["automatic", "manual", "pd", "shipping"]
@@ -188,6 +199,11 @@ function formatTrimmedNumber(value: number | null | undefined, digits = 3): stri
   if (value == null || !Number.isFinite(value)) return "--"
   const formatted = value.toFixed(digits)
   return formatted.includes(".") ? formatted.replace(/\.?0+$/, "") : formatted
+}
+
+function formatFixedNumber(value: number | null | undefined, digits = 3): string {
+  if (value == null || !Number.isFinite(value)) return "--"
+  return value.toFixed(digits)
 }
 
 function formatNumber(value: number | null | undefined, suffix = "", digits = 3): string {
@@ -536,11 +552,18 @@ function StatusDot({ state }: { state?: string }) {
 type DeviceSettingsKind = "powerSupply" | "powerMeter" | "spectrometer"
 
 function DeviceCard({ title, icon, device, summary, disabled = false, onOpenSettings }: { title: string; icon: ReactNode; device?: DeviceSnapshot; summary?: string; disabled?: boolean; onOpenSettings: () => void }) {
+  const connectionLabel = device?.state === "connected" ? "在线"
+    : device?.state === "connecting" ? "连接中"
+    : device?.state === "error" ? "异常"
+    : "未连接"
+  const activityLabel = device?.outputEnabled ? "输出中"
+    : device?.running ? (title === "功率计" ? "测量中" : "采集中")
+    : ""
   return (
     <Card
       aria-disabled={disabled}
       aria-label={`打开${title}设置`}
-      className={`device-card gap-2.5 py-3 shadow-none transition-[color,background-color,border-color,box-shadow] duration-200 ${disabled ? "cursor-not-allowed opacity-55" : "cursor-pointer hover:border-[var(--plm-flat-border-strong)] hover:bg-[var(--plm-flat-hover)] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25"}`}
+      className={`device-card gap-2.5 py-3 shadow-none transition-[color,background-color,border-color,box-shadow] duration-200 ${disabled ? "cursor-not-allowed" : "cursor-pointer hover:border-[var(--plm-flat-border-strong)] hover:bg-[var(--plm-flat-hover)] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25"}`}
       onClick={() => { if (!disabled) onOpenSettings() }}
       onKeyDown={(event) => {
         if (disabled) return
@@ -551,14 +574,19 @@ function DeviceCard({ title, icon, device, summary, disabled = false, onOpenSett
       }}
       role="button"
       tabIndex={disabled ? -1 : 0}
+      title={summary}
     >
       <CardContent className="flex items-center gap-3 px-4 py-0">
-        <div className="device-card-icon grid size-10 place-items-center rounded-lg border border-[var(--plm-flat-border)] bg-muted/35 text-muted-foreground">{icon}</div>
+        <div className={`device-card-icon grid size-10 place-items-center rounded-lg border border-[var(--plm-flat-border)] bg-muted/35 text-muted-foreground ${device?.outputEnabled ? "is-active" : ""}`}>{icon}</div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center justify-between gap-2 text-sm font-medium">
-            <span>{title}</span><StatusDot state={device?.state} />
+          <div className="text-sm font-medium">
+            <span>{title}</span>
           </div>
-          {summary && <p className="mt-1 truncate text-xs font-medium text-muted-foreground" title={summary}>{summary}</p>}
+          <p className="mt-1 flex items-center gap-1.5 truncate text-xs font-medium text-muted-foreground">
+            <StatusDot state={device?.state} />
+            <span>{connectionLabel}</span>
+            {activityLabel && <><span aria-hidden="true">·</span><span>{activityLabel}</span></>}
+          </p>
         </div>
       </CardContent>
     </Card>
@@ -1292,10 +1320,10 @@ function samePdSection(
 function ChartLegend({ lines }: { lines: CanvasChartLine[] }) {
   return (
     <div aria-label="图例" className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-      {lines.map((line) => (
+      {lines.filter((line) => !line.hideLegend).map((line) => (
         <span className="flex items-center gap-1.5 whitespace-nowrap" key={line.key}>
           <svg aria-hidden="true" className="h-3.5 w-7 overflow-visible" viewBox="0 0 28 14">
-            <line stroke={line.color} strokeLinecap="round" strokeWidth="2" x1="1" x2="27" y1="7" y2="7" />
+            <line stroke={line.color} strokeDasharray={line.dash?.join(" ")} strokeLinecap="round" strokeWidth="2" x1="1" x2="27" y1="7" y2="7" />
             {line.showPoints && (line.pointShape === "triangle" ? (
               <path
                 d="M14 2.5 18.2 10.5 9.8 10.5Z"
@@ -1322,7 +1350,7 @@ function ChartLegend({ lines }: { lines: CanvasChartLine[] }) {
   )
 }
 
-const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, lines, empty = "暂无实时数据", heightClassName, headerRight, annotations, stretch = false, compactHeader = false, xDomain, xTicks, yDomain, rightYDomain, preserveAllPoints = false }: {
+const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, lines, empty = "暂无实时数据", heightClassName, headerRight, headerTitle, sidePanel, annotations, stretch = false, compactHeader = false, xDomain, xTicks, yDomain, rightYDomain, preserveAllPoints = false, xLabel, yLabel }: {
   title: string
   data?: Array<Record<string, number | null>>
   columns?: CanvasColumnarData
@@ -1331,6 +1359,8 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
   empty?: string
   heightClassName?: string
   headerRight?: ReactNode
+  headerTitle?: string
+  sidePanel?: ReactNode
   annotations?: CanvasChartAnnotation[]
   stretch?: boolean
   compactHeader?: boolean
@@ -1339,19 +1369,30 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
   yDomain?: [number, number]
   rightYDomain?: [number, number]
   preserveAllPoints?: boolean
+  xLabel?: string
+  yLabel?: string
 }) {
   const dataLength = columns
     ? Math.min(...Object.values(columns).map((values) => values.length))
     : data.length
   return (
     <Card aria-label={title} size="sm" className={`${compactHeader ? "gap-0" : ""} shadow-none ${stretch ? "h-full min-h-0 flex flex-col" : ""}`}>
-      <CardHeader className="flex min-h-8 flex-row items-center justify-between gap-3 px-3 py-1.5 shrink-0"><ChartLegend lines={lines} />{headerRight}</CardHeader>
-      <CardContent className={`${stretch ? "min-h-0 flex-1" : heightClassName || (dataLength === 0 ? "h-40" : "h-56")} px-3 pb-1.5 pt-0`}>
-        {dataLength === 0 ? (
-          <div className="grid h-full min-h-[120px] place-items-center rounded-lg bg-background/30 text-xs text-muted-foreground/70">{empty}</div>
-        ) : (
-          <CanvasLineChart annotations={annotations} ariaLabel={`${title}曲线`} columns={columns} data={data} lines={lines} preserveAllPoints={preserveAllPoints} rightYDomain={rightYDomain} xDomain={xDomain} xKey={xKey} xTicks={xTicks} yDomain={yDomain} />
-        )}
+      <CardHeader className={`flex shrink-0 px-3 ${headerTitle ? "min-h-12 flex-col items-stretch justify-center gap-1 py-1.5" : "min-h-8 flex-row items-center justify-between gap-3 py-1.5"}`}>
+        <div className={`flex min-w-0 items-center ${headerTitle ? "w-full justify-between" : "gap-3"}`}>
+          {headerTitle ? <span className="truncate text-xs text-muted-foreground">{headerTitle}</span> : <ChartLegend lines={lines} />}
+          {headerTitle && headerRight}
+        </div>
+        {headerTitle ? <ChartLegend lines={lines} /> : headerRight}
+      </CardHeader>
+      <CardContent className={`${stretch ? "min-h-0 flex-1" : heightClassName || (dataLength === 0 ? "h-40" : "h-56")} ${sidePanel ? "flex px-0" : "px-3"} pb-1.5 pt-0`}>
+        <div className={`${sidePanel ? "min-w-0 flex-1 px-3" : "contents"}`}>
+          {dataLength === 0 ? (
+            <div className="grid h-full min-h-[120px] place-items-center rounded-lg bg-background/30 text-xs text-muted-foreground/70">{empty}</div>
+          ) : (
+            <CanvasLineChart annotations={annotations} ariaLabel={`${title}曲线`} columns={columns} data={data} lines={lines} preserveAllPoints={preserveAllPoints} rightYDomain={rightYDomain} xDomain={xDomain} xKey={xKey} xLabel={xLabel} xTicks={xTicks} yDomain={yDomain} yLabel={yLabel} />
+          )}
+        </div>
+        {sidePanel}
       </CardContent>
     </Card>
   )
@@ -1369,6 +1410,8 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
         && line.pointStyle === other.pointStyle
         && line.pointSize === other.pointSize
         && line.lineWidth === other.lineWidth
+        && line.hideLegend === other.hideLegend
+        && sameNumberArray(line.dash, other.dash)
     })
   const sameNumbers = (left?: number[], right?: number[]) => (
     left === right || (
@@ -1394,6 +1437,10 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
     && previous.stretch === next.stretch
     && previous.compactHeader === next.compactHeader
     && previous.preserveAllPoints === next.preserveAllPoints
+    && previous.xLabel === next.xLabel
+    && previous.yLabel === next.yLabel
+    && previous.headerTitle === next.headerTitle
+    && previous.sidePanel === next.sidePanel
     && sameLines
     && sameNumbers(previous.xDomain, next.xDomain)
     && sameNumbers(previous.xTicks, next.xTicks)
@@ -1406,7 +1453,6 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
 
 const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; stretch?: boolean; heightClassName?: string }) {
   const powerData = (snapshot?.measurements?.power ?? []) as Array<Record<string, number | null>>
-  const latestPowerW = snapshot?.devices.powerMeter?.powerW ?? powerData[powerData.length - 1]?.powerW
   const latestElapsedS = powerData[powerData.length - 1]?.elapsedS
   const powerTimeDomain: [number, number] = typeof latestElapsedS === "number"
     ? [Math.max(0, latestElapsedS - POWER_PLOT_HISTORY_S), Math.max(10, latestElapsedS)]
@@ -1416,78 +1462,35 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch 
     { length: Math.floor((powerTimeDomain[1] - firstPowerTickS) / POWER_TIME_TICK_INTERVAL_S) + 1 },
     (_, index) => firstPowerTickS + index * POWER_TIME_TICK_INTERVAL_S,
   )
-  const powerMeter = snapshot?.devices.powerMeter
-  const powerStable = powerMeter?.running === true && powerMeter.stable === true
-  const powerStabilityLabel = powerMeter?.running ? (powerStable ? "已稳定" : "稳定中") : "未采集"
   const powerStabilityColor = PLM_CHART_SERIES.clay
-  const reference = snapshot?.automaticTest.reference
-  const currentA = snapshot?.automaticTest.currentA
-  const referencePoint = reference?.points.find((point) => (
-    typeof currentA === "number" && Math.abs(point.currentA - currentA) < 1e-9
-  ))
-  const referencePowerW = referencePoint?.powerW
-  const chartData = useMemo<Array<Record<string, number | null>>>(() => {
-    if (typeof referencePowerW !== "number") return powerData
-    return [
-      { elapsedS: powerTimeDomain[0], powerW: null, referencePowerW },
-      ...powerData.map((point) => ({ ...point, referencePowerW })),
-      { elapsedS: powerTimeDomain[1], powerW: null, referencePowerW },
-    ]
-  }, [powerData, powerTimeDomain, referencePowerW])
-  const powerYDomain = powerYAxisDomain(chartData.flatMap((row) => (
+  const powerYDomain = powerYAxisDomain(powerData.flatMap((row) => (
     typeof row.elapsedS === "number" && row.elapsedS >= powerTimeDomain[0]
-      ? [row.powerW, row.referencePowerW]
+      ? [row.powerW]
       : []
   )))
-  const lines: CanvasChartLine[] = [
-    { key: "powerW", label: "功率 (W)", color: powerStabilityColor, showLatestPoint: true },
-    ...(typeof referencePowerW === "number"
-      ? [{ key: "referencePowerW", label: `历史参考 · ${reference?.station || "未填写站别"}`, color: HISTORY_CHART_SERIES.power, lineWidth: 1.2 }]
-      : []),
-  ]
+  const lines: CanvasChartLine[] = [{ key: "powerW", label: "实时功率", color: powerStabilityColor, showLatestPoint: true }]
 
   return (
     <ChartPanel
       title="功率实时"
-      data={chartData}
+      headerTitle="实时功率 (W)"
+      data={powerData}
       xKey="elapsedS"
       lines={lines}
       stretch={stretch}
       heightClassName={heightClassName}
       xDomain={powerTimeDomain}
+      xLabel="时间 (s)"
       xTicks={powerTimeTicks}
       yDomain={powerYDomain}
-      headerRight={
-        <div className="flex items-center gap-3">
-          <div className={`flex items-center gap-1.5 text-xs font-medium ${powerStable ? "text-[var(--app-success)]" : powerMeter?.running ? "text-[var(--app-validation)]" : "text-muted-foreground"}`}>
-            <span className={`size-2 rounded-full ${powerStable ? "bg-[var(--app-success)]" : powerMeter?.running ? "bg-[var(--app-validation)]" : "bg-muted-foreground/45"}`} />
-            {powerStabilityLabel}
-          </div>
-          <div className="flex items-baseline gap-1 font-din leading-none">
-            <span className="text-2xl font-bold tabular-nums text-foreground">
-              {formatTrimmedNumber(latestPowerW, 3)}
-            </span>
-            <span className="text-xs font-medium text-muted-foreground">W</span>
-          </div>
-        </div>
-      }
     />
   )
 }, (previous, next) => {
   const previousPower = previous.snapshot?.measurements?.power
   const nextPower = next.snapshot?.measurements?.power
-  const previousMeter = previous.snapshot?.devices.powerMeter
-  const nextMeter = next.snapshot?.devices.powerMeter
-  const previousReference = previous.snapshot?.automaticTest.reference
-  const nextReference = next.snapshot?.automaticTest.reference
   return previous.stretch === next.stretch
     && previous.heightClassName === next.heightClassName
     && sameRows(previousPower, nextPower, ["elapsedS", "powerW"])
-    && previousMeter?.running === nextMeter?.running
-    && previousMeter?.stable === nextMeter?.stable
-    && previous.snapshot?.automaticTest.currentA === next.snapshot?.automaticTest.currentA
-    && previousReference?.sourcePath === nextReference?.sourcePath
-    && sameRows(previousReference?.points, nextReference?.points, ["currentA", "powerW"])
 })
 
 const powerEfficiencyLines: CanvasChartLine[] = [
@@ -1497,9 +1500,24 @@ const powerEfficiencyLines: CanvasChartLine[] = [
 
 const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; stretch?: boolean; heightClassName?: string }) {
   const stableData = (snapshot?.measurements?.stable ?? []) as Array<Record<string, number | null>>
-  const latestStable = stableData.length > 0 ? stableData[stableData.length - 1] : null
+  const referencePoints = snapshot?.automaticTest.reference?.points ?? []
+  const chartData = useMemo<Array<Record<string, number | null>>>(() => {
+    const rows = new Map<number, Record<string, number | null>>()
+    stableData.forEach((row) => {
+      if (typeof row.currentA === "number") rows.set(row.currentA, { ...row })
+    })
+    referencePoints.forEach((point) => {
+      const row = rows.get(point.currentA) ?? { currentA: point.currentA, powerW: null, efficiencyPercent: null }
+      rows.set(point.currentA, { ...row, referencePowerW: point.powerW })
+    })
+    return [...rows.values()].sort((left, right) => (left.currentA ?? 0) - (right.currentA ?? 0))
+  }, [referencePoints, stableData])
+  const lines: CanvasChartLine[] = [
+    ...powerEfficiencyLines,
+    ...(referencePoints.length ? [{ key: "referencePowerW", label: "历史参考", color: HISTORY_CHART_SERIES.power, lineWidth: 1.2, dash: [4, 4], hideLegend: true }] : []),
+  ]
   const currentDomain = useMemo<[number, number] | undefined>(() => {
-    const currents = stableData
+    const currents = chartData
       .map((row) => row.currentA)
       .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
     if (!currents.length) return undefined
@@ -1509,69 +1527,42 @@ const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stre
       ? Math.max(Math.abs(minimumCurrent) * 0.1, 1)
       : (maximumCurrent - minimumCurrent) * 0.12
     return [minimumCurrent - padding, maximumCurrent + padding]
-  }, [stableData])
+  }, [chartData])
   const powerDomain = useMemo(
-    () => powerYAxisDomain(stableData.map((row) => row.powerW)),
-    [stableData],
+    () => powerYAxisDomain(chartData.flatMap((row) => [row.powerW, row.referencePowerW])),
+    [chartData],
   )
   const currentTicks = useMemo(() => {
-    const currents = stableData
+    const currents = chartData
       .map((row) => row.currentA)
       .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
     if (currents.length <= 7) return currents
     return Array.from(
       new Set(Array.from({ length: 7 }, (_, index) => currents[Math.round(index * (currents.length - 1) / 6)])),
     )
-  }, [stableData])
+  }, [chartData])
 
   return (
     <ChartPanel
-      data={stableData}
+      data={chartData}
       empty="完成稳定测试点后显示功率 / 效率"
-      lines={powerEfficiencyLines}
+      headerTitle="功率 (W) & 效率 (%) vs 电流 (A)"
+      lines={lines}
       stretch={stretch}
       heightClassName={heightClassName}
       title="功率 / 效率"
       xDomain={currentDomain}
       xKey="currentA"
+      xLabel="电流 (A)"
       xTicks={currentTicks}
       yDomain={powerDomain}
-      headerRight={
-        <div className="flex items-center gap-4">
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-xs text-muted-foreground">测试点</span>
-            <div className="flex items-baseline gap-1 font-din leading-none">
-              <span className={`text-2xl font-bold tabular-nums ${latestStable && typeof latestStable.currentA === "number" ? "text-foreground" : "text-muted-foreground"}`}>
-                {latestStable && typeof latestStable.currentA === "number" ? formatTrimmedNumber(latestStable.currentA, 2) : "--"}
-              </span>
-              <span className="text-xs font-medium text-muted-foreground">A</span>
-            </div>
-          </div>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-xs text-muted-foreground">稳态功率</span>
-            <div className="flex items-baseline gap-1 font-din leading-none">
-              <span className={`text-2xl font-bold tabular-nums ${latestStable && typeof latestStable.powerW === "number" ? "text-foreground" : "text-muted-foreground"}`}>
-                {latestStable && typeof latestStable.powerW === "number" ? formatTrimmedNumber(latestStable.powerW, 3) : "--"}
-              </span>
-              <span className="text-xs font-medium text-muted-foreground">W</span>
-            </div>
-          </div>
-          <div className="flex items-baseline gap-1.5">
-            <span className="text-xs text-muted-foreground">效率</span>
-            <div className="flex items-baseline gap-1 font-din leading-none">
-              <span className={`text-2xl font-bold tabular-nums ${latestStable && typeof latestStable.efficiencyPercent === "number" ? "text-foreground" : "text-muted-foreground"}`}>
-                {latestStable && typeof latestStable.efficiencyPercent === "number" ? formatTrimmedNumber(latestStable.efficiencyPercent, 2) : "--"}
-              </span>
-              <span className="text-xs font-medium text-muted-foreground">%</span>
-            </div>
-          </div>
-        </div>
-      }
     />
   )
 }, (previous, next) => previous.stretch === next.stretch
   && previous.heightClassName === next.heightClassName
-  && sameRows(previous.snapshot?.measurements?.stable, next.snapshot?.measurements?.stable, ["currentA", "powerW", "efficiencyPercent"]))
+  && sameRows(previous.snapshot?.measurements?.stable, next.snapshot?.measurements?.stable, ["currentA", "powerW", "efficiencyPercent"])
+  && previous.snapshot?.automaticTest.reference?.sourcePath === next.snapshot?.automaticTest.reference?.sourcePath
+  && sameRows(previous.snapshot?.automaticTest.reference?.points, next.snapshot?.automaticTest.reference?.points, ["currentA", "powerW"]))
 
 const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; stretch?: boolean; heightClassName?: string }) {
   const spectrumSource = snapshot?.measurements?.spectrum
@@ -1580,6 +1571,10 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
     : { wavelengthNm: [], intensity: [] }
   const spectrum = snapshot?.devices.spectrometer
   const spectrumPeaks = snapshot?.measurements?.spectrumPeaks ?? []
+  const spectrumPibValue = spectrum?.pib ?? spectrum?.pibPercent
+  const spectrumPibPercent = typeof spectrumPibValue === "number" && Number.isFinite(spectrumPibValue)
+    ? (spectrumPibValue <= 1 ? spectrumPibValue * 100 : spectrumPibValue)
+    : null
   const spectrumYAxisStateRef = useRef<SpectrumYAxisState | null>(null)
   const spectrumXDomain = useMemo<[number, number] | undefined>(() => {
     const spectrumWindow = spectrum?.spectrumWindow
@@ -1631,48 +1626,20 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
       xDomain={spectrumXDomain}
       yDomain={spectrumYDomain}
       preserveAllPoints
-      lines={[{ key: "intensity", label: "光谱强度", color: PLM_CHART_SERIES.yellow }]}
+      lines={[{ key: "intensity", label: "光谱（实时）", color: PLM_CHART_SERIES.yellow }]}
       stretch={stretch}
       heightClassName={heightClassName}
       annotations={spectrumPeaks.map((annotation) => ({ label: annotation.label, x: annotation.centroidNm, y: annotation.peakIntensity, color: PLM_CHART_SERIES.blue }))}
-      headerRight={
-        spectrum?.saturated
-          ? <div className="flex min-w-0 flex-1 items-center justify-end gap-2 text-xs font-medium text-[var(--app-warning)]"><OctagonAlert className="size-3.5" />光谱饱和 · 请缩短积分时间</div>
-          : <div className="grid min-w-0 flex-1 grid-cols-3 items-center gap-4 py-0.5 text-center">
-          <div className="flex items-baseline justify-center gap-2">
-            <span className="text-xs text-muted-foreground">中心波长</span>
-            <div className="flex items-baseline gap-1 font-din leading-none">
-              <span className="text-2xl font-bold tabular-nums text-foreground">
-                {formatTrimmedNumber(spectrum?.peakWavelengthNm, 3)}
-              </span>
-              <span className="text-xs font-medium text-muted-foreground">nm</span>
-            </div>
-          </div>
-          <div className="flex items-baseline justify-center gap-2">
-            <span className="text-xs text-muted-foreground">FWHM</span>
-            <div className="flex items-baseline gap-1 font-din leading-none">
-              <span className="text-2xl font-bold tabular-nums text-foreground">
-                {formatTrimmedNumber(spectrum?.fwhmNm, 3)}
-              </span>
-              <span className="text-xs font-medium text-muted-foreground">nm</span>
-            </div>
-          </div>
-          <div className="flex items-baseline justify-center gap-2">
-            <span className="text-xs text-muted-foreground">PIB</span>
-            <div className="flex items-baseline gap-1 font-din leading-none">
-              <span className="text-2xl font-bold tabular-nums text-foreground">
-                {(() => {
-                  const pibVal = spectrum?.pib ?? spectrum?.pibPercent
-                  if (pibVal != null && Number.isFinite(pibVal)) {
-                    const percent = pibVal <= 1.0 ? pibVal * 100 : pibVal
-                    return formatTrimmedNumber(percent, 2)
-                  }
-                  return "--"
-                })()}
-              </span>
-              <span className="text-xs font-medium text-muted-foreground">%</span>
-            </div>
-          </div>
+      xLabel="波长 (nm)"
+      yLabel="强度 (a.u.)"
+      sidePanel={
+        <div className="spectrum-chart-summary">
+          <dl>
+            <div><dt>中心波长</dt><dd>{formatFixedNumber(spectrum?.peakWavelengthNm, 2)} <span>nm</span></dd></div>
+            <div><dt>FWHM</dt><dd>{formatFixedNumber(spectrum?.fwhmNm, 2)} <span>nm</span></dd></div>
+            <div><dt>PIB</dt><dd>{formatFixedNumber(spectrumPibPercent, 2)} <span>%</span></dd></div>
+          </dl>
+          {spectrum?.saturated && <p><OctagonAlert className="size-3.5" />光谱饱和</p>}
         </div>
       }
     />
@@ -1696,121 +1663,22 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
     && previousSpectrum?.spectrumWindow?.halfRangeNm === nextSpectrum?.spectrumWindow?.halfRangeNm
 })
 
-function StationStatusPill({
-  id,
-  summary,
-  isSelected,
-  onSelect,
-  disabled,
-}: {
-  id: "1" | "2"
-  summary?: StationSummary
-  isSelected: boolean
-  onSelect: () => void
-  disabled?: boolean
-}) {
-  const isRunning = [
-    "starting",
-    "setting_current",
-    "waiting_stable",
-    "waiting_voltage",
-    "saving_point",
-    "ramping_down",
-  ].includes(summary?.state ?? "")
-  const isCompleted = summary?.state === "completed"
-  const isPaused = summary?.state === "paused"
-  const isError = summary?.state === "error"
-  const isStation1 = id === "1"
-
-  const themeStyles = isSelected
-    ? isStation1
-      ? "border-sky-400 bg-sky-500/20 text-sky-200 ring-2 ring-sky-500/30 shadow-xs"
-      : "border-amber-400 bg-amber-500/20 text-amber-200 ring-2 ring-amber-500/30 shadow-xs"
-    : "border-border/60 bg-muted/20 text-muted-foreground hover:border-border hover:bg-muted/50 hover:text-foreground"
-
-  const dotColor = isRunning
-    ? "bg-emerald-400 animate-pulse"
-    : isCompleted
-    ? "bg-blue-400"
-    : isPaused || isError
-    ? "bg-amber-400 animate-pulse"
-    : isSelected
-    ? (isStation1 ? "bg-sky-400" : "bg-amber-400")
-    : (isStation1 ? "bg-sky-400/50" : "bg-amber-400/50")
-
-  const hasCurrent = typeof summary?.activeCurrentA === "number" && summary.activeCurrentA > 0.01
-
-  let badgeText = ""
-  let labelText = ""
-
-  if (isRunning) {
-    badgeText = `${(summary?.activeCurrentA ?? 0).toFixed(1)} A`
-    labelText = `测试中 (${Math.round((summary?.progress ?? 0) * 100)}%)`
-  } else if (hasCurrent) {
-    badgeText = `${summary?.activeCurrentA?.toFixed(1)} A`
-    labelText = "手动输出"
-  } else if (isPaused) {
-    badgeText = "暂停"
-    labelText = "等待重试"
-  } else if (isCompleted) {
-    badgeText = "完成"
-    labelText = "已归档"
-  } else if (isError) {
-    badgeText = "异常"
-    labelText = "设备报警"
-  } else if (summary?.powerSupplyConnected) {
-    badgeText = "在线"
-    labelText = "空闲"
-  } else {
-    badgeText = "待机"
-    labelText = ""
-  }
-
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onSelect}
-      className={`group relative flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all duration-150 ${themeStyles} ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
-    >
-      <div className="flex items-center gap-1.5">
-        <span className={`size-2 rounded-full ${dotColor}`} />
-        <span className={isSelected ? "font-bold text-foreground" : "font-medium"}>工位 {id}</span>
-      </div>
-      <div className="flex items-center gap-1.5">
-        <span className={`rounded px-1.5 py-0.5 text-[11px] font-mono font-medium ${
-          isSelected ? "bg-black/30 text-inherit" : "bg-background/60 text-muted-foreground"
-        }`}>
-          {badgeText}
-        </span>
-        {labelText && (
-          <span className="text-[11px] opacity-85">
-            {labelText}
-          </span>
-        )}
-      </div>
-    </button>
-  )
-}
-
 function AutomaticWorkflowStepper({
   state,
   currentIndex = -1,
   totalPoints = 0,
   dataPointCount = 0,
+  nextCurrentA,
 }: {
   state?: string
   currentIndex?: number
   totalPoints?: number
   dataPointCount?: number
+  nextCurrentA?: number
 }) {
-  const isRunning = Boolean(state && !["idle", "completed"].includes(state))
-  const isPaused = state === "paused"
-  const isRampingDown = state === "ramping_down"
-  const isSavingPoint = state === "saving_point"
+  const isIdle = !state || state === "idle"
   const isCompleted = state === "completed"
-  const pointNumber = Math.max(1, (currentIndex ?? -1) + 1)
-  const total = Math.max(1, totalPoints || 1)
+  const pointNumber = totalPoints > 0 ? Math.min(totalPoints, Math.max(1, currentIndex + 1)) : 0
   const previousDataPointCountRef = useRef(dataPointCount)
   const [dataFlashKey, setDataFlashKey] = useState(0)
 
@@ -1821,128 +1689,191 @@ function AutomaticWorkflowStepper({
     previousDataPointCountRef.current = dataPointCount
   }, [dataPointCount])
 
-  const step1Done = isRunning || isCompleted
-
-  const step2Active = state === "setting_current" && !isPaused
-  const step2Done = (["waiting_stable", "waiting_voltage", "saving_point"].includes(state ?? "") || isRampingDown || isCompleted) && !step2Active
-
-  const step3Active = state === "waiting_stable" && !isPaused
-  const step3Done = (["waiting_voltage", "saving_point"].includes(state ?? "") || isRampingDown || isCompleted) && !step3Active
-
-  const step4Active = state === "waiting_voltage" && !isPaused
-  const step4Done = (isSavingPoint || isRampingDown || isCompleted) && !step4Active
-
-  const step5Active = (isSavingPoint || isRampingDown) && !isPaused
-  const step5Done = isCompleted
+  const activeStep = state === "setting_current" ? 1
+    : state === "waiting_stable" || state === "paused" ? 2
+    : state === "waiting_voltage" ? 3
+    : state === "saving_point" ? 4
+    : state === "ramping_down" ? 5
+    : 0
+  const steps = [
+    { label: "就绪检查" },
+    { label: "加载电流" },
+    { label: "稳态判定" },
+    { label: "采集数据", flash: true },
+    { label: "保存本点" },
+    { label: state === "ramping_down" ? "降电归档" : "下一点", detail: typeof nextCurrentA === "number" ? `${formatTrimmedNumber(nextCurrentA, 2)} A` : undefined },
+  ]
 
   return (
-    <div className="flex w-full items-center justify-between gap-1.5 py-0.5 text-xs">
-      <div className="flex items-center gap-1.5 shrink-0">
-        <div
-          className={`flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-medium transition-all ${
-            step1Done
-              ? "border border-emerald-500/40 bg-emerald-500/20 text-emerald-600 dark:text-emerald-400"
-              : state === "idle"
-              ? "border border-border bg-muted text-foreground/80 font-bold"
-              : "border border-border bg-muted text-muted-foreground/60"
-          }`}
-        >
-          {step1Done ? "✓" : "1"}
-        </div>
-        <span className={`whitespace-nowrap text-xs ${step1Done ? "text-foreground/90 font-medium" : "text-muted-foreground/70"}`}>
-          就绪检查
-        </span>
+    <ol className="automatic-stepper" aria-label={`自动测试流程，当前第 ${pointNumber} 点，共 ${Math.max(0, totalPoints)} 个测试点`}>
+      {steps.map((step, index) => {
+        const done = isCompleted || (!isIdle && index < activeStep)
+        const active = !isIdle && !isCompleted && index === activeStep
+        return (
+          <li className={`automatic-step ${done ? "is-done" : ""} ${active ? "is-active" : ""} ${step.flash && dataFlashKey > 0 ? "workflow-data-flash" : ""}`} key={step.label}>
+            <div className="automatic-step__marker" aria-hidden="true">
+              {done ? <Check className="size-4" /> : active ? <LoaderCircle className="size-4 animate-spin" /> : <span>{index + 1}</span>}
+            </div>
+            <span className="automatic-step__label">{step.label}</span>
+            {step.detail && <span className="automatic-step__detail">{step.detail}</span>}
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
+function linearSlope(points: Array<{ currentA: number; powerW: number | null }>, minimumCurrentA: number, maximumCurrentA: number): number | null {
+  const samples = points.filter((point) => (
+    Number.isFinite(point.currentA)
+    && typeof point.powerW === "number"
+    && Number.isFinite(point.powerW)
+    && point.currentA >= minimumCurrentA
+    && point.currentA <= maximumCurrentA
+  )) as Array<{ currentA: number; powerW: number }>
+  if (samples.length < 2) return null
+  const meanCurrent = samples.reduce((sum, point) => sum + point.currentA, 0) / samples.length
+  const meanPower = samples.reduce((sum, point) => sum + point.powerW, 0) / samples.length
+  const denominator = samples.reduce((sum, point) => sum + (point.currentA - meanCurrent) ** 2, 0)
+  if (denominator <= 0) return null
+  return samples.reduce((sum, point) => sum + (point.currentA - meanCurrent) * (point.powerW - meanPower), 0) / denominator
+}
+
+function AutomaticMetricCard({ title, value, unit, detail, status, statusTone = "muted" }: {
+  title: string
+  value: string
+  unit: string
+  detail: string
+  status: string
+  statusTone?: "success" | "active" | "danger" | "muted"
+}) {
+  return (
+    <div className="automatic-metric-card">
+      <p className="automatic-metric-card__title">{title}</p>
+      <div className="automatic-metric-card__value">
+        <span>{value}</span><span className="automatic-metric-card__unit">{unit}</span>
       </div>
+      <p className="automatic-metric-card__detail">{detail}</p>
+      <p className={`automatic-metric-card__status is-${statusTone}`}>
+        {statusTone === "success" && <Check className="size-3.5" />}
+        {statusTone === "danger" && <OctagonAlert className="size-3.5" />}
+        {status}
+      </p>
+    </div>
+  )
+}
 
-      <div className="mx-1 h-[1px] w-3 bg-border/80 shrink-0" />
+function AppFooter() {
+  const [now, setNow] = useState(() => new Date())
 
-      <div className={`flex flex-1 items-center justify-between gap-2 rounded-lg border px-2.5 py-1 transition-colors ${
-        isCompleted
-          ? "border-emerald-500/30 bg-emerald-500/5"
-          : "border-border/70 bg-muted/10"
-      }`}>
-        <div className="flex items-center gap-1 shrink-0">
-          <span className={`rounded border px-1.5 py-0.5 font-mono text-[10px] font-medium tracking-tight uppercase ${
-            isRunning && !isRampingDown && !isSavingPoint
-              ? "border-primary/20 bg-primary/10 text-primary"
-              : isCompleted
-              ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-              : "border-border/60 bg-background/30 text-muted-foreground/70"
-          }`}>
-            {isCompleted ? "全部点完成" : isRunning && !isRampingDown && !isSavingPoint ? `⟳ 点 ${pointNumber}/${total}` : "循环测试区"}
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  const timestamp = now.toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).replace(/\//g, "-")
+
+  return (
+    <footer className="app-status-footer" aria-label="应用状态">
+      <span>软件版本&nbsp;&nbsp;v{packageMetadata.version}</span>
+      <span className="app-status-footer__time"><Clock3 className="size-3.5" />{timestamp}</span>
+      <span className="app-status-footer__tip"><Lightbulb className="size-3.5" />测试提示：保持光纤清洁，避免弯折以确保测量稳定性。</span>
+    </footer>
+  )
+}
+
+function AppTitlebar({
+  active,
+  canEnd,
+  commandPending,
+  controlsLocked,
+  dirty,
+  pendingCommand,
+  run,
+  saveConfiguration,
+}: {
+  active: boolean
+  canEnd: boolean
+  commandPending: boolean
+  controlsLocked: boolean
+  dirty: boolean
+  pendingCommand: string | null
+  run: (method: string) => Promise<void>
+  saveConfiguration: () => Promise<void>
+}) {
+  return (
+    <header className="app-titlebar" data-tauri-drag-region>
+      <div className="app-titlebar__brand" data-tauri-drag-region>
+        <span data-tauri-drag-region>Power Test</span>
+        {commandPending && (
+          <span className="app-titlebar__pending">
+            <LoaderCircle className="size-3.5 animate-spin text-primary" />
+            {pendingCommandLabel(pendingCommand)}
           </span>
-        </div>
-
-        <div className="flex min-w-0 flex-1 items-center justify-around gap-1">
-          <div className={`flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 transition-colors ${step2Active ? "border-primary/20 bg-primary/10" : "border-transparent"}`}>
-            <span className={`size-2 shrink-0 rounded-full transition-colors ${
-              step2Active
-                ? "bg-primary animate-pulse"
-                : step2Done
-                ? "bg-emerald-500/70"
-                : isPaused
-                ? "bg-amber-500 animate-pulse"
-                : "bg-muted-foreground/30"
-            }`} />
-            <span className={`whitespace-nowrap text-[11px] transition-colors ${step2Active ? "font-medium text-foreground" : step2Done ? "text-foreground/75" : "text-muted-foreground/70"}`}>
-              加载电流
-            </span>
-          </div>
-
-          <div className="h-px min-w-2 flex-1 bg-border/60" />
-
-          <div className={`flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 transition-colors ${step3Active ? "border-primary/20 bg-primary/10" : "border-transparent"}`}>
-            <span className={`size-2 shrink-0 rounded-full transition-colors ${
-              step3Active
-                ? "bg-primary animate-pulse"
-                : step3Done
-                ? "bg-emerald-500/70"
-                : isPaused
-                ? "bg-amber-500 animate-pulse"
-                : "bg-muted-foreground/30"
-            }`} />
-            <span className={`whitespace-nowrap text-[11px] transition-colors ${step3Active ? "font-medium text-foreground" : step3Done ? "text-foreground/75" : "text-muted-foreground/70"}`}>
-              稳态判定
-            </span>
-          </div>
-
-          <div className="h-px min-w-2 flex-1 bg-border/60" />
-
-          <div className={`flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 transition-colors ${step4Active ? "border-primary/20 bg-primary/10" : "border-transparent"} ${dataFlashKey > 0 ? "workflow-data-flash" : ""}`} key={dataFlashKey}>
-            <span className={`size-2 shrink-0 rounded-full transition-colors ${
-              step4Active
-                ? "bg-primary animate-pulse"
-                : step4Done
-                ? "bg-emerald-500/70"
-                : isPaused
-                ? "bg-amber-500 animate-pulse"
-                : "bg-muted-foreground/30"
-            }`} />
-            <span className={`whitespace-nowrap text-[11px] transition-colors ${step4Active ? "font-medium text-foreground" : step4Done ? "text-foreground/75" : "text-muted-foreground/70"}`}>
-              数据采集
-            </span>
-          </div>
-        </div>
+        )}
       </div>
-
-      <div className="mx-1 h-[1px] w-3 bg-border/80 shrink-0" />
-
-      <div className="flex items-center gap-1.5 shrink-0">
-        <div
-          className={`flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-medium transition-all ${
-            step5Done
-              ? "border border-emerald-500/40 bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-bold"
-              : step5Active
-              ? "bg-primary text-primary-foreground font-bold animate-pulse ring-2 ring-primary/30"
-              : "border border-border bg-muted text-muted-foreground/60"
-          }`}
+      <div className="app-titlebar__actions">
+        {canEnd && (
+          <Button disabled={!active || commandPending} onClick={() => void run("automatic.end")} size="sm" variant="outline">
+            <Square className="size-4" />结束测试
+          </Button>
+        )}
+        <Button
+          disabled={!dirty || !active || commandPending || controlsLocked}
+          onClick={() => void saveConfiguration()}
+          size="sm"
+          variant="outline"
         >
-          {step5Done ? "✓" : "3"}
-        </div>
-        <span className={`whitespace-nowrap text-xs ${step5Active ? "font-bold text-primary" : step5Done ? "text-foreground/90 font-medium" : "text-muted-foreground/70"}`}>
-          降电归档
-        </span>
+          <Save className="size-4" />保存设置
+        </Button>
+        <Button
+          className="app-emergency-stop"
+          disabled={!active}
+          onClick={() => void run("app.stopAll")}
+          size="sm"
+          variant="outline"
+        >
+          <OctagonAlert className="size-4" />紧急停止
+        </Button>
       </div>
+    </header>
+  )
+}
+
+function StabilitySummary({ snapshot, config }: { snapshot: BackendSnapshot | null; config: AppConfiguration }) {
+  const powerPoints = snapshot?.measurements?.power ?? []
+  const latestPoint = powerPoints[powerPoints.length - 1]
+  const latestElapsedS = latestPoint?.elapsedS
+  const windowStartS = typeof latestElapsedS === "number" ? latestElapsedS - config.stableWindowS : 0
+  const windowPoints = typeof latestElapsedS === "number" ? powerPoints.filter((point) => point.elapsedS >= windowStartS) : []
+  const fluctuationW = windowPoints.length > 1
+    ? Math.max(...windowPoints.map((point) => point.powerW)) - Math.min(...windowPoints.map((point) => point.powerW))
+    : null
+  const measuredWindowS = windowPoints.length > 1
+    ? Math.max(0, windowPoints[windowPoints.length - 1].elapsedS - windowPoints[0].elapsedS)
+    : 0
+  const meter = snapshot?.devices.powerMeter
+  const evaluating = snapshot?.automaticTest.state === "waiting_stable"
+  const stable = meter?.stable && !evaluating
+  const status = meter?.running ? (stable ? "稳态已达成" : "稳态判定中") : "等待功率采集"
+
+  return (
+    <div className="automatic-stability">
+      <p className={`automatic-stability__title ${stable ? "is-success" : meter?.running ? "is-active" : ""}`}>{status}</p>
+      <dl className="automatic-stability__values">
+        <div><dt>实时功率</dt><dd>{formatFixedNumber(meter?.powerW ?? latestPoint?.powerW, 3)} <span>W</span></dd></div>
+        <div><dt>窗口波动</dt><dd>{fluctuationW === null ? "--" : formatFixedNumber(fluctuationW, 3)} <span>W</span></dd></div>
+        <div><dt>稳定窗口</dt><dd>{formatFixedNumber(Math.min(measuredWindowS, config.stableWindowS), 1)} / {formatFixedNumber(config.stableWindowS, 1)} <span>s</span></dd></div>
+      </dl>
+      <p className="automatic-stability__threshold">允许波动 ≤ {formatFixedNumber(config.stableToleranceW, 3)} W</p>
     </div>
   )
 }
@@ -2242,94 +2173,47 @@ function App() {
   const spectrumSaturationNotification = visibleNotifications.find((notification) => notification.title === "光谱饱和")
   const activeAlertNotification = powerProtectionNotification ?? spectrumSaturationNotification
   const toastNotifications = visibleNotifications.filter((notification) => notification !== powerProtectionNotification && notification !== spectrumSaturationNotification)
-  const title = navigation.find((item) => item.id === page)?.label ?? "自动测试"
-
   return (
-    <div className="h-screen bg-background text-foreground overflow-hidden">
-      <div className="grid h-screen grid-cols-[130px_minmax(0,1fr)] overflow-hidden">
-        <aside className="shell-sidebar-enter flex h-screen min-h-0 flex-col border-r border-border bg-[var(--app-sidebar)] px-2 py-4 text-[var(--app-text)]">
-          <p className="px-2 font-semibold uppercase tracking-[0.1em] text-[var(--app-text-tertiary)] text-xs">工作区</p>
-          <nav className="mt-2.5 space-y-1.5">
-            {navigation.map((item, index) => (
+    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+      <AppTitlebar
+        active={active}
+        canEnd={Boolean(page === "automatic" && snapshot?.automaticTest.canEnd)}
+        commandPending={commandPending}
+        controlsLocked={automaticInteractionLocked}
+        dirty={dirty}
+        pendingCommand={pendingCommand}
+        run={run}
+        saveConfiguration={saveConfiguration}
+      />
+      <div className="grid min-h-0 flex-1 grid-cols-[clamp(184px,12.7vw,212px)_minmax(0,1fr)] overflow-hidden">
+        <aside className="shell-sidebar-enter flex h-full min-h-0 flex-col border-r border-border bg-[var(--app-sidebar)] px-3 py-4 text-[var(--app-text)]">
+          <nav className="space-y-1.5">
+            {navigation.map((item) => (
               <button
                 aria-current={page === item.id ? "page" : undefined}
-                aria-keyshortcuts={`Meta+${index + 1} Control+${index + 1}`}
-                className={`app-nav-item relative flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2.5 text-sm outline-none transition-[color,background-color,box-shadow] duration-200 before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:origin-center before:rounded-full before:bg-primary before:transition-transform before:duration-200 focus-visible:ring-2 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:text-[var(--app-text-tertiary)] disabled:opacity-45 ${page === item.id ? "bg-[var(--app-selected-soft)] font-medium text-[var(--app-text)] before:scale-y-100" : "text-[var(--app-text-tertiary)] before:scale-y-0 hover:bg-[var(--app-hover-soft)] hover:text-[var(--app-text-secondary)] disabled:hover:bg-transparent"}`}
-                disabled={pageIsBlocked(item.id)}
+                aria-keyshortcuts={"shortcut" in item ? `Meta+${item.shortcut} Control+${item.shortcut}` : undefined}
+                className={`app-nav-item relative flex w-full items-center gap-3 rounded-lg px-3 py-3 text-[15px] outline-none transition-[color,background-color,box-shadow] duration-200 before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:origin-center before:rounded-full before:bg-primary before:transition-transform before:duration-200 focus-visible:ring-2 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:text-[var(--app-text-tertiary)] ${page === item.id ? "bg-[var(--app-selected-soft)] font-medium text-[var(--app-text)] before:scale-y-100" : "text-[var(--app-text-tertiary)] before:scale-y-0 hover:bg-[var(--app-hover-soft)] hover:text-[var(--app-text-secondary)] disabled:hover:bg-transparent"}`}
+                disabled={"unavailable" in item || pageIsBlocked(item.id)}
                 key={item.id}
-                onClick={() => changePage(item.id)}
+                onClick={() => { if (!("unavailable" in item)) changePage(item.id) }}
                 title={
-                  manualPowerOutputActive && item.id === "automatic"
+                  "unavailable" in item
+                    ? `${item.label}功能尚未接入`
+                    : manualPowerOutputActive && item.id === "automatic"
                     ? "手动电源正在输出，请先在手动配置中将电流归零"
-                    : `${item.label}（⌘/Ctrl + ${index + 1}）`
+                    : `${item.label}（⌘/Ctrl + ${item.shortcut}）`
                 }
                 type="button"
               >
-                <item.icon className="app-nav-icon size-4.5 shrink-0" /><span className="whitespace-nowrap font-medium">{item.label}</span>
+                <item.icon className="app-nav-icon size-5 shrink-0" /><span className="whitespace-nowrap font-medium">{item.label}</span>
               </button>
             ))}
           </nav>
         </aside>
 
-        <main className="flex h-screen min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          <header className="shell-header-enter shrink-0 z-40 flex h-14 items-center justify-between border-b border-border bg-[var(--app-header-bg)] px-5 backdrop-blur-md">
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <h1 className="text-base font-semibold tracking-tight" key={page}>{title}</h1>
-                <Badge variant="outline" className={active ? "border-[color-mix(in_srgb,var(--app-verified)_24%,transparent)] bg-[var(--app-verified-soft)] text-[var(--app-verified)] text-xs" : "border-[color-mix(in_srgb,var(--app-warning)_24%,transparent)] bg-[var(--app-warning-soft)] text-[var(--app-warning)] text-xs"}>
-                  {active ? "控制器已接入" : "只读兼容模式"}
-                </Badge>
-              </div>
-              {commandPending && (
-                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <LoaderCircle className="size-3.5 animate-spin text-primary" />
-                  {pendingCommandLabel(pendingCommand)}
-                </span>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2">
-              <StationStatusPill
-                id="1"
-                summary={snapshot?.stations?.["1"]}
-                isSelected={stationId === "1"}
-                onSelect={() => setStationId("1")}
-                disabled={automaticInteractionLocked}
-              />
-              <StationStatusPill
-                id="2"
-                summary={snapshot?.stations?.["2"]}
-                isSelected={stationId === "2"}
-                onSelect={() => setStationId("2")}
-                disabled={automaticInteractionLocked}
-              />
-            </div>
-
-            <div className="flex items-center gap-2">
-              <Button
-                aria-hidden={!dirty}
-                className={`transition-opacity duration-200 ${dirty ? "opacity-100" : "pointer-events-none opacity-0"}`}
-                disabled={!dirty || !active || commandPending || automaticInteractionLocked}
-                onClick={() => void saveConfiguration()}
-                size="sm"
-                tabIndex={dirty && !automaticInteractionLocked ? 0 : -1}
-                variant="outline"
-              >
-                <Save className="size-4" />保存设置
-              </Button>
-              <Button
-                disabled={!active}
-                onClick={() => void run("app.stopAll")}
-                size="sm"
-                variant="destructive"
-              >
-                <OctagonAlert className="size-4" />紧急停止
-              </Button>
-            </div>
-          </header>
-
+        <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           {toastNotifications.length > 0 && (
-            <div className="pointer-events-none fixed right-4 top-16 z-50 flex w-[min(420px,calc(100vw-2rem))] flex-col gap-2">
+            <div className="pointer-events-none fixed right-4 top-14 z-50 flex w-[min(420px,calc(100vw-2rem))] flex-col gap-2">
               {toastNotifications.map((notification) => {
                 const isError = notification.level === "error"
                 const isWarning = notification.level === "warning"
@@ -2367,17 +2251,18 @@ function App() {
           {closeFailure && <ShutdownFailureDialog message={closeFailure} onCancel={cancelClose} onForceExit={() => void forceClose()} onRetry={() => void attemptGracefulClose()} pending={closeRequestPending} />}
 
           <div
-            className={`page-enter flex flex-1 min-h-0 flex-col overflow-y-auto p-4 ${page === "automatic" || page === "manual" ? "gap-3" : "space-y-4"}`}
+            className={`page-enter flex flex-1 min-h-0 flex-col overflow-y-auto ${page === "automatic" ? "gap-2 px-3 py-0" : page === "manual" ? "gap-3 p-4" : "space-y-4 p-4"}`}
             data-page={page}
             key={page}
           >
-            {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={active} controlsLocked={automaticInteractionLocked} pending={commandPending} readyCount={devicesReady} readyTotal={requiredDevices} run={run} saveConfiguration={saveConfiguration} historyItems={automaticHistoryItems} historyLoading={automaticHistoryLoading} historyError={automaticHistoryError} referencePath={automaticReferencePath} onReferencePathChange={setAutomaticReferencePath} stationId={stationId} />}
+            {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={active} controlsLocked={automaticInteractionLocked} pending={commandPending} readyCount={devicesReady} readyTotal={requiredDevices} run={run} saveConfiguration={saveConfiguration} historyItems={automaticHistoryItems} historyLoading={automaticHistoryLoading} historyError={automaticHistoryError} referencePath={automaticReferencePath} onReferencePathChange={setAutomaticReferencePath} stationId={stationId} onStationChange={setStationId} />}
             {page === "manual" && <ManualPage snapshot={snapshot} config={config} update={update} active={active} pending={commandPending} run={run} stationId={stationId} />}
             {page === "pd" && <PdPage snapshot={snapshot} active={active} pending={commandPending} run={run} />}
             {page === "shipping" && <ShippingReportPage active={active} controlsLocked={automaticInteractionLocked} pending={commandPending} />}
           </div>
         </main>
       </div>
+      <AppFooter />
     </div>
   )
 }
@@ -3269,7 +3154,8 @@ const AutomaticPage = memo(function AutomaticPage({
   historyError,
   referencePath,
   onReferencePathChange,
-  stationId: _stationId,
+  stationId,
+  onStationChange,
 }: {
   snapshot: BackendSnapshot | null
   config: AppConfiguration
@@ -3286,7 +3172,8 @@ const AutomaticPage = memo(function AutomaticPage({
   historyError: string
   referencePath: string
   onReferencePathChange: (path: string) => void
-  stationId?: "1" | "2"
+  stationId: "1" | "2"
+  onStationChange: (stationId: "1" | "2") => void
 }) {
   const auto = snapshot?.automaticTest
   const testStarted = Boolean(auto && auto.state !== "idle")
@@ -3312,6 +3199,32 @@ const AutomaticPage = memo(function AutomaticPage({
   const spectrometerSummary = config.useSpectrometer
     ? `${config.integrationTimeUs} μs · PIB ${config.pibCenterWavelengthNm}±${config.pibHalfRangeNm}nm`
     : "未启用光谱采集"
+  const totalPoints = auto?.currents?.length ?? 0
+  const currentPointNumber = totalPoints > 0 ? Math.min(totalPoints, Math.max(1, (auto?.currentIndex ?? 0) + 1)) : 0
+  const completedPoints = auto?.state === "completed"
+    ? Math.min(totalPoints, snapshot?.measurements?.stable.length ?? 0)
+    : Math.min(totalPoints, Math.max(0, auto?.currentIndex ?? 0), snapshot?.measurements?.stable.length ?? 0)
+  const nextCurrentA = auto?.currents?.[(auto?.currentIndex ?? -1) + 1]
+  const powerPoints = snapshot?.measurements?.power ?? []
+  const latestPowerW = snapshot?.devices.powerMeter.powerW ?? powerPoints[powerPoints.length - 1]?.powerW
+  const latestPowerElapsedS = powerPoints[powerPoints.length - 1]?.elapsedS
+  const recentPowerPoints = typeof latestPowerElapsedS === "number"
+    ? powerPoints.filter((point) => point.elapsedS >= latestPowerElapsedS - config.stableWindowS)
+    : []
+  const recentPowerMinimumW = recentPowerPoints.length ? Math.min(...recentPowerPoints.map((point) => point.powerW)) : null
+  const recentPowerMaximumW = recentPowerPoints.length ? Math.max(...recentPowerPoints.map((point) => point.powerW)) : null
+  const stablePoints = snapshot?.measurements?.stable ?? []
+  const latestStablePoint = stablePoints[stablePoints.length - 1]
+  const slopeEfficiency = linearSlope(stablePoints, 2, 8)
+  const spectrometer = snapshot?.devices.spectrometer
+  const pibValue = spectrometer?.pib ?? spectrometer?.pibPercent
+  const pibPercent = typeof pibValue === "number" && Number.isFinite(pibValue) ? (pibValue <= 1 ? pibValue * 100 : pibValue) : null
+  const hasSpectrumMetrics = typeof spectrometer?.peakWavelengthNm === "number"
+  const metricStatus = testStarted ? "已更新" : "等待测试"
+  const centerWavelengthPass = hasSpectrumMetrics && Math.abs((spectrometer?.peakWavelengthNm ?? 0) - config.pibCenterWavelengthNm) <= config.pibHalfRangeNm
+  const fwhmPass = typeof spectrometer?.fwhmNm === "number" && spectrometer.fwhmNm <= AUTOMATIC_RESULT_SPEC.fwhmMaximumNm
+  const pibPass = pibPercent !== null && pibPercent >= AUTOMATIC_RESULT_SPEC.pibMinimumPercent
+  const slopePass = slopeEfficiency !== null && slopeEfficiency >= AUTOMATIC_RESULT_SPEC.slopeEfficiencyMinimumWPerA
 
   const chooseOutputDir = async () => {
     if (controlsLocked) return
@@ -3332,7 +3245,7 @@ const AutomaticPage = memo(function AutomaticPage({
 
   return (
     <>
-      <div className="relative z-20 shrink-0 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[minmax(180px,1.2fr)_minmax(150px,1.1fr)_minmax(110px,0.8fr)_minmax(170px,1.3fr)_136px] items-end gap-3 rounded-lg border border-border/70 bg-card/40 p-3 shadow-none">
+      <div className="automatic-setup-panel relative z-20 shrink-0 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[minmax(280px,1.25fr)_minmax(200px,1fr)_minmax(150px,0.75fr)_minmax(200px,0.95fr)_190px] items-end gap-3 rounded-lg border border-border/70 bg-card/40 p-3 shadow-none">
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground" htmlFor="automatic-output-directory">
             <FolderOpen className="mr-1 inline size-3.5" />输出目录
@@ -3361,7 +3274,7 @@ const AutomaticPage = memo(function AutomaticPage({
         </div>
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground" htmlFor="automatic-sn">
-            <QrCode className="mr-1 inline size-3.5" />壳体 SN
+            <QrCode className="mr-1 inline size-3.5" />产品 SN
           </Label>
           <Input
             className="h-9 text-xs font-mono rounded-lg"
@@ -3375,13 +3288,29 @@ const AutomaticPage = memo(function AutomaticPage({
           <Label className="text-xs text-muted-foreground" htmlFor="automatic-station">
             <Milestone className="mr-1 inline size-3.5" />测试站别
           </Label>
-          <Input
-            className="h-9 text-xs rounded-lg"
-            disabled={controlsLocked}
-            id="automatic-station"
-            onChange={(event) => update("station", event.target.value)}
-            value={config.station}
-          />
+          <div className="automatic-station-field">
+            <Input
+              className="h-9 min-w-0 flex-1 rounded-r-none border-0 bg-transparent text-xs shadow-none focus-visible:ring-0"
+              disabled={controlsLocked}
+              id="automatic-station"
+              onChange={(event) => update("station", event.target.value)}
+              value={config.station}
+            />
+            <div className="automatic-station-field__switch" aria-label="测试工位">
+              {(["1", "2"] as const).map((id) => (
+                <button
+                  aria-pressed={stationId === id}
+                  className={stationId === id ? "is-active" : ""}
+                  disabled={controlsLocked}
+                  key={id}
+                  onClick={() => onStationChange(id)}
+                  type="button"
+                >
+                  {id}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
         <div className="space-y-1 min-w-0" title={historyError || undefined}>
           <Label className={`text-xs ${historyError ? "text-[var(--app-warning)]" : "text-muted-foreground"}`}>
@@ -3412,13 +3341,13 @@ const AutomaticPage = memo(function AutomaticPage({
             onClick={() => update("useSpectrometer", !config.useSpectrometer)}
             className={`flex h-9 w-full items-center justify-between gap-2 rounded-lg border px-3 text-xs transition-all ${
               controlsLocked
-                ? "cursor-not-allowed opacity-50 border-border bg-muted/20 text-muted-foreground"
+                ? "cursor-not-allowed border-border bg-muted/20 text-muted-foreground"
                 : config.useSpectrometer
                 ? "cursor-pointer border-primary/50 bg-primary/15 text-primary font-medium hover:bg-primary/20 shadow-xs"
                 : "cursor-pointer border-input bg-background text-muted-foreground hover:border-[var(--app-border-strong)] hover:bg-muted/25 hover:text-foreground"
             }`}
           >
-            <span className="font-medium">{config.useSpectrometer ? "已开启" : "已关闭"}</span>
+            <span className="font-medium">{config.useSpectrometer ? "开启" : "关闭"}</span>
             <div className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors p-0.5 ${
               config.useSpectrometer ? "bg-primary" : "bg-muted-foreground/30"
             }`}>
@@ -3436,87 +3365,110 @@ const AutomaticPage = memo(function AutomaticPage({
         <DeviceCard title="光谱仪" icon={<Radio className="size-4" />} device={snapshot?.devices.spectrometer} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("spectrometer")} summary={spectrometerSummary} />
       </section>
 
-      <Card className="shadow-none border-border/80 shrink-0" size="sm">
-        <CardContent className="flex flex-col gap-3 py-3 xl:flex-row xl:items-center xl:justify-between min-h-[58px]">
-          <div className="flex flex-col justify-center items-center text-center w-full xl:w-48 shrink-0 min-w-0">
+      <Card className="automatic-workflow-card shadow-none border-border/80 shrink-0" size="sm">
+        <CardContent className="automatic-workflow-card__content">
+          <div className="automatic-run-summary">
             {testStarted ? (
               <>
-                <p className="text-2xl font-bold font-din text-foreground tabular-nums leading-tight">
-                  {formatNumber(displayedCurrentA, " A", 1)}
-                </p>
-                <p className="w-full text-xs truncate text-muted-foreground px-1" title={progressLabel}>
-                  {progressLabel}
-                </p>
+                <div className="automatic-run-summary__current"><span>{formatFixedNumber(displayedCurrentA, 2)}</span><span>A</span></div>
+                <p>当前第 {currentPointNumber} / {totalPoints} 点</p>
+                <p>已完成 {completedPoints} / {totalPoints}</p>
               </>
             ) : (
               <>
-                <p className={`text-base font-bold tracking-tight tabular-nums leading-tight ${
-                  readyCount === readyTotal ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"
-                }`}>
-                  {readyCount === readyTotal
-                    ? `✓ ${readyTotal} 台设备就绪`
-                    : `${readyCount} / ${readyTotal} 台设备就绪`}
-                </p>
-                <p className={`w-full text-xs truncate px-1 ${auto?.settingsError ? "text-[var(--app-warning)] font-medium" : "text-muted-foreground"}`} title={progressLabel}>
-                  {progressLabel}
-                </p>
+                <p className={`automatic-run-summary__ready ${readyCount === readyTotal ? "is-ready" : ""}`}>{readyCount} / {readyTotal} 台设备就绪</p>
+                <p className={auto?.settingsError ? "text-[var(--app-warning)]" : ""} title={progressLabel}>{progressLabel}</p>
               </>
             )}
+            <div className="automatic-workflow-card__actions">
+              {auto?.canRetry && (
+                <Button disabled={!active || pending} onClick={() => void run("automatic.retry")} size="sm" variant="outline">
+                  <RotateCcw className="size-4" />重试
+                </Button>
+              )}
+              {!auto?.canEnd && (
+                <Button
+                  disabled={!active || pending || controlsLocked || historyLoading || !auto?.canStart}
+                  onClick={startAutomaticTest}
+                  size="sm"
+                >
+                  <Play className="size-4" />开始测试
+                </Button>
+              )}
+            </div>
           </div>
 
-          <div className="min-w-0 flex-1 border-t xl:border-t-0 xl:border-x border-border/70 py-2 xl:py-0 xl:px-4 flex items-center justify-center">
+          <div className="automatic-workflow-card__steps">
             <AutomaticWorkflowStepper
               state={auto?.state}
               currentIndex={auto?.currentIndex}
-              totalPoints={auto?.currents?.length}
+              totalPoints={totalPoints}
               dataPointCount={snapshot?.measurements?.stable.length}
+              nextCurrentA={nextCurrentA}
             />
           </div>
 
-          <div className="flex items-center justify-center xl:justify-end gap-2 shrink-0">
-            {auto?.canRetry && (
-              <Button disabled={!active || pending} onClick={() => void run("automatic.retry")} size="sm" variant="outline">
-                <RotateCcw className="size-4 mr-1" />重试
-              </Button>
-            )}
-            <Button
-              className="h-9 min-w-24 gap-1.5 px-4 font-medium transition-all"
-              disabled={!active || pending || controlsLocked || historyLoading || !auto?.canStart}
-              onClick={startAutomaticTest}
-            >
-              <Play className="size-4" />开始测试
-            </Button>
-            <Button
-              className={`h-9 min-w-20 gap-1.5 px-4 transition-all ${
-                auto?.state && !["idle", "completed"].includes(auto?.state) ? "btn-running-pulse" : ""
-              }`}
-              disabled={!active || pending || !auto?.canEnd}
-              onClick={() => void run("automatic.end")}
-              variant="destructive"
-            >
-              <Square className="size-4" />结束
-            </Button>
+          <div className="automatic-workflow-card__stability">
+            <StabilitySummary config={config} snapshot={snapshot} />
           </div>
         </CardContent>
       </Card>
 
-      <div className={`grid min-h-[360px] flex-1 gap-3 ${config.useSpectrometer ? "grid-rows-2" : "grid-rows-1"}`}>
-        <section className="grid min-h-0 grid-cols-1 gap-3 lg:grid-cols-2">
-          <PowerRealtimeChart snapshot={snapshot} stretch />
-          <PowerEfficiencyChart snapshot={snapshot} stretch />
-        </section>
-        {config.useSpectrometer && (
-          <div className="min-h-0">
-            <SpectrumRealtimeChart snapshot={snapshot} stretch />
-          </div>
-        )}
-      </div>
+      <section className={`automatic-chart-grid ${config.useSpectrometer ? "" : "without-spectrum"}`}>
+        <PowerRealtimeChart snapshot={snapshot} stretch />
+        <PowerEfficiencyChart snapshot={snapshot} stretch />
+        {config.useSpectrometer && <SpectrumRealtimeChart snapshot={snapshot} stretch />}
+      </section>
+
+      <section className="automatic-metric-grid" aria-label="自动测试关键指标">
+        <AutomaticMetricCard
+          title={`当前点功率${typeof auto?.currentA === "number" ? ` @ ${formatTrimmedNumber(auto.currentA, 2)} A` : ""}`}
+          value={formatFixedNumber(latestPowerW, 3)}
+          unit="W"
+          detail={recentPowerMinimumW !== null && recentPowerMaximumW !== null ? `稳定范围 ${formatFixedNumber(recentPowerMinimumW, 3)} ~ ${formatFixedNumber(recentPowerMaximumW, 3)} W` : typeof latestStablePoint?.powerW === "number" ? `最近稳态 ${formatFixedNumber(latestStablePoint.powerW, 3)} W` : "尚无稳态记录"}
+          status={auto?.state === "waiting_stable" ? "当前点判定：进行中" : snapshot?.devices.powerMeter.stable ? "当前点判定：PASS" : metricStatus}
+          statusTone={auto?.state === "waiting_stable" ? "active" : snapshot?.devices.powerMeter.stable ? "success" : testStarted ? "active" : "muted"}
+        />
+        <AutomaticMetricCard
+          title="中心波长"
+          value={formatFixedNumber(spectrometer?.peakWavelengthNm, 2)}
+          unit="nm"
+          detail={`规格 ${formatFixedNumber(config.pibCenterWavelengthNm, 1)} ± ${formatFixedNumber(config.pibHalfRangeNm, 1)} nm`}
+          status={hasSpectrumMetrics ? (centerWavelengthPass ? "PASS" : "FAIL") : "等待光谱"}
+          statusTone={hasSpectrumMetrics ? (centerWavelengthPass ? "success" : "danger") : "muted"}
+        />
+        <AutomaticMetricCard
+          title="FWHM"
+          value={formatFixedNumber(spectrometer?.fwhmNm, 2)}
+          unit="nm"
+          detail={`规格 ≤ ${formatFixedNumber(AUTOMATIC_RESULT_SPEC.fwhmMaximumNm, 2)} nm`}
+          status={typeof spectrometer?.fwhmNm === "number" ? (fwhmPass ? "PASS" : "FAIL") : "等待光谱"}
+          statusTone={typeof spectrometer?.fwhmNm === "number" ? (fwhmPass ? "success" : "danger") : "muted"}
+        />
+        <AutomaticMetricCard
+          title="PIB"
+          value={formatFixedNumber(pibPercent, 2)}
+          unit="%"
+          detail={`规格 ≥ ${formatFixedNumber(AUTOMATIC_RESULT_SPEC.pibMinimumPercent, 0)} %`}
+          status={pibPercent !== null ? (pibPass ? "PASS" : "FAIL") : "等待光谱"}
+          statusTone={pibPercent !== null ? (pibPass ? "success" : "danger") : "muted"}
+        />
+        <AutomaticMetricCard
+          title="斜率效率（2–8 A）"
+          value={formatFixedNumber(slopeEfficiency, 3)}
+          unit="W/A"
+          detail={`规格 ≥ ${formatFixedNumber(AUTOMATIC_RESULT_SPEC.slopeEfficiencyMinimumWPerA, 2)} W/A`}
+          status={slopeEfficiency !== null ? (slopePass ? "PASS" : "FAIL") : "至少需要 2 个点"}
+          statusTone={slopeEfficiency !== null ? (slopePass ? "success" : "danger") : "muted"}
+        />
+      </section>
       {openSettings && <DeviceSettingsDialog active={active} config={config} kind={openSettings} onClose={closeSettings} onSave={saveConfiguration} open pending={pending} run={run} snapshot={snapshot} update={update} />}
     </>
   )
 }, (previous, next) => (
   previous.active === next.active
   && previous.stationId === next.stationId
+  && previous.onStationChange === next.onStationChange
   && previous.controlsLocked === next.controlsLocked
   && previous.pending === next.pending
   && previous.readyCount === next.readyCount

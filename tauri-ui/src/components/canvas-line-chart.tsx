@@ -11,6 +11,8 @@ export type CanvasChartLine = {
   pointStyle?: "solid" | "hollow"
   pointSize?: number
   lineWidth?: number
+  dash?: number[]
+  hideLegend?: boolean
 }
 
 export type CanvasChartAnnotation = {
@@ -41,6 +43,8 @@ type CanvasLineChartProps = {
   annotations?: CanvasChartAnnotation[]
   ariaLabel: string
   preserveAllPoints?: boolean
+  xLabel?: string
+  yLabel?: string
 }
 
 type ChartSize = { width: number; height: number }
@@ -198,12 +202,14 @@ function buildLayout(
   xTicks?: number[],
   yDomain?: [number, number],
   rightYDomain?: [number, number],
+  xLabel?: string,
+  yLabel?: string,
 ): ChartLayout {
   const hasRightAxis = lines.some((line) => line.yAxisId === "right")
   const left = 64
   const right = hasRightAxis ? 60 : 20
-  const top = 12
-  const bottom = 30
+  const top = yLabel ? 28 : 12
+  const bottom = xLabel ? 44 : 30
   const plotHeight = Math.max(1, size.height - top - bottom)
   const verticalTickTarget = Math.min(5, Math.max(2, Math.floor(plotHeight / 36)))
   const xValues: number[] = []
@@ -340,6 +346,8 @@ function drawBaseChart(
   xKey: string,
   lines: CanvasChartLine[],
   annotations: CanvasChartAnnotation[],
+  xLabel?: string,
+  yLabel?: string,
 ): void {
   const context = prepareCanvas(canvas, size)
   if (!context) return
@@ -388,6 +396,14 @@ function drawBaseChart(
   for (const tick of layout.x.ticks) {
     context.fillText(formatTick(tick, layout.x), mapX(tick, layout), layout.top + layout.plotHeight + 7)
   }
+  if (xLabel) {
+    context.fillText(xLabel, layout.left + layout.plotWidth / 2, size.height - 2)
+  }
+  if (yLabel) {
+    context.textAlign = "left"
+    context.textBaseline = "top"
+    context.fillText(yLabel, 0, 2)
+  }
 
   context.save()
   context.beginPath()
@@ -398,6 +414,7 @@ function drawBaseChart(
     context.beginPath()
     context.strokeStyle = line.color
     context.lineWidth = line.lineWidth ?? 2.4
+    context.setLineDash(line.dash ?? [])
     context.lineJoin = "round"
     context.lineCap = "round"
     let drawing = false
@@ -415,6 +432,7 @@ function drawBaseChart(
       drawing = true
     }
     context.stroke()
+    context.setLineDash([])
 
     if (line.showPoints) {
       for (const index of indexes) {
@@ -550,7 +568,7 @@ function tooltipNumber(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }
 
-export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, rightYDomain, annotations = [], ariaLabel, preserveAllPoints = false }: CanvasLineChartProps) {
+export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, rightYDomain, annotations = [], ariaLabel, preserveAllPoints = false, xLabel, yLabel }: CanvasLineChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const baseCanvasRef = useRef<HTMLCanvasElement>(null)
   const hoverCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -563,8 +581,8 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
   const hoverDrawnRef = useRef(false)
   const chartData = useMemo(() => chartDataFrom(data, columns), [columns, data])
   const layout = useMemo(
-    () => buildLayout(chartData, xKey, lines, size, xDomain, xTicks, yDomain, rightYDomain),
-    [chartData, lines, rightYDomain, size, xDomain, xKey, xTicks, yDomain],
+    () => buildLayout(chartData, xKey, lines, size, xDomain, xTicks, yDomain, rightYDomain, xLabel, yLabel),
+    [chartData, lines, rightYDomain, size, xDomain, xKey, xLabel, xTicks, yDomain, yLabel],
   )
   const visibleIndexes = useMemo(
     () => {
@@ -611,6 +629,8 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     xKey: string
     lines: CanvasChartLine[]
     annotations: CanvasChartAnnotation[]
+    xLabel?: string
+    yLabel?: string
   }>(null)
   const baseFrameRef = useRef<number | null>(null)
   const flushBaseDraw = useCallback(() => {
@@ -619,15 +639,15 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     const canvas = baseCanvasRef.current
     const container = containerRef.current
     if (!args || !canvas || !container || args.size.width <= 0 || args.size.height <= 0) return
-    drawBaseChart(canvas, container, args.size, args.layout, args.chartData, args.displayIndexes, args.xKey, args.lines, args.annotations)
+    drawBaseChart(canvas, container, args.size, args.layout, args.chartData, args.displayIndexes, args.xKey, args.lines, args.annotations, args.xLabel, args.yLabel)
   }, [])
 
   useEffect(() => {
-    baseDrawArgsRef.current = { size, layout, chartData, displayIndexes, xKey, lines, annotations }
+    baseDrawArgsRef.current = { size, layout, chartData, displayIndexes, xKey, lines, annotations, xLabel, yLabel }
     if (baseFrameRef.current === null) {
       baseFrameRef.current = window.requestAnimationFrame(flushBaseDraw)
     }
-  }, [annotations, chartData, displayIndexes, layout, lines, size, xKey, flushBaseDraw])
+  }, [annotations, chartData, displayIndexes, layout, lines, size, xKey, xLabel, yLabel, flushBaseDraw])
 
   useEffect(() => () => {
     if (baseFrameRef.current !== null) window.cancelAnimationFrame(baseFrameRef.current)

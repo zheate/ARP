@@ -1,55 +1,71 @@
-# Design QA — 功率 / 效率点线图
+# Design QA — 自动测试工作台真实运行态还原
 
-- source visual truth path: `/var/folders/pj/_thskkm14c333y_j9nd_dk8h0000gn/T/codex-clipboard-30e98a1b-d153-4ff3-a234-81cdf65da84a.png`
-- implementation screenshot path: `/Users/zh/.codex/visualizations/2026/07/20/019f7f3f-4eec-7263-a043-bfb0916f966d/arp-power-efficiency-hollow-points.png`
-- full-view implementation screenshot: `/Users/zh/.codex/visualizations/2026/07/20/019f7f3f-4eec-7263-a043-bfb0916f966d/arp-automatic-no-spectrum-full.png`
-- side-by-side comparison: `/Users/zh/.codex/visualizations/2026/07/20/019f7f3f-4eec-7263-a043-bfb0916f966d/power-curve-side-by-side.png`
-- viewport: `1280 × 720`, device pixel ratio `2`
-- state: 自动测试示例数据；“同时采集光谱并判断波长稳定”未勾选；功率 / 效率图可见
-- primary interaction tested: 取消光谱采集后，右侧图表由光谱切换为功率 / 效率
-- console errors checked: 无 error / warning
+- source visual truth path: `/Users/zh/.codex/attachments/aa1f7f10-341a-4f79-ac0f-06926f3ae7af/image-1.png`
+- implementation screenshot path: `/Users/zh/Documents/test/ARP/.codex-ui-qa/actual-real-v2.png`
+- normalized source: `/Users/zh/Documents/test/ARP/.codex-ui-qa/reference-1440x810.png`
+- normalized implementation: `/Users/zh/Documents/test/ARP/.codex-ui-qa/actual-real-v2-normalized.png`
+- side-by-side comparison: `/Users/zh/Documents/test/ARP/.codex-ui-qa/reference-vs-actual-real-v2.png`
+- source pixels: `1672 × 941`, treated as `1×`
+- implementation capture: `2972 × 1706` including native window shadow; app content crop `2880 × 1614`, CSS window approximately `1440 × 807`, device scale factor `2`
+- normalization: source and cropped implementation normalized to `1440 × 810` for one-to-one composition review
+- source state: 自动测试进行中，三台设备在线，8.00 A，第 4 / 6 点
+- implementation state: standard `npm start` real Tauri idle state, three devices disconnected, no demo query or injected measurements
 
-## Full-view comparison evidence
+## State boundary
 
-自动测试页面保留原有两列布局、标题层级、卡片间距和双坐标轴；取消光谱后，右侧卡片按既有布局显示功率 / 效率图，没有溢出或遮挡。
-
-## Focused region comparison evidence
-
-已将参考截图的“功率趋势”区域与 ARP 功率 / 效率区域放入同一张对比图。两者的关键点线处理一致：实线连接、圆形标记、圆心为图表底色、外圈使用曲线同色描边。ARP 同时显示两条数据，因此保留功率绿色和效率橙色以及双坐标轴，这是既有产品约束，不属于设计漂移。
-
-## Required fidelity surfaces
-
-- Fonts and typography: 本次未改字体、字号、字重或标签文案；沿用 ARP 现有设计系统。
-- Spacing and layout rhythm: 卡片、图表内边距与自动测试两列布局保持不变；无可见溢出。
-- Colors and visual tokens: 点中心使用 ARP 的 `--card` 底色，描边使用各曲线颜色，避免硬编码参考项目的卡片灰色。
-- Image quality and asset fidelity: 图表继续使用高分屏 Canvas 矢量绘制；未新增或替换产品图片资产。
-- Copy and content: “功率 / 效率”、图例与单位文案保持不变。
-
-## Comparison history
-
-1. Earlier finding: `[P1]` 效率使用三角形且点为实心，与参考截图单曲线空心圆风格不一致。
-   - Fix: 两条曲线统一为 `8px` 圆形标记；圆心使用卡片底色；使用 `2px` 曲线同色描边；连线保持 `1.7px` 实线。
-   - Post-fix evidence: `power-curve-side-by-side.png` 显示功率和效率均为同样的空心圆点线样式。
-2. Final comparison: 未发现可执行的 P0 / P1 / P2 差异。
+The source and implementation do not contain the same measurement state. The source is a populated mid-test design reference; the implementation evidence deliberately uses the real hardware-disconnected idle state that the user actually opens with `npm start`. Data values, PASS results, enabled buttons, traffic-light focus color, and plotted traces are therefore not treated as layout defects. The comparison judges the app-owned frame, region proportions, typography hierarchy, spacing, tokens, empty-state containment, and persistent controls.
 
 ## Findings
 
-- 无 P0 / P1 / P2 问题。
+- No actionable P0 / P1 / P2 visual mismatches remain in the app-owned layout.
+- P3: `数据浏览` and `系统设置` are present to match the reference navigation but remain disabled because those product pages do not exist yet. They are not wired to fake routes.
+- P3: the reference uses a subtle top-left ambient light treatment; the implementation keeps the existing flat neutral-dark tokens instead of introducing a decorative image or ungrounded asset.
 
-## Open Questions
+## Full-view comparison evidence
 
-- 无。
+The `2880 × 810` side-by-side comparison shows matching structural bands: one 50 px title bar, approximately 12.7% fixed sidebar, one-row setup panel, equal three-device row, three-part workflow card, `1 : 1 : 1.25` chart grid, five equal result cards, and a persistent three-column footer. The earlier extra page header, oversized station pills, right-side scrollbar gutter, and near-equal spectrum chart width are absent.
 
-## Implementation Checklist
+## Focused region comparison evidence
 
-- [x] 功率曲线使用空心圆点。
-- [x] 效率曲线使用空心圆点，不再使用三角形。
-- [x] 点描边与曲线同色，圆心跟随卡片底色。
-- [x] 自动测试取消光谱后显示功率 / 效率图。
-- [x] 生产构建通过，浏览器控制台无错误。
+The full comparison is saved at double width, so labels, icons, controls, borders, chart headers, and metric copy are readable without a separate enlarged capture.
 
-## Follow-up Polish
+- Title bar: native macOS traffic lights overlay the same single bar as `Power Test`; save and emergency actions occupy the reference position and scale.
+- Setup/device rows: field order and card proportions match. The dual-station product control is contained inside the existing `测试站别` field instead of creating a second header band.
+- Workflow: current summary, six-step process, and stability panel use the same three-track proportions.
+- Charts: power and efficiency cards are equal width; spectrum is wider and contains its own center-wavelength/FWHM/PIB side summary.
+- Footer: version, live clock, and test tip remain visible without page scrolling.
 
-- 无阻塞项。
+## Required fidelity surfaces
+
+- Fonts and typography: existing Geist Variable with Chinese system fallbacks is retained. Nav, labels, chart headings, DIN-style measurements, units, weights, truncation, and line heights follow the source hierarchy; the real idle values remain `--` rather than fake populated values.
+- Spacing and layout rhythm: default Tauri window is now `1440 × 810`; title bar, sidebar, content cards, and footer fit in one 16:9 view. Main horizontal inset is 12 px and section gap is 8 px. No persistent vertical scrollbar appears in the verified view.
+- Colors and visual tokens: neutral canvas `#0f1112`, sidebar `#17191a`, card `#181a1b`, orange `#ff7a1a`, efficiency blue `#4ca4ff`, and spectrum yellow `#ffcc00` preserve the source semantic hierarchy.
+- Image quality and asset fidelity: the source contains no photography or illustration assets. UI icons use the project's Lucide dependency; charts remain high-DPI Canvas output and preserve all native spectrum points.
+- Copy and content: source navigation, setup labels, device names, workflow labels, chart titles, result specifications, version, time, and test tip are represented. Runtime state copy truthfully reflects disconnected hardware.
+
+## Comparison history
+
+1. Earlier `[P1]`: the real `npm start` screen had a native title bar plus a second 56 px page header, oversized dual-station pills, four-item navigation, and a tall 1440 × 900 frame.
+   - Fix: use the macOS overlay title bar, move actions into the single app bar, set the default window to `1440 × 810`, add the two reference navigation slots, and move station switching into the station field.
+   - Evidence: `/Users/zh/Documents/test/ARP/.codex-ui-qa/actual-real-v1.png`.
+2. Earlier `[P2]`: the first revision kept a persistent right gutter/scrollbar, used near-equal chart widths, and flattened chart heading hierarchy.
+   - Fix: remove the document scrollbar gutter, use `1 : 1 : 1.25` chart columns, stack chart title/legend, and restore the spectrum-side measurement summary.
+   - Evidence: `/Users/zh/Documents/test/ARP/.codex-ui-qa/actual-real-v2.png` and `/Users/zh/Documents/test/ARP/.codex-ui-qa/reference-vs-actual-real-v2.png`.
+3. A later unverified micro-adjustment was reverted after macOS capture began returning black frames. The retained implementation is the second revision shown in the valid real-Tauri evidence above.
+
+## Primary interaction and runtime checks
+
+- Standard `npm start` launched Vite on port `1420`, compiled Rust, and ran `target/debug/tauri-ui`.
+- Real Tauri title-bar overlay, empty device state, station selector, chart empty states, metrics, and footer rendered together.
+- `npm run build`, `npm test`, and `git diff --check` pass.
+
+## Implementation checklist
+
+- [x] One native-overlay title bar matching the reference composition.
+- [x] Six-slot sidebar layout without fake routed pages.
+- [x] Setup, device, workflow, chart, metric, and footer bands visible in one screen.
+- [x] Dual-station control retained without the extra header band.
+- [x] Wider spectrum chart with embedded measurement summary.
+- [x] Real idle-state Tauri capture and normalized side-by-side comparison.
 
 final result: passed
