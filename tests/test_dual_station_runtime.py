@@ -10,9 +10,10 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from combined_test.automation import AutomaticTestSettings, AutomaticTestState
+from combined_test.concurrency import Signal
 from combined_test.excel_export import ExcelTestRecord
 from combined_test.ch341_ports import Ch341DeviceDescriptor
-from combined_test.models import PowerMeterReading, SpectrometerReading
+from combined_test.models import PowerMeterOption, PowerMeterReading, SpectrometerReading
 from combined_test.record_store import AttemptValidity
 from tauri_bridge.headless_backend import (
     ExportQueueWorker,
@@ -530,6 +531,41 @@ class DualStationRuntimeTests(unittest.TestCase):
         persisted = self.backend.settings.get("runtime/stations")
         self.assertEqual(persisted["1"]["spectrometerDeviceId"], 7)
         self.assertIn("原设备 ID 5 已失效", self.backend.notices[-1]["message"])
+
+    def test_power_meter_detection_persists_resource_and_driver_together(self) -> None:
+        option = PowerMeterOption(
+            resource="OPHIR::USB::3103403",
+            device_type="Ophir USB",
+            detail="USB SN 3103403",
+            driver_kind="ophir",
+        )
+        instances = []
+
+        class FakeDetectThread:
+            detected = Signal(object)
+            status = Signal(str)
+            failed = Signal(str)
+            finished = Signal()
+
+            def __init__(self, preferred_resource: str = "") -> None:
+                self.preferred_resource = preferred_resource
+                instances.append(self)
+
+            def start(self) -> None:
+                return
+
+        with patch("tauri_bridge.headless_backend.PowerMeterDetectThread", FakeDetectThread):
+            self.backend.dispatch(
+                "device.refresh",
+                {"stationId": "1", "device": "powerMeter"},
+            )
+
+        instances[0].detected.emit([option])
+        instances[0].finished.emit()
+
+        persisted = self.backend.settings.get("runtime/stations")["1"]
+        self.assertEqual(persisted["powerMeterResource"], "OPHIR::USB::3103403")
+        self.assertEqual(persisted["powerMeterDriverKind"], "ophir")
 
     def test_ch341_connection_opens_selected_index_at_20_khz(self) -> None:
         location = "PCIROOT(0)#USB(2)"

@@ -2888,6 +2888,7 @@ class HeadlessBackend:
             with target_station._lock:
                 target_station.configuration["powerMeterResource"] = selected.resource
                 target_station.configuration["powerMeterDriverKind"] = selected.driver_kind
+            self._persist_configuration()
 
         def on_finished() -> None:
             with self._lock:
