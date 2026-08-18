@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import tempfile
+import threading
 import time
 import unittest
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -75,6 +77,62 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertEqual(st1.configuration["targetCurrentA"], 10.0)
         self.assertEqual(st2.configuration["targetCurrentA"], 15.0)
 
+    def test_human_station_label_does_not_broadcast_configuration_to_both_stations(self) -> None:
+        self.backend.stations["1"].configuration["sn"] = "SN-001"
+        self.backend.stations["2"].configuration["sn"] = "SN-002"
+
+        self.backend.dispatch(
+            "app.configure",
+            {"station": "熔接前", "sn": "SN-LEGACY"},
+        )
+
+        self.assertEqual(self.backend.stations["1"].configuration["sn"], "SN-LEGACY")
+        self.assertEqual(self.backend.stations["1"].configuration["station"], "熔接前")
+        self.assertEqual(self.backend.stations["2"].configuration["sn"], "SN-002")
+
+    def test_station_notice_keeps_machine_readable_code_and_station_id(self) -> None:
+        self.backend.stations["2"].notify(
+            "warning",
+            "光谱饱和",
+            "请调整光路",
+            code="spectrum_saturation",
+        )
+
+        notice = self.backend.snapshot({"view": "automatic_1"})["backend"]["notices"][-1]
+        self.assertEqual(notice["stationId"], "2")
+        self.assertEqual(notice["code"], "spectrum_saturation")
+        self.assertEqual(notice["title"], "[工位 2] 光谱饱和")
+
+    def test_dual_station_sessions_cannot_share_the_same_workbook_path(self) -> None:
+        station_one = self.backend.stations["1"]
+        station_two = self.backend.stations["2"]
+        shared_configuration = {
+            "outputDir": self.temp_dir.name,
+            "sn": "SAME-SN",
+            "station": "熔接前",
+        }
+        station_one.configuration.update(shared_configuration)
+        station_two.configuration.update(shared_configuration)
+        settings = AutomaticTestSettings()
+        station_one.automatic.start(
+            settings,
+            power_meter_ready=False,
+            spectrum_meter_ready=False,
+        )
+        station_two.automatic.start(
+            settings,
+            power_meter_ready=False,
+            spectrum_meter_ready=False,
+        )
+
+        with patch("tauri_bridge.headless_backend.datetime") as mock_datetime:
+            mock_datetime.now.return_value = datetime(2026, 8, 18, 12, 34, 0)
+            first_path = station_one._begin_recording_session(settings)
+            with self.assertRaisesRegex(RuntimeError, "测试文件路径相同"):
+                station_two._begin_recording_session(settings)
+
+        self.assertEqual(first_path, station_two.record_store.workbook_path)
+
     def test_secondary_station_does_not_claim_default_hardware_resources(self) -> None:
         station_one = self.backend.stations["1"].configuration
         station_two = self.backend.stations["2"].configuration
@@ -106,6 +164,14 @@ class DualStationRuntimeTests(unittest.TestCase):
 
         station.reset_charts()
         self.assertIsNone(station.spectrum_center_locked_nm)
+
+    def test_chart_reset_does_not_touch_pd_revision(self) -> None:
+        station = self.backend.stations["1"]
+        station.series_revisions["pd"] = 7
+
+        station.reset_charts()
+
+        self.assertEqual(station.series_revisions["pd"], 7)
 
     def test_duplicate_persisted_hardware_resource_is_released_from_secondary_station(self) -> None:
         settings_path = Path(self.temp_dir.name) / "duplicate-settings.json"
@@ -568,6 +634,60 @@ class DualStationRuntimeTests(unittest.TestCase):
         snap2 = self.backend.snapshot({"view": "automatic_2"})
         self.assertEqual(snap2["activeStation"], "2")
         self.assertEqual(snap2["measurements"]["spectrum"]["wavelengthNm"], [976.0, 977.0])
+
+    def test_pd_state_and_snapshot_are_isolated_per_station(self) -> None:
+        self.backend.stations["1"].pd_state["points"] = [{"elapsedS": 1.0, "value": 1.0}]
+        self.backend.stations["2"].pd_state["points"] = [{"elapsedS": 2.0, "value": 2.0}]
+        self.backend.stations["1"].series_revisions["pd"] = 1
+        self.backend.stations["2"].series_revisions["pd"] = 1
+
+        snap1 = self.backend.snapshot({"view": "pd_1"})
+        snap2 = self.backend.snapshot({"view": "pd_2"})
+
+        self.assertEqual(snap1["activeStation"], "1")
+        self.assertEqual(snap1["pd"]["points"], [{"elapsedS": 1.0, "value": 1.0}])
+        self.assertEqual(snap2["activeStation"], "2")
+        self.assertEqual(snap2["pd"]["points"], [{"elapsedS": 2.0, "value": 2.0}])
+
+    def test_snapshot_is_safe_while_power_samples_arrive(self) -> None:
+        station = self.backend.stations["1"]
+        errors: list[Exception] = []
+        start = threading.Barrier(2)
+
+        def publish_samples() -> None:
+            try:
+                start.wait()
+                for index in range(1_000):
+                    station._on_power_reading(
+                        PowerMeterReading(
+                            elapsed_s=index / 100.0,
+                            power_w=0.1 + index / 1_000_000.0,
+                            stable=False,
+                            stable_span_w=0.0,
+                            stable_window_s=3.0,
+                            stable_median_w=0.1,
+                            stability_generation=0,
+                        )
+                    )
+            except Exception as exc:
+                errors.append(exc)
+
+        def collect_snapshots() -> None:
+            try:
+                start.wait()
+                for _ in range(300):
+                    snapshot = self.backend.snapshot({"view": "automatic_1"})
+                    self.assertIn("measurements", snapshot)
+            except Exception as exc:
+                errors.append(exc)
+
+        publisher = threading.Thread(target=publish_samples)
+        collector = threading.Thread(target=collect_snapshots)
+        publisher.start()
+        collector.start()
+        publisher.join()
+        collector.join()
+        self.assertEqual(errors, [])
 
     def test_export_queue_processes_tasks_sequentially(self) -> None:
         worker = ExportQueueWorker()

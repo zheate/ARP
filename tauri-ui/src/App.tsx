@@ -4,7 +4,6 @@ import {
   BarChart3,
   Check,
   ChevronDown,
-  Clock3,
   CircleGauge,
   FileText,
   FolderOpen,
@@ -12,9 +11,9 @@ import {
   Hand,
   History,
   LoaderCircle,
-  Lightbulb,
   Milestone,
   OctagonAlert,
+  Pause,
   Play,
   Power,
   Plus,
@@ -29,7 +28,6 @@ import {
   Trash2,
   X,
 } from "lucide-react"
-import packageMetadata from "../package.json"
 import { open as openDialog } from "@tauri-apps/plugin-dialog"
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener"
 import { invoke } from "@tauri-apps/api/core"
@@ -71,12 +69,6 @@ const PLM_CHART_SERIES = {
 const HISTORY_CHART_SERIES = {
   power: "rgba(168, 171, 176, 0.46)",
 } as const
-const AUTOMATIC_RESULT_SPEC = {
-  fwhmMaximumNm: 0.6,
-  pibMinimumPercent: 95,
-  slopeEfficiencyMinimumWPerA: 0.08,
-} as const
-
 const navigation = [
   { id: "automatic" as const, label: "自动测试", icon: CircleGauge, shortcut: 1 },
   { id: "manual" as const, label: "手动配置", icon: Hand, shortcut: 2 },
@@ -163,6 +155,10 @@ const emptyConfig: AppConfiguration = {
   spectrumAverageFrames: 5,
   pibCenterWavelengthNm: 976,
   pibHalfRangeNm: 1.5,
+  centerWavelengthSpecNm: 976,
+  centerWavelengthToleranceNm: 1.5,
+  fwhmMaximumNm: 0.6,
+  pibMinimumPercent: 95,
   stableWindowS: 3,
   stableToleranceW: 0.15,
   initialCurrentA: 1,
@@ -926,6 +922,122 @@ function DeviceSettingsDialog({ kind, open, onClose, onSave, snapshot, config, u
   )
 }
 
+function AutomaticSpecificationsDialog({ config, update, active, pending, onClose, onSave }: {
+  config: AppConfiguration
+  update: UpdateConfig
+  active: boolean
+  pending: boolean
+  onClose: () => void
+  onSave: () => Promise<void>
+}) {
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
+  const onCloseRef = useRef(onClose)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState("")
+  const [draft, setDraft] = useState({
+    centerWavelengthSpecNm: config.centerWavelengthSpecNm,
+    centerWavelengthToleranceNm: config.centerWavelengthToleranceNm,
+    fwhmMaximumNm: config.fwhmMaximumNm,
+    pibMinimumPercent: config.pibMinimumPercent,
+  })
+  onCloseRef.current = onClose
+
+  useEffect(() => {
+    const body = document.body
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const previousOverflow = body.style.overflow
+    const previousPaddingRight = body.style.paddingRight
+    const focusFrame = window.requestAnimationFrame(() => closeButtonRef.current?.focus())
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || saving) return
+      event.preventDefault()
+      onCloseRef.current()
+    }
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth
+    body.style.overflow = "hidden"
+    const hasStableScrollbarGutter = getComputedStyle(document.documentElement).scrollbarGutter.includes("stable")
+    if (scrollbarWidth > 0 && !hasStableScrollbarGutter) body.style.paddingRight = `${scrollbarWidth}px`
+    document.addEventListener("keydown", handleKeyDown)
+    return () => {
+      body.style.overflow = previousOverflow
+      body.style.paddingRight = previousPaddingRight
+      window.cancelAnimationFrame(focusFrame)
+      previousFocus?.focus()
+      document.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [saving])
+
+  const updateDraft = <K extends keyof typeof draft>(key: K, value: (typeof draft)[K]) => {
+    setDraft((current) => ({ ...current, [key]: value }))
+  }
+
+  const handleSave = async () => {
+    if (saving || pending || !active) return
+    setError("")
+    setSaving(true)
+    try {
+      update("centerWavelengthSpecNm", Math.max(0, draft.centerWavelengthSpecNm))
+      update("centerWavelengthToleranceNm", Math.max(0, draft.centerWavelengthToleranceNm))
+      update("fwhmMaximumNm", Math.max(0, draft.fwhmMaximumNm))
+      update("pibMinimumPercent", Math.max(0, Math.min(100, draft.pibMinimumPercent)))
+      await onSave()
+      onClose()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <DialogPortal>
+      <div className="dialog-overlay motion-overlay-enter" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) onClose() }}>
+        <div aria-labelledby="automatic-specifications-title" aria-modal="true" className="device-settings-dialog automatic-specification-dialog motion-dialog-enter" role="dialog">
+          <div className="device-settings-dialog__header">
+            <div className="device-settings-dialog__identity">
+              <div className="device-settings-dialog__icon"><Settings className="size-5" /></div>
+              <div className="min-w-0">
+                <h2 className="device-settings-dialog__title" id="automatic-specifications-title">设置测试规格</h2>
+                <p className="device-settings-dialog__description">配置自动测试指标的判定范围，保存后应用于当前工位</p>
+              </div>
+            </div>
+            <button aria-label="关闭规格设置弹窗" className="device-settings-dialog__close" onClick={onClose} ref={closeButtonRef} type="button"><X className="size-[18px]" /></button>
+          </div>
+          <div className="device-settings-dialog__body">
+            <div className="automatic-specification-form">
+              <div className="automatic-specification-form__intro">
+                <div>
+                  <p className="text-sm font-semibold">光谱指标</p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">点击指标卡即可再次打开此设置。</p>
+                </div>
+                <Badge variant="outline">当前工位</Badge>
+              </div>
+              <div className="device-settings-field-grid">
+                <NumberField label="中心波长规格 (nm)" step="0.1" value={draft.centerWavelengthSpecNm} onChange={(value) => updateDraft("centerWavelengthSpecNm", value)} />
+                <NumberField label="中心波长允许偏差 (± nm)" min={0} step="0.1" value={draft.centerWavelengthToleranceNm} onChange={(value) => updateDraft("centerWavelengthToleranceNm", value)} />
+                <NumberField label="FWHM 上限 (nm)" min={0} step="0.01" value={draft.fwhmMaximumNm} onChange={(value) => updateDraft("fwhmMaximumNm", value)} />
+                <NumberField label="PIB 下限 (%)" min={0} max={100} step="0.1" value={draft.pibMinimumPercent} onChange={(value) => updateDraft("pibMinimumPercent", value)} />
+              </div>
+              <div className="automatic-specification-form__note">
+                <span className="size-1.5 shrink-0 rounded-full bg-primary" />
+                <span>斜率效率（2–8 A）仅统计，不参与规格判定。</span>
+              </div>
+              {error && <p className="text-xs text-destructive">保存失败：{error}</p>}
+            </div>
+          </div>
+          <div className="device-settings-dialog__footer">
+            <p className="device-settings-dialog__hint">规格保存到当前工位配置</p>
+            <div className="device-settings-dialog__actions">
+              <Button className="device-settings-dialog__cancel" disabled={saving} onClick={onClose} variant="outline">取消</Button>
+              <Button aria-busy={saving} className="device-settings-dialog__save" disabled={!active || pending || saving} onClick={() => void handleSave()}>{saving ? "保存中…" : "保存规格"}</Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </DialogPortal>
+  )
+}
+
 function PowerProtectionDialog({ message, onClose }: { message: string; onClose: () => void }) {
   const acknowledgeButtonRef = useRef<HTMLButtonElement>(null)
 
@@ -1234,9 +1346,48 @@ function sameNumberArray(left: readonly number[] | undefined, right: readonly nu
   )
 }
 
+function sameStringArray(left: readonly string[] | undefined, right: readonly string[] | undefined): boolean {
+  return left === right || Boolean(
+    left
+    && right
+    && left.length === right.length
+    && left.every((value, index) => value === right[index]),
+  )
+}
+
+function sameCh341State(left: DeviceSnapshot["ch341"], right: DeviceSnapshot["ch341"]): boolean {
+  if (left === right) return true
+  if (!left || !right) return false
+  const leftConnected = left.connectedPort
+  const rightConnected = right.connectedPort
+  const connectedPortEqual = leftConnected === rightConnected || Boolean(
+    leftConnected
+    && rightConnected
+    && leftConnected.locationPath === rightConnected.locationPath
+    && leftConnected.name === rightConnected.name
+    && leftConnected.deviceIndex === rightConnected.deviceIndex,
+  )
+  return left.discoveryState === right.discoveryState
+    && left.error === right.error
+    && connectedPortEqual
+    && sameRows(left.ports, right.ports, ["locationPath", "name", "online", "deviceIndex"])
+}
+
+function sameSpectrumWindow(
+  left: DeviceSnapshot["spectrumWindow"],
+  right: DeviceSnapshot["spectrumWindow"],
+): boolean {
+  return left === right || Boolean(
+    left
+    && right
+    && left.centerNm === right.centerNm
+    && left.halfRangeNm === right.halfRangeNm,
+  )
+}
+
 // Page-level memo comparators. Only skip a page re-render when every slice
-// the page renders is unchanged; nested arrays compare by reference because
-// the snapshot merge replaces them whenever their content changes.
+// the page renders is unchanged. Small transport arrays compare by value
+// because JSON IPC recreates their object references on every snapshot.
 
 function sameDeviceSnapshot(left: DeviceSnapshot | undefined, right: DeviceSnapshot | undefined): boolean {
   if (left === right) return true
@@ -1248,7 +1399,8 @@ function sameDeviceSnapshot(left: DeviceSnapshot | undefined, right: DeviceSnaps
     && left.running === right.running
     && left.detecting === right.detecting
     && left.ready === right.ready
-    && left.resources === right.resources
+    && sameStringArray(left.resources, right.resources)
+    && sameCh341State(left.ch341, right.ch341)
     && left.outputEnabled === right.outputEnabled
     && left.activeCurrentA === right.activeCurrentA
     && left.powerW === right.powerW
@@ -1258,7 +1410,7 @@ function sameDeviceSnapshot(left: DeviceSnapshot | undefined, right: DeviceSnaps
     && left.fwhmNm === right.fwhmNm
     && left.smsrDb === right.smsrDb
     && left.saturated === right.saturated
-    && left.spectrumWindow === right.spectrumWindow
+    && sameSpectrumWindow(left.spectrumWindow, right.spectrumWindow)
 }
 
 function sameMeasurements(left: BackendSnapshot["measurements"], right: BackendSnapshot["measurements"]): boolean {
@@ -1403,6 +1555,7 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
       return line.key === other.key
         && line.label === other.label
         && line.color === other.color
+        && line.axisColor === other.axisColor
         && line.yAxisId === other.yAxisId
         && line.showPoints === other.showPoints
         && line.showLatestPoint === other.showLatestPoint
@@ -1473,7 +1626,7 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch 
   return (
     <ChartPanel
       title="功率实时"
-      headerTitle="实时功率 (W)"
+      compactHeader
       data={powerData}
       xKey="elapsedS"
       lines={lines}
@@ -1494,8 +1647,8 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch 
 })
 
 const powerEfficiencyLines: CanvasChartLine[] = [
-  { key: "powerW", label: "功率 (W)", color: PLM_CHART_SERIES.clay, showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 2.4 },
-  { key: "efficiencyPercent", label: "效率 (%)", color: PLM_CHART_SERIES.blue, yAxisId: "right", showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 2.4 },
+  { key: "powerW", label: "功率 (W)", color: PLM_CHART_SERIES.clay, axisColor: PLM_CHART_SERIES.yellow, showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 2.4 },
+  { key: "efficiencyPercent", label: "效率 (%)", color: PLM_CHART_SERIES.blue, axisColor: PLM_CHART_SERIES.blue, yAxisId: "right", showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 2.4 },
 ]
 
 const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; stretch?: boolean; heightClassName?: string }) {
@@ -1544,9 +1697,9 @@ const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stre
 
   return (
     <ChartPanel
+      compactHeader
       data={chartData}
       empty="完成稳定测试点后显示功率 / 效率"
-      headerTitle="功率 (W) & 效率 (%) vs 电流 (A)"
       lines={lines}
       stretch={stretch}
       heightClassName={heightClassName}
@@ -1739,17 +1892,31 @@ function linearSlope(points: Array<{ currentA: number; powerW: number | null }>,
   return samples.reduce((sum, point) => sum + (point.currentA - meanCurrent) * (point.powerW - meanPower), 0) / denominator
 }
 
-function AutomaticMetricCard({ title, value, unit, detail, status, statusTone = "muted" }: {
+function AutomaticMetricCard({ title, value, unit, detail, status, statusTone = "muted", onClick }: {
   title: string
   value: string
   unit: string
   detail: string
   status: string
   statusTone?: "success" | "active" | "danger" | "muted"
+  onClick?: () => void
 }) {
+  const clickable = Boolean(onClick)
   return (
-    <div className="automatic-metric-card">
-      <p className="automatic-metric-card__title">{title}</p>
+    <div
+      aria-label={clickable ? `${title}，点击设置规格` : undefined}
+      className={`automatic-metric-card ${clickable ? "automatic-metric-card--clickable" : ""}`}
+      onClick={onClick}
+      onKeyDown={(event) => {
+        if (!onClick || (event.key !== "Enter" && event.key !== " ")) return
+        event.preventDefault()
+        onClick()
+      }}
+      role={clickable ? "button" : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      title={clickable ? "点击设置规格" : undefined}
+    >
+      <div className="automatic-metric-card__title"><span>{title}</span>{clickable && <Settings className="size-3.5 shrink-0" />}</div>
       <div className="automatic-metric-card__value">
         <span>{value}</span><span className="automatic-metric-card__unit">{unit}</span>
       </div>
@@ -1763,36 +1930,10 @@ function AutomaticMetricCard({ title, value, unit, detail, status, statusTone = 
   )
 }
 
-function AppFooter() {
-  const [now, setNow] = useState(() => new Date())
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 1000)
-    return () => window.clearInterval(timer)
-  }, [])
-
-  const timestamp = now.toLocaleString("zh-CN", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).replace(/\//g, "-")
-
-  return (
-    <footer className="app-status-footer" aria-label="应用状态">
-      <span>软件版本&nbsp;&nbsp;v{packageMetadata.version}</span>
-      <span className="app-status-footer__time"><Clock3 className="size-3.5" />{timestamp}</span>
-      <span className="app-status-footer__tip"><Lightbulb className="size-3.5" />测试提示：保持光纤清洁，避免弯折以确保测量稳定性。</span>
-    </footer>
-  )
-}
-
 function AppTitlebar({
   active,
   canEnd,
+  canPause,
   commandPending,
   controlsLocked,
   dirty,
@@ -1802,6 +1943,7 @@ function AppTitlebar({
 }: {
   active: boolean
   canEnd: boolean
+  canPause: boolean
   commandPending: boolean
   controlsLocked: boolean
   dirty: boolean
@@ -1821,6 +1963,11 @@ function AppTitlebar({
         )}
       </div>
       <div className="app-titlebar__actions">
+        {canPause && (
+          <Button disabled={!active || commandPending} onClick={() => void run("automatic.pause")} size="sm" variant="outline">
+            <Pause className="size-4" />暂停测试
+          </Button>
+        )}
         {canEnd && (
           <Button disabled={!active || commandPending} onClick={() => void run("automatic.end")} size="sm" variant="outline">
             <Square className="size-4" />结束测试
@@ -1848,18 +1995,50 @@ function AppTitlebar({
   )
 }
 
-function StabilitySummary({ snapshot, config }: { snapshot: BackendSnapshot | null; config: AppConfiguration }) {
-  const powerPoints = snapshot?.measurements?.power ?? []
+type PowerWindowSummary = {
+  latestPowerW: number | undefined
+  minimumW: number | null
+  maximumW: number | null
+  fluctuationW: number | null
+  measuredWindowS: number
+}
+
+function summarizePowerWindow(
+  powerPoints: readonly { elapsedS: number; powerW: number }[],
+  stableWindowS: number,
+): PowerWindowSummary {
   const latestPoint = powerPoints[powerPoints.length - 1]
-  const latestElapsedS = latestPoint?.elapsedS
-  const windowStartS = typeof latestElapsedS === "number" ? latestElapsedS - config.stableWindowS : 0
-  const windowPoints = typeof latestElapsedS === "number" ? powerPoints.filter((point) => point.elapsedS >= windowStartS) : []
-  const fluctuationW = windowPoints.length > 1
-    ? Math.max(...windowPoints.map((point) => point.powerW)) - Math.min(...windowPoints.map((point) => point.powerW))
-    : null
-  const measuredWindowS = windowPoints.length > 1
-    ? Math.max(0, windowPoints[windowPoints.length - 1].elapsedS - windowPoints[0].elapsedS)
-    : 0
+  if (!latestPoint || !Number.isFinite(latestPoint.elapsedS)) {
+    return { latestPowerW: latestPoint?.powerW, minimumW: null, maximumW: null, fluctuationW: null, measuredWindowS: 0 }
+  }
+
+  const windowStartS = latestPoint.elapsedS - stableWindowS
+  let pointCount = 0
+  let firstElapsedS = 0
+  let lastElapsedS = 0
+  let minimumW = Number.POSITIVE_INFINITY
+  let maximumW = Number.NEGATIVE_INFINITY
+  for (const point of powerPoints) {
+    if (point.elapsedS < windowStartS) continue
+    if (pointCount === 0) firstElapsedS = point.elapsedS
+    pointCount += 1
+    lastElapsedS = point.elapsedS
+    if (!Number.isFinite(point.powerW)) continue
+    minimumW = Math.min(minimumW, point.powerW)
+    maximumW = Math.max(maximumW, point.powerW)
+  }
+
+  const hasRange = pointCount > 1 && Number.isFinite(minimumW) && Number.isFinite(maximumW)
+  return {
+    latestPowerW: latestPoint.powerW,
+    minimumW: hasRange ? minimumW : null,
+    maximumW: hasRange ? maximumW : null,
+    fluctuationW: hasRange ? maximumW - minimumW : null,
+    measuredWindowS: pointCount > 1 ? Math.max(0, lastElapsedS - firstElapsedS) : 0,
+  }
+}
+
+function StabilitySummary({ snapshot, config, summary }: { snapshot: BackendSnapshot | null; config: AppConfiguration; summary: PowerWindowSummary }) {
   const meter = snapshot?.devices.powerMeter
   const evaluating = snapshot?.automaticTest.state === "waiting_stable"
   const stable = meter?.stable && !evaluating
@@ -1869,9 +2048,9 @@ function StabilitySummary({ snapshot, config }: { snapshot: BackendSnapshot | nu
     <div className="automatic-stability">
       <p className={`automatic-stability__title ${stable ? "is-success" : meter?.running ? "is-active" : ""}`}>{status}</p>
       <dl className="automatic-stability__values">
-        <div><dt>实时功率</dt><dd>{formatFixedNumber(meter?.powerW ?? latestPoint?.powerW, 3)} <span>W</span></dd></div>
-        <div><dt>窗口波动</dt><dd>{fluctuationW === null ? "--" : formatFixedNumber(fluctuationW, 3)} <span>W</span></dd></div>
-        <div><dt>稳定窗口</dt><dd>{formatFixedNumber(Math.min(measuredWindowS, config.stableWindowS), 1)} / {formatFixedNumber(config.stableWindowS, 1)} <span>s</span></dd></div>
+        <div><dt>实时功率</dt><dd>{formatFixedNumber(meter?.powerW ?? summary.latestPowerW, 3)} <span>W</span></dd></div>
+        <div><dt>窗口波动</dt><dd>{summary.fluctuationW === null ? "--" : formatFixedNumber(summary.fluctuationW, 3)} <span>W</span></dd></div>
+        <div><dt>稳定窗口</dt><dd>{formatFixedNumber(Math.min(summary.measuredWindowS, config.stableWindowS), 1)} / {formatFixedNumber(config.stableWindowS, 1)} <span>s</span></dd></div>
       </dl>
       <p className="automatic-stability__threshold">允许波动 ≤ {formatFixedNumber(config.stableToleranceW, 3)} W</p>
     </div>
@@ -1885,6 +2064,8 @@ function App() {
     ? (stationId === "1" ? "automatic_1" : "automatic_2")
     : page === "manual"
     ? (stationId === "1" ? "manual_1" : "manual_2")
+    : page === "pd"
+    ? (stationId === "1" ? "pd_1" : "pd_2")
     : page
   const { snapshot, error, commandPending, pendingCommand, command } = useBackendSnapshot(currentView)
   const [config, setConfig] = useState<AppConfiguration>(emptyConfig)
@@ -1995,7 +2176,10 @@ function App() {
     try {
       await automaticSaveFlightRef.current.catch(() => undefined)
       if (configHydratedRef.current) {
-        await sendBackendRequest("app.configure", configRef.current as unknown as Record<string, unknown>)
+        await sendBackendRequest(
+          "app.configure",
+          { stationId, ...configRef.current } as unknown as Record<string, unknown>,
+        )
       }
       const result = await sendBackendRequest<{ shutdownConfirmed: boolean }>("app.shutdown")
       if (!result.shutdownConfirmed) throw new Error("后端未确认安全下电")
@@ -2007,7 +2191,7 @@ function App() {
       closeRequestInFlightRef.current = false
       setCloseRequestPending(false)
     }
-  }, [])
+  }, [stationId])
 
   const forceClose = useCallback(async () => {
     try {
@@ -2117,7 +2301,12 @@ function App() {
     config.useSpectrometer && snapshot?.devices.spectrometer.ready,
   ].filter(Boolean).length
 
-  const notices = snapshot?.backend.notices ?? []
+  // Backend notices are retained globally so a station's fault is not lost
+  // while the operator views the other tab.  Only render station-tagged
+  // notices on their owning station; untagged notices remain global.
+  const notices = (snapshot?.backend.notices ?? []).filter(
+    (notice) => !notice.stationId || notice.stationId === stationId,
+  )
   const notifications = [
     ...(error ? [{ key: `request-error:${error}`, level: "error" as const, title: "系统错误", message: error }] : []),
     ...notices.map((notice, index) => ({ ...notice, key: notice.id ? `backend-notice:${notice.id}` : `backend-notice:${notice.level}:${notice.title}:${notice.message}:${index}` })),
@@ -2169,8 +2358,12 @@ function App() {
   }, [snapshot?.automaticTest])
 
   const visibleNotifications = notifications.filter((notification) => !dismissedNotifications.has(notification.key))
-  const powerProtectionNotification = visibleNotifications.find((notification) => notification.title === "功率保护")
-  const spectrumSaturationNotification = visibleNotifications.find((notification) => notification.title === "光谱饱和")
+  const powerProtectionNotification = visibleNotifications.find(
+    (notification) => notification.code === "power_protection" || notification.title.endsWith("功率保护"),
+  )
+  const spectrumSaturationNotification = visibleNotifications.find(
+    (notification) => notification.code === "spectrum_saturation" || notification.title.endsWith("光谱饱和"),
+  )
   const activeAlertNotification = powerProtectionNotification ?? spectrumSaturationNotification
   const toastNotifications = visibleNotifications.filter((notification) => notification !== powerProtectionNotification && notification !== spectrumSaturationNotification)
   return (
@@ -2178,6 +2371,7 @@ function App() {
       <AppTitlebar
         active={active}
         canEnd={Boolean(page === "automatic" && snapshot?.automaticTest.canEnd)}
+        canPause={Boolean(page === "automatic" && snapshot?.automaticTest.canPause)}
         commandPending={commandPending}
         controlsLocked={automaticInteractionLocked}
         dirty={dirty}
@@ -2235,7 +2429,9 @@ function App() {
           {activeAlertNotification === powerProtectionNotification && powerProtectionNotification && <PowerProtectionDialog message={powerProtectionNotification.message} onClose={() => setDismissedNotifications((current) => new Set(current).add(powerProtectionNotification.key))} />}
           {activeAlertNotification === spectrumSaturationNotification && spectrumSaturationNotification && <SpectrumSaturationDialog message={spectrumSaturationNotification.message} onClose={() => {
             setDismissedNotifications((current) => new Set(current).add(spectrumSaturationNotification.key))
-            if (snapshot?.automaticTest.state === "paused") void run("automatic.retry")
+            const targetStationId = spectrumSaturationNotification.stationId === "2" ? "2" : "1"
+            const targetStation = snapshot?.stations?.[targetStationId]
+            if (targetStation?.state === "paused") void run("automatic.retry", { stationId: targetStationId })
           }} />}
           {automaticCompletion && !activeAlertNotification && !closeFailure && (
             <AutomaticCompletionDialog
@@ -2255,14 +2451,13 @@ function App() {
             data-page={page}
             key={page}
           >
-            {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={active} controlsLocked={automaticInteractionLocked} pending={commandPending} readyCount={devicesReady} readyTotal={requiredDevices} run={run} saveConfiguration={saveConfiguration} historyItems={automaticHistoryItems} historyLoading={automaticHistoryLoading} historyError={automaticHistoryError} referencePath={automaticReferencePath} onReferencePathChange={setAutomaticReferencePath} stationId={stationId} onStationChange={setStationId} />}
+            {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={active} controlsLocked={automaticInteractionLocked} stationSwitchDisabled={commandPending || dirty} pending={commandPending} readyCount={devicesReady} readyTotal={requiredDevices} run={run} saveConfiguration={saveConfiguration} historyItems={automaticHistoryItems} historyLoading={automaticHistoryLoading} historyError={automaticHistoryError} referencePath={automaticReferencePath} onReferencePathChange={setAutomaticReferencePath} stationId={stationId} onStationChange={setStationId} />}
             {page === "manual" && <ManualPage snapshot={snapshot} config={config} update={update} active={active} pending={commandPending} run={run} stationId={stationId} />}
             {page === "pd" && <PdPage snapshot={snapshot} active={active} pending={commandPending} run={run} />}
             {page === "shipping" && <ShippingReportPage active={active} controlsLocked={automaticInteractionLocked} pending={commandPending} />}
           </div>
         </main>
       </div>
-      <AppFooter />
     </div>
   )
 }
@@ -3144,6 +3339,7 @@ const AutomaticPage = memo(function AutomaticPage({
   update,
   active,
   controlsLocked,
+  stationSwitchDisabled,
   pending,
   readyCount,
   readyTotal,
@@ -3162,6 +3358,7 @@ const AutomaticPage = memo(function AutomaticPage({
   update: UpdateConfig
   active: boolean
   controlsLocked: boolean
+  stationSwitchDisabled: boolean
   pending: boolean
   readyCount: number
   readyTotal: number
@@ -3185,6 +3382,7 @@ const AutomaticPage = memo(function AutomaticPage({
     ? `测试点 ${Math.max(0, (auto?.currentIndex ?? -1) + 1)} / ${auto?.currents?.length ?? 0}${currentDwellS > 0 ? ` · ${formatDwellProgress(currentDwellS, auto?.currentDwellElapsedS)}` : ""}`
     : auto?.settingsError || planSummary
   const [openSettings, setOpenSettings] = useState<DeviceSettingsKind | null>(null)
+  const [specificationsOpen, setSpecificationsOpen] = useState(false)
   const closeSettings = () => setOpenSettings(null)
   useEffect(() => {
     if (controlsLocked) setOpenSettings(null)
@@ -3206,13 +3404,13 @@ const AutomaticPage = memo(function AutomaticPage({
     : Math.min(totalPoints, Math.max(0, auto?.currentIndex ?? 0), snapshot?.measurements?.stable.length ?? 0)
   const nextCurrentA = auto?.currents?.[(auto?.currentIndex ?? -1) + 1]
   const powerPoints = snapshot?.measurements?.power ?? []
-  const latestPowerW = snapshot?.devices.powerMeter.powerW ?? powerPoints[powerPoints.length - 1]?.powerW
-  const latestPowerElapsedS = powerPoints[powerPoints.length - 1]?.elapsedS
-  const recentPowerPoints = typeof latestPowerElapsedS === "number"
-    ? powerPoints.filter((point) => point.elapsedS >= latestPowerElapsedS - config.stableWindowS)
-    : []
-  const recentPowerMinimumW = recentPowerPoints.length ? Math.min(...recentPowerPoints.map((point) => point.powerW)) : null
-  const recentPowerMaximumW = recentPowerPoints.length ? Math.max(...recentPowerPoints.map((point) => point.powerW)) : null
+  const powerWindowSummary = useMemo(
+    () => summarizePowerWindow(powerPoints, config.stableWindowS),
+    [powerPoints, config.stableWindowS],
+  )
+  const latestPowerW = snapshot?.devices.powerMeter.powerW ?? powerWindowSummary.latestPowerW
+  const recentPowerMinimumW = powerWindowSummary.minimumW
+  const recentPowerMaximumW = powerWindowSummary.maximumW
   const stablePoints = snapshot?.measurements?.stable ?? []
   const latestStablePoint = stablePoints[stablePoints.length - 1]
   const slopeEfficiency = linearSlope(stablePoints, 2, 8)
@@ -3221,10 +3419,9 @@ const AutomaticPage = memo(function AutomaticPage({
   const pibPercent = typeof pibValue === "number" && Number.isFinite(pibValue) ? (pibValue <= 1 ? pibValue * 100 : pibValue) : null
   const hasSpectrumMetrics = typeof spectrometer?.peakWavelengthNm === "number"
   const metricStatus = testStarted ? "已更新" : "等待测试"
-  const centerWavelengthPass = hasSpectrumMetrics && Math.abs((spectrometer?.peakWavelengthNm ?? 0) - config.pibCenterWavelengthNm) <= config.pibHalfRangeNm
-  const fwhmPass = typeof spectrometer?.fwhmNm === "number" && spectrometer.fwhmNm <= AUTOMATIC_RESULT_SPEC.fwhmMaximumNm
-  const pibPass = pibPercent !== null && pibPercent >= AUTOMATIC_RESULT_SPEC.pibMinimumPercent
-  const slopePass = slopeEfficiency !== null && slopeEfficiency >= AUTOMATIC_RESULT_SPEC.slopeEfficiencyMinimumWPerA
+  const centerWavelengthPass = hasSpectrumMetrics && Math.abs((spectrometer?.peakWavelengthNm ?? 0) - config.centerWavelengthSpecNm) <= config.centerWavelengthToleranceNm
+  const fwhmPass = typeof spectrometer?.fwhmNm === "number" && spectrometer.fwhmNm <= config.fwhmMaximumNm
+  const pibPass = pibPercent !== null && pibPercent >= config.pibMinimumPercent
 
   const chooseOutputDir = async () => {
     if (controlsLocked) return
@@ -3301,7 +3498,7 @@ const AutomaticPage = memo(function AutomaticPage({
                 <button
                   aria-pressed={stationId === id}
                   className={stationId === id ? "is-active" : ""}
-                  disabled={controlsLocked}
+                  disabled={stationSwitchDisabled}
                   key={id}
                   onClick={() => onStationChange(id)}
                   type="button"
@@ -3409,7 +3606,7 @@ const AutomaticPage = memo(function AutomaticPage({
           </div>
 
           <div className="automatic-workflow-card__stability">
-            <StabilitySummary config={config} snapshot={snapshot} />
+            <StabilitySummary config={config} snapshot={snapshot} summary={powerWindowSummary} />
           </div>
         </CardContent>
       </Card>
@@ -3433,36 +3630,40 @@ const AutomaticPage = memo(function AutomaticPage({
           title="中心波长"
           value={formatFixedNumber(spectrometer?.peakWavelengthNm, 2)}
           unit="nm"
-          detail={`规格 ${formatFixedNumber(config.pibCenterWavelengthNm, 1)} ± ${formatFixedNumber(config.pibHalfRangeNm, 1)} nm`}
+          detail={`规格 ${formatFixedNumber(config.centerWavelengthSpecNm, 1)} ± ${formatFixedNumber(config.centerWavelengthToleranceNm, 1)} nm`}
           status={hasSpectrumMetrics ? (centerWavelengthPass ? "PASS" : "FAIL") : "等待光谱"}
           statusTone={hasSpectrumMetrics ? (centerWavelengthPass ? "success" : "danger") : "muted"}
+          onClick={() => setSpecificationsOpen(true)}
         />
         <AutomaticMetricCard
           title="FWHM"
           value={formatFixedNumber(spectrometer?.fwhmNm, 2)}
           unit="nm"
-          detail={`规格 ≤ ${formatFixedNumber(AUTOMATIC_RESULT_SPEC.fwhmMaximumNm, 2)} nm`}
+          detail={`规格 ≤ ${formatFixedNumber(config.fwhmMaximumNm, 2)} nm`}
           status={typeof spectrometer?.fwhmNm === "number" ? (fwhmPass ? "PASS" : "FAIL") : "等待光谱"}
           statusTone={typeof spectrometer?.fwhmNm === "number" ? (fwhmPass ? "success" : "danger") : "muted"}
+          onClick={() => setSpecificationsOpen(true)}
         />
         <AutomaticMetricCard
           title="PIB"
           value={formatFixedNumber(pibPercent, 2)}
           unit="%"
-          detail={`规格 ≥ ${formatFixedNumber(AUTOMATIC_RESULT_SPEC.pibMinimumPercent, 0)} %`}
+          detail={`规格 ≥ ${formatFixedNumber(config.pibMinimumPercent, 0)} %`}
           status={pibPercent !== null ? (pibPass ? "PASS" : "FAIL") : "等待光谱"}
           statusTone={pibPercent !== null ? (pibPass ? "success" : "danger") : "muted"}
+          onClick={() => setSpecificationsOpen(true)}
         />
         <AutomaticMetricCard
           title="斜率效率（2–8 A）"
           value={formatFixedNumber(slopeEfficiency, 3)}
           unit="W/A"
-          detail={`规格 ≥ ${formatFixedNumber(AUTOMATIC_RESULT_SPEC.slopeEfficiencyMinimumWPerA, 2)} W/A`}
-          status={slopeEfficiency !== null ? (slopePass ? "PASS" : "FAIL") : "至少需要 2 个点"}
-          statusTone={slopeEfficiency !== null ? (slopePass ? "success" : "danger") : "muted"}
+          detail="仅统计，不设规格"
+          status={slopeEfficiency !== null ? "已统计" : "至少需要 2 个点"}
+          statusTone="muted"
         />
       </section>
       {openSettings && <DeviceSettingsDialog active={active} config={config} kind={openSettings} onClose={closeSettings} onSave={saveConfiguration} open pending={pending} run={run} snapshot={snapshot} update={update} />}
+      {specificationsOpen && <AutomaticSpecificationsDialog active={active} config={config} onClose={() => setSpecificationsOpen(false)} onSave={saveConfiguration} pending={pending} update={update} />}
     </>
   )
 }, (previous, next) => (

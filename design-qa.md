@@ -1,71 +1,64 @@
-# Design QA — 自动测试工作台真实运行态还原
+# Design QA — 自动测试页 4:3 参考图还原
 
-- source visual truth path: `/Users/zh/.codex/attachments/aa1f7f10-341a-4f79-ac0f-06926f3ae7af/image-1.png`
-- implementation screenshot path: `/Users/zh/Documents/test/ARP/.codex-ui-qa/actual-real-v2.png`
-- normalized source: `/Users/zh/Documents/test/ARP/.codex-ui-qa/reference-1440x810.png`
-- normalized implementation: `/Users/zh/Documents/test/ARP/.codex-ui-qa/actual-real-v2-normalized.png`
-- side-by-side comparison: `/Users/zh/Documents/test/ARP/.codex-ui-qa/reference-vs-actual-real-v2.png`
-- source pixels: `1672 × 941`, treated as `1×`
-- implementation capture: `2972 × 1706` including native window shadow; app content crop `2880 × 1614`, CSS window approximately `1440 × 807`, device scale factor `2`
-- normalization: source and cropped implementation normalized to `1440 × 810` for one-to-one composition review
-- source state: 自动测试进行中，三台设备在线，8.00 A，第 4 / 6 点
-- implementation state: standard `npm start` real Tauri idle state, three devices disconnected, no demo query or injected measurements
+- source visual truth path: `C:\Users\24561\.codex\attachments\bbf47711-4e57-45f1-aaa4-92c9af658df7\image-1.png`
+- implementation screenshot path: `E:\工作\长光华芯\软件\泵驱一体\auto_run_Lpowe2\.codex-ui-qa\automatic-ui-v2.png`
+- responsive tall screenshot path: `E:\工作\长光华芯\软件\泵驱一体\auto_run_Lpowe2\.codex-ui-qa\automatic-ui-tall.png`
+- side-by-side comparison: `E:\工作\长光华芯\软件\泵驱一体\auto_run_Lpowe2\.codex-ui-qa\reference-vs-automatic-ui-v2.png`
+- viewport: `1448 × 1086` CSS px, device scale factor `1`
+- source pixels: `1448 × 1086`
+- implementation pixels: `1448 × 1086`
+- density normalization: none; both artifacts are `1×` and compared at identical pixel dimensions
+- source state: 自动测试空闲态，三台设备未连接，无曲线数据
+- implementation state: 浏览器只读空闲态，三台设备未连接，无曲线数据
 
 ## State boundary
 
-The source and implementation do not contain the same measurement state. The source is a populated mid-test design reference; the implementation evidence deliberately uses the real hardware-disconnected idle state that the user actually opens with `npm start`. Data values, PASS results, enabled buttons, traffic-light focus color, and plotted traces are therefore not treated as layout defects. The comparison judges the app-owned frame, region proportions, typography hierarchy, spacing, tokens, empty-state containment, and persistent controls.
+The production app is a Tauri desktop application. The browser-only capture cannot start the native Python/backend bridge, so it shows a transient `系统错误` notification in the upper-right corner. That notification is excluded from layout fidelity findings because it is specific to the browser verification environment and is not present in the normal Tauri runtime. All persistent app-owned regions remain visible underneath it.
 
 ## Findings
 
-- No actionable P0 / P1 / P2 visual mismatches remain in the app-owned layout.
-- P3: `数据浏览` and `系统设置` are present to match the reference navigation but remain disabled because those product pages do not exist yet. They are not wired to fake routes.
-- P3: the reference uses a subtle top-left ambient light treatment; the implementation keeps the existing flat neutral-dark tokens instead of introducing a decorative image or ungrounded asset.
+- No actionable P0 / P1 / P2 visual mismatch remains.
+- P3: the global status-icon row uses the closest matching icons already available in the project's icon library; individual glyphs differ slightly from the operating-system icons shown in the reference.
+- P3: live state wording is data-driven, so controller/station/device copy can differ from the static reference while keeping the same size and alignment.
 
 ## Full-view comparison evidence
 
-The `2880 × 810` side-by-side comparison shows matching structural bands: one 50 px title bar, approximately 12.7% fixed sidebar, one-row setup panel, equal three-device row, three-part workflow card, `1 : 1 : 1.25` chart grid, five equal result cards, and a persistent three-column footer. The earlier extra page header, oversized station pills, right-side scrollbar gutter, and near-equal spectrum chart width are absent.
+The combined comparison confirms the same major composition at `1448 × 1086`: a 50 px global title bar, a 64 px page header, a 188 px sidebar, a 96 px setup panel, a three-card device row, a three-track workflow panel, a three-column chart row, five equal metric cards, and a persistent footer. The implementation's main content begins at the same horizontal and vertical position as the reference to within a few pixels.
+
+At the reference height, the metric cards end above the footer with an approximately 40 px empty band. At `1448 × 1200`, `.automatic-page-spacer` grows by the additional viewport height while setup, device, workflow, chart, and metric cards retain their dimensions. This verifies that the space below the cards is adaptive rather than created with a fixed margin.
 
 ## Focused region comparison evidence
 
-The full comparison is saved at double width, so labels, icons, controls, borders, chart headers, and metric copy are readable without a separate enlarged capture.
+The full side-by-side image is `2896 × 1086`, so navigation labels, field labels, device states, workflow steps, chart axes, empty-state icons, metric values, and footer copy are readable without a separate enlargement.
 
-- Title bar: native macOS traffic lights overlay the same single bar as `Power Test`; save and emergency actions occupy the reference position and scale.
-- Setup/device rows: field order and card proportions match. The dual-station product control is contained inside the existing `测试站别` field instead of creating a second header band.
-- Workflow: current summary, six-step process, and stability panel use the same three-track proportions.
-- Charts: power and efficiency cards are equal width; spectrum is wider and contains its own center-wavelength/FWHM/PIB side summary.
-- Footer: version, live clock, and test tip remain visible without page scrolling.
+- Header: brand, five menu labels, station pills, controller badge, save action, and emergency action follow the reference hierarchy.
+- Setup and device rows: field order, widths, icon treatment, orange spectrum switch, card heights, and spacing match the reference.
+- Workflow: summary, six steps, and stability values retain the reference's three-column proportions.
+- Charts: power, efficiency, and spectrum cards use the reference's near-equal proportions; empty charts keep visible axes/grid plus a centered library icon and message.
+- Metrics and footer: five cards preserve equal widths, orange title rules, large numeric hierarchy, and an independent elastic blank region above the footer.
 
 ## Required fidelity surfaces
 
-- Fonts and typography: existing Geist Variable with Chinese system fallbacks is retained. Nav, labels, chart headings, DIN-style measurements, units, weights, truncation, and line heights follow the source hierarchy; the real idle values remain `--` rather than fake populated values.
-- Spacing and layout rhythm: default Tauri window is now `1440 × 810`; title bar, sidebar, content cards, and footer fit in one 16:9 view. Main horizontal inset is 12 px and section gap is 8 px. No persistent vertical scrollbar appears in the verified view.
-- Colors and visual tokens: neutral canvas `#0f1112`, sidebar `#17191a`, card `#181a1b`, orange `#ff7a1a`, efficiency blue `#4ca4ff`, and spectrum yellow `#ffcc00` preserve the source semantic hierarchy.
-- Image quality and asset fidelity: the source contains no photography or illustration assets. UI icons use the project's Lucide dependency; charts remain high-DPI Canvas output and preserve all native spectrum points.
-- Copy and content: source navigation, setup labels, device names, workflow labels, chart titles, result specifications, version, time, and test tip are represented. Runtime state copy truthfully reflects disconnected hardware.
+- Fonts and typography: Geist Variable with Chinese system fallbacks is retained. Brand, page title, navigation, device titles, card labels, DIN-style measurements, units, weights, and truncation follow the reference hierarchy.
+- Spacing and layout rhythm: section heights, 9 px vertical rhythm, asymmetric content insets, card radii, borders, and the bottom elastic spacer match the source composition. The default Tauri window height is now `960` so all major bands fit on a typical desktop while taller windows gain blank space below the cards.
+- Colors and visual tokens: neutral black canvas, charcoal sidebar/cards, orange primary state, blue selected station, yellow secondary station/spectrum state, and semantic green/red states map to the reference.
+- Image quality and asset fidelity: the source contains no photography or illustrations. UI imagery uses the existing icon library and high-DPI Canvas charts; no placeholder drawings or rasterized UI were introduced.
+- Copy and content: reference navigation, setup labels, device names, workflow steps, chart titles, result specifications, version, time, and test guidance are represented. Runtime values remain truthful to the connected hardware state.
 
 ## Comparison history
 
-1. Earlier `[P1]`: the real `npm start` screen had a native title bar plus a second 56 px page header, oversized dual-station pills, four-item navigation, and a tall 1440 × 900 frame.
-   - Fix: use the macOS overlay title bar, move actions into the single app bar, set the default window to `1440 × 810`, add the two reference navigation slots, and move station switching into the station field.
-   - Evidence: `/Users/zh/Documents/test/ARP/.codex-ui-qa/actual-real-v1.png`.
-2. Earlier `[P2]`: the first revision kept a persistent right gutter/scrollbar, used near-equal chart widths, and flattened chart heading hierarchy.
-   - Fix: remove the document scrollbar gutter, use `1 : 1 : 1.25` chart columns, stack chart title/legend, and restore the spectrum-side measurement summary.
-   - Evidence: `/Users/zh/Documents/test/ARP/.codex-ui-qa/actual-real-v2.png` and `/Users/zh/Documents/test/ARP/.codex-ui-qa/reference-vs-actual-real-v2.png`.
-3. A later unverified micro-adjustment was reverted after macOS capture began returning black frames. The retained implementation is the second revision shown in the valid real-Tauri evidence above.
+1. Earlier P1: the existing 16:9 implementation had only one header band, six navigation entries, station switching inside the form, a spectrum-side summary, and fixed content density optimized for `1440 × 810`.
+   - Fix: restored the two-level header, four-item navigation, header-level station pills, three pure chart cards, five result cards, and a desktop height that fits the full workflow.
+2. Earlier P2: the first pass used smaller type, grey disconnected device icons, solid empty-chart panels, 10 px section gaps, and symmetric content padding.
+   - Fix: matched the reference's typography scale, orange device-icon treatment, chart grid/axes with centered empty-state icons, 9 px rhythm, and measured asymmetric insets.
+3. Responsive validation: the `1448 × 1200` capture confirms the new flex spacer absorbs additional height below the metric cards without stretching or separating the cards themselves.
 
-## Primary interaction and runtime checks
+## Verification
 
-- Standard `npm start` launched Vite on port `1420`, compiled Rust, and ran `target/debug/tauri-ui`.
-- Real Tauri title-bar overlay, empty device state, station selector, chart empty states, metrics, and footer rendered together.
-- `npm run build`, `npm test`, and `git diff --check` pass.
-
-## Implementation checklist
-
-- [x] One native-overlay title bar matching the reference composition.
-- [x] Six-slot sidebar layout without fake routed pages.
-- [x] Setup, device, workflow, chart, metric, and footer bands visible in one screen.
-- [x] Dual-station control retained without the extra header band.
-- [x] Wider spectrum chart with embedded measurement summary.
-- [x] Real idle-state Tauri capture and normalized side-by-side comparison.
+- `npm run build`: passed.
+- `npm test`: passed (4 / 4).
+- `git diff --check`: passed.
+- Browser-rendered implementation captured at `1448 × 1086` and compared side-by-side against the source.
+- Tall viewport captured at `1448 × 1200` to verify adaptive blank space.
 
 final result: passed

@@ -14,7 +14,7 @@
       {
         "title": "Power Test",
         "width": 1440,
-        "height": 810,
+        "height": 960,
         "minWidth": 1180,
         "minHeight": 720,
         "center": true,
@@ -25,7 +25,7 @@
           "y": 18
         },
         "zoomHotkeysEnabled": false,
-        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection"
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --js-flags=\"--max-old-space-size=64 --expose-gc\""
       }
     ],
     "security": {

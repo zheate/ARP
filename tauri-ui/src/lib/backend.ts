@@ -4,7 +4,7 @@ import { decodeColumnarSpectrum, mergeSpectrumColumns, type SpectrumColumns, typ
 
 export type BackendMode = "read_only" | "active"
 export type DeviceConnectionState = "disconnected" | "connecting" | "connected" | "error"
-export type SnapshotView = "automatic" | "automatic_1" | "automatic_2" | "manual" | "manual_1" | "manual_2" | "pd" | "shipping"
+export type SnapshotView = "automatic" | "automatic_1" | "automatic_2" | "manual" | "manual_1" | "manual_2" | "pd" | "pd_1" | "pd_2" | "shipping"
 export type SeriesRevisions = { power: number; stable: number; spectrum: number; pd: number }
 export type SeriesCursors = { power?: number; pd?: number }
 export type { SpectrumColumns } from "@/lib/spectrum-columns"
@@ -14,6 +14,8 @@ export interface Notice {
   level: "info" | "warning" | "error"
   title: string
   message: string
+  code?: "power_protection" | "spectrum_saturation" | string
+  stationId?: "1" | "2" | string
 }
 
 export interface Ch341PortBinding {
@@ -90,6 +92,10 @@ export interface AppConfiguration {
   spectrumAverageFrames: number
   pibCenterWavelengthNm: number
   pibHalfRangeNm: number
+  centerWavelengthSpecNm: number
+  centerWavelengthToleranceNm: number
+  fwhmMaximumNm: number
+  pibMinimumPercent: number
   stableWindowS: number
   stableToleranceW: number
   initialCurrentA: number

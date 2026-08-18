@@ -120,6 +120,10 @@ DEFAULT_CONFIGURATION: dict[str, Any] = {
     "spectrumAverageFrames": 1,
     "pibCenterWavelengthNm": 976.0,
     "pibHalfRangeNm": 1.5,
+    "centerWavelengthSpecNm": 976.0,
+    "centerWavelengthToleranceNm": 1.5,
+    "fwhmMaximumNm": 0.6,
+    "pibMinimumPercent": 95.0,
     "stableWindowS": 3.0,
     "stableToleranceW": 0.15,
     "initialCurrentA": 1.0,
@@ -149,6 +153,37 @@ def _device_state(connected: bool, running: bool, error: str) -> str:
     if connected or running:
         return "connected"
     return "disconnected"
+
+
+def _default_pd_state() -> dict[str, Any]:
+    """Create an isolated PD acquisition state for one station."""
+    return {
+        "state": "idle",
+        "status": "未启动",
+        "devices": [],
+        "channels": [],
+        "ranges": [],
+        "settings": {
+            "device": "",
+            "channel": "",
+            "terminal": "DIFF",
+            "range": 10.0,
+            "sampleRateHz": 1_000.0,
+            "blockSize": 100,
+            "scale": 1.0,
+            "offset": 0.0,
+            "unit": "V",
+            "save": True,
+            "outputDir": "",
+        },
+        "points": [],
+        "currentValue": "--",
+        "voltage": "--",
+        "mean": "--",
+        "standardDeviation": "--",
+        "rangeText": "--",
+        "sampleCount": "0",
+    }
 
 
 @dataclass
@@ -258,6 +293,12 @@ class StationRuntime:
             )
         if initial_config:
             self.configuration.update({k: v for k, v in initial_config.items() if k in DEFAULT_CONFIGURATION})
+            # Preserve the old combined PIB/center-wavelength settings when
+            # loading a configuration saved before editable result specs.
+            if "centerWavelengthSpecNm" not in initial_config and "pibCenterWavelengthNm" in initial_config:
+                self.configuration["centerWavelengthSpecNm"] = self.configuration["pibCenterWavelengthNm"]
+            if "centerWavelengthToleranceNm" not in initial_config and "pibHalfRangeNm" in initial_config:
+                self.configuration["centerWavelengthToleranceNm"] = self.configuration["pibHalfRangeNm"]
 
         self.power_supply_controller: Any | None = None
         self.power_supply_kind = str(self.configuration["powerSupplyKind"])
@@ -298,7 +339,7 @@ class StationRuntime:
 
         self.stable_power_points: dict[float, float] = {}
         self.efficiency_points: dict[float, float] = {}
-        self.series_revisions = {"power": 0, "stable": 0, "spectrum": 0}
+        self.series_revisions = {"power": 0, "stable": 0, "spectrum": 0, "pd": 0}
         self.pending_manual_stable_current_a: float | None = None
         self.pending_manual_stability_generation: int | None = None
         self.recorded_manual_stable_current_a: float | None = None
@@ -307,6 +348,7 @@ class StationRuntime:
 
         self.automatic = AutomaticTestOrchestrator()
         self.automatic_detail = "准备测试"
+        self.status_message = "准备测试"
         self.automatic_started_at: float | None = None
         self.automatic_hold_started_at: float | None = None
         self.automatic_terminal_outcome: str | None = None
@@ -332,8 +374,29 @@ class StationRuntime:
         self.export_path: str = ""
         self.export_error: str = ""
 
-    def notify(self, level: str, title: str, message: str) -> None:
-        self.backend.notify(level, f"[工位 {self.station_id}] {title}", message)
+        # PD acquisition is a station-owned resource just like the power
+        # meter and spectrometer.  Keep its mutable state behind its own lock
+        # because acquisition callbacks run on a worker thread.
+        self._pd_lock = threading.RLock()
+        self.pd_state = _default_pd_state()
+        self._pd_devices: list[Any] = []
+        self._pd_reader: Any | None = None
+
+    def notify(
+        self,
+        level: str,
+        title: str,
+        message: str,
+        *,
+        code: str = "",
+    ) -> None:
+        self.backend.notify(
+            level,
+            f"[工位 {self.station_id}] {title}",
+            message,
+            station_id=self.station_id,
+            code=code,
+        )
 
     def _power_supply(self) -> ControllerPowerSupply | None:
         return ControllerPowerSupply(self.power_supply_controller) if self.power_supply_controller is not None else None
@@ -409,6 +472,7 @@ class StationRuntime:
             settings=dict(self.configuration),
             devices=self._device_snapshots(),
         )
+        self.backend.check_workbook_path_available(self.station_id, workbook_path)
         self.record_store.configure_sequence(self.automatic.currents)
         self._close_automatic_sample_recorder()
         self.automatic_sample_path = ""
@@ -1049,7 +1113,11 @@ class StationRuntime:
             reader.reading.connect(self._on_power_reading)
             reader.ready.connect(self._on_power_ready)
             reader.failed.connect(self._on_power_failed)
-            reader.status.connect(lambda msg: self.backend.set_status(f"[工位 {self.station_id}] {msg}"))
+            reader.status.connect(
+                lambda msg: self.backend.set_status(
+                    f"[工位 {self.station_id}] {msg}", station_id=self.station_id
+                )
+            )
             reader.finished.connect(self._on_power_finished)
             reader.start()
 
@@ -1088,7 +1156,12 @@ class StationRuntime:
                 self._automatic_stop.set()
                 self._automatic_resume.set()
                 self._start_emergency_ramp_down(reason)
-                self.notify("error", "功率保护", f"检测到功率异常下降，正在立即安全下电：{reason}")
+                self.notify(
+                    "error",
+                    "功率保护",
+                    f"检测到功率异常下降，正在立即安全下电：{reason}",
+                    code="power_protection",
+                )
         elif self.automatic.state in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED}:
             if reading.stable:
                 self._capture_manual_stable_point(reading)
@@ -1323,7 +1396,11 @@ class StationRuntime:
             reader.reading.connect(self._on_spectrometer_reading)
             reader.ready.connect(self._on_spectrometer_ready)
             reader.failed.connect(self._on_spectrometer_failed)
-            reader.status.connect(lambda msg: self.backend.set_status(f"[工位 {self.station_id}] {msg}"))
+            reader.status.connect(
+                lambda msg: self.backend.set_status(
+                    f"[工位 {self.station_id}] {msg}", station_id=self.station_id
+                )
+            )
             reader.device_opened.connect(self._on_spectrometer_device_opened)
             reader.integration_time_changed.connect(self._on_integration_changed)
             reader.finished.connect(self._on_spectrometer_finished)
@@ -1369,7 +1446,12 @@ class StationRuntime:
                 reason,
                 hold_current=True,
             )
-            self.notify("warning", "光谱饱和", f"{reason}；当前电流保持不变")
+            self.notify(
+                "warning",
+                "光谱饱和",
+                f"{reason}；当前电流保持不变",
+                code="spectrum_saturation",
+            )
 
     def _update_spectrum_center_lock(self, reading: SpectrometerReading) -> None:
         locked_center: float | None = None
@@ -1428,7 +1510,8 @@ class StationRuntime:
         self.spectrum_centroid_candidate_count = 0
         self.backend.set_status(
             f"[工位 {self.station_id}] 光谱横轴已按{lock_reference}锁定："
-            f"{locked_center:.3f} nm ± {SPECTRUM_CENTER_LOCK_HALF_RANGE_NM:g} nm"
+            f"{locked_center:.3f} nm ± {SPECTRUM_CENTER_LOCK_HALF_RANGE_NM:g} nm",
+            station_id=self.station_id,
         )
 
     @staticmethod
@@ -2236,7 +2319,8 @@ class StationRuntime:
             self.spectrum_centroid_candidate_nm = None
             self.spectrum_centroid_candidate_count = 0
             self.spectrum_center_locked_nm = None
-            for key in self.series_revisions:
+            # PD 曲线是独立采集链路；普通图表重置不应让 PD 视图误判为有新数据。
+            for key in ("power", "stable", "spectrum"):
                 self.series_revisions[key] += 1
 
     def stop_all(self) -> None:
@@ -2283,74 +2367,77 @@ class StationRuntime:
         self._test_reference = selected
 
     def summary_snapshot(self) -> dict[str, Any]:
-        supply = self._power_supply()
-        currents = list(self.automatic.currents)
-        current_index = int(self.automatic.current_index)
-        progress = max(0.0, min(1.0, (current_index + 1) / len(currents))) if currents else 0.0
-        return {
-            "stationId": self.station_id,
-            "station": str(self.configuration.get("station", f"工位 {self.station_id}")),
-            "sn": str(self.configuration.get("sn", "")),
-            "productModel": str(self.configuration.get("productModel", "")),
-            "batch": str(self.configuration.get("batch", "")),
-            "state": self.automatic.state.value,
-            "detail": self.automatic_detail,
-            "progress": progress,
-            "activeCurrentA": _finite(self.active_current_a),
-            "powerW": _finite(None if self.latest_power is None else self.latest_power.power_w),
-            "powerSupplyConnected": supply is not None,
-            "powerMeterRunning": self.power_meter_reader is not None,
-            "spectrometerRunning": self.spectrometer_reader is not None,
-            "canStart": supply is not None and not self.power_supply_identity_error and float(self.active_current_a or 0.0) <= 0.0,
-            "canPause": self.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED, AutomaticTestState.PAUSED, AutomaticTestState.RAMPING_DOWN},
-            "canRetry": self.automatic.state == AutomaticTestState.PAUSED,
-            "canEnd": self.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED, AutomaticTestState.RAMPING_DOWN},
-            "terminalOutcome": self.automatic_terminal_outcome,
-            "terminalReason": self.automatic_terminal_reason,
-            "exportStatus": self.export_status,
-            "exportPath": self.export_path,
-            "exportError": self.export_error,
-        }
+        with self._lock:
+            supply = self._power_supply()
+            currents = list(self.automatic.currents)
+            current_index = int(self.automatic.current_index)
+            progress = max(0.0, min(1.0, (current_index + 1) / len(currents))) if currents else 0.0
+            return {
+                "stationId": self.station_id,
+                "station": str(self.configuration.get("station", f"工位 {self.station_id}")),
+                "sn": str(self.configuration.get("sn", "")),
+                "productModel": str(self.configuration.get("productModel", "")),
+                "batch": str(self.configuration.get("batch", "")),
+                "state": self.automatic.state.value,
+                "detail": self.automatic_detail,
+                "progress": progress,
+                "activeCurrentA": _finite(self.active_current_a),
+                "powerW": _finite(None if self.latest_power is None else self.latest_power.power_w),
+                "powerSupplyConnected": supply is not None,
+                "powerMeterRunning": self.power_meter_reader is not None,
+                "spectrometerRunning": self.spectrometer_reader is not None,
+                "canStart": supply is not None and not self.power_supply_identity_error and float(self.active_current_a or 0.0) <= 0.0,
+                "canPause": self.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED, AutomaticTestState.PAUSED, AutomaticTestState.RAMPING_DOWN},
+                "canRetry": self.automatic.state == AutomaticTestState.PAUSED,
+                "canEnd": self.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED, AutomaticTestState.RAMPING_DOWN},
+                "terminalOutcome": self.automatic_terminal_outcome,
+                "terminalReason": self.automatic_terminal_reason,
+                "exportStatus": self.export_status,
+                "exportPath": self.export_path,
+                "exportError": self.export_error,
+            }
 
     def build_stable_snapshot(self) -> list[dict[str, Any]]:
-        return [
-            {
-                "currentA": current,
-                "powerW": power,
-                "efficiencyPercent": self.efficiency_points.get(current),
-            }
-            for current, power in sorted(self.stable_power_points.items())
-        ]
+        with self._lock:
+            return [
+                {
+                    "currentA": current,
+                    "powerW": power,
+                    "efficiencyPercent": self.efficiency_points.get(current),
+                }
+                for current, power in sorted(self.stable_power_points.items())
+            ]
 
     def build_spectrum_snapshot(
         self,
         *,
         allow_cached_grid: bool,
     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-        frame = self.latest_spectrum
-        wavelength = [] if frame is None else [float(v) for v in frame.wavelength]
-        intensity = [] if frame is None else [float(v) for v in frame.intensity]
-        grid_changed = wavelength != self._last_spectrum_grid
-        if grid_changed:
-            self._last_spectrum_grid = wavelength
-            self.spectrum_grid_revision += 1
+        with self._lock:
+            frame = self.latest_spectrum
+            wavelength = [] if frame is None else [float(v) for v in frame.wavelength]
+            intensity = [] if frame is None else [float(v) for v in frame.intensity]
+            grid_changed = wavelength != self._last_spectrum_grid
+            if grid_changed:
+                self._last_spectrum_grid = wavelength
+                self.spectrum_grid_revision += 1
 
-        spectrum: dict[str, Any] = {
-            "gridRevision": self.spectrum_grid_revision,
-            "intensity": intensity,
-        }
-        if not allow_cached_grid or grid_changed:
-            spectrum["wavelengthNm"] = wavelength
-        peaks = [
-            {
-                "label": item.label,
-                "centroidNm": _finite(item.centroid_nm),
-                "peakWavelengthNm": _finite(item.peak_wavelength_nm),
-                "peakIntensity": _finite(item.peak_intensity),
+            spectrum: dict[str, Any] = {
+                "gridRevision": self.spectrum_grid_revision,
+                "intensity": intensity,
             }
-            for item in (() if frame is None else frame.peak_annotations)
-        ]
-        return spectrum, peaks
+            if not allow_cached_grid or grid_changed:
+                spectrum["wavelengthNm"] = wavelength
+            peaks = [
+                {
+                    "label": item.label,
+                    "centroidNm": _finite(item.centroid_nm),
+                    "peakWavelengthNm": _finite(item.peak_wavelength_nm),
+                    "peakIntensity": _finite(item.peak_intensity),
+                }
+                for item in (() if frame is None else frame.peak_annotations)
+            ]
+            return spectrum, peaks
 
 
 class HeadlessBackend:
@@ -2360,6 +2447,7 @@ class HeadlessBackend:
 
     def __init__(self, settings: JsonSettings | None = None) -> None:
         self._lock = threading.RLock()
+        self._snapshot_lock = threading.RLock()
         self.settings = settings or JsonSettings()
         stored = self.settings.get("runtime/configuration", {})
         stored_dict = stored if isinstance(stored, dict) else {}
@@ -2400,44 +2488,34 @@ class HeadlessBackend:
             "2": StationRuntime("2", self, st2_config),
         }
 
-        self.notices: deque[dict[str, str]] = deque(maxlen=8)
+        self.notices: deque[dict[str, Any]] = deque(maxlen=8)
         self._notice_sequence = 0
         self.status_message = "后台已就绪"
-
-        self.pd_state: dict[str, Any] = {
-            "state": "idle",
-            "status": "未启动",
-            "devices": [],
-            "channels": [],
-            "ranges": [],
-            "settings": {
-                "device": "",
-                "channel": "",
-                "terminal": "DIFF",
-                "range": 10.0,
-                "sampleRateHz": 1_000.0,
-                "blockSize": 100,
-                "scale": 1.0,
-                "offset": 0.0,
-                "unit": "V",
-                "save": True,
-                "outputDir": "",
-            },
-            "points": [],
-            "currentValue": "--",
-            "voltage": "--",
-            "mean": "--",
-            "standardDeviation": "--",
-            "rangeText": "--",
-            "sampleCount": "0",
-        }
-        self._pd_devices: list[Any] = []
-        self._pd_reader: Any | None = None
-        self.series_revisions = {"pd": 0}
 
     def _station(self, station_id: str | None = None) -> StationRuntime:
         key = str(station_id) if station_id is not None else "1"
         return self.stations.get(key, self.stations["1"])
+
+    def _station_id_from_params(self, params: dict[str, Any]) -> str:
+        """Resolve routing without confusing the human-readable station label."""
+        value = params.get("stationId")
+        if value is None:
+            legacy_value = params.get("station")
+            value = legacy_value if str(legacy_value) in self.stations else "1"
+        station_id = str(value)
+        if station_id not in self.stations:
+            raise ValueError(f"未知工位 ID：{station_id}")
+        return station_id
+
+    # Forwarding properties for Station 1 backwards compatibility.  Older
+    # tests/integrations used these names before PD became station-scoped.
+    @property
+    def pd_state(self) -> dict[str, Any]:
+        return self.stations["1"].pd_state
+
+    @property
+    def series_revisions(self) -> dict[str, int]:
+        return self.stations["1"].series_revisions
 
     # Forwarding properties for Station 1 backwards compatibility
     @property
@@ -2586,21 +2664,51 @@ class HeadlessBackend:
                 if other_st.spectrometer_reader is not None and other_dev == resource_identifier:
                     raise RuntimeError(f"光谱仪设备 ID {resource_identifier} 正在被工位 {other_id} 使用")
 
-    def notify(self, level: str, title: str, message: str) -> None:
+    def check_workbook_path_available(self, target_station_id: str, workbook_path: Path) -> None:
+        """Prevent two live station sessions from exporting to the same workbook."""
+        target = Path(workbook_path).resolve(strict=False)
+        with self._lock:
+            for other_id, other_st in self.stations.items():
+                if other_id == str(target_station_id):
+                    continue
+                other_path = other_st.record_store.workbook_path
+                if other_path is not None and Path(other_path).resolve(strict=False) == target:
+                    raise RuntimeError(
+                        f"工位 {target_station_id} 与工位 {other_id} 的测试文件路径相同：{target}；"
+                        "请修改 SN、测试站别或输出目录"
+                    )
+
+    def notify(
+        self,
+        level: str,
+        title: str,
+        message: str,
+        *,
+        station_id: str = "",
+        code: str = "",
+    ) -> None:
         with self._lock:
             self._notice_sequence += 1
-            self.notices.append(
-                {
-                    "id": str(self._notice_sequence),
-                    "level": str(level),
-                    "title": str(title),
-                    "message": str(message),
-                }
-            )
+            notice: dict[str, Any] = {
+                "id": str(self._notice_sequence),
+                "level": str(level),
+                "title": str(title),
+                "message": str(message),
+            }
+            if station_id:
+                notice["stationId"] = str(station_id)
+            if code:
+                notice["code"] = str(code)
+            self.notices.append(notice)
             self.status_message = str(message)
+            if station_id and str(station_id) in self.stations:
+                self.stations[str(station_id)].status_message = f"[工位 {station_id}] {message}"
 
-    def set_status(self, message: str) -> None:
-        self.status_message = str(message)
+    def set_status(self, message: str, *, station_id: str | None = None) -> None:
+        with self._lock:
+            self.status_message = str(message)
+            if station_id is not None and str(station_id) in self.stations:
+                self.stations[str(station_id)].status_message = str(message)
 
     def _persist_configuration(self) -> None:
         self.settings.set("runtime/configuration", dict(self.stations["1"].configuration))
@@ -2613,41 +2721,41 @@ class HeadlessBackend:
         return {"status": "ok", "mode": self.mode}
 
     def dispatch(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
-        station_id = str(params.get("stationId", params.get("station", "1")))
+        station_id = self._station_id_from_params(params)
         st = self._station(station_id)
 
         actions: dict[str, Callable[[dict[str, Any]], Any]] = {
             "app.configure": lambda p: self._configure(p),
             "device.refresh": self._refresh_device,
-            "powerSupply.connect": lambda p: self._station(p.get("stationId", p.get("station", "1"))).connect_power_supply(),
-            "powerSupply.disconnect": lambda p: self._station(p.get("stationId", p.get("station", "1"))).disconnect_power_supply(),
-            "powerSupply.setCurrent": lambda p: self._station(p.get("stationId", p.get("station", "1"))).set_current(p),
-            "powerSupply.setVoltage": lambda p: self._station(p.get("stationId", p.get("station", "1"))).set_voltage(p),
-            "powerSupply.setOutput": lambda p: self._station(p.get("stationId", p.get("station", "1"))).set_output(p),
-            "powerSupply.read": lambda p: self._station(p.get("stationId", p.get("station", "1"))).read_power_supply(p),
-            "powerMeter.start": lambda p: self._station(p.get("stationId", p.get("station", "1"))).start_power_meter(),
-            "powerMeter.stop": lambda p: self._station(p.get("stationId", p.get("station", "1"))).stop_power_meter(),
-            "powerMeter.setRelativeZero": lambda p: self._station(p.get("stationId", p.get("station", "1"))).set_relative_zero(p),
-            "manual.saveExcel": lambda p: self._station(p.get("stationId", p.get("station", "1"))).save_manual_records(),
-            "spectrometer.start": lambda p: self._station(p.get("stationId", p.get("station", "1"))).start_spectrometer(),
-            "spectrometer.stop": lambda p: self._station(p.get("stationId", p.get("station", "1"))).stop_spectrometer(),
-            "spectrometer.saveCsv": lambda p: self._station(p.get("stationId", p.get("station", "1"))).save_spectrum_csv(p),
-            "automatic.start": lambda p: self._station(p.get("stationId", p.get("station", "1"))).start_automatic(p),
+            "powerSupply.connect": lambda _p: st.connect_power_supply(),
+            "powerSupply.disconnect": lambda _p: st.disconnect_power_supply(),
+            "powerSupply.setCurrent": lambda p: st.set_current(p),
+            "powerSupply.setVoltage": lambda p: st.set_voltage(p),
+            "powerSupply.setOutput": lambda p: st.set_output(p),
+            "powerSupply.read": lambda p: st.read_power_supply(p),
+            "powerMeter.start": lambda _p: st.start_power_meter(),
+            "powerMeter.stop": lambda _p: st.stop_power_meter(),
+            "powerMeter.setRelativeZero": lambda p: st.set_relative_zero(p),
+            "manual.saveExcel": lambda _p: st.save_manual_records(),
+            "spectrometer.start": lambda _p: st.start_spectrometer(),
+            "spectrometer.stop": lambda _p: st.stop_spectrometer(),
+            "spectrometer.saveCsv": lambda p: st.save_spectrum_csv(p),
+            "automatic.start": lambda p: st.start_automatic(p),
             "automatic.references": lambda p: self._list_automatic_references(p),
-            "automatic.pause": lambda p: self._station(p.get("stationId", p.get("station", "1"))).pause_automatic(),
-            "automatic.retry": lambda p: self._station(p.get("stationId", p.get("station", "1"))).resume_automatic(),
-            "automatic.end": lambda p: self._station(p.get("stationId", p.get("station", "1"))).end_automatic(),
-            "automatic.reset": lambda p: self._station(p.get("stationId", p.get("station", "1"))).reset_automatic(),
+            "automatic.pause": lambda _p: st.pause_automatic(),
+            "automatic.retry": lambda _p: st.resume_automatic(),
+            "automatic.end": lambda _p: st.end_automatic(),
+            "automatic.reset": lambda _p: st.reset_automatic(),
             "shippingReport.inspect": self._inspect_shipping_report,
             "shippingReport.batchInspect": self._inspect_shipping_report_batch,
             "shippingReport.batchGenerateItem": self._generate_shipping_report_batch_item,
             "shippingReport.preview": self._preview_shipping_report,
             "shippingReport.generate": self._generate_shipping_report,
-            "pd.refresh": lambda _p: self._refresh_pd(),
-            "pd.configure": self._configure_pd,
-            "pd.start": self._start_pd,
-            "pd.stop": lambda _p: self._stop_pd(),
-            "charts.reset": lambda p: self._station(p.get("stationId", p.get("station", "1"))).reset_charts(),
+            "pd.refresh": lambda _p: self._refresh_pd(st),
+            "pd.configure": lambda p: self._configure_pd(st, p),
+            "pd.start": lambda p: self._start_pd(st, p),
+            "pd.stop": lambda _p: self._stop_pd(st),
+            "charts.reset": lambda _p: st.reset_charts(),
             "app.stopAll": lambda _p: self._stop_all(),
             "app.shutdown": lambda _p: self._shutdown(),
         }
@@ -2669,58 +2777,65 @@ class HeadlessBackend:
         raise KeyError(method)
 
     def _configure(self, params: dict[str, Any]) -> None:
-        target_station_id = str(params.get("stationId", params.get("station", "1")))
-        if target_station_id in self.stations:
-            previous_kind = self.stations[target_station_id].power_supply_kind
-            self.stations[target_station_id].configure(params)
-            current_kind = self.stations[target_station_id].power_supply_kind
-            if previous_kind == "ch341" and current_kind == "tdk" and not any(
-                st.power_supply_kind == "ch341" and st.power_supply_controller is not None
-                for st in self.stations.values()
-            ):
+        target_station_id = self._station_id_from_params(params)
+        target_station = self.stations[target_station_id]
+        previous_kind = target_station.power_supply_kind
+        target_station.configure(params)
+        current_kind = target_station.power_supply_kind
+        if previous_kind == "ch341" and current_kind == "tdk" and not any(
+            st.power_supply_kind == "ch341" and st.power_supply_controller is not None
+            for st in self.stations.values()
+        ):
+            with self._lock:
                 self.ch341_discovery_state = "not_scanned"
                 self.ch341_scan_error = ""
                 self.ch341_descriptors = []
-        else:
-            for st in self.stations.values():
-                st.configure(params)
 
     def scan_ch341(self) -> None:
         try:
-            self.ch341_descriptors = scan_ch341_devices()
-            self.ch341_discovery_state = "ready" if self.ch341_descriptors else "empty"
-            self.ch341_scan_error = ""
+            descriptors = scan_ch341_devices()
+            with self._lock:
+                self.ch341_descriptors = descriptors
+                self.ch341_discovery_state = "ready" if descriptors else "empty"
+                self.ch341_scan_error = ""
         except Exception as exc:
-            self.ch341_discovery_state = "error"
-            self.ch341_scan_error = str(exc)
-            self.ch341_descriptors = []
+            with self._lock:
+                self.ch341_discovery_state = "error"
+                self.ch341_scan_error = str(exc)
+                self.ch341_descriptors = []
             self.notify("error", "CH341 扫描失败", str(exc))
 
     def _refresh_device(self, params: dict[str, Any]) -> None:
         device = str(params.get("device", "all"))
+        target_station = self._station(self._station_id_from_params(params))
         if device in {"all", "powerSupply"}:
-            self.power_supply_resources = list_tdk_serial_resources()
+            resources = list_tdk_serial_resources()
+            with self._lock:
+                self.power_supply_resources = resources
             self.scan_ch341()
 
         if device in {"all", "powerMeter"}:
             self._refresh_power_meter(params)
 
         if device in {"all", "spectrometer"}:
-            self._refresh_spectrometer()
+            self._refresh_spectrometer(target_station)
 
     def _refresh_power_meter(self, params: dict[str, Any]) -> None:
-        if self.power_meter_detect_thread is not None:
-            return
-        target_station_id = str(params.get("stationId", params.get("station", "1")))
+        with self._lock:
+            if self.power_meter_detect_thread is not None:
+                return
+        target_station_id = self._station_id_from_params(params)
         target_station = self._station(target_station_id)
         preferred = str(
             params.get("preferredResource", target_station.configuration["powerMeterResource"])
         )
         thread = PowerMeterDetectThread(preferred_resource=preferred)
-        self.power_meter_detect_thread = thread
+        with self._lock:
+            self.power_meter_detect_thread = thread
 
         def on_detected(options: list[PowerMeterOption]) -> None:
-            self.power_meter_options = list(options)
+            with self._lock:
+                self.power_meter_options = list(options)
             if not options:
                 return
             selected = next((item for item in options if item.resource == preferred), None)
@@ -2731,32 +2846,43 @@ class HeadlessBackend:
                     if sid != target_station_id and st.power_meter_reader is not None
                 }
                 selected = next((item for item in options if item.resource not in claimed), options[0])
-            target_station.configuration["powerMeterResource"] = selected.resource
-            target_station.configuration["powerMeterDriverKind"] = selected.driver_kind
+            with target_station._lock:
+                target_station.configuration["powerMeterResource"] = selected.resource
+                target_station.configuration["powerMeterDriverKind"] = selected.driver_kind
 
         def on_finished() -> None:
-            self.power_meter_detect_thread = None
+            with self._lock:
+                self.power_meter_detect_thread = None
 
         thread.detected.connect(on_detected)
-        thread.status.connect(lambda msg: self.set_status(msg))
+        thread.status.connect(
+            lambda msg: self.set_status(msg, station_id=target_station_id)
+        )
         thread.failed.connect(lambda msg: self.notify("error", "功率计扫描", msg))
         thread.finished.connect(on_finished)
         thread.start()
 
-    def _refresh_spectrometer(self) -> None:
+    def _refresh_spectrometer(self, station: StationRuntime | None = None) -> None:
         spectrometer_class, _ = load_spectrometer_components(None)
         device_ids = [int(value) for value in spectrometer_class.detect()]
-        self.spectrometer_resources = [
+        resources = [
             {"label": f"Ocean Insight | 设备 ID {device_id}", "deviceId": device_id}
             for device_id in device_ids
         ]
+        with self._lock:
+            self.spectrometer_resources = resources
+        if station is not None:
+            self.set_status(
+                f"[工位 {station.station_id}] 已发现 {len(device_ids)} 台光谱仪",
+                station_id=station.station_id,
+            )
 
     def _set_current(self, params: dict[str, Any]) -> None:
-        st = self._station(params.get("stationId", params.get("station", "1")))
+        st = self._station(self._station_id_from_params(params))
         st.set_current(params)
 
     def _list_automatic_references(self, params: dict[str, Any]) -> dict[str, Any]:
-        st = self._station(params.get("stationId", params.get("station", "1")))
+        st = self._station(self._station_id_from_params(params))
         records = st._history_records(params)
         return {"items": [record.summary_payload() for record in records]}
 
@@ -2802,41 +2928,48 @@ class HeadlessBackend:
         request = report.ShippingReportRequest.from_mapping(params)
         return {"pages": report.render_shipping_report_preview(params["sourcePath"], request)}
 
-    def _refresh_pd(self) -> None:
+    def _refresh_pd(self, station: StationRuntime) -> None:
         try:
             from tools.pd_daq_mvp import channels_for_terminal_mode, discover_ni_daq_devices
 
             driver, devices = discover_ni_daq_devices()
-            self._pd_devices = list(devices)
-            self.pd_state["status"] = driver
-            self.pd_state["devices"] = [device.label() for device in devices]
-            if devices:
-                selected = devices[0]
-                terminal = str(self.pd_state["settings"]["terminal"])
-                self.pd_state["settings"]["device"] = selected.label()
-                self.pd_state["channels"] = list(channels_for_terminal_mode(selected, terminal))
-                self.pd_state["ranges"] = [
-                    {"label": f"±{value:g} V", "value": value}
-                    for value in selected.voltage_ranges
-                ]
-                if self.pd_state["channels"] and not self.pd_state["settings"]["channel"]:
-                    self.pd_state["settings"]["channel"] = self.pd_state["channels"][0]
+            with station._pd_lock:
+                station._pd_devices = list(devices)
+                station.pd_state["status"] = driver
+                station.pd_state["devices"] = [device.label() for device in devices]
+                if devices:
+                    selected = devices[0]
+                    terminal = str(station.pd_state["settings"]["terminal"])
+                    station.pd_state["settings"]["device"] = selected.label()
+                    station.pd_state["channels"] = list(channels_for_terminal_mode(selected, terminal))
+                    station.pd_state["ranges"] = [
+                        {"label": f"±{value:g} V", "value": value}
+                        for value in selected.voltage_ranges
+                    ]
+                    if station.pd_state["channels"] and not station.pd_state["settings"]["channel"]:
+                        station.pd_state["settings"]["channel"] = station.pd_state["channels"][0]
         except Exception as exc:
-            self.pd_state["status"] = str(exc)
+            with station._pd_lock:
+                station.pd_state["status"] = str(exc)
             self.notify("error", "PD 采集", str(exc))
 
-    def _configure_pd(self, params: dict[str, Any]) -> None:
-        for key in self.pd_state["settings"]:
-            if key in params:
-                self.pd_state["settings"][key] = params[key]
+    def _configure_pd(self, station: StationRuntime, params: dict[str, Any]) -> None:
+        with station._pd_lock:
+            for key in station.pd_state["settings"]:
+                if key in params:
+                    station.pd_state["settings"][key] = params[key]
 
-    def _start_pd(self, params: dict[str, Any]) -> None:
-        self._configure_pd(params)
-        if self._pd_reader is not None:
-            return
-        if not self._pd_devices:
-            self._refresh_pd()
-        if not self._pd_devices:
+    def _start_pd(self, station: StationRuntime, params: dict[str, Any]) -> None:
+        self._configure_pd(station, params)
+        with station._pd_lock:
+            if station._pd_reader is not None:
+                return
+            has_devices = bool(station._pd_devices)
+        if not has_devices:
+            self._refresh_pd(station)
+        with station._pd_lock:
+            devices = list(station._pd_devices)
+        if not devices:
             raise RuntimeError("未检测到 NI-DAQmx 设备")
         from tools.pd_daq_mvp import (
             PdAcquisitionThread,
@@ -2844,18 +2977,19 @@ class HeadlessBackend:
             default_csv_path,
         )
 
-        values = self.pd_state["settings"]
+        with station._pd_lock:
+            values = dict(station.pd_state["settings"])
         requested_device = str(values["device"])
         device = next(
-            (item for item in self._pd_devices if item.label() == requested_device or item.name == requested_device),
-            self._pd_devices[0],
+            (item for item in devices if item.label() == requested_device or item.name == requested_device),
+            devices[0],
         )
         channel = str(values["channel"]).strip()
         if not channel:
             channel = device.ai_channels[0]
         save_path = None
         if bool(values["save"]):
-            output_dir = Path(str(values["outputDir"] or self.stations["1"].configuration["outputDir"])).expanduser()
+            output_dir = Path(str(values["outputDir"] or station.configuration["outputDir"])).expanduser()
             save_path = default_csv_path(output_dir, channel)
         settings = PdDaqSettings(
             channel=channel,
@@ -2870,59 +3004,69 @@ class HeadlessBackend:
         )
         settings.validate(device.max_single_channel_rate_hz)
         reader = PdAcquisitionThread(settings)
-        self._pd_reader = reader
-        reader.block_ready.connect(self._on_pd_block)
-        reader.acquisition_ready.connect(self._on_pd_ready)
-        reader.acquisition_failed.connect(self._on_pd_failed)
-        reader.recording_stopped.connect(self._on_pd_recording_stopped)
-        reader.finished.connect(self._on_pd_finished)
-        self.pd_state["state"] = "running"
-        self.pd_state["status"] = "正在启动"
+        with station._pd_lock:
+            if station._pd_reader is not None:
+                return
+            station._pd_reader = reader
+            reader.block_ready.connect(lambda block: self._on_pd_block(station, block))
+            reader.acquisition_ready.connect(lambda value: self._on_pd_ready(station, value))
+            reader.acquisition_failed.connect(lambda message: self._on_pd_failed(station, message))
+            reader.recording_stopped.connect(lambda path: self._on_pd_recording_stopped(station, path))
+            reader.finished.connect(lambda: self._on_pd_finished(station))
+            station.pd_state["state"] = "running"
+            station.pd_state["status"] = "正在启动"
         reader.start()
 
-    def _on_pd_block(self, block: Any) -> None:
-        points = self.pd_state["points"]
-        points.extend(
-            {"elapsedS": float(elapsed), "value": float(value)}
-            for elapsed, value in zip(block.plot_times_s, block.plot_values)
-        )
-        if len(points) > 13_000:
-            del points[: len(points) - 13_000]
-        calibrated = block.calibrated
-        voltage = block.voltage
-        self.pd_state["currentValue"] = f"{calibrated.latest:.6g} {self.pd_state['settings']['unit']}"
-        self.pd_state["voltage"] = f"{voltage.latest:.6g} V"
-        self.pd_state["mean"] = f"{calibrated.mean:.6g}"
-        self.pd_state["standardDeviation"] = f"{calibrated.standard_deviation:.6g}"
-        self.pd_state["rangeText"] = f"{calibrated.minimum:.6g} – {calibrated.maximum:.6g}"
-        self.pd_state["sampleCount"] = str(block.sample_count)
-        self.series_revisions["pd"] += 1
+    def _on_pd_block(self, station: StationRuntime, block: Any) -> None:
+        with station._pd_lock:
+            points = station.pd_state["points"]
+            points.extend(
+                {"elapsedS": float(elapsed), "value": float(value)}
+                for elapsed, value in zip(block.plot_times_s, block.plot_values)
+            )
+            if len(points) > 13_000:
+                del points[: len(points) - 13_000]
+            calibrated = block.calibrated
+            voltage = block.voltage
+            station.pd_state["currentValue"] = f"{calibrated.latest:.6g} {station.pd_state['settings']['unit']}"
+            station.pd_state["voltage"] = f"{voltage.latest:.6g} V"
+            station.pd_state["mean"] = f"{calibrated.mean:.6g}"
+            station.pd_state["standardDeviation"] = f"{calibrated.standard_deviation:.6g}"
+            station.pd_state["rangeText"] = f"{calibrated.minimum:.6g} – {calibrated.maximum:.6g}"
+            station.pd_state["sampleCount"] = str(block.sample_count)
+            station.series_revisions["pd"] += 1
 
-    def _on_pd_ready(self, channel: str) -> None:
-        self.pd_state["state"] = "running"
-        self.pd_state["status"] = f"正在采集 {channel}"
+    def _on_pd_ready(self, station: StationRuntime, channel: str) -> None:
+        with station._pd_lock:
+            station.pd_state["state"] = "running"
+            station.pd_state["status"] = f"正在采集 {channel}"
 
-    def _on_pd_failed(self, message: str) -> None:
-        self.pd_state["state"] = "error"
-        self.pd_state["status"] = str(message)
-        self.notify("error", "PD 采集", message)
+    def _on_pd_failed(self, station: StationRuntime, message: str) -> None:
+        with station._pd_lock:
+            station.pd_state["state"] = "error"
+            station.pd_state["status"] = str(message)
+        station.notify("error", "PD 采集", message)
 
-    def _on_pd_recording_stopped(self, path: str) -> None:
+    def _on_pd_recording_stopped(self, station: StationRuntime, path: str) -> None:
         if path:
-            self.pd_state["status"] = f"记录已保存：{path}"
+            with station._pd_lock:
+                station.pd_state["status"] = f"记录已保存：{path}"
 
-    def _on_pd_finished(self) -> None:
-        self._pd_reader = None
-        if self.pd_state["state"] != "error":
-            self.pd_state["state"] = "idle"
+    def _on_pd_finished(self, station: StationRuntime) -> None:
+        with station._pd_lock:
+            station._pd_reader = None
+            if station.pd_state["state"] != "error":
+                station.pd_state["state"] = "idle"
 
-    def _stop_pd(self) -> None:
-        reader = self._pd_reader
+    def _stop_pd(self, station: StationRuntime) -> None:
+        with station._pd_lock:
+            reader = station._pd_reader
         if reader is not None:
             reader.stop()
             reader.wait(5_000)
-        self.pd_state["state"] = "idle"
-        self.pd_state["status"] = "已停止"
+        with station._pd_lock:
+            station.pd_state["state"] = "idle"
+            station.pd_state["status"] = "已停止"
 
     def _stop_all(self) -> None:
         errors: list[str] = []
@@ -2931,10 +3075,10 @@ class HeadlessBackend:
                 st.stop_all()
             except Exception as exc:
                 errors.append(f"工位 {st.station_id}：{exc}")
-        try:
-            self._stop_pd()
-        except Exception as exc:
-            errors.append(f"PD：{exc}")
+            try:
+                self._stop_pd(st)
+            except Exception as exc:
+                errors.append(f"工位 {st.station_id} PD：{exc}")
         if errors:
             raise RuntimeError("停止未完全确认：" + "；".join(errors))
 
@@ -2953,16 +3097,69 @@ class HeadlessBackend:
         return {"shutdownConfirmed": True}
 
     def snapshot(self, params: dict[str, Any] | None = None) -> dict[str, Any]:
-        with self._lock:
+        # Do not hold the backend-wide lock while reading a station.  Worker
+        # callbacks may hold a station lock and then publish a notice (which
+        # takes the backend lock); keeping this order one-way avoids a
+        # station/backend lock inversion during live acquisition.
+        with self._snapshot_lock:
             return self._snapshot_locked(params or {})
 
     def _snapshot_locked(self, params: dict[str, Any]) -> dict[str, Any]:
         view = str(params.get("view", "full"))
-        active_station_id = "2" if view in {"automatic_2", "manual_2"} else str(params.get("stationId", params.get("station", "1")))
+        active_station_id = (
+            "2"
+            if view in {"automatic_2", "manual_2", "pd_2"}
+            else self._station_id_from_params(params)
+        )
+        active_st = self._station(active_station_id)
+        with self._lock:
+            shared = {
+                "notices": list(self.notices),
+                "status_message": self.status_message,
+                "power_supply_resources": list(self.power_supply_resources),
+                "ch341_discovery_state": self.ch341_discovery_state,
+                "ch341_scan_error": self.ch341_scan_error,
+                "ch341_descriptors": list(self.ch341_descriptors),
+                "power_meter_options": list(self.power_meter_options),
+                "power_meter_detecting": self.power_meter_detect_thread is not None,
+                "spectrometer_resources": [dict(item) for item in self.spectrometer_resources],
+            }
+        with active_st._lock:
+            return self._snapshot_locked_with_station_lock(params, shared)
+
+    def _snapshot_locked_with_station_lock(
+        self,
+        params: dict[str, Any],
+        shared: dict[str, Any],
+    ) -> dict[str, Any]:
+        view = str(params.get("view", "full"))
+        active_station_id = (
+            "2"
+            if view in {"automatic_2", "manual_2", "pd_2"}
+            else self._station_id_from_params(params)
+        )
         active_st = self._station(active_station_id)
 
+        notices = shared["notices"]
+        status_message = shared["status_message"]
+        power_supply_resources = shared["power_supply_resources"]
+        ch341_discovery_state = shared["ch341_discovery_state"]
+        ch341_scan_error = shared["ch341_scan_error"]
+        ch341_descriptors = shared["ch341_descriptors"]
+        power_meter_options = shared["power_meter_options"]
+        power_meter_detecting = shared["power_meter_detecting"]
+        spectrometer_resources = shared["spectrometer_resources"]
+
+        with active_st._pd_lock:
+            pd_state = {
+                key: (list(value) if key == "points" else dict(value) if key == "settings" else list(value) if isinstance(value, list) else value)
+                for key, value in active_st.pd_state.items()
+            }
+            pd_revision = active_st.series_revisions["pd"]
+        status_message = active_st.status_message or status_message
+
         include_live = view in {"automatic", "automatic_1", "automatic_2", "manual", "manual_1", "manual_2", "full"}
-        include_pd = view in {"pd", "full"}
+        include_pd = view in {"pd", "pd_1", "pd_2", "full"}
 
         supply = active_st._power_supply()
         frame = active_st.latest_spectrum
@@ -2977,7 +3174,7 @@ class HeadlessBackend:
             "power": active_st.series_revisions["power"],
             "stable": active_st.series_revisions["stable"],
             "spectrum": active_st.series_revisions["spectrum"],
-            "pd": self.series_revisions["pd"],
+            "pd": pd_revision,
         }
 
         def include_series(name: str, active_for_view: bool) -> bool:
@@ -3029,9 +3226,9 @@ class HeadlessBackend:
             measurements["spectrum"] = spectrum
             measurements["spectrumPeaks"] = spectrum_peaks
 
-        pd_snapshot = {key: value for key, value in self.pd_state.items() if key != "points"}
+        pd_snapshot = {key: value for key, value in pd_state.items() if key != "points"}
         if include_series("pd", include_pd):
-            pd_points = list(self.pd_state["points"])
+            pd_points = list(pd_state["points"])
             pd_patch = append_patch("pd", pd_points, "elapsedS")
             if pd_patch is None:
                 pd_snapshot["points"] = pd_points
@@ -3044,7 +3241,7 @@ class HeadlessBackend:
             for b in active_st.configuration.get("ch341PortBindings", [])
             if isinstance(b, dict) and "locationPath" in b
         }
-        online_map = {d.location_path: d.device_index for d in self.ch341_descriptors}
+        online_map = {d.location_path: d.device_index for d in ch341_descriptors}
         all_paths = list(dict.fromkeys(list(bindings_map.keys()) + list(online_map.keys())))
         ports = [
             {
@@ -3056,8 +3253,8 @@ class HeadlessBackend:
             for loc in all_paths
         ]
         ch341_snapshot = {
-            "discoveryState": self.ch341_discovery_state,
-            "error": self.ch341_scan_error,
+            "discoveryState": ch341_discovery_state,
+            "error": ch341_scan_error,
             "ports": ports,
             "connectedPort": active_st.connected_ch341_port,
         }
@@ -3077,9 +3274,17 @@ class HeadlessBackend:
         progress = max(0.0, min(1.0, (current_index + 1) / len(currents))) if currents else 0.0
         dwell_elapsed = None
         if active_st.automatic_hold_started_at is not None and active_st.automatic.current_dwell_s > 0.0:
-            dwell_elapsed = min(
+            elapsed_s = min(
                 active_st.automatic.current_dwell_s,
                 max(0.0, time.monotonic() - active_st.automatic_hold_started_at),
+            )
+            # The UI displays whole seconds. Quantizing this transport field
+            # prevents the 200 ms live snapshot loop from becoming a timer
+            # stream while the device data itself is unchanged.
+            dwell_elapsed = (
+                active_st.automatic.current_dwell_s
+                if elapsed_s >= active_st.automatic.current_dwell_s
+                else float(math.floor(elapsed_s))
             )
 
         stations_summary = {sid: st.summary_snapshot() for sid, st in self.stations.items()}
@@ -3095,7 +3300,7 @@ class HeadlessBackend:
                 "mode": self.mode,
                 "pythonVersion": platform.python_version(),
                 "runtimeLogPath": str(runtime_log_path() or ""),
-                "notices": list(self.notices),
+                "notices": notices,
             },
             "configuration": dict(active_st.configuration),
             "configurations": {sid: dict(st.configuration) for sid, st in self.stations.items()},
@@ -3111,19 +3316,19 @@ class HeadlessBackend:
                     "outputVoltageV": _finite(active_st.latest_power_supply_output_voltage_v),
                     "outputCurrentA": _finite(active_st.latest_power_supply_output_current_a),
                     "temperatureC": _finite(active_st.latest_power_supply_temperature_c),
-                    "resources": list(self.power_supply_resources),
+                    "resources": power_supply_resources,
                     "ch341": ch341_snapshot,
                 },
                 "powerMeter": {
-                    "state": "connecting" if self.power_meter_detect_thread is not None else _device_state(False, active_st.power_meter_reader is not None, active_st.power_meter_error),
+                    "state": "connecting" if power_meter_detecting else _device_state(False, active_st.power_meter_reader is not None, active_st.power_meter_error),
                     "label": "功率计",
                     "detail": active_st.power_meter_error or ("采集中" if active_st.power_meter_reader else "已停止"),
                     "running": active_st.power_meter_reader is not None,
-                    "detecting": self.power_meter_detect_thread is not None,
+                    "detecting": power_meter_detecting,
                     "ready": bool(active_st.power_meter_reader and active_st.power_meter_reader.is_ready),
                     "powerW": _finite(None if active_st.latest_power is None else active_st.latest_power.power_w),
                     "stable": bool(active_st.latest_power and active_st.latest_power.stable),
-                    "resources": [item.label() for item in self.power_meter_options],
+                    "resources": [item.label() for item in power_meter_options],
                 },
                 "spectrometer": {
                     "state": _device_state(False, active_st.spectrometer_reader is not None, active_st.spectrometer_error),
@@ -3145,7 +3350,7 @@ class HeadlessBackend:
                         if active_st.spectrum_center_locked_nm is not None
                         else None
                     ),
-                    "resources": [item["label"] for item in self.spectrometer_resources],
+                    "resources": [item["label"] for item in spectrometer_resources],
                 },
             },
             "automaticTest": {
@@ -3196,5 +3401,5 @@ class HeadlessBackend:
                 "detail": "设备命令、自动流程和安全下电由无界面 Python 后台执行",
                 "outputShutdownUnconfirmed": self.automatic_output_shutdown_unconfirmed,
             },
-            "status": {"message": self.status_message},
+            "status": {"message": status_message},
         }

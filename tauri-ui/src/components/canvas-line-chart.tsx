@@ -4,6 +4,7 @@ export type CanvasChartLine = {
   key: string
   label: string
   color: string
+  axisColor?: string
   yAxisId?: "left" | "right"
   showPoints?: boolean
   showLatestPoint?: boolean
@@ -380,17 +381,20 @@ function drawBaseChart(
 
   context.textAlign = "right"
   context.textBaseline = "middle"
+  context.fillStyle = lines.find((line) => line.yAxisId !== "right")?.axisColor || muted
   for (const tick of layout.leftY.ticks) {
     const y = mapY(tick, layout.leftY, layout)
     context.fillText(formatTick(tick, layout.leftY), layout.left - 7, y)
   }
   if (layout.rightY) {
     context.textAlign = "left"
+    context.fillStyle = lines.find((line) => line.yAxisId === "right")?.axisColor || muted
     for (const tick of layout.rightY.ticks) {
       const y = mapY(tick, layout.rightY, layout)
       context.fillText(formatTick(tick, layout.rightY), layout.left + layout.plotWidth + 7, y)
     }
   }
+  context.fillStyle = muted
   context.textAlign = "center"
   context.textBaseline = "top"
   for (const tick of layout.x.ticks) {

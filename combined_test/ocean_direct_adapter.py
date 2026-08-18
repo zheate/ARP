@@ -117,7 +117,11 @@ class OceanDirectControl:
         self._shutdown = False
 
     def find_usb_devices(self) -> int:
-        result = int(_invoke_native("probe_devices", self._api.odapi_probe_devices))
+        # Device discovery is SDK-global rather than device-scoped.  Keep it
+        # serialized even though spectrum reads for different device IDs may
+        # proceed independently under their per-device locks.
+        with self._session._lock:
+            result = int(_invoke_native("probe_devices", self._api.odapi_probe_devices))
         if result < 0:
             raise OceanDirectError(
                 "OceanDirect 搜索 USB 光谱仪失败：odapi_probe_devices 返回 -1"
@@ -125,12 +129,13 @@ class OceanDirectControl:
         return result
 
     def get_number_devices(self) -> int:
-        result = int(
-            _invoke_native(
-                "get_number_of_device_ids",
-                self._api.odapi_get_number_of_device_ids,
+        with self._session._lock:
+            result = int(
+                _invoke_native(
+                    "get_number_of_device_ids",
+                    self._api.odapi_get_number_of_device_ids,
+                )
             )
-        )
         if result < 0:
             raise OceanDirectError(
                 "OceanDirect 获取光谱仪数量失败：odapi_get_number_of_device_ids 返回 -1"
@@ -138,16 +143,17 @@ class OceanDirectControl:
         return result
 
     def get_device_ids(self) -> list[int]:
-        count = self.get_number_devices()
-        if count <= 0:
-            return []
-        ids = (c_long * count)()
-        err = (c_long * 1)(0)
-        copied = int(
-            _invoke_native("get_device_ids", self._api.odapi_get_device_ids, ids, err)
-        )
-        self._raise_if_error(err[0], "get_device_ids")
-        return [int(ids[index]) for index in range(max(0, min(copied, count)))]
+        with self._session._lock:
+            count = self.get_number_devices()
+            if count <= 0:
+                return []
+            ids = (c_long * count)()
+            err = (c_long * 1)(0)
+            copied = int(
+                _invoke_native("get_device_ids", self._api.odapi_get_device_ids, ids, err)
+            )
+            self._raise_if_error(err[0], "get_device_ids")
+            return [int(ids[index]) for index in range(max(0, min(copied, count)))]
 
     def open_device(self, device_id: int) -> int:
         dev_id = int(device_id)

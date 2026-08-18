@@ -77,44 +77,6 @@ body {
   height: 2.25rem;
 }
 
-.app-status-footer {
-  position: relative;
-  z-index: 45;
-  display: grid;
-  min-height: 2.75rem;
-  flex: 0 0 2.75rem;
-  grid-template-columns: minmax(8rem, 1fr) auto minmax(8rem, 1fr);
-  align-items: center;
-  gap: 1rem;
-  border-top: 1px solid var(--border);
-  background: var(--app-header-bg);
-  padding: 0 1rem;
-  color: var(--muted-foreground);
-  font-size: 0.6875rem;
-  line-height: 1rem;
-}
-
-.app-status-footer__time,
-.app-status-footer__tip {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.app-status-footer__time {
-  justify-self: center;
-  color: var(--app-text-secondary);
-  font-variant-numeric: tabular-nums;
-}
-
-.app-status-footer__tip {
-  justify-self: end;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .app-emergency-stop {
   border-color: color-mix(in srgb, var(--app-danger) 58%, transparent) !important;
   background: var(--app-danger-soft) !important;
@@ -429,6 +391,11 @@ body {
   gap: 0.75rem;
 }
 
+/* Let the primary monitoring surface absorb the remaining viewport height. */
+.page-enter[data-page="automatic"] .automatic-chart-grid {
+  flex: 1 1 0%;
+}
+
 .automatic-chart-grid.without-spectrum {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -510,8 +477,30 @@ body {
   padding: 0.75rem 0.875rem;
 }
 
+.automatic-metric-card--clickable {
+  cursor: pointer;
+  transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.automatic-metric-card--clickable:hover {
+  border-color: color-mix(in srgb, var(--primary) 54%, var(--border));
+  background: color-mix(in srgb, var(--card) 88%, var(--primary));
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.16);
+  transform: translateY(-1px);
+}
+
+.automatic-metric-card--clickable:focus-visible {
+  outline: none;
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px var(--app-focus-ring);
+}
+
 .automatic-metric-card__title {
   overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
   padding-left: 0.5rem;
   border-left: 2px solid var(--primary);
   color: var(--app-text-secondary);
@@ -573,6 +562,36 @@ body {
   color: var(--app-danger);
 }
 
+.automatic-specification-dialog {
+  width: min(42rem, calc(100vw - 2rem));
+}
+
+.automatic-specification-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.automatic-specification-form__intro {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.125rem 0.125rem 0.25rem;
+}
+
+.automatic-specification-form__note {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--primary) 22%, var(--border));
+  border-radius: 0.625rem;
+  background: color-mix(in srgb, var(--primary) 7%, transparent);
+  padding: 0.625rem 0.75rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
 @media (max-width: 1280px) {
   .automatic-workflow-card__content {
     grid-template-columns: 9.75rem minmax(0, 1fr) 16.5rem;
@@ -586,16 +605,6 @@ body {
 
   .automatic-step__label {
     font-size: 0.625rem;
-  }
-}
-
-@media (max-width: 960px) {
-  .app-status-footer {
-    grid-template-columns: 1fr auto;
-  }
-
-  .app-status-footer__tip {
-    display: none;
   }
 }
 

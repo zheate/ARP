@@ -574,7 +574,7 @@ fn validate_columnar_spectrum(snapshot: &Value) -> Result<(), PythonBridgeError>
 
 fn snapshot_interval_ms(view: &str) -> u64 {
     match view {
-        "pd" => PD_SNAPSHOT_INTERVAL_MS,
+        "pd" | "pd_1" | "pd_2" => PD_SNAPSHOT_INTERVAL_MS,
         "shipping" => SHIPPING_SNAPSHOT_INTERVAL_MS,
         _ => LIVE_SNAPSHOT_INTERVAL_MS,
     }
@@ -599,64 +599,29 @@ fn update_stream_cursor(
     }
 }
 
-fn snapshot_state_changed(previous: &Value, current: &Value) -> bool {
-    let Some(previous_root) = previous.as_object() else {
-        return true;
+fn snapshot_state_fingerprint(snapshot: &Value) -> Value {
+    let Some(root) = snapshot.as_object() else {
+        return snapshot.clone();
     };
-    let Some(current_root) = current.as_object() else {
-        return true;
-    };
-    // Transport-only keys never count as a state change; the previous
-    // implementation built a fingerprint Value with the same exclusions,
-    // this borrows both trees instead of cloning either.
+    // History arrays are transported separately through revisions/cursors.
+    // Never retain or clone them just to decide whether the UI state changed.
     const IGNORED: [&str; 3] = ["capturedAt", "measurements", "seriesPatches"];
-    for (key, previous_value) in previous_root {
+    let mut fingerprint = serde_json::Map::with_capacity(root.len().saturating_sub(3));
+    for (key, value) in root {
         if IGNORED.contains(&key.as_str()) {
             continue;
         }
-        let Some(current_value) = current_root.get(key) else {
-            return true;
-        };
         if key == "pd" {
-            if pd_state_changed(previous_value, current_value) {
-                return true;
+            let mut pd = value.clone();
+            if let Some(pd_object) = pd.as_object_mut() {
+                pd_object.remove("points");
             }
-        } else if previous_value != current_value {
-            return true;
+            fingerprint.insert(key.clone(), pd);
+        } else {
+            fingerprint.insert(key.clone(), value.clone());
         }
     }
-    for key in current_root.keys() {
-        if IGNORED.contains(&key.as_str()) {
-            continue;
-        }
-        if !previous_root.contains_key(key) {
-            return true;
-        }
-    }
-    false
-}
-
-fn pd_state_changed(previous: &Value, current: &Value) -> bool {
-    let (Some(previous), Some(current)) = (previous.as_object(), current.as_object()) else {
-        return true;
-    };
-    for (key, previous_value) in previous {
-        if key == "points" {
-            continue;
-        }
-        if current.get(key) != Some(previous_value) {
-            return true;
-        }
-    }
-    for key in current.keys() {
-        if key == "points" {
-            continue;
-        }
-        if !previous.contains_key(key) {
-            return true;
-        }
-    }
-    false
+    Value::Object(fingerprint)
 }
 
 fn stream_envelope(subscription_id: &str, message: Value) -> Value {
@@ -734,7 +699,7 @@ fn start_bridge_stream(view: String, sender: StreamSender, state: &BridgeState) 
     tauri::async_runtime::spawn_blocking(move || {
         let mut since: Option<Value> = None;
         let mut cursors = serde_json::Map::new();
-        let mut last_snapshot: Option<Value> = None;
+        let mut last_fingerprint: Option<Value> = None;
         while active_generation.load(Ordering::SeqCst) == generation {
             let mut params = serde_json::Map::new();
             params.insert("view".to_string(), json!(view));
@@ -750,14 +715,12 @@ fn start_bridge_stream(view: String, sender: StreamSender, state: &BridgeState) 
                     since = snapshot.get("seriesRevisions").cloned();
                     update_stream_cursor(&snapshot, "power", "/measurements/power", &mut cursors);
                     update_stream_cursor(&snapshot, "pd", "/pd/points", &mut cursors);
-                    let changed = last_snapshot
-                        .as_ref()
-                        .map_or(true, |previous| snapshot_state_changed(previous, &snapshot));
-                    if !changed {
+                    let fingerprint = snapshot_state_fingerprint(&snapshot);
+                    if last_fingerprint.as_ref() == Some(&fingerprint) {
                         std::thread::sleep(Duration::from_millis(interval));
                         continue;
                     }
-                    last_snapshot = Some(snapshot.clone());
+                    last_fingerprint = Some(fingerprint);
                     if sender.send(json!({ "snapshot": snapshot })).is_err() {
                         break;
                     }
@@ -909,7 +872,7 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        request_timeout, should_reset_bridge, snapshot_interval_ms, snapshot_state_changed,
+        request_timeout, should_reset_bridge, snapshot_interval_ms, snapshot_state_fingerprint,
         stream_envelope, validate_columnar_spectrum, PythonBridge, PythonBridgeError,
     };
 
@@ -934,7 +897,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_state_changed_ignores_transport_only_changes() {
+    fn snapshot_state_fingerprint_ignores_transport_only_changes() {
         let first = serde_json::json!({
             "capturedAt": "2026-07-21T10:00:00Z",
             "seriesRevisions": { "power": 7, "stable": 1, "spectrum": 3, "pd": 0 },
@@ -951,17 +914,17 @@ mod tests {
             "status": { "message": "ready" },
         });
 
-        assert!(!snapshot_state_changed(&first, &second));
+        assert_eq!(snapshot_state_fingerprint(&first), snapshot_state_fingerprint(&second));
         assert!(first["measurements"].is_object());
         assert!(first["pd"]["points"].is_array());
 
         let mut changed = second.clone();
         changed["seriesRevisions"]["power"] = serde_json::json!(8);
-        assert!(snapshot_state_changed(&first, &changed));
+        assert_ne!(snapshot_state_fingerprint(&first), snapshot_state_fingerprint(&changed));
 
         let mut pd_points_changed = second;
         pd_points_changed["pd"]["points"] = serde_json::json!([{ "elapsedS": 2.0, "value": 1.0 }]);
-        assert!(!snapshot_state_changed(&first, &pd_points_changed));
+        assert_eq!(snapshot_state_fingerprint(&first), snapshot_state_fingerprint(&pd_points_changed));
     }
 
     #[test]
@@ -980,6 +943,8 @@ mod tests {
         assert_eq!(snapshot_interval_ms("automatic"), 200);
         assert_eq!(snapshot_interval_ms("manual"), 200);
         assert_eq!(snapshot_interval_ms("pd"), 500);
+        assert_eq!(snapshot_interval_ms("pd_1"), 500);
+        assert_eq!(snapshot_interval_ms("pd_2"), 500);
         assert_eq!(snapshot_interval_ms("shipping"), 500);
     }
 
