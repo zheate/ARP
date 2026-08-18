@@ -64,6 +64,8 @@ DEFAULT_RESOURCE = "ASRL3::INSTR"
 OPHIR_COM_PROGID = "OphirLMMeasurement.CoLMMeasurement"
 OPHIR_RESOURCE_PREFIX = "OPHIR::USB::"
 OPHIR_CHANNEL = 0
+OPHIR_FIRST_SAMPLE_TIMEOUT_S = 2.0
+OPHIR_CACHED_SAMPLE_TIMEOUT_S = 0.5
 
 
 @dataclass(frozen=True)
@@ -771,7 +773,12 @@ class OphirPowerMeter:
         if self.controller is None or self.handle is None:
             raise RuntimeError("Ophir USB 功率计尚未打开")
         self._ensure_stream()
-        deadline = time.monotonic() + 0.5
+        timeout_s = (
+            OPHIR_FIRST_SAMPLE_TIMEOUT_S
+            if self._last_power_w is None
+            else OPHIR_CACHED_SAMPLE_TIMEOUT_S
+        )
+        deadline = time.monotonic() + timeout_s
         while True:
             data_result = self.controller.GetData(self.handle, self.channel)
             values, _timestamps, statuses = _com_outputs(data_result, 3)
