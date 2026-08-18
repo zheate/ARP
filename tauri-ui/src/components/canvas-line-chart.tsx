@@ -391,7 +391,7 @@ function drawBaseChart(
     const scale = line.yAxisId === "right" && layout.rightY ? layout.rightY : layout.leftY
     context.beginPath()
     context.strokeStyle = line.color
-    context.lineWidth = line.lineWidth ?? 1.8
+    context.lineWidth = line.lineWidth ?? 2.4
     context.lineJoin = "round"
     context.lineCap = "round"
     let drawing = false

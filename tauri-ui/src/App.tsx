@@ -1481,8 +1481,8 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch 
 })
 
 const powerEfficiencyLines: CanvasChartLine[] = [
-  { key: "powerW", label: "功率 (W)", color: PLM_CHART_SERIES.clay, showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 1.7 },
-  { key: "efficiencyPercent", label: "效率 (%)", color: PLM_CHART_SERIES.blue, yAxisId: "right", showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 1.7 },
+  { key: "powerW", label: "功率 (W)", color: PLM_CHART_SERIES.clay, showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 2.4 },
+  { key: "efficiencyPercent", label: "效率 (%)", color: PLM_CHART_SERIES.blue, yAxisId: "right", showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 2.4 },
 ]
 
 const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; stretch?: boolean; heightClassName?: string }) {
@@ -1683,10 +1683,11 @@ function StationStatusPill({
   disabled?: boolean
 }) {
   const isRunning = [
+    "starting",
     "setting_current",
     "waiting_stable",
     "waiting_voltage",
-    "holding",
+    "saving_point",
     "ramping_down",
   ].includes(summary?.state ?? "")
   const isCompleted = summary?.state === "completed"
@@ -1769,30 +1770,42 @@ function AutomaticWorkflowStepper({
   state,
   currentIndex = -1,
   totalPoints = 0,
+  dataPointCount = 0,
 }: {
   state?: string
   currentIndex?: number
   totalPoints?: number
+  dataPointCount?: number
 }) {
   const isRunning = Boolean(state && !["idle", "completed"].includes(state))
   const isPaused = state === "paused"
   const isRampingDown = state === "ramping_down"
+  const isSavingPoint = state === "saving_point"
   const isCompleted = state === "completed"
   const pointNumber = Math.max(1, (currentIndex ?? -1) + 1)
   const total = Math.max(1, totalPoints || 1)
+  const previousDataPointCountRef = useRef(dataPointCount)
+  const [dataFlashKey, setDataFlashKey] = useState(0)
+
+  useEffect(() => {
+    if (dataPointCount > previousDataPointCountRef.current) {
+      setDataFlashKey((value) => value + 1)
+    }
+    previousDataPointCountRef.current = dataPointCount
+  }, [dataPointCount])
 
   const step1Done = isRunning || isCompleted
 
-  const step2Active = (state === "setting_current" || state === "waiting_voltage") && !isPaused
-  const step2Done = (state === "waiting_stable" || state === "holding" || isRampingDown || isCompleted) && !step2Active
+  const step2Active = state === "setting_current" && !isPaused
+  const step2Done = (["waiting_stable", "waiting_voltage", "saving_point"].includes(state ?? "") || isRampingDown || isCompleted) && !step2Active
 
   const step3Active = state === "waiting_stable" && !isPaused
-  const step3Done = (state === "holding" || isRampingDown || isCompleted) && !step3Active
+  const step3Done = (["waiting_voltage", "saving_point"].includes(state ?? "") || isRampingDown || isCompleted) && !step3Active
 
-  const step4Active = state === "holding" && !isPaused
-  const step4Done = (isRampingDown || isCompleted) && !step4Active
+  const step4Active = state === "waiting_voltage" && !isPaused
+  const step4Done = (isSavingPoint || isRampingDown || isCompleted) && !step4Active
 
-  const step5Active = isRampingDown && !isPaused
+  const step5Active = (isSavingPoint || isRampingDown) && !isPaused
   const step5Done = isCompleted
 
   return (
@@ -1816,71 +1829,69 @@ function AutomaticWorkflowStepper({
 
       <div className="mx-1 h-[1px] w-3 bg-border/80 shrink-0" />
 
-      <div className={`flex flex-1 items-center justify-between gap-2 rounded-lg border px-2.5 py-1 transition-all ${
-        isRunning && !isRampingDown
-          ? "border-primary/40 bg-primary/5 shadow-xs"
-          : isCompleted
+      <div className={`flex flex-1 items-center justify-between gap-2 rounded-lg border px-2.5 py-1 transition-colors ${
+        isCompleted
           ? "border-emerald-500/30 bg-emerald-500/5"
-          : "border-border/60 bg-muted/20"
+          : "border-border/70 bg-muted/10"
       }`}>
         <div className="flex items-center gap-1 shrink-0">
-          <span className={`text-[10px] font-mono font-bold tracking-tight uppercase px-1.5 py-0.5 rounded ${
-            isRunning && !isRampingDown
-              ? "bg-primary/20 text-primary animate-pulse"
+          <span className={`rounded border px-1.5 py-0.5 font-mono text-[10px] font-medium tracking-tight uppercase ${
+            isRunning && !isRampingDown && !isSavingPoint
+              ? "border-primary/20 bg-primary/10 text-primary"
               : isCompleted
-              ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400"
-              : "bg-muted text-muted-foreground/70"
+              ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+              : "border-border/60 bg-background/30 text-muted-foreground/70"
           }`}>
-            {isCompleted ? "全部点完成" : isRunning && !isRampingDown ? `⟳ 点 ${pointNumber}/${total}` : "循环测试区"}
+            {isCompleted ? "全部点完成" : isRunning && !isRampingDown && !isSavingPoint ? `⟳ 点 ${pointNumber}/${total}` : "循环测试区"}
           </span>
         </div>
 
-        <div className="flex flex-1 items-center justify-around gap-1 min-w-0">
-          <div className="flex items-center gap-1.5 shrink-0">
-            <span className={`size-1.5 shrink-0 rounded-full transition-all ${
+        <div className="flex min-w-0 flex-1 items-center justify-around gap-1">
+          <div className={`flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 transition-colors ${step2Active ? "border-primary/20 bg-primary/10" : "border-transparent"}`}>
+            <span className={`size-2 shrink-0 rounded-full transition-colors ${
               step2Active
-                ? "bg-primary animate-pulse ring-2 ring-primary/40"
+                ? "bg-primary animate-pulse"
                 : step2Done
-                ? "bg-emerald-500/80"
+                ? "bg-emerald-500/70"
                 : isPaused
                 ? "bg-amber-500 animate-pulse"
                 : "bg-muted-foreground/30"
             }`} />
-            <span className={`text-[11px] whitespace-nowrap transition-colors ${step2Active ? "font-bold text-primary" : step2Done ? "text-foreground/80" : "text-muted-foreground/70"}`}>
+            <span className={`whitespace-nowrap text-[11px] transition-colors ${step2Active ? "font-medium text-foreground" : step2Done ? "text-foreground/75" : "text-muted-foreground/70"}`}>
               加载电流
             </span>
           </div>
 
-          <div className="h-[1px] w-2 bg-border/60 shrink-0" />
+          <div className="h-px min-w-2 flex-1 bg-border/60" />
 
-          <div className="flex items-center gap-1.5 shrink-0">
-            <span className={`size-1.5 shrink-0 rounded-full transition-all ${
+          <div className={`flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 transition-colors ${step3Active ? "border-primary/20 bg-primary/10" : "border-transparent"}`}>
+            <span className={`size-2 shrink-0 rounded-full transition-colors ${
               step3Active
-                ? "bg-primary animate-pulse ring-2 ring-primary/40"
+                ? "bg-primary animate-pulse"
                 : step3Done
-                ? "bg-emerald-500/80"
+                ? "bg-emerald-500/70"
                 : isPaused
                 ? "bg-amber-500 animate-pulse"
                 : "bg-muted-foreground/30"
             }`} />
-            <span className={`text-[11px] whitespace-nowrap transition-colors ${step3Active ? "font-bold text-primary" : step3Done ? "text-foreground/80" : "text-muted-foreground/70"}`}>
+            <span className={`whitespace-nowrap text-[11px] transition-colors ${step3Active ? "font-medium text-foreground" : step3Done ? "text-foreground/75" : "text-muted-foreground/70"}`}>
               稳态判定
             </span>
           </div>
 
-          <div className="h-[1px] w-2 bg-border/60 shrink-0" />
+          <div className="h-px min-w-2 flex-1 bg-border/60" />
 
-          <div className="flex items-center gap-1.5 shrink-0">
-            <span className={`size-1.5 shrink-0 rounded-full transition-all ${
+          <div className={`flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 transition-colors ${step4Active ? "border-primary/20 bg-primary/10" : "border-transparent"} ${dataFlashKey > 0 ? "workflow-data-flash" : ""}`} key={dataFlashKey}>
+            <span className={`size-2 shrink-0 rounded-full transition-colors ${
               step4Active
-                ? "bg-primary animate-pulse ring-2 ring-primary/40"
+                ? "bg-primary animate-pulse"
                 : step4Done
-                ? "bg-emerald-500/80"
+                ? "bg-emerald-500/70"
                 : isPaused
                 ? "bg-amber-500 animate-pulse"
                 : "bg-muted-foreground/30"
             }`} />
-            <span className={`text-[11px] whitespace-nowrap transition-colors ${step4Active ? "font-bold text-primary" : step4Done ? "text-foreground/80" : "text-muted-foreground/70"}`}>
+            <span className={`whitespace-nowrap text-[11px] transition-colors ${step4Active ? "font-medium text-foreground" : step4Done ? "text-foreground/75" : "text-muted-foreground/70"}`}>
               数据采集
             </span>
           </div>
@@ -3431,6 +3442,7 @@ const AutomaticPage = memo(function AutomaticPage({
               state={auto?.state}
               currentIndex={auto?.currentIndex}
               totalPoints={auto?.currents?.length}
+              dataPointCount={snapshot?.measurements?.stable.length}
             />
           </div>
 
