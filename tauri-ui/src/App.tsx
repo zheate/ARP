@@ -35,6 +35,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { CanvasLineChart, type CanvasChartAnnotation, type CanvasChartLine, type CanvasColumnarData } from "@/components/canvas-line-chart"
+import { AnimatedToastStack, type ToastStatus } from "@/components/motion/animated-toast-stack"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -2332,23 +2333,16 @@ function App() {
 
         <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           {toastNotifications.length > 0 && (
-            <div className="pointer-events-none fixed right-4 top-14 z-50 flex w-[min(420px,calc(100vw-2rem))] flex-col gap-2">
-              {toastNotifications.map((notification) => {
-                const isError = notification.level === "error"
-                const isWarning = notification.level === "warning"
-                return (
-                  <div
-                    className={`notification-enter pointer-events-auto flex items-start gap-3 rounded-lg border bg-[var(--app-surface-muted)] px-4 py-3 text-sm text-[var(--app-text)] shadow-lg shadow-black/25 ${isError ? "border-[color-mix(in_srgb,var(--app-danger)_40%,transparent)]" : isWarning ? "border-[color-mix(in_srgb,var(--app-warning)_40%,transparent)]" : "border-[color-mix(in_srgb,var(--app-validation)_40%,transparent)]"}`}
-                    key={notification.key}
-                    role="alert"
-                  >
-                    <OctagonAlert className={`mt-0.5 size-4 shrink-0 ${isError ? "text-[var(--app-danger)]" : isWarning ? "text-[var(--app-warning)]" : "text-[var(--app-validation)]"}`} />
-                    <div className="min-w-0 flex-1"><p className="font-medium">{notification.title}</p><p className="mt-1 leading-5 text-muted-foreground">{notification.message}</p></div>
-                    <button aria-label="关闭提示" className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-muted-foreground" disabled={automaticInteractionLocked} onClick={() => setDismissedNotifications((current) => new Set(current).add(notification.key))} type="button"><X className="size-4" /></button>
-                  </div>
-                )
-              })}
-            </div>
+            <AnimatedToastStack
+              disabled={automaticInteractionLocked}
+              onDismiss={(id) => setDismissedNotifications((current) => new Set(current).add(id))}
+              toasts={toastNotifications.map((notification) => ({
+                id: notification.key,
+                title: notification.title,
+                description: notification.message,
+                status: notification.level as ToastStatus,
+              }))}
+            />
           )}
 
           {activeAlertNotification === powerProtectionNotification && powerProtectionNotification && <PowerProtectionDialog message={powerProtectionNotification.message} onClose={() => setDismissedNotifications((current) => new Set(current).add(powerProtectionNotification.key))} />}

@@ -1331,17 +1331,6 @@ html.dark {
   }
 }
 
-@keyframes notification-enter {
-  from {
-    opacity: 0;
-    transform: translateY(-6px) scale(0.985);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
 .shell-sidebar-enter {
   animation: shell-sidebar-enter 220ms cubic-bezier(0.2, 0, 0, 1) both;
 }
@@ -1409,10 +1398,6 @@ html.dark {
 .chart-tooltip-enter {
   transform-origin: top left;
   animation: tooltip-enter 120ms ease-out both;
-}
-
-.notification-enter {
-  animation: notification-enter 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
