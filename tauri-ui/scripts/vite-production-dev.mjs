@@ -8,10 +8,24 @@ const server = await createServer()
 await server.listen()
 server.printUrls()
 
+let closing = false
+const parentPid = process.ppid
+
 const close = async () => {
+  if (closing) return
+  closing = true
+  clearInterval(parentWatch)
   await server.close()
   process.exit(0)
 }
+
+const parentWatch = setInterval(() => {
+  try {
+    process.kill(parentPid, 0)
+  } catch (error) {
+    if (error?.code === "ESRCH") void close()
+  }
+}, 250)
 
 process.once("SIGINT", close)
 process.once("SIGTERM", close)
