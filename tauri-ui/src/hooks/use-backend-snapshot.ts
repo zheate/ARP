@@ -60,7 +60,6 @@ const DEMO_SNAPSHOT: BackendSnapshot = {
     rampDownStepA: 5,
     rampDownIntervalS: 1.1,
     pauseRampDownTimeoutS: 30,
-    useSpectrometer: true,
   },
   devices: {
     powerSupply: {

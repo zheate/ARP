@@ -78,6 +78,40 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertEqual(st1.configuration["targetCurrentA"], 10.0)
         self.assertEqual(st2.configuration["targetCurrentA"], 15.0)
 
+    def test_automatic_spectrum_follows_active_acquisition(self) -> None:
+        station = self.backend.stations["1"]
+
+        self.assertFalse(station._automatic_settings().use_spectrometer)
+
+        station.spectrometer_reader = MagicMock(is_ready=True)
+        self.assertTrue(station._automatic_settings().use_spectrometer)
+
+    def test_tdk_discovery_publishes_progress_before_it_finishes(self) -> None:
+        started = threading.Event()
+        release = threading.Event()
+        self.backend.dispatch("app.configure", {"stationId": "1", "powerSupplyKind": "tdk"})
+
+        def list_resources() -> list[str]:
+            started.set()
+            release.wait(timeout=2)
+            return ["ASRL7::INSTR"]
+
+        with patch("tauri_bridge.headless_backend.list_tdk_serial_resources", side_effect=list_resources):
+            self.backend.dispatch("device.refresh", {"stationId": "1", "device": "powerSupply"})
+            self.assertTrue(started.wait(timeout=1))
+            scanning = self.backend.snapshot({"stationId": "1"})["devices"]["powerSupply"]
+            self.assertTrue(scanning["detecting"])
+            self.assertEqual(scanning["detail"], "正在枚举 TDK RS232 串口")
+
+            release.set()
+            deadline = time.monotonic() + 1
+            while self.backend.snapshot({"stationId": "1"})["devices"]["powerSupply"]["detecting"] and time.monotonic() < deadline:
+                time.sleep(0.01)
+
+        completed = self.backend.snapshot({"stationId": "1"})["devices"]["powerSupply"]
+        self.assertFalse(completed["detecting"])
+        self.assertEqual(completed["detail"], "识别完成：发现 1 个 TDK 串口")
+
     def test_human_station_label_does_not_broadcast_configuration_to_both_stations(self) -> None:
         self.backend.stations["1"].configuration["sn"] = "SN-001"
         self.backend.stations["2"].configuration["sn"] = "SN-002"
@@ -560,12 +594,23 @@ class DualStationRuntimeTests(unittest.TestCase):
                 {"stationId": "1", "device": "powerMeter"},
             )
 
+        instances[0].status.emit("正在检测串口 1/1：ASRL7::INSTR（依次尝试 彩煌、Coherent、LaserPoint）")
+        scanning_snapshot = self.backend.snapshot({"stationId": "1"})
+        self.assertTrue(scanning_snapshot["devices"]["powerMeter"]["detecting"])
+        self.assertEqual(
+            scanning_snapshot["devices"]["powerMeter"]["detail"],
+            "正在检测串口 1/1：ASRL7::INSTR（依次尝试 彩煌、Coherent、LaserPoint）",
+        )
         instances[0].detected.emit([option])
         instances[0].finished.emit()
 
         persisted = self.backend.settings.get("runtime/stations")["1"]
         self.assertEqual(persisted["powerMeterResource"], "OPHIR::USB::3103403")
         self.assertEqual(persisted["powerMeterDriverKind"], "ophir")
+        self.assertEqual(
+            self.backend.snapshot({"stationId": "1"})["devices"]["powerMeter"]["detail"],
+            "识别完成：发现 1 台兼容功率计",
+        )
 
     def test_ch341_connection_opens_selected_index_at_20_khz(self) -> None:
         location = "PCIROOT(0)#USB(2)"

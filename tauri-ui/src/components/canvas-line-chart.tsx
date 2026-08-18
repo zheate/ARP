@@ -13,6 +13,7 @@ export type CanvasChartLine = {
   pointSize?: number
   lineWidth?: number
   dash?: number[]
+  connectNulls?: boolean
   hideLegend?: boolean
 }
 
@@ -20,7 +21,6 @@ export type CanvasChartAnnotation = {
   label: string
   x: number
   y: number
-  color?: string
 }
 
 type NumericRow = Record<string, number | null>
@@ -44,12 +44,14 @@ type CanvasLineChartProps = {
   annotations?: CanvasChartAnnotation[]
   ariaLabel: string
   preserveAllPoints?: boolean
+  tightInsets?: boolean
   xLabel?: string
+  xTickSuffix?: string
   yLabel?: string
 }
 
 type ChartSize = { width: number; height: number }
-const CHART_FONT = "12px 'Geist Variable', 'PingFang SC', sans-serif"
+const CHART_FONT = "12px 'ARP Interface', 'DIN', 'MiSans', sans-serif"
 type HoverState = { index: number } | null
 type PendingHover = { index: number; pointerX: number; pointerY: number } | null
 type AxisScale = { min: number; max: number; ticks: number[] }
@@ -205,12 +207,13 @@ function buildLayout(
   rightYDomain?: [number, number],
   xLabel?: string,
   yLabel?: string,
+  tightInsets = false,
 ): ChartLayout {
   const hasRightAxis = lines.some((line) => line.yAxisId === "right")
-  const left = 64
-  const right = hasRightAxis ? 60 : 20
-  const top = yLabel ? 28 : 12
-  const bottom = xLabel ? 44 : 30
+  const left = tightInsets ? 52 : 64
+  const right = hasRightAxis ? (tightInsets ? 48 : 60) : (tightInsets ? 12 : 20)
+  const top = yLabel ? 28 : (tightInsets ? 8 : 12)
+  const bottom = xLabel ? (tightInsets ? 34 : 44) : (tightInsets ? 20 : 30)
   const plotHeight = Math.max(1, size.height - top - bottom)
   const verticalTickTarget = Math.min(5, Math.max(2, Math.floor(plotHeight / 36)))
   const xValues: number[] = []
@@ -348,6 +351,7 @@ function drawBaseChart(
   lines: CanvasChartLine[],
   annotations: CanvasChartAnnotation[],
   xLabel?: string,
+  xTickSuffix?: string,
   yLabel?: string,
 ): void {
   const context = prepareCanvas(canvas, size)
@@ -398,7 +402,7 @@ function drawBaseChart(
   context.textAlign = "center"
   context.textBaseline = "top"
   for (const tick of layout.x.ticks) {
-    context.fillText(formatTick(tick, layout.x), mapX(tick, layout), layout.top + layout.plotHeight + 7)
+    context.fillText(`${formatTick(tick, layout.x)}${xTickSuffix ?? ""}`, mapX(tick, layout), layout.top + layout.plotHeight + 7)
   }
   if (xLabel) {
     context.fillText(xLabel, layout.left + layout.plotWidth / 2, size.height - 2)
@@ -425,8 +429,12 @@ function drawBaseChart(
     for (const index of indexes) {
       const xValue = data.valueAt(index, xKey)
       const yValue = data.valueAt(index, line.key)
-      if (xValue === null || yValue === null || xValue < layout.x.min || xValue > layout.x.max) {
+      if (xValue === null || xValue < layout.x.min || xValue > layout.x.max) {
         drawing = false
+        continue
+      }
+      if (yValue === null) {
+        if (!line.connectNulls) drawing = false
         continue
       }
       const x = mapX(xValue, layout)
@@ -454,54 +462,54 @@ function drawBaseChart(
           chartBackground,
         )
       }
-    } else if (line.showLatestPoint) {
-      for (let index = data.length - 1; index >= 0; index -= 1) {
-        const xValue = data.valueAt(index, xKey)
-        const yValue = data.valueAt(index, line.key)
-        if (xValue === null || yValue === null) continue
-        if (xValue >= layout.x.min && xValue <= layout.x.max) {
-          drawPoint(
-            context,
-            mapX(xValue, layout),
-            mapY(yValue, scale, layout),
-            line.color,
-            line.pointShape ?? "circle",
-            line.pointSize ?? 7,
-            line.pointStyle ?? "solid",
-            chartBackground,
-          )
-          break
-        }
-      }
     }
   }
 
-  annotations.forEach((annotation, index) => {
+  annotations.forEach((annotation) => {
     if (!Number.isFinite(annotation.x) || !Number.isFinite(annotation.y) || annotation.x < layout.x.min || annotation.x > layout.x.max) return
-    const color = annotation.color || "#8298b8"
+    const label = annotation.label.replace(/^PEAK\s*(\d+)$/i, "P$1").toUpperCase()
+    const color = label === "P1" ? "#ef4444" : label === "P2" ? "#f97316" : "#9ca3af"
     const x = mapX(annotation.x, layout)
+    const peakY = mapY(annotation.y, layout.leftY, layout)
+    const triangleTipY = Math.max(layout.top + 10, peakY - 3)
+    const triangleHalfWidth = 5
+    const triangleHeight = 8
     context.save()
-    context.strokeStyle = color
     context.fillStyle = color
-    context.globalAlpha = 0.72
-    context.setLineDash([3, 3])
     context.beginPath()
-    context.moveTo(x, layout.top)
-    context.lineTo(x, layout.top + layout.plotHeight)
-    context.stroke()
-    context.setLineDash([])
-    context.globalAlpha = 0.95
-    context.font = CHART_FONT
-    context.textAlign = index % 2 === 0 ? "left" : "right"
-    context.textBaseline = "top"
-    const labelX = index % 2 === 0 ? x + 5 : x - 5
-    const label = annotation.label.replace(/^PEAK\s*(\d+)$/i, "P$1")
-    const isMainPeak = index === 0 || /^P1$/i.test(label)
-    const text = isMainPeak ? label : `${label} ${annotation.x.toFixed(3)} nm`
-    context.fillText(text, labelX, layout.top + 4 + (index % 3) * 13)
+    context.moveTo(x - triangleHalfWidth, triangleTipY - triangleHeight)
+    context.lineTo(x + triangleHalfWidth, triangleTipY - triangleHeight)
+    context.lineTo(x, triangleTipY)
+    context.closePath()
+    context.fill()
     context.restore()
   })
   context.restore()
+
+  // Keep the latest-sample marker whole when it lands on a plot boundary.
+  // The line stays clipped to the plotting area, while the marker can use the
+  // chart gutter that is already reserved for axis labels.
+  for (const line of lines) {
+    if (line.showPoints || !line.showLatestPoint) continue
+    const scale = line.yAxisId === "right" && layout.rightY ? layout.rightY : layout.leftY
+    for (let index = data.length - 1; index >= 0; index -= 1) {
+      const xValue = data.valueAt(index, xKey)
+      const yValue = data.valueAt(index, line.key)
+      if (xValue === null || yValue === null) continue
+      if (xValue < layout.x.min || xValue > layout.x.max) continue
+      drawPoint(
+        context,
+        mapX(xValue, layout),
+        mapY(yValue, scale, layout),
+        line.color,
+        line.pointShape ?? "circle",
+        line.pointSize ?? 7,
+        line.pointStyle ?? "solid",
+        chartBackground,
+      )
+      break
+    }
+  }
 
 }
 
@@ -572,7 +580,7 @@ function tooltipNumber(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }
 
-export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, rightYDomain, annotations = [], ariaLabel, preserveAllPoints = false, xLabel, yLabel }: CanvasLineChartProps) {
+export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, rightYDomain, annotations = [], ariaLabel, preserveAllPoints = false, tightInsets = false, xLabel, xTickSuffix, yLabel }: CanvasLineChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const baseCanvasRef = useRef<HTMLCanvasElement>(null)
   const hoverCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -585,8 +593,8 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
   const hoverDrawnRef = useRef(false)
   const chartData = useMemo(() => chartDataFrom(data, columns), [columns, data])
   const layout = useMemo(
-    () => buildLayout(chartData, xKey, lines, size, xDomain, xTicks, yDomain, rightYDomain, xLabel, yLabel),
-    [chartData, lines, rightYDomain, size, xDomain, xKey, xLabel, xTicks, yDomain, yLabel],
+    () => buildLayout(chartData, xKey, lines, size, xDomain, xTicks, yDomain, rightYDomain, xLabel, yLabel, tightInsets),
+    [chartData, lines, rightYDomain, size, tightInsets, xDomain, xKey, xLabel, xTicks, yDomain, yLabel],
   )
   const visibleIndexes = useMemo(
     () => {
@@ -634,6 +642,7 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     lines: CanvasChartLine[]
     annotations: CanvasChartAnnotation[]
     xLabel?: string
+    xTickSuffix?: string
     yLabel?: string
   }>(null)
   const baseFrameRef = useRef<number | null>(null)
@@ -643,15 +652,15 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     const canvas = baseCanvasRef.current
     const container = containerRef.current
     if (!args || !canvas || !container || args.size.width <= 0 || args.size.height <= 0) return
-    drawBaseChart(canvas, container, args.size, args.layout, args.chartData, args.displayIndexes, args.xKey, args.lines, args.annotations, args.xLabel, args.yLabel)
+    drawBaseChart(canvas, container, args.size, args.layout, args.chartData, args.displayIndexes, args.xKey, args.lines, args.annotations, args.xLabel, args.xTickSuffix, args.yLabel)
   }, [])
 
   useEffect(() => {
-    baseDrawArgsRef.current = { size, layout, chartData, displayIndexes, xKey, lines, annotations, xLabel, yLabel }
+    baseDrawArgsRef.current = { size, layout, chartData, displayIndexes, xKey, lines, annotations, xLabel, xTickSuffix, yLabel }
     if (baseFrameRef.current === null) {
       baseFrameRef.current = window.requestAnimationFrame(flushBaseDraw)
     }
-  }, [annotations, chartData, displayIndexes, layout, lines, size, xKey, xLabel, yLabel, flushBaseDraw])
+  }, [annotations, chartData, displayIndexes, layout, lines, size, xKey, xLabel, xTickSuffix, yLabel, flushBaseDraw])
 
   useEffect(() => () => {
     if (baseFrameRef.current !== null) window.cancelAnimationFrame(baseFrameRef.current)

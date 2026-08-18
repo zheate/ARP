@@ -174,7 +174,6 @@ const emptyConfig: AppConfiguration = {
   rampDownStepA: 5,
   rampDownIntervalS: 1.1,
   pauseRampDownTimeoutS: 30,
-  useSpectrometer: true,
 }
 
 const configurationKeys = Object.keys(emptyConfig) as Array<keyof AppConfiguration>
@@ -260,6 +259,10 @@ function Field({ label, children, className = "", layout = "stacked" }: { label:
       {children}
     </div>
   )
+}
+
+function ManualSectionHeading({ children }: { children: ReactNode }) {
+  return <h3 className="manual-device-section-heading">{children}</h3>
 }
 
 function NativeSelect({ value, onChange, children, disabled }: {
@@ -389,6 +392,7 @@ function Ch341PortSelector({
 }) {
   const psu = snapshot?.devices?.powerSupply
   const isConnected = Boolean(psu?.connected && config.powerSupplyKind === "ch341")
+  const detecting = Boolean(psu?.detecting)
   const ch341 = psu?.ch341
   const discoveryState = ch341?.discoveryState ?? "not_scanned"
   const ports = ch341?.ports ?? []
@@ -446,7 +450,7 @@ function Ch341PortSelector({
       <Field label="CH341 工位端口" layout={layout}>
         <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
           <NativeSelect
-            disabled={!active || pending || isConnected}
+            disabled={!active || pending || detecting || isConnected}
             value={selectedLoc}
             onChange={handleSelectPort}
           >
@@ -474,15 +478,17 @@ function Ch341PortSelector({
             })}
           </NativeSelect>
           <Button
-            disabled={!active || pending || isConnected}
+            className={`btn-refresh-spin ${detecting ? "cursor-wait" : ""}`}
+            disabled={!active || pending || detecting || isConnected}
             onClick={onRefresh}
             variant="outline"
           >
-            <RefreshCw className="size-4" />
-            识别
+            <RefreshCw className={`size-4 ${detecting ? "animate-spin" : ""}`} />
+            {detecting ? "识别中" : "识别"}
           </Button>
         </div>
       </Field>
+      <DetectionStatus detail={psu?.detail} detecting={detecting} />
 
       {selectedLoc ? (
         <div className="flex items-center gap-2 rounded border border-border/50 bg-muted/20 px-2.5 py-1.5 text-xs">
@@ -492,14 +498,14 @@ function Ch341PortSelector({
             placeholder="填写工位名称 (自动保存，如: 1号工位)"
             value={nameInput}
             onChange={(e) => handleNameChange(e.target.value)}
-            disabled={!active || pending || isConnected}
+            disabled={!active || pending || detecting || isConnected}
           />
           {currentBinding && (
             <Button
               size="sm"
               className="h-7 text-xs px-2 text-destructive hover:text-destructive"
               variant="ghost"
-              disabled={!active || pending || isConnected}
+              disabled={!active || pending || detecting || isConnected}
               onClick={handleRemoveBinding}
               title="清除端口名称绑定"
             >
@@ -544,7 +550,8 @@ function StatusDot({ state }: { state?: string }) {
 type DeviceSettingsKind = "powerSupply" | "powerMeter" | "spectrometer"
 
 function DeviceCard({ title, icon, device, summary, disabled = false, onOpenSettings }: { title: string; icon: ReactNode; device?: DeviceSnapshot; summary?: string; disabled?: boolean; onOpenSettings: () => void }) {
-  const connectionLabel = device?.state === "connected" ? "在线"
+  const connectionLabel = device?.detecting ? "识别中"
+    : device?.state === "connected" ? "在线"
     : device?.state === "connecting" ? "连接中"
     : device?.state === "error" ? "异常"
     : "未连接"
@@ -555,7 +562,7 @@ function DeviceCard({ title, icon, device, summary, disabled = false, onOpenSett
     <Card
       aria-disabled={disabled}
       aria-label={`打开${title}设置`}
-      className={`device-card gap-2.5 py-3 shadow-none transition-[color,background-color,border-color,box-shadow] duration-200 ${disabled ? "cursor-not-allowed" : "cursor-pointer hover:border-[var(--plm-flat-border-strong)] hover:bg-[var(--plm-flat-hover)] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25"}`}
+      className={`device-card justify-center gap-2.5 py-3 shadow-none transition-[color,background-color,border-color,box-shadow] duration-200 ${disabled ? "cursor-not-allowed" : "cursor-pointer hover:border-[var(--plm-flat-border-strong)] hover:bg-[var(--plm-flat-hover)] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25"}`}
       onClick={() => { if (!disabled) onOpenSettings() }}
       onKeyDown={(event) => {
         if (disabled) return
@@ -585,25 +592,60 @@ function DeviceCard({ title, icon, device, summary, disabled = false, onOpenSett
   )
 }
 
+function AutomaticTestControlCard({
+  active,
+  auto,
+  controlsLocked,
+  historyLoading,
+  pending,
+  onStart,
+  onStop,
+  onRetry,
+}: {
+  active: boolean
+  auto?: BackendSnapshot["automaticTest"]
+  controlsLocked: boolean
+  historyLoading: boolean
+  pending: boolean
+  onStart: () => void
+  onStop: () => void
+  onRetry: () => void
+}) {
+  const running = Boolean(auto?.canEnd)
+  return (
+    <Card className="automatic-test-control-card gap-2.5 py-3 shadow-none">
+      <CardContent className="automatic-test-control-card__content px-4 py-0">
+        <div className="automatic-test-control-card__actions">
+          <Button
+            disabled={!active || pending || controlsLocked || historyLoading || running || !auto?.canStart}
+            onClick={onStart}
+            size="sm"
+          >
+            <Play className="size-4" />开始
+          </Button>
+          <Button
+            disabled={!active || pending || !running}
+            onClick={onStop}
+            size="sm"
+            variant="destructive"
+          >
+            <Square className="size-4" />停止
+          </Button>
+          {auto?.canRetry && (
+            <Button className="automatic-test-control-card__retry" disabled={!active || pending} onClick={onRetry} size="sm" variant="outline">
+              <RotateCcw className="size-4" />重试当前点
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
 function formatDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return "0 s"
   if (seconds % 60 === 0) return `${seconds / 60} min`
   return `${seconds} s`
-}
-
-function formatDwellProgress(totalSeconds: number, elapsedSeconds?: number | null): string {
-  if (!Number.isFinite(elapsedSeconds)) return `待保持 ${formatDuration(totalSeconds)}`
-  const elapsed = Math.min(totalSeconds, Math.max(0, elapsedSeconds ?? 0))
-  return `保持 ${formatDuration(elapsed)} / ${formatDuration(totalSeconds)}`
-}
-
-function currentPlanSummary(config: AppConfiguration): string {
-  const stepped = `${config.initialCurrentA} → ${config.targetCurrentA} A · 间隔 ${config.currentStepA} A`
-  if (config.currentPlanMode === "range") return stepped
-  const holds = config.customCurrentPoints.length
-    ? config.customCurrentPoints.map((point) => `${point.currentA} A / ${formatDuration(point.dwellS)}`).join("、")
-    : "尚未添加停留点"
-  return `${stepped} · 停留 ${holds}`
 }
 
 function CustomCurrentPlanEditor({ config, update, disabled, maximumCurrentA }: {
@@ -673,16 +715,17 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
           <p className="power-settings-section-description">连接设备并执行输出控制与状态读取</p>
         </div>
         <div className="power-settings-fields">
-          <Field label="控制器"><NativeSelect disabled={!active || pending || psu?.connected} value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
+          <Field label="控制器"><NativeSelect disabled={!active || pending || psu?.detecting || psu?.connected} value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
           {config.powerSupplyKind === "tdk" ? <Field label="TDK 串口">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-              <NativeSelect disabled={!active || pending || psu?.connected} value={selectedResource} onChange={(value) => update("tdkResource", value)}>
+              <NativeSelect disabled={!active || pending || psu?.detecting || psu?.connected} value={selectedResource} onChange={(value) => update("tdkResource", value)}>
                 <option value="">请点击识别电源</option>
                 {selectedResource && !resources.includes(selectedResource) && <option value={selectedResource}>{selectedResource}</option>}
                 {resources.map((resource) => <option key={resource} value={resource}>{resource}</option>)}
               </NativeSelect>
-              <Button className="btn-refresh-spin" disabled={!active || pending || psu?.connected} onClick={() => void run("device.refresh", { device: "powerSupply" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
+              <Button className={`btn-refresh-spin ${psu?.detecting ? "cursor-wait" : ""}`} disabled={!active || pending || psu?.detecting || psu?.connected} onClick={() => void run("device.refresh", { device: "powerSupply" }, true)} variant="outline"><RefreshCw className={`size-4 ${psu?.detecting ? "animate-spin" : ""}`} />{psu?.detecting ? "识别中" : "识别"}</Button>
             </div>
+            <DetectionStatus detail={psu?.detail} detecting={psu?.detecting} />
           </Field> : (
             <Ch341PortSelector
               config={config}
@@ -699,7 +742,7 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
             <NumberField label="设定电流 (A)" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
           </div>
           {config.powerSupplyKind === "tdk" ? <div className="power-settings-action-grid">
-            <Button disabled={!active || pending} onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接 TDK"}</Button>
+            <Button disabled={!active || pending || psu?.detecting} onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接 TDK"}</Button>
             <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setVoltage", { voltageV: config.tdkVoltageV }, true)} variant="outline">设置电压</Button>
             <Button className={psu?.outputEnabled ? "btn-power-active" : ""} disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled ? <><span className="size-2 rounded-full bg-white animate-pulse shrink-0 mr-1.5 inline-block" />关闭输出</> : "开启输出"}</Button>
             <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
@@ -720,7 +763,7 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
                 : "连接电源"
               return (
                 <Button
-                  disabled={!active || pending || (!psu?.connected && !isCh341ReadyToConnect)}
+                  disabled={!active || pending || psu?.detecting || (!psu?.connected && !isCh341ReadyToConnect)}
                   onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)}
                   variant={psu?.connected ? "outline" : "default"}
                 >
@@ -774,7 +817,7 @@ function PowerMeterSettingsForm({ snapshot, config, update, active, pending, run
     <div className="device-settings-form">
       <Field label="串口资源">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-          <NativeSelect value={selectedResource} onChange={(v) => update("powerMeterResource", v)}>
+          <NativeSelect disabled={!active || pending || meter?.detecting} value={selectedResource} onChange={(v) => update("powerMeterResource", v)}>
             <option value="">请选择串口资源</option>
             {selectedResource && !resources.some((item) => powerMeterResourceValue(item) === selectedResource) && (
               <option value={selectedResource}>
@@ -783,15 +826,29 @@ function PowerMeterSettingsForm({ snapshot, config, update, active, pending, run
             )}
             {resources.map((item) => <option key={item} value={powerMeterResourceValue(item)}>{item}</option>)}
           </NativeSelect>
-          <Button className="btn-refresh-spin" disabled={!active || pending} onClick={() => void run("device.refresh", { device: "powerMeter" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
+          <Button className={`btn-refresh-spin ${meter?.detecting ? "cursor-wait" : ""}`} disabled={!active || pending || meter?.detecting} onClick={() => void run("device.refresh", { device: "powerMeter" }, true)} variant="outline"><RefreshCw className={`size-4 ${meter?.detecting ? "animate-spin" : ""}`} />{meter?.detecting ? "识别中" : "识别"}</Button>
         </div>
       </Field>
+      <DetectionStatus detail={meter?.detail} detecting={meter?.detecting} />
       <NumberField label="校准波长 (nm)" value={config.powerMeterWavelengthNm} onChange={(v) => update("powerMeterWavelengthNm", v)} step="0.1" />
       <NumberField label="软件增益" value={config.softwareGain} onChange={(v) => update("softwareGain", v)} step="0.01" />
-      <div className="device-settings-action-grid"><Button disabled={!active || pending || meter?.running} onClick={() => void run("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button disabled={!active || pending || meter?.running} onClick={() => void run("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></div>
-      <Button className={`w-full transition-all ${meter?.running ? "btn-running-pulse" : ""}`} disabled={!active || pending} onClick={() => void run(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
+      <div className="device-settings-action-grid"><Button disabled={!active || pending || meter?.detecting || meter?.running} onClick={() => void run("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button disabled={!active || pending || meter?.detecting || meter?.running} onClick={() => void run("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></div>
+      <Button className={`w-full transition-all ${meter?.running ? "btn-running-pulse" : ""}`} disabled={!active || pending || meter?.detecting} onClick={() => void run(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
       <p className="text-xs text-muted-foreground">实时功率 {formatNumber(meter?.powerW, " W")} · {meter?.stable ? "已稳定" : "稳定中"}</p>
     </div>
+  )
+}
+
+function DetectionStatus({ detecting, detail }: { detecting?: boolean; detail?: string }) {
+  const message = detail ?? ""
+  const completed = message.startsWith("识别完成：")
+  const failed = message.startsWith("识别失败：")
+  if (!detecting && !completed && !failed) return null
+  return (
+    <p aria-live="polite" className={`flex items-center gap-1.5 text-xs ${detecting ? "text-foreground" : failed ? "text-destructive" : "text-[var(--app-success)]"}`}>
+      {detecting ? <LoaderCircle className="size-3.5 shrink-0 animate-spin" /> : failed ? <X className="size-3.5 shrink-0" /> : <Check className="size-3.5 shrink-0" />}
+      <span>{message || "正在准备设备识别"}</span>
+    </p>
   )
 }
 
@@ -803,13 +860,14 @@ function SpectrometerSettingsForm({ snapshot, config, update, active, pending, r
     <div className="device-settings-form">
       <Field label="设备资源">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-          <NativeSelect value={config.spectrometerResource} onChange={(v) => update("spectrometerResource", v)}>
+          <NativeSelect disabled={!active || pending || spectrum?.detecting} value={config.spectrometerResource} onChange={(v) => update("spectrometerResource", v)}>
             <option value="">{defaultSpectrometerResourceLabel}</option>
             {spectrum?.resources?.filter((item) => item !== defaultSpectrometerResourceLabel).map((item) => <option key={item} value={item}>{item}</option>)}
           </NativeSelect>
-          <Button className="btn-refresh-spin" disabled={!active || pending} onClick={() => void run("device.refresh", { device: "spectrometer" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
+          <Button className={`btn-refresh-spin ${spectrum?.detecting ? "cursor-wait" : ""}`} disabled={!active || pending || spectrum?.detecting} onClick={() => void run("device.refresh", { device: "spectrometer" }, true)} variant="outline"><RefreshCw className={`size-4 ${spectrum?.detecting ? "animate-spin" : ""}`} />{spectrum?.detecting ? "识别中" : "识别"}</Button>
         </div>
       </Field>
+      <DetectionStatus detail={spectrum?.detail} detecting={spectrum?.detecting} />
       <div className="device-settings-field-grid">
         <NumberField label="积分时间 (μs)" value={config.integrationTimeUs} onChange={(v) => update("integrationTimeUs", v)} />
         <NumberField label="刷新间隔 (ms)" value={config.spectrometerIntervalMs} onChange={(v) => update("spectrometerIntervalMs", v)} />
@@ -818,7 +876,7 @@ function SpectrometerSettingsForm({ snapshot, config, update, active, pending, r
         <NumberField label="PIB 中心波长 (nm)" step="0.1" value={config.pibCenterWavelengthNm} onChange={(v) => update("pibCenterWavelengthNm", v)} />
         <NumberField label="PIB 半带宽 (nm)" step="0.1" value={config.pibHalfRangeNm} onChange={(v) => update("pibHalfRangeNm", v)} />
       </div>
-      <Button className={`w-full transition-all ${spectrum?.running ? "btn-running-pulse" : ""}`} disabled={!active || pending} onClick={() => void run(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
+      <Button className={`w-full transition-all ${spectrum?.running ? "btn-running-pulse" : ""}`} disabled={!active || pending || spectrum?.detecting} onClick={() => void run(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
       <p className="text-xs text-muted-foreground">中心 {formatNumber(spectrum?.peakWavelengthNm, " nm")} · FWHM {formatNumber(spectrum?.fwhmNm, " nm")}</p>
     </div>
   )
@@ -1013,10 +1071,6 @@ function AutomaticSpecificationsDialog({ config, update, active, pending, onClos
                 <NumberField label="中心波长允许偏差 (± nm)" min={0} step="0.1" value={draft.centerWavelengthToleranceNm} onChange={(value) => updateDraft("centerWavelengthToleranceNm", value)} />
                 <NumberField label="FWHM 上限 (nm)" min={0} step="0.01" value={draft.fwhmMaximumNm} onChange={(value) => updateDraft("fwhmMaximumNm", value)} />
                 <NumberField label="PIB 下限 (%)" min={0} max={100} step="0.1" value={draft.pibMinimumPercent} onChange={(value) => updateDraft("pibMinimumPercent", value)} />
-              </div>
-              <div className="automatic-specification-form__note">
-                <span className="size-1.5 shrink-0 rounded-full bg-primary" />
-                <span>斜率效率（2–8 A）仅统计，不参与规格判定。</span>
               </div>
               {error && <p className="text-xs text-destructive">保存失败：{error}</p>}
             </div>
@@ -1498,7 +1552,7 @@ function ChartLegend({ lines }: { lines: CanvasChartLine[] }) {
   )
 }
 
-const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, lines, empty = "暂无实时数据", heightClassName, headerRight, headerTitle, sidePanel, annotations, stretch = false, compactHeader = false, xDomain, xTicks, yDomain, rightYDomain, preserveAllPoints = false, xLabel, yLabel }: {
+const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, lines, empty = "暂无实时数据", heightClassName, annotations, stretch = false, compactHeader = false, hideHeader = false, xDomain, xTicks, yDomain, rightYDomain, preserveAllPoints = false, xLabel, xTickSuffix, yLabel }: {
   title: string
   data?: Array<Record<string, number | null>>
   columns?: CanvasColumnarData
@@ -1506,18 +1560,17 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
   lines: CanvasChartLine[]
   empty?: string
   heightClassName?: string
-  headerRight?: ReactNode
-  headerTitle?: string
-  sidePanel?: ReactNode
   annotations?: CanvasChartAnnotation[]
   stretch?: boolean
   compactHeader?: boolean
+  hideHeader?: boolean
   xDomain?: [number, number]
   xTicks?: number[]
   yDomain?: [number, number]
   rightYDomain?: [number, number]
   preserveAllPoints?: boolean
   xLabel?: string
+  xTickSuffix?: string
   yLabel?: string
 }) {
   const dataLength = columns
@@ -1525,22 +1578,17 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
     : data.length
   return (
     <Card aria-label={title} size="sm" className={`${compactHeader ? "gap-0" : ""} shadow-none ${stretch ? "h-full min-h-0 flex flex-col" : ""}`}>
-      <CardHeader className={`flex shrink-0 px-3 ${headerTitle ? "min-h-12 flex-col items-stretch justify-center gap-1 py-1.5" : "min-h-8 flex-row items-center justify-between gap-3 py-1.5"}`}>
-        <div className={`flex min-w-0 items-center ${headerTitle ? "w-full justify-between" : "gap-3"}`}>
-          {headerTitle ? <span className="truncate text-xs text-muted-foreground">{headerTitle}</span> : <ChartLegend lines={lines} />}
-          {headerTitle && headerRight}
-        </div>
-        {headerTitle ? <ChartLegend lines={lines} /> : headerRight}
-      </CardHeader>
-      <CardContent className={`${stretch ? "min-h-0 flex-1" : heightClassName || (dataLength === 0 ? "h-40" : "h-56")} ${sidePanel ? "flex px-0" : "px-3"} pb-1.5 pt-0`}>
-        <div className={`${sidePanel ? "min-w-0 flex-1 px-3" : "contents"}`}>
-          {dataLength === 0 ? (
-            <div className="grid h-full min-h-[120px] place-items-center rounded-lg bg-background/30 text-xs text-muted-foreground/70">{empty}</div>
-          ) : (
-            <CanvasLineChart annotations={annotations} ariaLabel={`${title}曲线`} columns={columns} data={data} lines={lines} preserveAllPoints={preserveAllPoints} rightYDomain={rightYDomain} xDomain={xDomain} xKey={xKey} xLabel={xLabel} xTicks={xTicks} yDomain={yDomain} yLabel={yLabel} />
-          )}
-        </div>
-        {sidePanel}
+      {!hideHeader && (
+        <CardHeader className="flex min-h-8 shrink-0 flex-row items-center px-3 py-1.5">
+          <ChartLegend lines={lines} />
+        </CardHeader>
+      )}
+      <CardContent className={`${stretch ? "min-h-0 flex-1" : heightClassName || (dataLength === 0 ? "h-40" : "h-56")} ${hideHeader ? "px-1.5 py-1.5" : "px-3 pb-1.5 pt-0"}`}>
+        {dataLength === 0 ? (
+          <div className="grid h-full min-h-[120px] place-items-center rounded-lg bg-background/30 text-xs text-muted-foreground/70">{empty}</div>
+        ) : (
+          <CanvasLineChart annotations={annotations} ariaLabel={`${title}曲线`} columns={columns} data={data} lines={lines} preserveAllPoints={preserveAllPoints} rightYDomain={rightYDomain} tightInsets={hideHeader} xDomain={xDomain} xKey={xKey} xLabel={xLabel} xTickSuffix={xTickSuffix} xTicks={xTicks} yDomain={yDomain} yLabel={yLabel} />
+        )}
       </CardContent>
     </Card>
   )
@@ -1585,19 +1633,17 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
     && previous.heightClassName === next.heightClassName
     && previous.stretch === next.stretch
     && previous.compactHeader === next.compactHeader
+    && previous.hideHeader === next.hideHeader
     && previous.preserveAllPoints === next.preserveAllPoints
     && previous.xLabel === next.xLabel
+    && previous.xTickSuffix === next.xTickSuffix
     && previous.yLabel === next.yLabel
-    && previous.headerTitle === next.headerTitle
-    && previous.sidePanel === next.sidePanel
     && sameLines
     && sameNumbers(previous.xDomain, next.xDomain)
     && sameNumbers(previous.xTicks, next.xTicks)
     && sameNumbers(previous.yDomain, next.yDomain)
     && sameNumbers(previous.rightYDomain, next.rightYDomain)
-    && previous.headerRight === undefined
-    && next.headerRight === undefined
-    && sameRows(previous.annotations, next.annotations, ["label", "x", "y", "color"])
+    && sameRows(previous.annotations, next.annotations, ["label", "x", "y"])
 })
 
 const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; stretch?: boolean; heightClassName?: string }) {
@@ -1624,12 +1670,13 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch 
       title="功率实时"
       compactHeader
       data={powerData}
+      hideHeader
       xKey="elapsedS"
       lines={lines}
       stretch={stretch}
       heightClassName={heightClassName}
       xDomain={powerTimeDomain}
-      xLabel="时间 (s)"
+      xTickSuffix=" s"
       xTicks={powerTimeTicks}
       yDomain={powerYDomain}
     />
@@ -1639,12 +1686,14 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch 
   const nextPower = next.snapshot?.measurements?.power
   return previous.stretch === next.stretch
     && previous.heightClassName === next.heightClassName
+    && previous.snapshot?.automaticTest.currentA === next.snapshot?.automaticTest.currentA
+    && previous.snapshot?.devices.powerMeter.powerW === next.snapshot?.devices.powerMeter.powerW
     && sameRows(previousPower, nextPower, ["elapsedS", "powerW"])
 })
 
 const powerEfficiencyLines: CanvasChartLine[] = [
-  { key: "powerW", label: "功率 (W)", color: PLM_CHART_SERIES.clay, axisColor: PLM_CHART_SERIES.yellow, showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 2.4 },
-  { key: "efficiencyPercent", label: "效率 (%)", color: PLM_CHART_SERIES.blue, axisColor: PLM_CHART_SERIES.blue, yAxisId: "right", showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 2.4 },
+  { key: "powerW", label: "功率 (W)", color: PLM_CHART_SERIES.clay, axisColor: PLM_CHART_SERIES.yellow, showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 2.4, connectNulls: true },
+  { key: "efficiencyPercent", label: "效率 (%)", color: PLM_CHART_SERIES.blue, axisColor: PLM_CHART_SERIES.blue, yAxisId: "right", showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 2.4, connectNulls: true },
 ]
 
 const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; stretch?: boolean; heightClassName?: string }) {
@@ -1696,13 +1745,14 @@ const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stre
       compactHeader
       data={chartData}
       empty="完成稳定测试点后显示功率 / 效率"
+      hideHeader
       lines={lines}
       stretch={stretch}
       heightClassName={heightClassName}
       title="功率 / 效率"
       xDomain={currentDomain}
       xKey="currentA"
-      xLabel="电流 (A)"
+      xTickSuffix=" A"
       xTicks={currentTicks}
       yDomain={powerDomain}
     />
@@ -1720,10 +1770,6 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
     : { wavelengthNm: [], intensity: [] }
   const spectrum = snapshot?.devices.spectrometer
   const spectrumPeaks = snapshot?.measurements?.spectrumPeaks ?? []
-  const spectrumPibValue = spectrum?.pib ?? spectrum?.pibPercent
-  const spectrumPibPercent = typeof spectrumPibValue === "number" && Number.isFinite(spectrumPibValue)
-    ? (spectrumPibValue <= 1 ? spectrumPibValue * 100 : spectrumPibValue)
-    : null
   const spectrumYAxisStateRef = useRef<SpectrumYAxisState | null>(null)
   const spectrumXDomain = useMemo<[number, number] | undefined>(() => {
     const spectrumWindow = spectrum?.spectrumWindow
@@ -1770,27 +1816,17 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
     <ChartPanel
       title="光谱"
       compactHeader
+      hideHeader
       columns={spectrumData}
       xKey="wavelengthNm"
       xDomain={spectrumXDomain}
+      xTickSuffix=" nm"
       yDomain={spectrumYDomain}
       preserveAllPoints
-      lines={[{ key: "intensity", label: "光谱（实时）", color: PLM_CHART_SERIES.yellow }]}
+      lines={[{ key: "intensity", label: "光谱（实时）", color: "#f5f5f5" }]}
       stretch={stretch}
       heightClassName={heightClassName}
-      annotations={spectrumPeaks.map((annotation) => ({ label: annotation.label, x: annotation.centroidNm, y: annotation.peakIntensity, color: PLM_CHART_SERIES.blue }))}
-      xLabel="波长 (nm)"
-      yLabel="强度 (a.u.)"
-      sidePanel={
-        <div className="spectrum-chart-summary">
-          <dl>
-            <div><dt>中心波长</dt><dd>{formatFixedNumber(spectrum?.peakWavelengthNm, 2)} <span>nm</span></dd></div>
-            <div><dt>FWHM</dt><dd>{formatFixedNumber(spectrum?.fwhmNm, 2)} <span>nm</span></dd></div>
-            <div><dt>PIB</dt><dd>{formatFixedNumber(spectrumPibPercent, 2)} <span>%</span></dd></div>
-          </dl>
-          {spectrum?.saturated && <p><OctagonAlert className="size-3.5" />光谱饱和</p>}
-        </div>
-      }
+      annotations={spectrumPeaks.map((annotation) => ({ label: annotation.label, x: annotation.centroidNm, y: annotation.peakIntensity }))}
     />
   )
 }, (previous, next) => {
@@ -1803,105 +1839,23 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
     && sameNumberArray(previousMeasurements?.spectrum.wavelengthNm, nextMeasurements?.spectrum.wavelengthNm)
     && sameNumberArray(previousMeasurements?.spectrum.intensity, nextMeasurements?.spectrum.intensity)
     && sameRows(previousMeasurements?.spectrumPeaks, nextMeasurements?.spectrumPeaks, ["label", "centroidNm", "peakWavelengthNm", "peakIntensity"])
-    && previousSpectrum?.peakWavelengthNm === nextSpectrum?.peakWavelengthNm
-    && previousSpectrum?.centroidNm === nextSpectrum?.centroidNm
-    && previousSpectrum?.fwhmNm === nextSpectrum?.fwhmNm
-    && (previousSpectrum?.pib ?? previousSpectrum?.pibPercent) === (nextSpectrum?.pib ?? nextSpectrum?.pibPercent)
-    && previousSpectrum?.saturated === nextSpectrum?.saturated
     && previousSpectrum?.spectrumWindow?.centerNm === nextSpectrum?.spectrumWindow?.centerNm
     && previousSpectrum?.spectrumWindow?.halfRangeNm === nextSpectrum?.spectrumWindow?.halfRangeNm
 })
 
-function AutomaticWorkflowStepper({
-  state,
-  currentIndex = -1,
-  totalPoints = 0,
-  dataPointCount = 0,
-  nextCurrentA,
-}: {
-  state?: string
-  currentIndex?: number
-  totalPoints?: number
-  dataPointCount?: number
-  nextCurrentA?: number
-}) {
-  const isIdle = !state || state === "idle"
-  const isCompleted = state === "completed"
-  const pointNumber = totalPoints > 0 ? Math.min(totalPoints, Math.max(1, currentIndex + 1)) : 0
-  const previousDataPointCountRef = useRef(dataPointCount)
-  const [dataFlashKey, setDataFlashKey] = useState(0)
-
-  useEffect(() => {
-    if (dataPointCount > previousDataPointCountRef.current) {
-      setDataFlashKey((value) => value + 1)
-    }
-    previousDataPointCountRef.current = dataPointCount
-  }, [dataPointCount])
-
-  const activeStep = state === "setting_current" ? 1
-    : state === "waiting_stable" || state === "paused" ? 2
-    : state === "waiting_voltage" ? 3
-    : state === "saving_point" ? 4
-    : state === "ramping_down" ? 5
-    : 0
-  const steps = [
-    { label: "就绪检查" },
-    { label: "加载电流" },
-    { label: "稳态判定" },
-    { label: "采集数据", flash: true },
-    { label: "保存本点" },
-    { label: state === "ramping_down" ? "降电归档" : "下一点", detail: typeof nextCurrentA === "number" ? `${formatTrimmedNumber(nextCurrentA, 2)} A` : undefined },
-  ]
-
-  return (
-    <ol className="automatic-stepper" aria-label={`自动测试流程，当前第 ${pointNumber} 点，共 ${Math.max(0, totalPoints)} 个测试点`}>
-      {steps.map((step, index) => {
-        const done = isCompleted || (!isIdle && index < activeStep)
-        const active = !isIdle && !isCompleted && index === activeStep
-        return (
-          <li className={`automatic-step ${done ? "is-done" : ""} ${active ? "is-active" : ""} ${step.flash && dataFlashKey > 0 ? "workflow-data-flash" : ""}`} key={step.label}>
-            <div className="automatic-step__marker" aria-hidden="true">
-              {done ? <Check className="size-4" /> : active ? <LoaderCircle className="size-4 animate-spin" /> : <span>{index + 1}</span>}
-            </div>
-            <span className="automatic-step__label">{step.label}</span>
-            {step.detail && <span className="automatic-step__detail">{step.detail}</span>}
-          </li>
-        )
-      })}
-    </ol>
-  )
-}
-
-function linearSlope(points: Array<{ currentA: number; powerW: number | null }>, minimumCurrentA: number, maximumCurrentA: number): number | null {
-  const samples = points.filter((point) => (
-    Number.isFinite(point.currentA)
-    && typeof point.powerW === "number"
-    && Number.isFinite(point.powerW)
-    && point.currentA >= minimumCurrentA
-    && point.currentA <= maximumCurrentA
-  )) as Array<{ currentA: number; powerW: number }>
-  if (samples.length < 2) return null
-  const meanCurrent = samples.reduce((sum, point) => sum + point.currentA, 0) / samples.length
-  const meanPower = samples.reduce((sum, point) => sum + point.powerW, 0) / samples.length
-  const denominator = samples.reduce((sum, point) => sum + (point.currentA - meanCurrent) ** 2, 0)
-  if (denominator <= 0) return null
-  return samples.reduce((sum, point) => sum + (point.currentA - meanCurrent) * (point.powerW - meanPower), 0) / denominator
-}
-
-function AutomaticMetricCard({ title, value, unit, detail, status, statusTone = "muted", onClick }: {
+function AutomaticMetricCard({ title, value, unit, valueTone = "muted", onClick, className = "" }: {
   title: string
   value: string
   unit: string
-  detail: string
-  status: string
-  statusTone?: "success" | "active" | "danger" | "muted"
+  valueTone?: "success" | "danger" | "warning" | "muted"
   onClick?: () => void
+  className?: string
 }) {
   const clickable = Boolean(onClick)
   return (
     <div
       aria-label={clickable ? `${title}，点击设置规格` : undefined}
-      className={`automatic-metric-card ${clickable ? "automatic-metric-card--clickable" : ""}`}
+      className={`automatic-metric-card ${className} ${clickable ? "automatic-metric-card--clickable" : ""}`}
       onClick={onClick}
       onKeyDown={(event) => {
         if (!onClick || (event.key !== "Enter" && event.key !== " ")) return
@@ -1910,25 +1864,76 @@ function AutomaticMetricCard({ title, value, unit, detail, status, statusTone = 
       }}
       role={clickable ? "button" : undefined}
       tabIndex={clickable ? 0 : undefined}
-      title={clickable ? "点击设置规格" : undefined}
     >
-      <div className="automatic-metric-card__title"><span>{title}</span>{clickable && <Settings className="size-3.5 shrink-0" />}</div>
+      <div className="automatic-metric-card__title">{title}</div>
       <div className="automatic-metric-card__value">
-        <span>{value}</span><span className="automatic-metric-card__unit">{unit}</span>
+        <span className={`automatic-metric-card__number is-${valueTone}`}>{value}</span>
+        <span className="automatic-metric-card__unit">{unit}</span>
       </div>
-      <p className="automatic-metric-card__detail">{detail}</p>
-      <p className={`automatic-metric-card__status is-${statusTone}`}>
-        {statusTone === "success" && <Check className="size-3.5" />}
-        {statusTone === "danger" && <OctagonAlert className="size-3.5" />}
-        {status}
-      </p>
     </div>
+  )
+}
+
+function RealtimeMetricCards({
+  config,
+  currentA,
+  onOpenSpecifications,
+  powerW,
+  spectrometer,
+}: {
+  config: AppConfiguration
+  currentA?: number | null
+  onOpenSpecifications?: () => void
+  powerW?: number | null
+  spectrometer?: DeviceSnapshot
+}) {
+  const pibValue = spectrometer?.pib ?? spectrometer?.pibPercent
+  const pibPercent = typeof pibValue === "number" && Number.isFinite(pibValue) ? (pibValue <= 1 ? pibValue * 100 : pibValue) : null
+  const centroidValue = spectrometer?.centroidNm ?? spectrometer?.peakWavelengthNm
+  const hasSpectrumMetrics = typeof centroidValue === "number"
+  const centerWavelengthPass = hasSpectrumMetrics && Math.abs((centroidValue ?? 0) - config.centerWavelengthSpecNm) <= config.centerWavelengthToleranceNm
+  const fwhmPass = typeof spectrometer?.fwhmNm === "number" && spectrometer.fwhmNm <= config.fwhmMaximumNm
+  const pibPass = pibPercent !== null && pibPercent >= config.pibMinimumPercent
+
+  return (
+    <section className="automatic-metric-grid" aria-label="实时关键指标">
+      <AutomaticMetricCard
+        className="automatic-metric-card--power automatic-metric-card--title-below"
+        title="Live Power"
+        value={formatFixedNumber(powerW, 3)}
+        unit={`W @ ${formatTrimmedNumber(currentA, 2)} A`}
+        valueTone="warning"
+      />
+      <AutomaticMetricCard
+        className="automatic-metric-card--title-below"
+        title="Centroid"
+        value={formatFixedNumber(centroidValue, 3)}
+        unit="nm"
+        valueTone={hasSpectrumMetrics ? (centerWavelengthPass ? "success" : "danger") : "muted"}
+        onClick={onOpenSpecifications}
+      />
+      <AutomaticMetricCard
+        className="automatic-metric-card--title-below"
+        title="FWHM"
+        value={formatFixedNumber(spectrometer?.fwhmNm, 3)}
+        unit="nm"
+        valueTone={typeof spectrometer?.fwhmNm === "number" ? (fwhmPass ? "success" : "danger") : "muted"}
+        onClick={onOpenSpecifications}
+      />
+      <AutomaticMetricCard
+        className="automatic-metric-card--title-below"
+        title="PIB"
+        value={formatFixedNumber(pibPercent, 2)}
+        unit="%"
+        valueTone={pibPercent !== null ? (pibPass ? "success" : "danger") : "muted"}
+        onClick={onOpenSpecifications}
+      />
+    </section>
   )
 }
 
 function AppTitlebar({
   active,
-  canEnd,
   canPause,
   commandPending,
   controlsLocked,
@@ -1938,7 +1943,6 @@ function AppTitlebar({
   saveConfiguration,
 }: {
   active: boolean
-  canEnd: boolean
   canPause: boolean
   commandPending: boolean
   controlsLocked: boolean
@@ -1964,11 +1968,6 @@ function AppTitlebar({
             <Pause className="size-4" />暂停测试
           </Button>
         )}
-        {canEnd && (
-          <Button disabled={!active || commandPending} onClick={() => void run("automatic.end")} size="sm" variant="outline">
-            <Square className="size-4" />结束测试
-          </Button>
-        )}
         <Button
           disabled={!dirty || !active || commandPending || controlsLocked}
           onClick={() => void saveConfiguration()}
@@ -1988,68 +1987,6 @@ function AppTitlebar({
         </Button>
       </div>
     </header>
-  )
-}
-
-type PowerWindowSummary = {
-  latestPowerW: number | undefined
-  minimumW: number | null
-  maximumW: number | null
-  fluctuationW: number | null
-  measuredWindowS: number
-}
-
-function summarizePowerWindow(
-  powerPoints: readonly { elapsedS: number; powerW: number }[],
-  stableWindowS: number,
-): PowerWindowSummary {
-  const latestPoint = powerPoints[powerPoints.length - 1]
-  if (!latestPoint || !Number.isFinite(latestPoint.elapsedS)) {
-    return { latestPowerW: latestPoint?.powerW, minimumW: null, maximumW: null, fluctuationW: null, measuredWindowS: 0 }
-  }
-
-  const windowStartS = latestPoint.elapsedS - stableWindowS
-  let pointCount = 0
-  let firstElapsedS = 0
-  let lastElapsedS = 0
-  let minimumW = Number.POSITIVE_INFINITY
-  let maximumW = Number.NEGATIVE_INFINITY
-  for (const point of powerPoints) {
-    if (point.elapsedS < windowStartS) continue
-    if (pointCount === 0) firstElapsedS = point.elapsedS
-    pointCount += 1
-    lastElapsedS = point.elapsedS
-    if (!Number.isFinite(point.powerW)) continue
-    minimumW = Math.min(minimumW, point.powerW)
-    maximumW = Math.max(maximumW, point.powerW)
-  }
-
-  const hasRange = pointCount > 1 && Number.isFinite(minimumW) && Number.isFinite(maximumW)
-  return {
-    latestPowerW: latestPoint.powerW,
-    minimumW: hasRange ? minimumW : null,
-    maximumW: hasRange ? maximumW : null,
-    fluctuationW: hasRange ? maximumW - minimumW : null,
-    measuredWindowS: pointCount > 1 ? Math.max(0, lastElapsedS - firstElapsedS) : 0,
-  }
-}
-
-function StabilitySummary({ snapshot, config, summary }: { snapshot: BackendSnapshot | null; config: AppConfiguration; summary: PowerWindowSummary }) {
-  const meter = snapshot?.devices.powerMeter
-  const evaluating = snapshot?.automaticTest.state === "waiting_stable"
-  const stable = meter?.stable && !evaluating
-  const status = meter?.running ? (stable ? "稳态已达成" : "稳态判定中") : "等待功率采集"
-
-  return (
-    <div className="automatic-stability">
-      <p className={`automatic-stability__title ${stable ? "is-success" : meter?.running ? "is-active" : ""}`}>{status}</p>
-      <dl className="automatic-stability__values">
-        <div><dt>实时功率</dt><dd>{formatFixedNumber(meter?.powerW ?? summary.latestPowerW, 3)} <span>W</span></dd></div>
-        <div><dt>窗口波动</dt><dd>{summary.fluctuationW === null ? "--" : formatFixedNumber(summary.fluctuationW, 3)} <span>W</span></dd></div>
-        <div><dt>稳定窗口</dt><dd>{formatFixedNumber(Math.min(summary.measuredWindowS, config.stableWindowS), 1)} / {formatFixedNumber(config.stableWindowS, 1)} <span>s</span></dd></div>
-      </dl>
-      <p className="automatic-stability__threshold">允许波动 ≤ {formatFixedNumber(config.stableToleranceW, 3)} W</p>
-    </div>
   )
 }
 
@@ -2290,13 +2227,6 @@ function App() {
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [changePage])
 
-  const requiredDevices = config.useSpectrometer ? 3 : 2
-  const devicesReady = [
-    snapshot?.devices.powerSupply.connected,
-    snapshot?.devices.powerMeter.ready,
-    config.useSpectrometer && snapshot?.devices.spectrometer.ready,
-  ].filter(Boolean).length
-
   // Backend notices are retained globally so a station's fault is not lost
   // while the operator views the other tab.  Only render station-tagged
   // notices on their owning station; untagged notices remain global.
@@ -2366,7 +2296,6 @@ function App() {
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
       <AppTitlebar
         active={active}
-        canEnd={Boolean(page === "automatic" && snapshot?.automaticTest.canEnd)}
         canPause={Boolean(page === "automatic" && snapshot?.automaticTest.canPause)}
         commandPending={commandPending}
         controlsLocked={automaticInteractionLocked}
@@ -2447,7 +2376,7 @@ function App() {
             data-page={page}
             key={page}
           >
-            {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={active} controlsLocked={automaticInteractionLocked} stationSwitchDisabled={commandPending || dirty} pending={commandPending} readyCount={devicesReady} readyTotal={requiredDevices} run={run} saveConfiguration={saveConfiguration} historyItems={automaticHistoryItems} historyLoading={automaticHistoryLoading} historyError={automaticHistoryError} referencePath={automaticReferencePath} onReferencePathChange={setAutomaticReferencePath} stationId={stationId} onStationChange={setStationId} />}
+            {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={active} controlsLocked={automaticInteractionLocked} stationSwitchDisabled={commandPending || dirty} pending={commandPending} run={run} saveConfiguration={saveConfiguration} historyItems={automaticHistoryItems} historyLoading={automaticHistoryLoading} historyError={automaticHistoryError} referencePath={automaticReferencePath} onReferencePathChange={setAutomaticReferencePath} stationId={stationId} onStationChange={setStationId} />}
             {page === "manual" && <ManualPage snapshot={snapshot} config={config} update={update} active={active} pending={commandPending} run={run} stationId={stationId} />}
             {page === "pd" && <PdPage snapshot={snapshot} active={active} pending={commandPending} run={run} />}
             {page === "shipping" && <ShippingReportPage active={active} controlsLocked={automaticInteractionLocked} pending={commandPending} />}
@@ -3337,8 +3266,6 @@ const AutomaticPage = memo(function AutomaticPage({
   controlsLocked,
   stationSwitchDisabled,
   pending,
-  readyCount,
-  readyTotal,
   run,
   saveConfiguration,
   historyItems,
@@ -3356,8 +3283,6 @@ const AutomaticPage = memo(function AutomaticPage({
   controlsLocked: boolean
   stationSwitchDisabled: boolean
   pending: boolean
-  readyCount: number
-  readyTotal: number
   run: RunCommand
   saveConfiguration: () => Promise<void>
   historyItems: TestHistoryCandidate[]
@@ -3369,14 +3294,6 @@ const AutomaticPage = memo(function AutomaticPage({
   onStationChange: (stationId: "1" | "2") => void
 }) {
   const auto = snapshot?.automaticTest
-  const testStarted = Boolean(auto && auto.state !== "idle")
-  const showingRampDownCurrent = auto?.state === "ramping_down" || auto?.state === "completed"
-  const displayedCurrentA = showingRampDownCurrent ? snapshot?.devices.powerSupply.activeCurrentA : auto?.currentA
-  const planSummary = currentPlanSummary(config)
-  const currentDwellS = auto?.currentDwellS ?? 0
-  const progressLabel = testStarted
-    ? `测试点 ${Math.max(0, (auto?.currentIndex ?? -1) + 1)} / ${auto?.currents?.length ?? 0}${currentDwellS > 0 ? ` · ${formatDwellProgress(currentDwellS, auto?.currentDwellElapsedS)}` : ""}`
-    : auto?.settingsError || planSummary
   const [openSettings, setOpenSettings] = useState<DeviceSettingsKind | null>(null)
   const [specificationsOpen, setSpecificationsOpen] = useState(false)
   const closeSettings = () => setOpenSettings(null)
@@ -3390,34 +3307,11 @@ const AutomaticPage = memo(function AutomaticPage({
     ? `CH341 · ${config.initialCurrentA}A → ${config.targetCurrentA}A (${config.currentStepA}A)`
     : `TDK · ${config.initialCurrentA}A → ${config.targetCurrentA}A (${config.tdkVoltageV}V)`
   const powerMeterSummary = `${config.powerMeterResource ? powerMeterResourceLabel(config.powerMeterResource, snapshot?.devices.powerMeter?.resources) : "未选串口"} · ${config.powerMeterWavelengthNm} nm (×${config.softwareGain})`
-  const spectrometerSummary = config.useSpectrometer
-    ? `${config.integrationTimeUs} μs · PIB ${config.pibCenterWavelengthNm}±${config.pibHalfRangeNm}nm`
-    : "未启用光谱采集"
-  const totalPoints = auto?.currents?.length ?? 0
-  const currentPointNumber = totalPoints > 0 ? Math.min(totalPoints, Math.max(1, (auto?.currentIndex ?? 0) + 1)) : 0
-  const completedPoints = auto?.state === "completed"
-    ? Math.min(totalPoints, snapshot?.measurements?.stable.length ?? 0)
-    : Math.min(totalPoints, Math.max(0, auto?.currentIndex ?? 0), snapshot?.measurements?.stable.length ?? 0)
-  const nextCurrentA = auto?.currents?.[(auto?.currentIndex ?? -1) + 1]
-  const powerPoints = snapshot?.measurements?.power ?? []
-  const powerWindowSummary = useMemo(
-    () => summarizePowerWindow(powerPoints, config.stableWindowS),
-    [powerPoints, config.stableWindowS],
-  )
-  const latestPowerW = snapshot?.devices.powerMeter.powerW ?? powerWindowSummary.latestPowerW
-  const recentPowerMinimumW = powerWindowSummary.minimumW
-  const recentPowerMaximumW = powerWindowSummary.maximumW
-  const stablePoints = snapshot?.measurements?.stable ?? []
-  const latestStablePoint = stablePoints[stablePoints.length - 1]
-  const slopeEfficiency = linearSlope(stablePoints, 2, 8)
   const spectrometer = snapshot?.devices.spectrometer
-  const pibValue = spectrometer?.pib ?? spectrometer?.pibPercent
-  const pibPercent = typeof pibValue === "number" && Number.isFinite(pibValue) ? (pibValue <= 1 ? pibValue * 100 : pibValue) : null
-  const hasSpectrumMetrics = typeof spectrometer?.peakWavelengthNm === "number"
-  const metricStatus = testStarted ? "已更新" : "等待测试"
-  const centerWavelengthPass = hasSpectrumMetrics && Math.abs((spectrometer?.peakWavelengthNm ?? 0) - config.centerWavelengthSpecNm) <= config.centerWavelengthToleranceNm
-  const fwhmPass = typeof spectrometer?.fwhmNm === "number" && spectrometer.fwhmNm <= config.fwhmMaximumNm
-  const pibPass = pibPercent !== null && pibPercent >= config.pibMinimumPercent
+  const useSpectrometer = Boolean(spectrometer?.running)
+  const spectrometerSummary = useSpectrometer
+    ? `${config.integrationTimeUs} μs · PIB ${config.pibCenterWavelengthNm}±${config.pibHalfRangeNm}nm`
+    : "未开启光谱采集"
 
   const chooseOutputDir = async () => {
     if (controlsLocked) return
@@ -3438,7 +3332,69 @@ const AutomaticPage = memo(function AutomaticPage({
 
   return (
     <>
-      <div className="automatic-setup-panel relative z-20 shrink-0 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[minmax(280px,1.25fr)_minmax(200px,1fr)_minmax(150px,0.75fr)_minmax(200px,0.95fr)_190px] items-end gap-3 rounded-lg border border-border/70 bg-card/40 p-3 shadow-none">
+      <div className="automatic-setup-panel relative z-20 shrink-0 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[minmax(110px,0.5fr)_minmax(180px,1fr)_minmax(150px,0.75fr)_minmax(190px,1fr)_minmax(280px,1.3fr)] items-end gap-3 rounded-lg border border-border/70 bg-card/40 p-3 shadow-none">
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">
+            <Milestone className="mr-1 inline size-3.5" />测试工位
+          </Label>
+          <div className="automatic-workstation-card" aria-label="测试工位">
+            {(["1", "2"] as const).map((id) => (
+              <button
+                aria-pressed={stationId === id}
+                className={stationId === id ? "is-active" : ""}
+                disabled={stationSwitchDisabled}
+                key={id}
+                onClick={() => onStationChange(id)}
+                type="button"
+              >
+                {id}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground" htmlFor="automatic-sn">
+            <QrCode className="mr-1 inline size-3.5" />产品 SN
+          </Label>
+          <Input
+            className="h-9 text-xs font-mono rounded-lg"
+            disabled={controlsLocked}
+            id="automatic-sn"
+            onChange={(event) => update("sn", event.target.value)}
+            value={config.sn}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground" htmlFor="automatic-station">
+            <Milestone className="mr-1 inline size-3.5" />测试站别
+          </Label>
+          <Input
+            className="h-9 text-xs rounded-lg"
+            disabled={controlsLocked}
+            id="automatic-station"
+            onChange={(event) => update("station", event.target.value)}
+            value={config.station}
+          />
+        </div>
+        <div className="space-y-1 min-w-0" title={historyError || undefined}>
+          <Label className={`text-xs ${historyError ? "text-[var(--app-warning)]" : "text-muted-foreground"}`}>
+            <History className="mr-1 inline size-3.5" />历史参考{historyLoading ? " · 自动更新中…" : ""}
+          </Label>
+          <NativeSelect
+            disabled={controlsLocked || historyLoading}
+            value={referencePath}
+            onChange={onReferencePathChange}
+          >
+            <option value="latest">最新记录</option>
+            {historyItems.map((item) => {
+              const rawTime = item.startedAtUtc || new Date(item.modifiedAtMs).toISOString()
+              const timestamp = new Date(rawTime)
+              const timeLabel = Number.isNaN(timestamp.getTime()) ? rawTime : timestamp.toLocaleString()
+              return <option key={item.sourcePath} value={item.sourcePath}>{timeLabel} · {item.station || "未填写站别"} · {item.pointCount} 点</option>
+            })}
+            <option value="none">无</option>
+          </NativeSelect>
+        </div>
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground" htmlFor="automatic-output-directory">
             <FolderOpen className="mr-1 inline size-3.5" />输出目录
@@ -3465,198 +3421,39 @@ const AutomaticPage = memo(function AutomaticPage({
             </Button>
           </div>
         </div>
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground" htmlFor="automatic-sn">
-            <QrCode className="mr-1 inline size-3.5" />产品 SN
-          </Label>
-          <Input
-            className="h-9 text-xs font-mono rounded-lg"
-            disabled={controlsLocked}
-            id="automatic-sn"
-            onChange={(event) => update("sn", event.target.value)}
-            value={config.sn}
-          />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground" htmlFor="automatic-station">
-            <Milestone className="mr-1 inline size-3.5" />测试站别
-          </Label>
-          <div className="automatic-station-field">
-            <Input
-              className="h-9 min-w-0 flex-1 rounded-r-none border-0 bg-transparent text-xs shadow-none focus-visible:ring-0"
-              disabled={controlsLocked}
-              id="automatic-station"
-              onChange={(event) => update("station", event.target.value)}
-              value={config.station}
-            />
-            <div className="automatic-station-field__switch" aria-label="测试工位">
-              {(["1", "2"] as const).map((id) => (
-                <button
-                  aria-pressed={stationId === id}
-                  className={stationId === id ? "is-active" : ""}
-                  disabled={stationSwitchDisabled}
-                  key={id}
-                  onClick={() => onStationChange(id)}
-                  type="button"
-                >
-                  {id}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-        <div className="space-y-1 min-w-0" title={historyError || undefined}>
-          <Label className={`text-xs ${historyError ? "text-[var(--app-warning)]" : "text-muted-foreground"}`}>
-            <History className="mr-1 inline size-3.5" />历史参考{historyLoading ? " · 自动更新中…" : ""}
-          </Label>
-          <NativeSelect
-            disabled={controlsLocked || historyLoading}
-            value={referencePath}
-            onChange={onReferencePathChange}
-          >
-            <option value="latest">最新记录</option>
-            {historyItems.map((item) => {
-              const rawTime = item.startedAtUtc || new Date(item.modifiedAtMs).toISOString()
-              const timestamp = new Date(rawTime)
-              const timeLabel = Number.isNaN(timestamp.getTime()) ? rawTime : timestamp.toLocaleString()
-              return <option key={item.sourcePath} value={item.sourcePath}>{timeLabel} · {item.station || "未填写站别"} · {item.pointCount} 点</option>
-            })}
-            <option value="none">无</option>
-          </NativeSelect>
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground">
-            <Radio className="mr-1 inline size-3.5" />光谱采集
-          </Label>
-          <button
-            type="button"
-            disabled={controlsLocked}
-            onClick={() => update("useSpectrometer", !config.useSpectrometer)}
-            className={`flex h-9 w-full items-center justify-between gap-2 rounded-lg border px-3 text-xs transition-all ${
-              controlsLocked
-                ? "cursor-not-allowed border-border bg-muted/20 text-muted-foreground"
-                : config.useSpectrometer
-                ? "cursor-pointer border-primary/50 bg-primary/15 text-primary font-medium hover:bg-primary/20 shadow-xs"
-                : "cursor-pointer border-input bg-background text-muted-foreground hover:border-[var(--app-border-strong)] hover:bg-muted/25 hover:text-foreground"
-            }`}
-          >
-            <span className="font-medium">{config.useSpectrometer ? "开启" : "关闭"}</span>
-            <div className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors p-0.5 ${
-              config.useSpectrometer ? "bg-primary" : "bg-muted-foreground/30"
-            }`}>
-              <span className={`size-4 rounded-full transition-transform shadow-xs ${
-                config.useSpectrometer ? "translate-x-4 bg-primary-foreground" : "translate-x-0 bg-background"
-              }`} />
-            </div>
-          </button>
-        </div>
       </div>
 
-      <section className="grid grid-cols-3 gap-3 shrink-0">
+      <section className="grid grid-cols-2 gap-3 shrink-0 xl:grid-cols-4">
         <DeviceCard title="电源" icon={<Power className="size-4" />} device={snapshot?.devices.powerSupply} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("powerSupply")} summary={powerSupplySummary} />
         <DeviceCard title="功率计" icon={<Gauge className="size-4" />} device={snapshot?.devices.powerMeter} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("powerMeter")} summary={powerMeterSummary} />
         <DeviceCard title="光谱仪" icon={<Radio className="size-4" />} device={snapshot?.devices.spectrometer} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("spectrometer")} summary={spectrometerSummary} />
+        <AutomaticTestControlCard
+          active={active}
+          auto={auto}
+          controlsLocked={controlsLocked}
+          historyLoading={historyLoading}
+          onRetry={() => void run("automatic.retry")}
+          onStart={startAutomaticTest}
+          onStop={() => void run("automatic.end")}
+          pending={pending}
+        />
       </section>
 
-      <Card className="automatic-workflow-card shadow-none border-border/80 shrink-0" size="sm">
-        <CardContent className="automatic-workflow-card__content">
-          <div className="automatic-run-summary">
-            {testStarted ? (
-              <>
-                <div className="automatic-run-summary__current"><span>{formatFixedNumber(displayedCurrentA, 2)}</span><span>A</span></div>
-                <p>当前第 {currentPointNumber} / {totalPoints} 点</p>
-                <p>已完成 {completedPoints} / {totalPoints}</p>
-              </>
-            ) : (
-              <>
-                <p className={`automatic-run-summary__ready ${readyCount === readyTotal ? "is-ready" : ""}`}>{readyCount} / {readyTotal} 台设备就绪</p>
-                <p className={auto?.settingsError ? "text-[var(--app-warning)]" : ""} title={progressLabel}>{progressLabel}</p>
-              </>
-            )}
-            <div className="automatic-workflow-card__actions">
-              {auto?.canRetry && (
-                <Button disabled={!active || pending} onClick={() => void run("automatic.retry")} size="sm" variant="outline">
-                  <RotateCcw className="size-4" />重试
-                </Button>
-              )}
-              {!auto?.canEnd && (
-                <Button
-                  disabled={!active || pending || controlsLocked || historyLoading || !auto?.canStart}
-                  onClick={startAutomaticTest}
-                  size="sm"
-                >
-                  <Play className="size-4" />开始测试
-                </Button>
-              )}
-            </div>
-          </div>
-
-          <div className="automatic-workflow-card__steps">
-            <AutomaticWorkflowStepper
-              state={auto?.state}
-              currentIndex={auto?.currentIndex}
-              totalPoints={totalPoints}
-              dataPointCount={snapshot?.measurements?.stable.length}
-              nextCurrentA={nextCurrentA}
-            />
-          </div>
-
-          <div className="automatic-workflow-card__stability">
-            <StabilitySummary config={config} snapshot={snapshot} summary={powerWindowSummary} />
-          </div>
-        </CardContent>
-      </Card>
-
-      <section className={`automatic-chart-grid ${config.useSpectrometer ? "" : "without-spectrum"}`}>
-        <PowerRealtimeChart snapshot={snapshot} stretch />
-        <PowerEfficiencyChart snapshot={snapshot} stretch />
-        {config.useSpectrometer && <SpectrumRealtimeChart snapshot={snapshot} stretch />}
-      </section>
-
-      <section className="automatic-metric-grid" aria-label="自动测试关键指标">
-        <AutomaticMetricCard
-          title={`当前点功率${typeof auto?.currentA === "number" ? ` @ ${formatTrimmedNumber(auto.currentA, 2)} A` : ""}`}
-          value={formatFixedNumber(latestPowerW, 3)}
-          unit="W"
-          detail={recentPowerMinimumW !== null && recentPowerMaximumW !== null ? `稳定范围 ${formatFixedNumber(recentPowerMinimumW, 3)} ~ ${formatFixedNumber(recentPowerMaximumW, 3)} W` : typeof latestStablePoint?.powerW === "number" ? `最近稳态 ${formatFixedNumber(latestStablePoint.powerW, 3)} W` : "尚无稳态记录"}
-          status={auto?.state === "waiting_stable" ? "当前点判定：进行中" : snapshot?.devices.powerMeter.stable ? "当前点判定：PASS" : metricStatus}
-          statusTone={auto?.state === "waiting_stable" ? "active" : snapshot?.devices.powerMeter.stable ? "success" : testStarted ? "active" : "muted"}
-        />
-        <AutomaticMetricCard
-          title="中心波长"
-          value={formatFixedNumber(spectrometer?.peakWavelengthNm, 2)}
-          unit="nm"
-          detail={`规格 ${formatFixedNumber(config.centerWavelengthSpecNm, 1)} ± ${formatFixedNumber(config.centerWavelengthToleranceNm, 1)} nm`}
-          status={hasSpectrumMetrics ? (centerWavelengthPass ? "PASS" : "FAIL") : "等待光谱"}
-          statusTone={hasSpectrumMetrics ? (centerWavelengthPass ? "success" : "danger") : "muted"}
-          onClick={() => setSpecificationsOpen(true)}
-        />
-        <AutomaticMetricCard
-          title="FWHM"
-          value={formatFixedNumber(spectrometer?.fwhmNm, 2)}
-          unit="nm"
-          detail={`规格 ≤ ${formatFixedNumber(config.fwhmMaximumNm, 2)} nm`}
-          status={typeof spectrometer?.fwhmNm === "number" ? (fwhmPass ? "PASS" : "FAIL") : "等待光谱"}
-          statusTone={typeof spectrometer?.fwhmNm === "number" ? (fwhmPass ? "success" : "danger") : "muted"}
-          onClick={() => setSpecificationsOpen(true)}
-        />
-        <AutomaticMetricCard
-          title="PIB"
-          value={formatFixedNumber(pibPercent, 2)}
-          unit="%"
-          detail={`规格 ≥ ${formatFixedNumber(config.pibMinimumPercent, 0)} %`}
-          status={pibPercent !== null ? (pibPass ? "PASS" : "FAIL") : "等待光谱"}
-          statusTone={pibPercent !== null ? (pibPass ? "success" : "danger") : "muted"}
-          onClick={() => setSpecificationsOpen(true)}
-        />
-        <AutomaticMetricCard
-          title="斜率效率（2–8 A）"
-          value={formatFixedNumber(slopeEfficiency, 3)}
-          unit="W/A"
-          detail="仅统计，不设规格"
-          status={slopeEfficiency !== null ? "已统计" : "至少需要 2 个点"}
-          statusTone="muted"
-        />
+      <section className={`automatic-chart-grid ${useSpectrometer ? "" : "without-spectrum"}`}>
+        <div className="automatic-chart-grid__power-row">
+          <PowerRealtimeChart snapshot={snapshot} stretch />
+          <PowerEfficiencyChart snapshot={snapshot} stretch />
+        </div>
+        {useSpectrometer && (
+          <RealtimeMetricCards
+            config={config}
+            currentA={auto?.currentA}
+            onOpenSpecifications={() => setSpecificationsOpen(true)}
+            powerW={snapshot?.devices.powerMeter?.powerW}
+            spectrometer={spectrometer}
+          />
+        )}
+        {useSpectrometer && <SpectrumRealtimeChart snapshot={snapshot} stretch />}
       </section>
       {openSettings && <DeviceSettingsDialog active={active} config={config} kind={openSettings} onClose={closeSettings} onSave={saveConfiguration} open pending={pending} run={run} snapshot={snapshot} update={update} />}
       {specificationsOpen && <AutomaticSpecificationsDialog active={active} config={config} onClose={() => setSpecificationsOpen(false)} onSave={saveConfiguration} pending={pending} update={update} />}
@@ -3668,8 +3465,6 @@ const AutomaticPage = memo(function AutomaticPage({
   && previous.onStationChange === next.onStationChange
   && previous.controlsLocked === next.controlsLocked
   && previous.pending === next.pending
-  && previous.readyCount === next.readyCount
-  && previous.readyTotal === next.readyTotal
   && previous.historyItems === next.historyItems
   && previous.historyLoading === next.historyLoading
   && previous.historyError === next.historyError
@@ -3862,7 +3657,6 @@ const ManualPage = memo(function ManualPage({
   const isPsuActive = Boolean(psu?.connected || psu?.outputEnabled)
   const isMeterActive = Boolean(meter?.running)
   const isSpectrumActive = Boolean(spectrum?.running)
-  const manualTest = snapshot?.manualTest
 
   return (
     <div className="manual-page flex min-h-0 flex-1 flex-col gap-3">
@@ -3898,45 +3692,56 @@ const ManualPage = memo(function ManualPage({
         })()
       )}
       <section className="manual-device-grid shrink-0">
-        <Card size="sm" className="shadow-none"><CardHeader className="flex flex-row items-center justify-between"><CardTitle className="text-base">电源控制</CardTitle><Power className={`size-4 transition-colors ${isPsuActive ? "text-amber-500" : "text-muted-foreground"}`} /></CardHeader><CardContent className="manual-control-content">
-          <Field label="控制器"><NativeSelect disabled={!active || pending || psu?.connected} value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
+        <Card size="sm" className="manual-device-card shadow-none"><CardHeader className="manual-device-card__header flex flex-row items-center justify-between"><CardTitle className="text-base">电源控制</CardTitle><Power className={`size-4 transition-colors ${isPsuActive ? "text-amber-500" : "text-muted-foreground"}`} /></CardHeader><CardContent className="manual-control-content manual-device-card__content">
+          <ManualSectionHeading>资源设置</ManualSectionHeading>
           {config.powerSupplyKind === "tdk" ? <>
-            <Field label="TDK 串口">
+            <div className="manual-power-source-grid">
+              <Field label="控制器"><NativeSelect disabled={!active || pending || psu?.detecting || psu?.connected} value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
+              <Field label="TDK 串口">
               <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-                <NativeSelect disabled={!active || pending || psu?.connected} value={selectedPowerSupplyResource} onChange={(value) => update("tdkResource", value)}>
+                <NativeSelect disabled={!active || pending || psu?.detecting || psu?.connected} value={selectedPowerSupplyResource} onChange={(value) => update("tdkResource", value)}>
                   <option value="">请点击识别电源</option>
                   {selectedPowerSupplyResource && !powerSupplyResources.includes(selectedPowerSupplyResource) && <option value={selectedPowerSupplyResource}>{selectedPowerSupplyResource}</option>}
                   {powerSupplyResources.map((resource) => <option key={resource} value={resource}>{resource}</option>)}
                 </NativeSelect>
-                <Button className="btn-refresh-spin" disabled={!active || pending || psu?.connected} onClick={() => void runManualCommand("device.refresh", { device: "powerSupply" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
+                <Button className={`btn-refresh-spin ${psu?.detecting ? "cursor-wait" : ""}`} disabled={!active || pending || psu?.detecting || psu?.connected} onClick={() => void runManualCommand("device.refresh", { device: "powerSupply" }, true)} variant="outline"><RefreshCw className={`size-4 ${psu?.detecting ? "animate-spin" : ""}`} />{psu?.detecting ? "识别中" : "识别"}</Button>
               </div>
-            </Field>
+              <DetectionStatus detail={psu?.detail} detecting={psu?.detecting} />
+              </Field>
+            </div>
+            <ManualSectionHeading>参数设置</ManualSectionHeading>
             <div className="device-settings-field-grid">
               <NumberField label="输出电压 (V)" value={config.tdkVoltageV} onChange={(v) => update("tdkVoltageV", v)} step="0.1" />
               <NumberField label="设定电流 (A)" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
             </div>
+            <ManualSectionHeading>操作</ManualSectionHeading>
             <div className="grid grid-cols-2 gap-2">
-              <Button disabled={!active} onClick={() => void runManualCommand(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接 TDK"}</Button>
-              <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setVoltage", { voltageV: config.tdkVoltageV }, true)} variant="outline">设置电压</Button>
-              <Button className={psu?.outputEnabled ? "btn-power-active" : ""} disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled ? <><span className="size-2 rounded-full bg-white animate-pulse shrink-0 mr-1.5 inline-block" />关闭输出</> : "开启输出"}</Button>
-              <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
-              <Button className="active:bg-primary/20 transition-colors" disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline">读取输出电压</Button>
-              <Button className="active:bg-primary/20 transition-colors" disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline">读取输出电流</Button>
+              <Button disabled={!active || psu?.detecting} onClick={() => void runManualCommand(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接 TDK"}</Button>
+              <Button disabled={!active || psu?.detecting || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)} variant="outline">设置电流</Button>
+              <Button className={psu?.outputEnabled ? "btn-power-active" : ""} disabled={!active || psu?.detecting || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled ? <><span className="size-2 rounded-full bg-white animate-pulse shrink-0 mr-1.5 inline-block" />关闭输出</> : "开启输出"}</Button>
+              <Button disabled={!active || psu?.detecting || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setVoltage", { voltageV: config.tdkVoltageV }, true)} variant="outline">设置电压</Button>
+              <Button className="active:bg-primary/20 transition-colors" disabled={!active || psu?.detecting || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline">读取输出电压</Button>
+              <Button className="active:bg-primary/20 transition-colors" disabled={!active || psu?.detecting || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline">读取输出电流</Button>
               <p className="col-span-2 text-xs text-muted-foreground">
                 回读：输出 {formatNumber(psu?.outputVoltageV, " V", 2)} · 电流 {formatNumber(psu?.outputCurrentA, " A", 2)}
               </p>
             </div>
           </> : <>
-            <Ch341PortSelector
-              config={config}
-              snapshot={snapshot}
-              active={active}
-              pending={pending}
-              layout="stacked"
-              update={update}
-              onRefresh={() => void runManualCommand("device.refresh", { device: "powerSupply" }, true)}
-            />
-            <NumberField label="设定电流 (A)" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
+            <div className="manual-power-source-grid">
+              <Field label="控制器"><NativeSelect disabled={!active || pending || psu?.detecting || psu?.connected} value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
+              <Ch341PortSelector
+                config={config}
+                snapshot={snapshot}
+                active={active}
+                pending={pending}
+                layout="stacked"
+                update={update}
+                onRefresh={() => void runManualCommand("device.refresh", { device: "powerSupply" }, true)}
+              />
+            </div>
+            <ManualSectionHeading>参数设置</ManualSectionHeading>
+            <NumberField label="设定电流 (A)" layout="inline" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
+            <ManualSectionHeading>操作</ManualSectionHeading>
             <div className="grid grid-cols-2 gap-2">
               {(() => {
                 const selectedLoc = config.ch341SelectedLocationPath
@@ -3954,7 +3759,7 @@ const ManualPage = memo(function ManualPage({
                   : "连接电源"
                 return (
                   <Button
-                    disabled={!active || (!psu?.connected && !isCh341ReadyToConnect)}
+                    disabled={!active || psu?.detecting || (!psu?.connected && !isCh341ReadyToConnect)}
                     onClick={() => void runManualCommand(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)}
                     variant={psu?.connected ? "outline" : "default"}
                   >
@@ -3962,22 +3767,32 @@ const ManualPage = memo(function ManualPage({
                   </Button>
                 )
               })()}
-              <Button disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
+              <Button disabled={!active || psu?.detecting || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)} variant="outline">设置电流</Button>
+            </div>
+            <ManualSectionHeading>快速读取</ManualSectionHeading>
+            <div className="grid grid-cols-2 gap-2">
               <Button className="active:bg-primary/20 transition-colors" disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline">读取输出电压</Button>
               <Button className="active:bg-primary/20 transition-colors" disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline">读取输出电流</Button>
               <Button className="active:bg-primary/20 transition-colors" disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "inputVoltage" })} size="sm" variant="outline">读取输入电压</Button>
               <Button className="active:bg-primary/20 transition-colors" disabled={!active || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "temperature" })} size="sm" variant="outline">读取模块温度</Button>
-              <p className="col-span-2 text-xs text-muted-foreground">
-                回读：输入 {formatNumber(psu?.inputVoltageV, " V", 2)} · 输出 {formatNumber(psu?.outputVoltageV, " V", 2)} · 电流 {formatNumber(psu?.outputCurrentA, " A", 2)} · 温度 {formatNumber(psu?.temperatureC, " °C", 2)}
+            </div>
+            <ManualSectionHeading>状态回读</ManualSectionHeading>
+            <div>
+              <p className="manual-device-readback">
+                <span className="is-blue">输入 {formatNumber(psu?.inputVoltageV, " V", 2)}</span>
+                <span className="is-green">输出 {formatNumber(psu?.outputVoltageV, " V", 2)}</span>
+                <span className="is-sky">电流 {formatNumber(psu?.outputCurrentA, " A", 2)}</span>
+                <span className="is-orange">温度 {formatNumber(psu?.temperatureC, " °C", 2)}</span>
               </p>
             </div>
           </>}
         </CardContent></Card>
 
-        <Card size="sm" className="shadow-none"><CardHeader className="flex flex-row items-center justify-between"><CardTitle className="text-base">功率计</CardTitle><Gauge className={`size-4 transition-colors ${isMeterActive ? "text-amber-500" : "text-muted-foreground"}`} /></CardHeader><CardContent className="manual-control-content">
+        <Card size="sm" className="manual-device-card shadow-none"><CardHeader className="manual-device-card__header flex flex-row items-center justify-between"><CardTitle className="text-base">功率计</CardTitle><Gauge className={`size-4 transition-colors ${isMeterActive ? "text-amber-500" : "text-muted-foreground"}`} /></CardHeader><CardContent className="manual-control-content manual-device-card__content">
+          <ManualSectionHeading>资源设置</ManualSectionHeading>
           <Field label="串口资源">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-              <NativeSelect value={selectedPowerMeterResource} onChange={(v) => update("powerMeterResource", v)}>
+              <NativeSelect disabled={!active || meter?.detecting} value={selectedPowerMeterResource} onChange={(v) => update("powerMeterResource", v)}>
                 <option value="">请选择串口资源</option>
                 {selectedPowerMeterResource && !powerMeterResources.some((item) => powerMeterResourceValue(item) === selectedPowerMeterResource) && (
                   <option value={selectedPowerMeterResource}>
@@ -3986,27 +3801,35 @@ const ManualPage = memo(function ManualPage({
                 )}
                 {powerMeterResources.map((item) => <option key={item} value={powerMeterResourceValue(item)}>{item}</option>)}
               </NativeSelect>
-              <Button className="btn-refresh-spin" disabled={!active} onClick={() => void runManualCommand("device.refresh", { device: "powerMeter" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
+              <Button className={`btn-refresh-spin ${meter?.detecting ? "cursor-wait" : ""}`} disabled={!active || meter?.detecting} onClick={() => void runManualCommand("device.refresh", { device: "powerMeter" }, true)} variant="outline"><RefreshCw className={`size-4 ${meter?.detecting ? "animate-spin" : ""}`} />{meter?.detecting ? "识别中" : "识别"}</Button>
             </div>
           </Field>
+          <DetectionStatus detail={meter?.detail} detecting={meter?.detecting} />
+          <ManualSectionHeading>参数设置</ManualSectionHeading>
           <div className="device-settings-field-grid">
             <NumberField label="校准波长 (nm)" value={config.powerMeterWavelengthNm} onChange={(v) => update("powerMeterWavelengthNm", v)} step="0.1" />
             <NumberField label="软件增益" value={config.softwareGain} onChange={(v) => update("softwareGain", v)} step="0.01" />
           </div>
-          <div className="grid grid-cols-2 gap-2"><Button disabled={!active || meter?.running} onClick={() => void runManualCommand("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button disabled={!active || meter?.running} onClick={() => void runManualCommand("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></div>
-          <Button className={`w-full transition-all ${meter?.running ? "btn-running-pulse" : ""}`} disabled={!active} onClick={() => void runManualCommand(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
+          <ManualSectionHeading>功能操作</ManualSectionHeading>
+          <div className="grid grid-cols-2 gap-2"><Button disabled={!active || meter?.detecting || meter?.running} onClick={() => void runManualCommand("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button disabled={!active || meter?.detecting || meter?.running} onClick={() => void runManualCommand("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></div>
+          <ManualSectionHeading>状态</ManualSectionHeading>
+          <p className="manual-device-status"><span className={`manual-device-status__dot ${meter?.running ? "is-active" : ""}`} />状态：{meter?.running ? "采集中" : "未调零"}</p>
+          <Button className={`w-full transition-all ${meter?.running ? "btn-running-pulse" : ""}`} disabled={!active || meter?.detecting} onClick={() => void runManualCommand(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
         </CardContent></Card>
 
-        <Card size="sm" className="shadow-none"><CardHeader className="flex flex-row items-center justify-between"><CardTitle className="text-base">光谱仪</CardTitle><Radio className={`size-4 transition-colors ${isSpectrumActive ? "text-amber-500" : "text-muted-foreground"}`} /></CardHeader><CardContent className="manual-control-content">
+        <Card size="sm" className="manual-device-card shadow-none"><CardHeader className="manual-device-card__header flex flex-row items-center justify-between"><CardTitle className="text-base">光谱仪</CardTitle><Radio className={`size-4 transition-colors ${isSpectrumActive ? "text-amber-500" : "text-muted-foreground"}`} /></CardHeader><CardContent className="manual-control-content manual-device-card__content">
+          <ManualSectionHeading>资源设置</ManualSectionHeading>
           <Field label="设备资源">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-              <NativeSelect value={config.spectrometerResource} onChange={(v) => update("spectrometerResource", v)}>
+              <NativeSelect disabled={!active || spectrum?.detecting} value={config.spectrometerResource} onChange={(v) => update("spectrometerResource", v)}>
                 <option value="">{defaultSpectrometerResourceLabel}</option>
                 {spectrum?.resources?.filter((item) => item !== defaultSpectrometerResourceLabel).map((item) => <option key={item} value={item}>{item}</option>)}
               </NativeSelect>
-              <Button className="btn-refresh-spin" disabled={!active} onClick={() => void runManualCommand("device.refresh", { device: "spectrometer" }, true)} variant="outline"><RefreshCw className="size-4" />识别</Button>
+              <Button className={`btn-refresh-spin ${spectrum?.detecting ? "cursor-wait" : ""}`} disabled={!active || spectrum?.detecting} onClick={() => void runManualCommand("device.refresh", { device: "spectrometer" }, true)} variant="outline"><RefreshCw className={`size-4 ${spectrum?.detecting ? "animate-spin" : ""}`} />{spectrum?.detecting ? "识别中" : "识别"}</Button>
             </div>
           </Field>
+          <DetectionStatus detail={spectrum?.detail} detecting={spectrum?.detecting} />
+          <ManualSectionHeading>参数设置</ManualSectionHeading>
           <div className="device-settings-field-grid">
             <NumberField label="积分时间 (μs)" value={config.integrationTimeUs} onChange={(v) => update("integrationTimeUs", v)} />
             <NumberField label="刷新间隔 (ms)" value={config.spectrometerIntervalMs} onChange={(v) => update("spectrometerIntervalMs", v)} />
@@ -4015,35 +3838,22 @@ const ManualPage = memo(function ManualPage({
             <NumberField label="PIB 中心波长 (nm)" step="0.1" value={config.pibCenterWavelengthNm} onChange={(v) => update("pibCenterWavelengthNm", v)} />
             <NumberField label="PIB 半带宽 (nm)" step="0.1" value={config.pibHalfRangeNm} onChange={(v) => update("pibHalfRangeNm", v)} />
           </div>
-          <Button className={`w-full transition-all ${spectrum?.running ? "btn-running-pulse" : ""}`} disabled={!active} onClick={() => void runManualCommand(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
+          <Button className={`w-full transition-all ${spectrum?.running ? "btn-running-pulse" : ""}`} disabled={!active || spectrum?.detecting} onClick={() => void runManualCommand(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
         </CardContent></Card>
       </section>
-      <div className="flex items-center justify-between rounded-lg border border-border bg-card px-3 py-2">
-        <p className="text-xs text-muted-foreground">
-          {manualTest?.pendingCount
-            ? `已有 ${manualTest.pendingCount} 个未保存测试点`
-            : manualTest?.exportPath
-              ? `最近保存：${manualTest.exportPath}`
-              : "电流点稳定后自动读取电压并暂存记录"}
-        </p>
-        <Button
-          disabled={!active || pending || !manualTest?.pendingCount || manualTest.exportStatus === "exporting"}
-          onClick={() => void runManualCommand("manual.saveExcel", {}, true)}
-          size="sm"
-        >
-          {manualTest?.exportStatus === "exporting" ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}
-          保存 Excel
-        </Button>
-      </div>
-      <div className="grid min-h-[580px] flex-1 gap-3.5 grid-rows-[minmax(280px,1fr)_minmax(280px,1fr)] pb-2">
-        <section className="grid min-h-[280px] grid-cols-1 gap-3.5 lg:grid-cols-2">
+      <section className="automatic-chart-grid">
+        <div className="automatic-chart-grid__power-row">
           <PowerRealtimeChart snapshot={snapshot} stretch />
           <PowerEfficiencyChart snapshot={snapshot} stretch />
-        </section>
-        <div className="min-h-[280px]">
-          <SpectrumRealtimeChart snapshot={snapshot} stretch />
         </div>
-      </div>
+        <RealtimeMetricCards
+          config={config}
+          currentA={psu?.outputCurrentA ?? config.setCurrentA}
+          powerW={meter?.powerW}
+          spectrometer={spectrum}
+        />
+        <SpectrumRealtimeChart snapshot={snapshot} stretch />
+      </section>
     </div>
   )
 }, (previous, next) => (
@@ -4054,9 +3864,6 @@ const ManualPage = memo(function ManualPage({
   && sameDeviceSnapshot(previous.snapshot?.devices.powerSupply, next.snapshot?.devices.powerSupply)
   && sameDeviceSnapshot(previous.snapshot?.devices.powerMeter, next.snapshot?.devices.powerMeter)
   && sameDeviceSnapshot(previous.snapshot?.devices.spectrometer, next.snapshot?.devices.spectrometer)
-  && previous.snapshot?.manualTest?.pendingCount === next.snapshot?.manualTest?.pendingCount
-  && previous.snapshot?.manualTest?.exportStatus === next.snapshot?.manualTest?.exportStatus
-  && previous.snapshot?.manualTest?.exportPath === next.snapshot?.manualTest?.exportPath
   && sameMeasurements(previous.snapshot?.measurements, next.snapshot?.measurements)
 ))
 
@@ -4099,10 +3906,11 @@ const PdPage = memo(function PdPage({ snapshot, active, pending, run }: { snapsh
           <div className="col-span-2 pt-1"><p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">采集参数</p></div>
           <Field label="采集卡" className="pd-inline-field col-span-2" layout="inline">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-              <NativeSelect value={current.device} onChange={(v) => set("device", v)}><option value="">请选择</option>{pd?.devices.map((item) => <option key={item} value={item}>{item}</option>)}</NativeSelect>
-              <Button disabled={!active || pending || pd?.state === "running"} onClick={() => void run("pd.refresh")} variant="outline"><RefreshCw className="size-4" />识别</Button>
+              <NativeSelect disabled={!active || pending || pd?.detecting || pd?.state === "running"} value={current.device} onChange={(v) => set("device", v)}><option value="">请选择</option>{pd?.devices.map((item) => <option key={item} value={item}>{item}</option>)}</NativeSelect>
+              <Button className={`btn-refresh-spin ${pd?.detecting ? "cursor-wait" : ""}`} disabled={!active || pending || pd?.detecting || pd?.state === "running"} onClick={() => void run("pd.refresh")} variant="outline"><RefreshCw className={`size-4 ${pd?.detecting ? "animate-spin" : ""}`} />{pd?.detecting ? "识别中" : "识别"}</Button>
             </div>
           </Field>
+          <div className="col-span-2"><DetectionStatus detail={pd?.status} detecting={pd?.detecting} /></div>
           <Field label="输入通道" className="pd-inline-field" layout="inline"><NativeSelect value={current.channel} onChange={(v) => set("channel", v)}><option value="">请选择</option>{pd?.channels.map((item) => <option key={item} value={item}>{item}</option>)}</NativeSelect></Field>
           <Field label="接线方式" className="pd-inline-field" layout="inline"><NativeSelect value={current.terminal} onChange={(v) => set("terminal", v)}><option value="DIFF">差分 DIFF</option><option value="RSE">参考单端 RSE</option></NativeSelect></Field>
           <Field label="输入量程" className="pd-inline-field" layout="inline"><NativeSelect value={String(current.range ?? "")} onChange={(v) => set("range", asNumber(v))}><option value="">自动</option>{pd?.ranges.map((item) => <option key={String(item.value)} value={String(item.value)}>{item.label}</option>)}</NativeSelect></Field>
@@ -4143,7 +3951,7 @@ const PdPage = memo(function PdPage({ snapshot, active, pending, run }: { snapsh
           </div>
           <div className="col-span-2 space-y-2">
             <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className="grid size-5 place-items-center rounded-full bg-primary/15 font-semibold text-primary">1</span><span>先识别采集卡，再开始采集</span></div>
-            <Button className="w-full" disabled={!active || pending || (pd?.state !== "running" && !current.device)} onClick={() => void run(pd?.state === "running" ? "pd.stop" : "pd.start", current as unknown as Record<string, unknown>)}>{pd?.state === "running" ? <><Square className="size-4" />停止并保存</> : <><Play className="size-4" />开始采集</>}</Button>
+            <Button className="w-full" disabled={!active || pending || pd?.detecting || (pd?.state !== "running" && !current.device)} onClick={() => void run(pd?.state === "running" ? "pd.stop" : "pd.start", current as unknown as Record<string, unknown>)}>{pd?.state === "running" ? <><Square className="size-4" />停止并保存</> : <><Play className="size-4" />开始采集</>}</Button>
           </div>
           <p className="col-span-2 text-xs text-muted-foreground">{pd?.status || "等待识别采集卡"}</p>
         </CardContent></Card>

@@ -94,6 +94,22 @@ class HeadlessBackendTests(unittest.TestCase):
         self.assertIn("configuration", snapshot)
         self.assertNotIn("points", snapshot["pd"])
 
+    def test_manual_power_meter_start_clears_power_efficiency_history(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            backend = self.backend(directory)
+            station = backend.stations["1"]
+            station.configuration["powerMeterResource"] = "ASRL3::INSTR"
+            station.stable_power_points = {2.0: 0.204, 6.0: 0.612}
+            station.efficiency_points = {2.0: 4.2, 6.0: 10.2}
+            station.series_revisions["stable"] = 7
+
+            with patch("tauri_bridge.headless_backend.PowerMeterReaderThread"):
+                station.start_power_meter()
+
+            self.assertEqual(station.stable_power_points, {})
+            self.assertEqual(station.efficiency_points, {})
+            self.assertEqual(station.series_revisions["stable"], 8)
+
     def test_sidecar_starts_when_every_pyside_import_is_blocked(self) -> None:
         script = r'''
 import importlib.abc

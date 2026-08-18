@@ -33,7 +33,12 @@ from .models import (
     SpectrometerReading,
     SpectrometerSettings,
 )
-from .spectrum import detect_spectrum_saturation, find_spectrum_peak_annotations
+from .spectrum import (
+    SPECTRUM_CENTER_LOCK_REQUIRED_SAMPLES,
+    SPECTRUM_CENTER_LOCK_TOLERANCE_NM,
+    detect_spectrum_saturation,
+    find_spectrum_peak_annotations,
+)
 from .spectrum_math import calculate_pib, calculate_smsr
 
 
@@ -336,11 +341,15 @@ class PowerMeterDetectThread(WorkerThread):
                     if resource not in candidates:
                         candidates.append(resource)
 
-            self.status.emit(f"正在 {len(candidates)} 个端口上检测功率计，并扫描 Ophir USB")
+            self.status.emit(f"已发现 {len(candidates)} 个串口，准备识别功率计")
             options: list[PowerMeterOption] = []
-            for resource in candidates:
+            for index, resource in enumerate(candidates, start=1):
                 if self._stop_requested.is_set():
                     return
+                self.status.emit(
+                    f"正在检测串口 {index}/{len(candidates)}：{resource}"
+                    "（依次尝试 彩煌、Coherent、LaserPoint）"
+                )
                 serial_meter_classes = [CaihuangPowerMeter]
                 if CoherentPowerMeter is not None:
                     serial_meter_classes.append(CoherentPowerMeter)
@@ -360,6 +369,7 @@ class PowerMeterDetectThread(WorkerThread):
                     break
             should_scan_ophir = self.scan_all_resources or preferred.startswith("OPHIR::USB::")
             if should_scan_ophir and OphirPowerMeter is not None and not self._stop_requested.is_set():
+                self.status.emit("串口检测完成，正在扫描 Ophir USB 设备")
                 probe_all = getattr(OphirPowerMeter, "probe_all", None)
                 if callable(probe_all):
                     for result in probe_all(
@@ -375,6 +385,10 @@ class PowerMeterDetectThread(WorkerThread):
                             )
                         )
             if not self._stop_requested.is_set():
+                if options:
+                    self.status.emit(f"识别完成：发现 {len(options)} 台兼容功率计")
+                else:
+                    self.status.emit("识别完成：未找到兼容功率计")
                 self.detected.emit(options)
         except Exception as exc:
             _LOGGER.exception("功率计检测线程失败")
@@ -627,6 +641,9 @@ class SpectrometerReaderThread(WorkerThread):
         self._fixed_integration_pending = threading.Event()
         self._spectrum_averager = SpectrumFrameAverager(settings.average_frames)
         self._calculate_stats: Any = None
+        self._auto_integration_center_nm: float | None = None
+        self._auto_integration_center_samples = 0
+        self._auto_integration_center_ready = False
         self.full_scale_counts = AUTO_INTEGRATION_MAX_COUNTS
         self.is_ready = False
 
@@ -634,6 +651,7 @@ class SpectrometerReaderThread(WorkerThread):
         self._stop_requested.set()
 
     def enable_auto_integration(self) -> None:
+        self._reset_auto_integration_center_lock()
         self._auto_integration_enabled.set()
         self._resume_auto_integration_requested.set()
 
@@ -652,6 +670,43 @@ class SpectrometerReaderThread(WorkerThread):
             self._fixed_integration_time_us = None
             self._fixed_integration_pending.clear()
         return integration_time_us
+
+    def _reset_auto_integration_center_lock(self) -> None:
+        self._auto_integration_center_nm = None
+        self._auto_integration_center_samples = 0
+        self._auto_integration_center_ready = False
+
+    def _has_stable_auto_integration_center(self, stats: Any) -> bool:
+        """Require a real, stable spectrum before increasing integration time."""
+        try:
+            center_nm = float(stats.peak_wavelength_nm)
+        except (AttributeError, TypeError, ValueError):
+            center_nm = math.nan
+        if not math.isfinite(center_nm):
+            self._reset_auto_integration_center_lock()
+            return False
+        if self._auto_integration_center_ready:
+            return True
+        candidate_nm = self._auto_integration_center_nm
+        if (
+            candidate_nm is None
+            or abs(center_nm - candidate_nm) > SPECTRUM_CENTER_LOCK_TOLERANCE_NM
+        ):
+            self._auto_integration_center_nm = center_nm
+            self._auto_integration_center_samples = 1
+            return False
+        next_samples = self._auto_integration_center_samples + 1
+        self._auto_integration_center_nm = candidate_nm + (
+            center_nm - candidate_nm
+        ) / next_samples
+        self._auto_integration_center_samples = next_samples
+        if next_samples < SPECTRUM_CENTER_LOCK_REQUIRED_SAMPLES:
+            return False
+        self._auto_integration_center_ready = True
+        self.status.emit(
+            f"光谱中心已稳定在 {self._auto_integration_center_nm:.3f} nm，开始自动积分"
+        )
+        return True
 
     def resume_auto_integration(self) -> None:
         self._resume_auto_integration_requested.set()
@@ -875,6 +930,7 @@ class SpectrometerReaderThread(WorkerThread):
                 if requested_fixed_integration_us is not None:
                     self._spectrum_averager.reset()
                     self._auto_integration_enabled.clear()
+                    self._reset_auto_integration_center_lock()
                     fixed_integration_us = max(
                         minimum_integration_us,
                         min(requested_fixed_integration_us, device_maximum_integration_us),
@@ -899,9 +955,22 @@ class SpectrometerReaderThread(WorkerThread):
                         self._resume_auto_integration_requested.clear()
                         self._spectrum_averager.reset()
                         integration_search.reset()
+                        self._reset_auto_integration_center_lock()
                         auto_integration_waiting_for_operator = False
                     if auto_integration_waiting_for_operator:
                         self._publish_averaged_spectrum(wavelength, intensity)
+                        self._stop_requested.wait(self.settings.interval_ms / 1000.0)
+                        continue
+                    stats = self._calculate_stats(wavelength, intensity)
+                    if not self._has_stable_auto_integration_center(stats):
+                        self._publish_analyzed_spectrum(wavelength, intensity, stats)
+                        self.reading.emit(
+                            SpectrometerReading(
+                                peak_wavelength_nm=stats.peak_wavelength_nm,
+                                centroid_nm=stats.centroid_nm,
+                                fwhm_nm=stats.fwhm_nm,
+                            )
+                        )
                         self._stop_requested.wait(self.settings.interval_ms / 1000.0)
                         continue
                     try:
@@ -929,6 +998,8 @@ class SpectrometerReaderThread(WorkerThread):
                     if not intensity_in_range:
                         if adjusted_integration_us != current_integration_us:
                             self._spectrum_averager.reset()
+                            with self._latest_spectrum_lock:
+                                self._latest_spectrum = None
                             current_integration_us = adjusted_integration_us
                             spectrometer.set_integration_time(current_integration_us)
                             self.integration_time_changed.emit(current_integration_us)

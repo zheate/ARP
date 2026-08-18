@@ -252,7 +252,7 @@ class DeviceInterfaceTests(unittest.TestCase):
             SpectrumFrame([975.0, 976.0], [10.0, 20.0], None),
         )
 
-    def test_spectrometer_auto_integration_waits_for_full_scale_target(self) -> None:
+    def test_spectrometer_auto_integration_waits_for_stable_center_before_targeting_full_scale(self) -> None:
         integration_times: list[int] = []
         read_count = 0
 
@@ -275,7 +275,7 @@ class DeviceInterfaceTests(unittest.TestCase):
             def read_spectrum(self) -> tuple[list[float], list[float]]:
                 nonlocal read_count
                 read_count += 1
-                peak = 10_000.0 if read_count == 1 else 40_000.0
+                peak = 10_000.0 if read_count <= 5 else 40_000.0
                 return [975.0, 976.0], [0.0, peak]
 
             def close(self) -> None:
@@ -293,7 +293,7 @@ class DeviceInterfaceTests(unittest.TestCase):
         def stop_after_valid_frame(_timeout: float) -> bool:
             nonlocal wait_count
             wait_count += 1
-            if wait_count >= 2:
+            if wait_count >= 6:
                 reader.stop()
                 return True
             return False
@@ -316,7 +316,63 @@ class DeviceInterfaceTests(unittest.TestCase):
 
         self.assertEqual(integration_times, [3_800, 151_900])
         self.assertEqual(full_scales, [65_535.0])
-        self.assertEqual(len(readings), 1)
+        self.assertEqual(len(readings), 5)
+
+    def test_spectrometer_auto_integration_does_not_increase_without_center_wavelength(self) -> None:
+        integration_times: list[int] = []
+
+        class FakeSpectrometer:
+            def open_first(self) -> int:
+                return 7
+
+            def get_minimum_integration_time(self) -> int:
+                return 1_000
+
+            def get_maximum_integration_time(self) -> int:
+                return 1_000_000
+
+            def get_maximum_intensity(self) -> float:
+                return 65_535.0
+
+            def set_integration_time(self, value: int) -> None:
+                integration_times.append(value)
+
+            def read_spectrum(self) -> tuple[list[float], list[float]]:
+                return [975.0, 976.0], [0.0, 10_000.0]
+
+            def close(self) -> None:
+                return
+
+        reader = SpectrometerReaderThread(
+            SpectrometerSettings(10_000, 50, auto_integration_enabled=True)
+        )
+        wait_count = 0
+
+        def stop_after_no_center_frames(_timeout: float) -> bool:
+            nonlocal wait_count
+            wait_count += 1
+            if wait_count >= 6:
+                reader.stop()
+                return True
+            return False
+
+        with (
+            patch(
+                "combined_test.devices.load_spectrometer_components",
+                return_value=(
+                    FakeSpectrometer,
+                    lambda _x, _y: SimpleNamespace(
+                        peak_wavelength_nm=math.nan,
+                        centroid_nm=math.nan,
+                        fwhm_nm=math.nan,
+                    ),
+                ),
+            ),
+            patch.object(reader._stop_requested, "wait", side_effect=stop_after_no_center_frames),
+        ):
+            reader.run()
+
+        self.assertEqual(integration_times, [3_800])
 
     def test_spectrometer_can_switch_from_auto_to_configured_integration_time(self) -> None:
         integration_times: list[int] = []
@@ -400,14 +456,27 @@ class DeviceInterfaceTests(unittest.TestCase):
             SpectrometerSettings(10_000, 50, auto_integration_enabled=True)
         )
 
+        wait_count = 0
+
         def stop_after_adjustment(_timeout: float) -> bool:
-            reader.stop()
-            return True
+            nonlocal wait_count
+            wait_count += 1
+            if wait_count >= 5:
+                reader.stop()
+                return True
+            return False
 
         with (
             patch(
                 "combined_test.devices.load_spectrometer_components",
-                return_value=(FakeSpectrometer, lambda _x, _y: None),
+                return_value=(
+                    FakeSpectrometer,
+                    lambda _x, _y: SimpleNamespace(
+                        peak_wavelength_nm=976.0,
+                        centroid_nm=976.0,
+                        fwhm_nm=0.2,
+                    ),
+                ),
             ),
             patch.object(
                 reader._stop_requested,
@@ -456,7 +525,14 @@ class DeviceInterfaceTests(unittest.TestCase):
         with (
             patch(
                 "combined_test.devices.load_spectrometer_components",
-                return_value=(FakeSpectrometer, lambda _x, _y: None),
+                return_value=(
+                    FakeSpectrometer,
+                    lambda _x, _y: SimpleNamespace(
+                        peak_wavelength_nm=976.0,
+                        centroid_nm=976.0,
+                        fwhm_nm=0.2,
+                    ),
+                ),
             ),
             patch.object(reader._stop_requested, "wait", return_value=False),
         ):

@@ -107,7 +107,6 @@ export interface AppConfiguration {
   rampDownStepA: number
   rampDownIntervalS: number
   pauseRampDownTimeoutS: number
-  useSpectrometer: boolean
 }
 
 export interface StationSummary {
@@ -208,6 +207,7 @@ export interface BackendSnapshot {
   }
   pd?: {
     state: "idle" | "running"
+    detecting?: boolean
     status: string
     devices: string[]
     channels: string[]

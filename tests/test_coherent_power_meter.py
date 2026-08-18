@@ -128,8 +128,10 @@ class CoherentPowerMeterTests(unittest.TestCase):
             yield ResourceManager()
 
         detected: list[object] = []
+        statuses: list[str] = []
         thread = PowerMeterDetectThread()
         thread.detected.connect(detected.extend)
+        thread.status.connect(statuses.append)
         with (
             patch("combined_test.devices.visa_resource_manager", fake_visa_resource_manager),
             patch.object(power_meter_mvp.CaihuangPowerMeter, "probe", return_value=None),
@@ -142,6 +144,8 @@ class CoherentPowerMeterTests(unittest.TestCase):
         self.assertEqual(len(detected), 1)
         self.assertEqual(detected[0].driver_kind, "coherent")
         self.assertIn("PM150-50C", detected[0].detail)
+        self.assertTrue(any(status.startswith("正在检测串口 1/1：ASRL7::INSTR") for status in statuses))
+        self.assertEqual(statuses[-1], "识别完成：发现 1 台兼容功率计")
 
     def test_ophir_detection_recovers_when_saved_serial_is_no_longer_present(self) -> None:
         replacement = power_meter_mvp.ProbeResult(

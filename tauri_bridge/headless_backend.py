@@ -48,6 +48,7 @@ from combined_test.devices import (
     scan_ch341_devices,
 )
 from combined_test.ch341_ports import Ch341DeviceDescriptor, get_location_path_from_interface_path
+from combined_test.concurrency import Signal, WorkerThread
 from combined_test.excel_export import ExcelTestRecord, build_test_workbook_path, save_test_records
 from combined_test.models import (
     PowerMeterOption,
@@ -82,6 +83,25 @@ from .settings import JsonSettings
 
 _LOGGER = get_runtime_logger("headless_backend")
 MIN_SPECTRUM_PEAK_INTENSITY = 500.0
+
+
+class _DeviceDiscoveryThread(WorkerThread):
+    """Run one blocking hardware discovery task without blocking snapshots."""
+
+    completed = Signal(object)
+    status = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, discover: Callable[[Callable[[str], None]], object]) -> None:
+        super().__init__()
+        self._discover = discover
+
+    def run(self) -> None:
+        try:
+            self.completed.emit(self._discover(self.status.emit))
+        except Exception as exc:
+            _LOGGER.exception("设备识别线程失败")
+            self.failed.emit(str(exc))
 
 
 class _AutomaticPointRetry(RuntimeError):
@@ -135,7 +155,6 @@ DEFAULT_CONFIGURATION: dict[str, Any] = {
     "rampDownStepA": 5.0,
     "rampDownIntervalS": 1.1,
     "pauseRampDownTimeoutS": 30.0,
-    "useSpectrometer": True,
 }
 
 
@@ -160,6 +179,7 @@ def _default_pd_state() -> dict[str, Any]:
     return {
         "state": "idle",
         "status": "未启动",
+        "detecting": False,
         "devices": [],
         "channels": [],
         "ranges": [],
@@ -409,6 +429,7 @@ class StationRuntime:
         self.pd_state = _default_pd_state()
         self._pd_devices: list[Any] = []
         self._pd_reader: Any | None = None
+        self._pd_detect_thread: _DeviceDiscoveryThread | None = None
 
     def notify(
         self,
@@ -1139,6 +1160,14 @@ class StationRuntime:
                 driver_kind=str(self.configuration.get("powerMeterDriverKind", "caihuang")),
             )
             reader = PowerMeterReaderThread(settings)
+            if self.automatic.state in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED}:
+                self.stable_power_points.clear()
+                self.efficiency_points.clear()
+                self.pending_manual_stable_current_a = None
+                self.pending_manual_stability_generation = None
+                self.recorded_manual_stable_current_a = None
+                self.recorded_manual_stability_generation = None
+                self.series_revisions["stable"] += 1
             self.power_meter_reader = reader
             self.power_meter_error = ""
             self.latest_power = None
@@ -1651,7 +1680,7 @@ class StationRuntime:
             ramp_down_step_a=float(self.configuration["rampDownStepA"]),
             ramp_down_interval_s=float(self.configuration["rampDownIntervalS"]),
             pause_ramp_down_timeout_s=float(self.configuration["pauseRampDownTimeoutS"]),
-            use_spectrometer=bool(self.configuration["useSpectrometer"]),
+            use_spectrometer=self.spectrometer_reader is not None,
             maximum_current_a=None if self.power_supply_kind == "tdk" else 20.0,
             current_plan_mode=str(self.configuration["currentPlanMode"]),
             custom_current_points=points,
@@ -2497,6 +2526,11 @@ class HeadlessBackend:
         self.ch341_descriptors: list[Ch341DeviceDescriptor] = []
         self.power_meter_options: list[PowerMeterOption] = []
         self.power_meter_detect_thread: PowerMeterDetectThread | None = None
+        self.power_meter_detection_detail: str = ""
+        self.power_supply_detect_thread: _DeviceDiscoveryThread | None = None
+        self.power_supply_detection_detail: str = ""
+        self.spectrometer_detect_thread: _DeviceDiscoveryThread | None = None
+        self.spectrometer_detection_detail: str = ""
         self.spectrometer_resources: list[dict[str, Any]] = []
 
         # Initialize Stations
@@ -2848,16 +2882,68 @@ class HeadlessBackend:
         device = str(params.get("device", "all"))
         target_station = self._station(self._station_id_from_params(params))
         if device in {"all", "powerSupply"}:
-            resources = list_tdk_serial_resources()
-            with self._lock:
-                self.power_supply_resources = resources
-            self.scan_ch341()
+            self._refresh_power_supply(target_station)
 
         if device in {"all", "powerMeter"}:
             self._refresh_power_meter(params)
 
         if device in {"all", "spectrometer"}:
             self._refresh_spectrometer(target_station)
+
+    def _refresh_power_supply(self, station: StationRuntime) -> None:
+        with self._lock:
+            if self.power_supply_detect_thread is not None:
+                return
+            controller_kind = station.power_supply_kind
+            self.power_supply_detection_detail = "正在准备电源识别"
+
+        def discover(report: Callable[[str], None]) -> tuple[str, list[Any]]:
+            if controller_kind == "tdk":
+                report("正在枚举 TDK RS232 串口")
+                return controller_kind, list_tdk_serial_resources()
+            report("正在扫描 CH341 固定端口")
+            return controller_kind, scan_ch341_devices()
+
+        thread = _DeviceDiscoveryThread(discover)
+        with self._lock:
+            self.power_supply_detect_thread = thread
+
+        def on_completed(result: tuple[str, list[Any]]) -> None:
+            kind, devices = result
+            with self._lock:
+                if kind == "tdk":
+                    self.power_supply_resources = [str(resource) for resource in devices]
+                    self.power_supply_detection_detail = f"识别完成：发现 {len(devices)} 个 TDK 串口"
+                else:
+                    self.ch341_descriptors = list(devices)
+                    self.ch341_discovery_state = "ready" if devices else "empty"
+                    self.ch341_scan_error = ""
+                    self.power_supply_detection_detail = f"识别完成：发现 {len(devices)} 个 CH341 固定端口"
+
+        def on_status(message: str) -> None:
+            with self._lock:
+                self.power_supply_detection_detail = str(message)
+            self.set_status(str(message), station_id=station.station_id)
+
+        def on_failed(message: str) -> None:
+            with self._lock:
+                if controller_kind == "ch341":
+                    self.ch341_discovery_state = "error"
+                    self.ch341_scan_error = str(message)
+                    self.ch341_descriptors = []
+                self.power_supply_detection_detail = f"识别失败：{message}"
+            self.notify("error", "CH341 扫描失败" if controller_kind == "ch341" else "TDK 串口识别", message)
+
+        def on_finished() -> None:
+            with self._lock:
+                if self.power_supply_detect_thread is thread:
+                    self.power_supply_detect_thread = None
+
+        thread.completed.connect(on_completed)
+        thread.status.connect(on_status)
+        thread.failed.connect(on_failed)
+        thread.finished.connect(on_finished)
+        thread.start()
 
     def _refresh_power_meter(self, params: dict[str, Any]) -> None:
         with self._lock:
@@ -2871,10 +2957,16 @@ class HeadlessBackend:
         thread = PowerMeterDetectThread(preferred_resource=preferred)
         with self._lock:
             self.power_meter_detect_thread = thread
+            self.power_meter_detection_detail = "正在准备功率计识别"
 
         def on_detected(options: list[PowerMeterOption]) -> None:
             with self._lock:
                 self.power_meter_options = list(options)
+                self.power_meter_detection_detail = (
+                    f"识别完成：发现 {len(options)} 台兼容功率计"
+                    if options
+                    else "识别完成：未找到兼容功率计，请检查 USB/串口连接与驱动"
+                )
             if not options:
                 return
             selected = next((item for item in options if item.resource == preferred), None)
@@ -2894,28 +2986,68 @@ class HeadlessBackend:
             with self._lock:
                 self.power_meter_detect_thread = None
 
+        def on_status(message: str) -> None:
+            with self._lock:
+                self.power_meter_detection_detail = str(message)
+            self.set_status(str(message), station_id=target_station_id)
+
+        def on_failed(message: str) -> None:
+            with self._lock:
+                self.power_meter_detection_detail = f"识别失败：{message}"
+            self.notify("error", "功率计扫描", message)
+
         thread.detected.connect(on_detected)
-        thread.status.connect(
-            lambda msg: self.set_status(msg, station_id=target_station_id)
-        )
-        thread.failed.connect(lambda msg: self.notify("error", "功率计扫描", msg))
+        thread.status.connect(on_status)
+        thread.failed.connect(on_failed)
         thread.finished.connect(on_finished)
         thread.start()
 
     def _refresh_spectrometer(self, station: StationRuntime | None = None) -> None:
-        spectrometer_class, _ = load_spectrometer_components(None)
-        device_ids = [int(value) for value in spectrometer_class.detect()]
-        resources = [
-            {"label": f"Ocean Insight | 设备 ID {device_id}", "deviceId": device_id}
-            for device_id in device_ids
-        ]
         with self._lock:
-            self.spectrometer_resources = resources
-        if station is not None:
-            self.set_status(
-                f"[工位 {station.station_id}] 已发现 {len(device_ids)} 台光谱仪",
-                station_id=station.station_id,
-            )
+            if self.spectrometer_detect_thread is not None:
+                return
+            self.spectrometer_detection_detail = "正在准备光谱仪识别"
+
+        def discover(report: Callable[[str], None]) -> list[int]:
+            report("正在加载 Ocean Insight 驱动")
+            spectrometer_class, _ = load_spectrometer_components(None)
+            report("正在扫描 Ocean Insight USB 设备")
+            return [int(value) for value in spectrometer_class.detect()]
+
+        thread = _DeviceDiscoveryThread(discover)
+        with self._lock:
+            self.spectrometer_detect_thread = thread
+
+        def on_completed(device_ids: list[int]) -> None:
+            resources = [
+                {"label": f"Ocean Insight | 设备 ID {device_id}", "deviceId": device_id}
+                for device_id in device_ids
+            ]
+            with self._lock:
+                self.spectrometer_resources = resources
+                self.spectrometer_detection_detail = f"识别完成：发现 {len(device_ids)} 台光谱仪"
+
+        def on_status(message: str) -> None:
+            with self._lock:
+                self.spectrometer_detection_detail = str(message)
+            if station is not None:
+                self.set_status(str(message), station_id=station.station_id)
+
+        def on_failed(message: str) -> None:
+            with self._lock:
+                self.spectrometer_detection_detail = f"识别失败：{message}"
+            self.notify("error", "光谱仪识别", message)
+
+        def on_finished() -> None:
+            with self._lock:
+                if self.spectrometer_detect_thread is thread:
+                    self.spectrometer_detect_thread = None
+
+        thread.completed.connect(on_completed)
+        thread.status.connect(on_status)
+        thread.failed.connect(on_failed)
+        thread.finished.connect(on_finished)
+        thread.start()
 
     def _set_current(self, params: dict[str, Any]) -> None:
         st = self._station(self._station_id_from_params(params))
@@ -2969,13 +3101,28 @@ class HeadlessBackend:
         return {"pages": report.render_shipping_report_preview(params["sourcePath"], request)}
 
     def _refresh_pd(self, station: StationRuntime) -> None:
-        try:
+        with station._pd_lock:
+            if station._pd_detect_thread is not None:
+                return
+            station.pd_state["detecting"] = True
+            station.pd_state["status"] = "正在准备 NI-DAQ 采集卡识别"
+
+        def discover(report: Callable[[str], None]) -> tuple[str, list[Any], Callable[[Any, str], list[str]]]:
+            report("正在加载 NI-DAQmx 驱动")
             from tools.pd_daq_mvp import channels_for_terminal_mode, discover_ni_daq_devices
 
+            report("正在枚举 NI-DAQ 采集卡")
             driver, devices = discover_ni_daq_devices()
+            return driver, list(devices), channels_for_terminal_mode
+
+        thread = _DeviceDiscoveryThread(discover)
+        with station._pd_lock:
+            station._pd_detect_thread = thread
+
+        def on_completed(result: tuple[str, list[Any], Callable[[Any, str], list[str]]]) -> None:
+            driver, devices, channels_for_terminal_mode = result
             with station._pd_lock:
-                station._pd_devices = list(devices)
-                station.pd_state["status"] = driver
+                station._pd_devices = devices
                 station.pd_state["devices"] = [device.label() for device in devices]
                 if devices:
                     selected = devices[0]
@@ -2988,10 +3135,28 @@ class HeadlessBackend:
                     ]
                     if station.pd_state["channels"] and not station.pd_state["settings"]["channel"]:
                         station.pd_state["settings"]["channel"] = station.pd_state["channels"][0]
-        except Exception as exc:
+                station.pd_state["status"] = f"识别完成：{driver}，发现 {len(devices)} 台采集卡"
+
+        def on_status(message: str) -> None:
             with station._pd_lock:
-                station.pd_state["status"] = str(exc)
-            self.notify("error", "PD 采集", str(exc))
+                station.pd_state["status"] = str(message)
+
+        def on_failed(message: str) -> None:
+            with station._pd_lock:
+                station.pd_state["status"] = f"识别失败：{message}"
+            self.notify("error", "PD 采集", message)
+
+        def on_finished() -> None:
+            with station._pd_lock:
+                if station._pd_detect_thread is thread:
+                    station._pd_detect_thread = None
+                    station.pd_state["detecting"] = False
+
+        thread.completed.connect(on_completed)
+        thread.status.connect(on_status)
+        thread.failed.connect(on_failed)
+        thread.finished.connect(on_finished)
+        thread.start()
 
     def _configure_pd(self, station: StationRuntime, params: dict[str, Any]) -> None:
         with station._pd_lock:
@@ -3006,11 +3171,9 @@ class HeadlessBackend:
                 return
             has_devices = bool(station._pd_devices)
         if not has_devices:
-            self._refresh_pd(station)
+            raise RuntimeError("请先完成 NI-DAQ 采集卡识别")
         with station._pd_lock:
             devices = list(station._pd_devices)
-        if not devices:
-            raise RuntimeError("未检测到 NI-DAQmx 设备")
         from tools.pd_daq_mvp import (
             PdAcquisitionThread,
             PdDaqSettings,
@@ -3162,6 +3325,11 @@ class HeadlessBackend:
                 "ch341_descriptors": list(self.ch341_descriptors),
                 "power_meter_options": list(self.power_meter_options),
                 "power_meter_detecting": self.power_meter_detect_thread is not None,
+                "power_meter_detection_detail": self.power_meter_detection_detail,
+                "power_supply_detecting": self.power_supply_detect_thread is not None,
+                "power_supply_detection_detail": self.power_supply_detection_detail,
+                "spectrometer_detecting": self.spectrometer_detect_thread is not None,
+                "spectrometer_detection_detail": self.spectrometer_detection_detail,
                 "spectrometer_resources": [dict(item) for item in self.spectrometer_resources],
             }
         with active_st._lock:
@@ -3188,6 +3356,11 @@ class HeadlessBackend:
         ch341_descriptors = shared["ch341_descriptors"]
         power_meter_options = shared["power_meter_options"]
         power_meter_detecting = shared["power_meter_detecting"]
+        power_meter_detection_detail = shared["power_meter_detection_detail"]
+        power_supply_detecting = shared["power_supply_detecting"]
+        power_supply_detection_detail = shared["power_supply_detection_detail"]
+        spectrometer_detecting = shared["spectrometer_detecting"]
+        spectrometer_detection_detail = shared["spectrometer_detection_detail"]
         spectrometer_resources = shared["spectrometer_resources"]
 
         with active_st._pd_lock:
@@ -3346,10 +3519,11 @@ class HeadlessBackend:
             "configurations": {sid: dict(st.configuration) for sid, st in self.stations.items()},
             "devices": {
                 "powerSupply": {
-                    "state": _device_state(supply is not None, False, active_st.power_supply_identity_error),
+                    "state": "connecting" if power_supply_detecting else _device_state(supply is not None, False, active_st.power_supply_identity_error),
                     "label": "TDK RS232" if active_st.power_supply_kind == "tdk" else "CH341 I²C",
-                    "detail": power_supply_detail,
+                    "detail": power_supply_detection_detail if power_supply_detecting or (supply is None and power_supply_detection_detail) else power_supply_detail,
                     "connected": supply is not None,
+                    "detecting": power_supply_detecting,
                     "outputEnabled": bool(supply and supply.output_enabled),
                     "activeCurrentA": _finite(active_st.active_current_a),
                     "inputVoltageV": _finite(active_st.latest_power_supply_input_voltage_v),
@@ -3362,7 +3536,7 @@ class HeadlessBackend:
                 "powerMeter": {
                     "state": "connecting" if power_meter_detecting else _device_state(False, active_st.power_meter_reader is not None, active_st.power_meter_error),
                     "label": "功率计",
-                    "detail": active_st.power_meter_error or ("采集中" if active_st.power_meter_reader else "已停止"),
+                    "detail": active_st.power_meter_error or ("采集中" if active_st.power_meter_reader else power_meter_detection_detail or "已停止"),
                     "running": active_st.power_meter_reader is not None,
                     "detecting": power_meter_detecting,
                     "ready": bool(active_st.power_meter_reader and active_st.power_meter_reader.is_ready),
@@ -3371,10 +3545,11 @@ class HeadlessBackend:
                     "resources": [item.label() for item in power_meter_options],
                 },
                 "spectrometer": {
-                    "state": _device_state(False, active_st.spectrometer_reader is not None, active_st.spectrometer_error),
+                    "state": "connecting" if spectrometer_detecting else _device_state(False, active_st.spectrometer_reader is not None, active_st.spectrometer_error),
                     "label": "Ocean Insight",
-                    "detail": active_st.spectrometer_error or ("采集中" if active_st.spectrometer_reader else "已停止"),
+                    "detail": active_st.spectrometer_error or ("采集中" if active_st.spectrometer_reader else spectrometer_detection_detail or "已停止"),
                     "running": active_st.spectrometer_reader is not None,
+                    "detecting": spectrometer_detecting,
                     "ready": bool(active_st.spectrometer_reader and active_st.spectrometer_reader.is_ready),
                     "peakWavelengthNm": None if spectrum_saturated else _finite(getattr(spectrum_stats, "peak_wavelength_nm", None)),
                     "centroidNm": None if spectrum_saturated else _finite(getattr(spectrum_stats, "centroid_nm", None)),
