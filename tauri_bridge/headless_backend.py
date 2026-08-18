@@ -17,7 +17,7 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, Sequence
 
 from combined_test.automation import (
     AutomaticCurrentPoint,
@@ -270,6 +270,31 @@ class ExportQueueWorker:
                         pass
 
 
+def _normalize_power_meter_configuration(
+    configuration: dict[str, Any],
+    options: Sequence[PowerMeterOption] = (),
+) -> bool:
+    before = (
+        configuration.get("powerMeterResource"),
+        configuration.get("powerMeterDriverKind"),
+    )
+    resource = extract_power_resource_name(str(before[0] or ""))
+    configuration["powerMeterResource"] = resource
+    if resource.startswith("OPHIR::USB::"):
+        configuration["powerMeterDriverKind"] = "ophir"
+    else:
+        matched = next((item for item in options if item.resource == resource), None)
+        if matched is not None:
+            configuration["powerMeterDriverKind"] = matched.driver_kind
+        elif str(configuration.get("powerMeterDriverKind", "")).lower() == "ophir":
+            configuration["powerMeterDriverKind"] = "caihuang"
+    after = (
+        configuration.get("powerMeterResource"),
+        configuration.get("powerMeterDriverKind"),
+    )
+    return after != before
+
+
 class StationRuntime:
     """Isolated hardware, automation, and measurement state for one test station."""
 
@@ -299,6 +324,9 @@ class StationRuntime:
                 self.configuration["centerWavelengthSpecNm"] = self.configuration["pibCenterWavelengthNm"]
             if "centerWavelengthToleranceNm" not in initial_config and "pibHalfRangeNm" in initial_config:
                 self.configuration["centerWavelengthToleranceNm"] = self.configuration["pibHalfRangeNm"]
+        self.power_meter_configuration_migrated = _normalize_power_meter_configuration(
+            self.configuration
+        )
 
         self.power_supply_controller: Any | None = None
         self.power_supply_kind = str(self.configuration["powerSupplyKind"])
@@ -805,6 +833,12 @@ class StationRuntime:
             for key in DEFAULT_CONFIGURATION:
                 if key in params:
                     self.configuration[key] = params[key]
+
+            if "powerMeterResource" in params or "powerMeterDriverKind" in params:
+                _normalize_power_meter_configuration(
+                    self.configuration,
+                    self.backend.power_meter_options,
+                )
 
             if self.power_meter_reader is not None:
                 self.power_meter_reader.update_stability_settings(
@@ -2487,6 +2521,11 @@ class HeadlessBackend:
             "1": StationRuntime("1", self, st1_config),
             "2": StationRuntime("2", self, st2_config),
         }
+        if any(
+            station.power_meter_configuration_migrated
+            for station in self.stations.values()
+        ):
+            self._persist_configuration()
 
         self.notices: deque[dict[str, Any]] = deque(maxlen=8)
         self._notice_sequence = 0

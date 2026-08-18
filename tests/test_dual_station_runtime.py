@@ -190,6 +190,41 @@ class DualStationRuntimeTests(unittest.TestCase):
         finally:
             backend.export_worker.stop()
 
+    def test_loaded_ophir_display_label_migrates_resource_and_driver(self) -> None:
+        settings = JsonSettings(Path(self.temp_dir.name) / "ophir-settings.json")
+        settings.set(
+            "runtime/stations",
+            {
+                "1": {
+                    "powerMeterResource": "Ophir USB | OPHIR::USB::3103403 | USB SN 3103403",
+                    "powerMeterDriverKind": "caihuang",
+                }
+            },
+        )
+        backend = HeadlessBackend(settings)
+        try:
+            config = backend.stations["1"].configuration
+            self.assertEqual(config["powerMeterResource"], "OPHIR::USB::3103403")
+            self.assertEqual(config["powerMeterDriverKind"], "ophir")
+            persisted = settings.get("runtime/stations")["1"]
+            self.assertEqual(persisted["powerMeterResource"], "OPHIR::USB::3103403")
+            self.assertEqual(persisted["powerMeterDriverKind"], "ophir")
+        finally:
+            backend.export_worker.stop()
+
+    def test_configuring_ophir_resource_synchronizes_driver_kind(self) -> None:
+        self.backend.dispatch(
+            "app.configure",
+            {
+                "stationId": "1",
+                "powerMeterResource": "Ophir USB | OPHIR::USB::ABC123 | USB SN ABC123",
+            },
+        )
+
+        config = self.backend.stations["1"].configuration
+        self.assertEqual(config["powerMeterResource"], "OPHIR::USB::ABC123")
+        self.assertEqual(config["powerMeterDriverKind"], "ophir")
+
     def test_hardware_commands_target_specific_station(self) -> None:
         ctrl1 = _FakeController()
         ctrl2 = _FakeController()

@@ -237,8 +237,11 @@ def normalize_power_resource_name(name: str) -> str:
 def extract_power_resource_name(value: str) -> str:
     """Return the VISA resource from either a raw resource or a UI display label."""
     normalized = normalize_power_resource_name(value)
-    match = re.search(r"\bASRL\d+::INSTR\b", normalized)
-    return match.group(0) if match is not None else normalized
+    ophir_match = re.search(r"\bOPHIR::USB::[^|\s]+", normalized)
+    if ophir_match is not None:
+        return ophir_match.group(0)
+    serial_match = re.search(r"\bASRL\d+::INSTR\b", normalized)
+    return serial_match.group(0) if serial_match is not None else normalized
 
 
 def open_spectrometer_device(spectrometer: Any, selected_device_id: int | None) -> int:
