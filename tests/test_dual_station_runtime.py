@@ -172,7 +172,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         station_one = self.backend.stations["1"].configuration
         station_two = self.backend.stations["2"].configuration
 
-        self.assertEqual(station_one["powerMeterResource"], "ASRL3::INSTR")
+        self.assertEqual(station_one["powerMeterResource"], "")
         self.assertEqual(station_two["ch341SelectedLocationPath"], "")
         self.assertEqual(station_two["ch341PortBindings"], [])
         self.assertEqual(station_two["tdkResource"], "")
@@ -208,24 +208,45 @@ class DualStationRuntimeTests(unittest.TestCase):
 
         self.assertEqual(station.series_revisions["pd"], 7)
 
-    def test_duplicate_persisted_hardware_resource_is_released_from_secondary_station(self) -> None:
+    def test_persisted_runtime_device_identities_are_discarded_for_both_stations(self) -> None:
         settings_path = Path(self.temp_dir.name) / "duplicate-settings.json"
         settings = JsonSettings(settings_path)
         settings.set(
             "runtime/stations",
             {
-                "1": {"powerMeterResource": "ASRL3::INSTR"},
-                "2": {"powerMeterResource": "ASRL3::INSTR"},
+                "1": {
+                    "powerMeterResource": "ASRL3::INSTR",
+                    "powerMeterDriverKind": "coherent",
+                    "spectrometerResource": "Ocean Insight | 设备 ID 5",
+                    "spectrometerDeviceId": 5,
+                    "integrationTimeUs": 12345,
+                },
+                "2": {
+                    "powerMeterResource": "OPHIR::USB::3103403",
+                    "powerMeterDriverKind": "ophir",
+                    "spectrometerResource": "Ocean Insight | 设备 ID 7",
+                    "spectrometerDeviceId": 7,
+                },
             },
         )
         backend = HeadlessBackend(settings)
         try:
-            self.assertEqual(backend.stations["1"].configuration["powerMeterResource"], "ASRL3::INSTR")
-            self.assertEqual(backend.stations["2"].configuration["powerMeterResource"], "")
+            for station in backend.stations.values():
+                self.assertEqual(station.configuration["powerMeterResource"], "")
+                self.assertEqual(station.configuration["powerMeterDriverKind"], "caihuang")
+                self.assertEqual(station.configuration["spectrometerResource"], "")
+                self.assertIsNone(station.configuration["spectrometerDeviceId"])
+            self.assertEqual(backend.stations["1"].configuration["integrationTimeUs"], 12345)
+
+            persisted = settings.get("runtime/stations")
+            for config in persisted.values():
+                self.assertEqual(config["powerMeterResource"], "")
+                self.assertEqual(config["spectrometerResource"], "")
+                self.assertIsNone(config["spectrometerDeviceId"])
         finally:
             backend.export_worker.stop()
 
-    def test_loaded_ophir_display_label_migrates_resource_and_driver(self) -> None:
+    def test_loaded_power_meter_identity_is_not_restored(self) -> None:
         settings = JsonSettings(Path(self.temp_dir.name) / "ophir-settings.json")
         settings.set(
             "runtime/stations",
@@ -239,11 +260,11 @@ class DualStationRuntimeTests(unittest.TestCase):
         backend = HeadlessBackend(settings)
         try:
             config = backend.stations["1"].configuration
-            self.assertEqual(config["powerMeterResource"], "OPHIR::USB::3103403")
-            self.assertEqual(config["powerMeterDriverKind"], "ophir")
+            self.assertEqual(config["powerMeterResource"], "")
+            self.assertEqual(config["powerMeterDriverKind"], "caihuang")
             persisted = settings.get("runtime/stations")["1"]
-            self.assertEqual(persisted["powerMeterResource"], "OPHIR::USB::3103403")
-            self.assertEqual(persisted["powerMeterDriverKind"], "ophir")
+            self.assertEqual(persisted["powerMeterResource"], "")
+            self.assertEqual(persisted["powerMeterDriverKind"], "caihuang")
         finally:
             backend.export_worker.stop()
 
@@ -543,7 +564,34 @@ class DualStationRuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "正在被工位 1 使用"):
             self.backend.check_device_conflicts("2", "ch341", "PCIROOT(0)#USB(1)")
 
-    def test_spectrometer_rebinding_updates_and_persists_station_resource(self) -> None:
+    def test_station_snapshot_excludes_ch341_port_connected_by_other_station(self) -> None:
+        occupied_location = "PCIROOT(0)#USB(1)"
+        available_location = "PCIROOT(0)#USB(2)"
+        station_one = self.backend.stations["1"]
+        station_one.power_supply_kind = "ch341"
+        station_one.power_supply_controller = _FakeController()
+        station_one.configuration["ch341SelectedLocationPath"] = occupied_location
+        self.backend.ch341_discovery_state = "ready"
+        self.backend.ch341_descriptors = [
+            Ch341DeviceDescriptor(0, "iface-0", occupied_location),
+            Ch341DeviceDescriptor(1, "iface-1", available_location),
+        ]
+
+        station_two_snapshot = self.backend.snapshot({"stationId": "2"})
+        station_two_ports = station_two_snapshot["devices"]["powerSupply"]["ch341"]["ports"]
+        self.assertEqual(
+            [(port["locationPath"], port["deviceIndex"]) for port in station_two_ports],
+            [(available_location, 1)],
+        )
+
+        station_one_snapshot = self.backend.snapshot({"stationId": "1"})
+        station_one_paths = {
+            port["locationPath"]
+            for port in station_one_snapshot["devices"]["powerSupply"]["ch341"]["ports"]
+        }
+        self.assertIn(occupied_location, station_one_paths)
+
+    def test_spectrometer_open_updates_runtime_but_not_persisted_identity(self) -> None:
         station = self.backend.stations["1"]
         station.configuration["spectrometerDeviceId"] = 5
         station.configuration["spectrometerResource"] = "Ocean Insight | 设备 ID 5"
@@ -562,11 +610,13 @@ class DualStationRuntimeTests(unittest.TestCase):
             self.backend.spectrometer_resources,
             [{"label": "Ocean Insight | 设备 ID 7", "deviceId": 7}],
         )
+        self.backend._persist_configuration()
         persisted = self.backend.settings.get("runtime/stations")
-        self.assertEqual(persisted["1"]["spectrometerDeviceId"], 7)
+        self.assertEqual(persisted["1"]["spectrometerResource"], "")
+        self.assertIsNone(persisted["1"]["spectrometerDeviceId"])
         self.assertIn("原设备 ID 5 已失效", self.backend.notices[-1]["message"])
 
-    def test_power_meter_detection_persists_resource_and_driver_together(self) -> None:
+    def test_power_meter_detection_lists_devices_without_selecting_or_persisting(self) -> None:
         option = PowerMeterOption(
             resource="OPHIR::USB::3103403",
             device_type="Ophir USB",
@@ -601,16 +651,113 @@ class DualStationRuntimeTests(unittest.TestCase):
             scanning_snapshot["devices"]["powerMeter"]["detail"],
             "正在检测串口 1/1：ASRL7::INSTR（依次尝试 彩煌、Coherent、LaserPoint）",
         )
+        other_station_snapshot = self.backend.snapshot({"stationId": "2"})
+        self.assertFalse(other_station_snapshot["devices"]["powerMeter"]["detecting"])
+        self.assertEqual(other_station_snapshot["devices"]["powerMeter"]["detail"], "已停止")
         instances[0].detected.emit([option])
         instances[0].finished.emit()
 
+        runtime = self.backend.stations["1"].configuration
+        self.assertEqual(runtime["powerMeterResource"], "")
+        self.assertEqual(runtime["powerMeterDriverKind"], "caihuang")
         persisted = self.backend.settings.get("runtime/stations")["1"]
-        self.assertEqual(persisted["powerMeterResource"], "OPHIR::USB::3103403")
-        self.assertEqual(persisted["powerMeterDriverKind"], "ophir")
+        self.assertEqual(persisted["powerMeterResource"], "")
+        self.assertEqual(persisted["powerMeterDriverKind"], "caihuang")
+        self.assertEqual(
+            self.backend.snapshot({"stationId": "1"})["devices"]["powerMeter"]["resources"],
+            [option.label()],
+        )
         self.assertEqual(
             self.backend.snapshot({"stationId": "1"})["devices"]["powerMeter"]["detail"],
             "识别完成：发现 1 台兼容功率计",
         )
+
+    def test_open_devices_are_removed_from_other_station_options(self) -> None:
+        occupied_meter = PowerMeterOption(
+            resource="ASRL3::INSTR",
+            device_type="彩煌串口",
+            detail="COM3",
+            driver_kind="caihuang",
+        )
+        available_meter = PowerMeterOption(
+            resource="OPHIR::USB::3103403",
+            device_type="Ophir USB",
+            detail="USB SN 3103403",
+            driver_kind="ophir",
+        )
+        self.backend.power_meter_options = [occupied_meter, available_meter]
+        self.backend.spectrometer_resources = [
+            {"label": "Ocean Insight | 设备 ID 5", "deviceId": 5},
+            {"label": "Ocean Insight | 设备 ID 7", "deviceId": 7},
+        ]
+        station_one = self.backend.stations["1"]
+        station_one.configuration["powerMeterResource"] = occupied_meter.resource
+        station_one.configuration["spectrometerResource"] = "Ocean Insight | 设备 ID 5"
+        station_one.configuration["spectrometerDeviceId"] = 5
+        station_one.power_meter_reader = MagicMock(is_ready=True)
+        station_one.spectrometer_reader = MagicMock(is_ready=True)
+
+        station_two_devices = self.backend.snapshot({"stationId": "2"})["devices"]
+        self.assertEqual(
+            station_two_devices["powerMeter"]["resources"],
+            [available_meter.label()],
+        )
+        self.assertEqual(
+            station_two_devices["spectrometer"]["resources"],
+            ["Ocean Insight | 设备 ID 7"],
+        )
+
+        station_one_devices = self.backend.snapshot({"stationId": "1"})["devices"]
+        self.assertEqual(
+            station_one_devices["powerMeter"]["resources"],
+            [occupied_meter.label(), available_meter.label()],
+        )
+        self.assertEqual(
+            station_one_devices["spectrometer"]["resources"],
+            ["Ocean Insight | 设备 ID 5", "Ocean Insight | 设备 ID 7"],
+        )
+
+    def test_spectrometer_requires_an_explicit_runtime_selection(self) -> None:
+        with self.assertRaisesRegex(ValueError, "请先选择光谱仪设备"):
+            self.backend.stations["1"].start_spectrometer()
+
+    def test_ch341_detection_completion_is_published_as_station_toast(self) -> None:
+        instances = []
+
+        class FakeDiscoveryThread:
+            completed = Signal(object)
+            status = Signal(str)
+            failed = Signal(str)
+            finished = Signal()
+
+            def __init__(self, discover) -> None:
+                self.discover = discover
+                instances.append(self)
+
+            def start(self) -> None:
+                return
+
+        with patch("tauri_bridge.headless_backend._DeviceDiscoveryThread", FakeDiscoveryThread):
+            self.backend.dispatch(
+                "device.refresh",
+                {"stationId": "2", "device": "powerSupply"},
+            )
+
+        instances[0].completed.emit(("ch341", []))
+        instances[0].finished.emit()
+
+        notice = self.backend.notices[-1]
+        self.assertEqual(notice["level"], "info")
+        self.assertEqual(notice["title"], "CH341 识别")
+        self.assertEqual(notice["message"], "识别完成：发现 0 个 CH341 设备")
+        self.assertEqual(notice["stationId"], "2")
+
+        station_two = self.backend.stations["2"]
+        station_two.power_supply_kind = "tdk"
+        station_two.configuration["powerSupplyKind"] = "tdk"
+        tdk_snapshot = self.backend.snapshot({"stationId": "2"})["devices"]["powerSupply"]
+        self.assertFalse(tdk_snapshot["detecting"])
+        self.assertEqual(tdk_snapshot["detail"], "未连接")
 
     def test_ch341_connection_opens_selected_index_at_20_khz(self) -> None:
         location = "PCIROOT(0)#USB(2)"
@@ -619,7 +766,6 @@ class DualStationRuntimeTests(unittest.TestCase):
             {
                 "powerSupplyKind": "ch341",
                 "ch341SelectedLocationPath": location,
-                "ch341PortBindings": [{"locationPath": location, "name": "2号工位"}],
             }
         )
         station.power_supply_kind = "ch341"
@@ -646,7 +792,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         controller.set_i2c_speed.assert_called_once_with(0)
         controller.connect_device.assert_called_once_with(1)
         self.assertIs(station.power_supply_controller, controller)
-        self.assertEqual(station.connected_ch341_port["name"], "2号工位")
+        self.assertEqual(station.connected_ch341_port["name"], "Device 1")
 
     def test_ch341_failed_open_is_not_reported_as_connected(self) -> None:
         location = "PCIROOT(0)#USB(1)"

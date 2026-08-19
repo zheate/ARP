@@ -233,12 +233,8 @@ class MultiCH341Test(unittest.TestCase):
         loc1 = "PCIROOT(0)#USB(1)"
         loc2 = "PCIROOT(0)#USB(2)"
 
-        # Configure bindings
+        # Selection is runtime-only; the physical path resolves the live DLL index.
         backend._configure({
-            "ch341PortBindings": [
-                {"locationPath": loc1, "name": "1号工位"},
-                {"locationPath": loc2, "name": "2号工位"},
-            ],
             "ch341SelectedLocationPath": loc1,
             "powerSupplyKind": "ch341",
         })
@@ -255,7 +251,7 @@ class MultiCH341Test(unittest.TestCase):
             ports = snap["devices"]["powerSupply"]["ch341"]["ports"]
             self.assertEqual(len(ports), 2)
             p1 = next(p for p in ports if p["locationPath"] == loc1)
-            self.assertEqual(p1["name"], "1号工位")
+            self.assertIsNone(p1["name"])
             self.assertEqual(p1["deviceIndex"], 0)
             self.assertTrue(p1["online"])
 
@@ -265,7 +261,7 @@ class MultiCH341Test(unittest.TestCase):
             Ch341DeviceDescriptor(device_index=1, interface_path="iface0", location_path=loc1),
         ]
 
-        # Mock controller creation to verify device_index 1 is opened for 1号工位
+        # Mock controller creation to verify the selected physical path now opens Device 1.
         mock_ctrl = MagicMock()
         mock_ctrl.is_connected = False
         mock_ctrl.connect_device.return_value = (True, "CH341 Device 1 Connected")
@@ -277,7 +273,6 @@ class MultiCH341Test(unittest.TestCase):
                     backend._connect_power_supply()
                     mock_factory.assert_called_once_with(device_index=1)
                     mock_ctrl.connect_device.assert_called_once_with(1)
-                    self.assertIn("1号工位", backend.status_message)
                     self.assertIn("Device 1", backend.status_message)
 
     def test_offline_port_does_not_call_connect(self):
@@ -325,16 +320,45 @@ class MultiCH341Test(unittest.TestCase):
             self.assertIn("驱动缺失", backend.ch341_scan_error)
             self.assertTrue(any(n["title"] == "CH341 扫描失败" for n in backend.notices))
 
-    def test_unnamed_port_cannot_connect(self):
+    def test_snapshot_does_not_include_historical_offline_bindings(self):
+        backend = HeadlessBackend()
+        backend.configuration["ch341PortBindings"] = [
+            {"locationPath": "OLD_OFFLINE_LOC", "name": "旧名称"},
+        ]
+        backend.ch341_discovery_state = "ready"
+        backend.ch341_descriptors = [
+            Ch341DeviceDescriptor(0, "iface-current", "CURRENT_LOC"),
+        ]
+
+        ports = backend.snapshot()["devices"]["powerSupply"]["ch341"]["ports"]
+        self.assertEqual(
+            ports,
+            [{"locationPath": "CURRENT_LOC", "name": None, "online": True, "deviceIndex": 0}],
+        )
+
+    def test_selected_port_connects_without_name_binding(self):
         backend = HeadlessBackend()
         backend._configure({
             "ch341PortBindings": [],  # No bindings!
             "ch341SelectedLocationPath": "LOC_UNNAMED",
             "powerSupplyKind": "ch341",
         })
-        with self.assertRaises(RuntimeError) as ctx:
-            backend._connect_power_supply()
-        self.assertIn("未命名的端口不能连接", str(ctx.exception))
+        descriptor = Ch341DeviceDescriptor(
+            device_index=0,
+            interface_path="iface0",
+            location_path="LOC_UNNAMED",
+        )
+        controller = MagicMock()
+        controller.connect_device.return_value = (True, "connected")
+        controller.get_device_interface_path.return_value = "iface0"
+
+        with patch("tauri_bridge.headless_backend.scan_ch341_devices", return_value=[descriptor]):
+            with patch("tauri_bridge.headless_backend.create_ch341_controller", return_value=controller):
+                with patch("tauri_bridge.headless_backend.get_location_path_from_interface_path", return_value="LOC_UNNAMED"):
+                    backend._connect_power_supply()
+
+        self.assertEqual(backend.connected_ch341_port["name"], "Device 0")
+        self.assertEqual(backend.configuration["ch341PortBindings"], [])
 
     def test_duplicate_name_or_duplicate_path_rejected(self):
         backend = HeadlessBackend()
@@ -433,7 +457,7 @@ class MultiCH341Test(unittest.TestCase):
         self.assertIsNone(backend.power_supply_controller)
         self.assertEqual(backend.power_supply_identity_error, "")
 
-    def test_connected_snapshot_displays_bound_station(self):
+    def test_connected_snapshot_displays_live_device_index(self):
         backend = HeadlessBackend()
         controller = MagicMock()
         controller.is_connected = True
@@ -441,12 +465,45 @@ class MultiCH341Test(unittest.TestCase):
         backend.power_supply_kind = "ch341"
         backend.connected_ch341_port = {
             "locationPath": "LOC1",
-            "name": "1号工位",
+            "name": "Device 2",
             "deviceIndex": 2,
         }
 
         detail = backend.snapshot()["devices"]["powerSupply"]["detail"]
-        self.assertEqual(detail, "1号工位 · 已连接 · Device 2")
+        self.assertEqual(detail, "Device 2 · 已连接")
+
+    def test_ch341_selection_and_bindings_are_not_persisted(self):
+        with TemporaryDirectory() as directory:
+            settings = JsonSettings(Path(directory) / "settings.json")
+            settings.set(
+                "runtime/stations",
+                {
+                    "1": {
+                        "ch341SelectedLocationPath": "LOC1",
+                        "ch341PortBindings": [{"locationPath": "LOC1", "name": "旧名称"}],
+                    },
+                    "2": {
+                        "ch341SelectedLocationPath": "LOC2",
+                        "ch341PortBindings": [{"locationPath": "LOC2", "name": "旧名称2"}],
+                    },
+                },
+            )
+
+            backend = HeadlessBackend(settings)
+            try:
+                for station in backend.stations.values():
+                    self.assertEqual(station.configuration["ch341SelectedLocationPath"], "")
+                    self.assertEqual(station.configuration["ch341PortBindings"], [])
+
+                backend.stations["1"].configuration["ch341SelectedLocationPath"] = "CURRENT_LOC"
+                backend._persist_configuration()
+                persisted = settings.get("runtime/stations")
+                self.assertEqual(persisted["1"]["ch341SelectedLocationPath"], "")
+                self.assertEqual(persisted["1"]["ch341PortBindings"], [])
+                self.assertEqual(persisted["2"]["ch341SelectedLocationPath"], "")
+                self.assertEqual(persisted["2"]["ch341PortBindings"], [])
+            finally:
+                backend.export_worker.stop()
 
     def test_legacy_device_index_is_not_loaded_or_persisted(self):
         with TemporaryDirectory() as directory:

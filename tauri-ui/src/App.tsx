@@ -24,8 +24,6 @@ import {
   Save,
   Settings,
   Square,
-  Tag,
-  Trash2,
   X,
 } from "lucide-react"
 import { open as openDialog } from "@tauri-apps/plugin-dialog"
@@ -42,7 +40,7 @@ import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { useBackendSnapshot } from "@/hooks/use-backend-snapshot"
-import { sendBackendRequest, type AppConfiguration, type BackendSnapshot, type Ch341PortBinding, type DeviceSnapshot, type ShippingReportBatchGenerationResult, type ShippingReportBatchInspection, type ShippingReportBatchItem, type ShippingReportFieldDefinition, type ShippingReportGenerationResult, type ShippingReportPointSuggestion, type ShippingReportPreviewResult, type ShippingReportType, type ShippingWorkbookInspection, type SnapshotView, type SpectrumAxisMode, type TestHistoryCandidate } from "@/lib/backend"
+import { sendBackendRequest, type AppConfiguration, type BackendSnapshot, type DeviceSnapshot, type ShippingReportBatchGenerationResult, type ShippingReportBatchInspection, type ShippingReportBatchItem, type ShippingReportFieldDefinition, type ShippingReportGenerationResult, type ShippingReportPointSuggestion, type ShippingReportPreviewResult, type ShippingReportType, type ShippingWorkbookInspection, type SnapshotView, type SpectrumAxisMode, type TestHistoryCandidate } from "@/lib/backend"
 import { powerMeterResourceValue } from "@/lib/power-meter-resource"
 
 type Page = "automatic" | "manual" | "pd" | "shipping"
@@ -208,7 +206,7 @@ function formatNumber(value: number | null | undefined, suffix = "", digits = 3)
   return `${formatTrimmedNumber(value, digits)}${suffix}`
 }
 
-const defaultSpectrometerResourceLabel = "自动选择首台可用设备"
+const defaultSpectrometerResourceLabel = "请选择光谱仪"
 
 function powerMeterResourceLabel(resourceValue: string, resources: string[] = []): string {
   if (!resourceValue) return "请选择串口资源"
@@ -399,81 +397,30 @@ function Ch341PortSelector({
   const ports = ch341?.ports ?? []
 
   const selectedLoc = config.ch341SelectedLocationPath || ""
-  const currentBinding = (config.ch341PortBindings || []).find((b) => b.locationPath === selectedLoc)
   const currentPort = ports.find((p) => p.locationPath === selectedLoc)
-
-  const [nameInput, setNameInput] = useState("")
-  const trimmedName = nameInput.trim()
-  const duplicateNameBinding = (config.ch341PortBindings || []).find(
-    (binding) => binding.locationPath !== selectedLoc && binding.name === trimmedName,
-  )
-
-  useEffect(() => {
-    setNameInput(currentBinding?.name || "")
-  }, [currentBinding?.name, selectedLoc])
 
   const handleSelectPort = (loc: string) => {
     update("ch341SelectedLocationPath", loc)
-    const existing = (config.ch341PortBindings || []).find((b) => b.locationPath === loc)
-    setNameInput(existing?.name || "")
-  }
-
-  const syncBinding = (loc: string, name: string) => {
-    const trimmed = name.trim()
-    if (!loc) return
-    const isDup = (config.ch341PortBindings || []).some(
-      (binding) => binding.locationPath !== loc && binding.name === trimmed,
-    )
-    if (isDup) return
-    const otherBindings = (config.ch341PortBindings || []).filter(
-      (binding) => binding.locationPath !== loc,
-    )
-    const nextBindings: Ch341PortBinding[] = trimmed
-      ? [...otherBindings, { locationPath: loc, name: trimmed }]
-      : otherBindings
-    update("ch341PortBindings", nextBindings)
-  }
-
-  const handleNameChange = (val: string) => {
-    setNameInput(val)
-    syncBinding(selectedLoc, val)
-  }
-
-  const handleRemoveBinding = () => {
-    if (!selectedLoc) return
-    const nextBindings = (config.ch341PortBindings || []).filter((b) => b.locationPath !== selectedLoc)
-    update("ch341PortBindings", nextBindings)
-    setNameInput("")
   }
 
   return (
     <div className="flex flex-col gap-2">
-      <Field label="CH341 工位端口" layout={layout}>
+      <Field label="CH341 设备" layout={layout}>
         <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
           <NativeSelect
             disabled={!active || pending || detecting || isConnected}
-            value={selectedLoc}
+            value={currentPort ? selectedLoc : ""}
             onChange={handleSelectPort}
           >
-            {discoveryState === "not_scanned" && <option value="">请先点击识别固定端口</option>}
+            {discoveryState === "not_scanned" && <option value="">请先点击识别 CH341</option>}
             {discoveryState === "empty" && <option value="">未检测到 CH341 设备</option>}
             {discoveryState === "error" && <option value="">扫描失败：{ch341?.error || "驱动异常"}</option>}
             {discoveryState === "ready" && ports.length === 0 && <option value="">无可用端口</option>}
-            {discoveryState === "ready" && !selectedLoc && <option value="">请选择工位端口</option>}
+            {discoveryState === "ready" && !currentPort && <option value="">请选择 CH341 设备</option>}
             {ports.map((port) => {
-              let label = ""
-              if (port.name && port.online) {
-                label = `${port.name} · 在线 (Device ${port.deviceIndex})`
-              } else if (port.name && !port.online) {
-                label = `${port.name} · 未检测到`
-              } else if (!port.name && port.online) {
-                label = `未命名端口 · Device ${port.deviceIndex}`
-              } else {
-                label = `未命名端口 (已离线)`
-              }
               return (
                 <option key={port.locationPath} value={port.locationPath}>
-                  {label}
+                  Device {port.deviceIndex} · 可用
                 </option>
               )
             })}
@@ -489,50 +436,6 @@ function Ch341PortSelector({
           </Button>
         </div>
       </Field>
-      <DetectionStatus detail={psu?.detail} detecting={detecting} />
-
-      {selectedLoc ? (
-        <div className="flex items-center gap-2 rounded border border-border/50 bg-muted/20 px-2.5 py-1.5 text-xs">
-          <Tag className="size-3.5 shrink-0 text-muted-foreground" />
-          <Input
-            className="h-7 text-xs flex-1"
-            placeholder="填写工位名称 (自动保存，如: 1号工位)"
-            value={nameInput}
-            onChange={(e) => handleNameChange(e.target.value)}
-            disabled={!active || pending || detecting || isConnected}
-          />
-          {currentBinding && (
-            <Button
-              size="sm"
-              className="h-7 text-xs px-2 text-destructive hover:text-destructive"
-              variant="ghost"
-              disabled={!active || pending || detecting || isConnected}
-              onClick={handleRemoveBinding}
-              title="清除端口名称绑定"
-            >
-              <Trash2 className="size-3.5" />
-            </Button>
-          )}
-        </div>
-      ) : null}
-
-      {duplicateNameBinding && (
-        <p className="text-[11px] text-destructive">
-          * 工位名称“{trimmedName}”已绑定到其他固定端口，请使用不同名称。
-        </p>
-      )}
-
-      {selectedLoc && !currentBinding?.name && (
-        <p className="text-[11px] text-amber-600 dark:text-amber-400">
-          * 当前端口尚未命名，输入名称后可直接连接或保存。
-        </p>
-      )}
-
-      {selectedLoc && currentBinding?.name && !currentPort?.online && (
-        <p className="text-[11px] text-destructive">
-          * 工位 “{currentBinding.name}” 当前处于离线状态，无法连接。请检查 USB 接线。
-        </p>
-      )}
     </div>
   )
 }
@@ -750,17 +653,15 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
           </div> : <div className="power-settings-action-grid">
             {(() => {
               const selectedLoc = config.ch341SelectedLocationPath
-              const binding = (config.ch341PortBindings || []).find((b) => b.locationPath === selectedLoc)
               const port = snapshot?.devices?.powerSupply?.ch341?.ports?.find((p) => p.locationPath === selectedLoc)
               const isCh341ReadyToConnect = Boolean(
-                binding?.name &&
                 port?.online &&
                 snapshot?.devices?.powerSupply?.ch341?.discoveryState === "ready"
               )
               const btnText = psu?.connected
                 ? "安全断开"
-                : binding?.name
-                ? `连接 ${binding.name}`
+                : port?.online
+                ? `连接 Device ${port.deviceIndex}`
                 : "连接电源"
               return (
                 <Button
@@ -814,27 +715,24 @@ function PowerMeterSettingsForm({ snapshot, config, update, active, pending, run
   const meter = snapshot?.devices.powerMeter
   const resources = meter?.resources ?? []
   const selectedResource = config.powerMeterResource.trim()
+  const selectedResourceAvailable = resources.some((item) => powerMeterResourceValue(item) === selectedResource)
+  const displayedResource = selectedResourceAvailable ? selectedResource : ""
   return (
     <div className="device-settings-form">
       <Field label="串口资源">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-          <NativeSelect disabled={!active || pending || meter?.detecting} value={selectedResource} onChange={(v) => update("powerMeterResource", v)}>
+          <NativeSelect disabled={!active || pending || meter?.detecting || meter?.running} value={displayedResource} onChange={(v) => update("powerMeterResource", v)}>
             <option value="">请选择串口资源</option>
-            {selectedResource && !resources.some((item) => powerMeterResourceValue(item) === selectedResource) && (
-              <option value={selectedResource}>
-                {powerMeterResourceLabel(selectedResource, resources)}
-              </option>
-            )}
             {resources.map((item) => <option key={item} value={powerMeterResourceValue(item)}>{item}</option>)}
           </NativeSelect>
-          <Button className={`btn-refresh-spin ${meter?.detecting ? "cursor-wait" : ""}`} disabled={!active || pending || meter?.detecting} onClick={() => void run("device.refresh", { device: "powerMeter" }, true)} variant="outline"><RefreshCw className={`size-4 ${meter?.detecting ? "animate-spin" : ""}`} />{meter?.detecting ? "识别中" : "识别"}</Button>
+          <Button className={`btn-refresh-spin ${meter?.detecting ? "cursor-wait" : ""}`} disabled={!active || pending || meter?.detecting || meter?.running} onClick={() => void run("device.refresh", { device: "powerMeter" }, true)} variant="outline"><RefreshCw className={`size-4 ${meter?.detecting ? "animate-spin" : ""}`} />{meter?.detecting ? "识别中" : "识别"}</Button>
         </div>
       </Field>
       <DetectionStatus detail={meter?.detail} detecting={meter?.detecting} />
       <NumberField label="校准波长 (nm)" value={config.powerMeterWavelengthNm} onChange={(v) => update("powerMeterWavelengthNm", v)} step="0.1" />
       <NumberField label="软件增益" value={config.softwareGain} onChange={(v) => update("softwareGain", v)} step="0.01" />
-      <div className="device-settings-action-grid"><Button disabled={!active || pending || meter?.detecting || meter?.running} onClick={() => void run("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button disabled={!active || pending || meter?.detecting || meter?.running} onClick={() => void run("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></div>
-      <Button className={`w-full transition-all ${meter?.running ? "btn-running-pulse" : ""}`} disabled={!active || pending || meter?.detecting} onClick={() => void run(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
+      <div className="device-settings-action-grid"><Button disabled={!active || pending || meter?.detecting || meter?.running || !selectedResourceAvailable} onClick={() => void run("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button disabled={!active || pending || meter?.detecting || meter?.running || !selectedResourceAvailable} onClick={() => void run("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></div>
+      <Button className={`w-full transition-all ${meter?.running ? "btn-running-pulse" : ""}`} disabled={!active || pending || meter?.detecting || (!meter?.running && !selectedResourceAvailable)} onClick={() => void run(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
       <p className="text-xs text-muted-foreground">实时功率 {formatNumber(meter?.powerW, " W")} · {meter?.stable ? "已稳定" : "稳定中"}</p>
     </div>
   )
@@ -857,15 +755,18 @@ function SpectrometerSettingsForm({ snapshot, config, update, active, pending, r
   snapshot: BackendSnapshot | null; config: AppConfiguration; update: UpdateConfig; active: boolean; pending: boolean; run: RunCommand
 }) {
   const spectrum = snapshot?.devices.spectrometer
+  const resources = spectrum?.resources ?? []
+  const selectedResourceAvailable = resources.includes(config.spectrometerResource)
+  const displayedResource = selectedResourceAvailable ? config.spectrometerResource : ""
   return (
     <div className="device-settings-form">
       <Field label="设备资源">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-          <NativeSelect disabled={!active || pending || spectrum?.detecting} value={config.spectrometerResource} onChange={(v) => update("spectrometerResource", v)}>
+          <NativeSelect disabled={!active || pending || spectrum?.detecting || spectrum?.running} value={displayedResource} onChange={(v) => update("spectrometerResource", v)}>
             <option value="">{defaultSpectrometerResourceLabel}</option>
-            {spectrum?.resources?.filter((item) => item !== defaultSpectrometerResourceLabel).map((item) => <option key={item} value={item}>{item}</option>)}
+            {resources.map((item) => <option key={item} value={item}>{item}</option>)}
           </NativeSelect>
-          <Button className={`btn-refresh-spin ${spectrum?.detecting ? "cursor-wait" : ""}`} disabled={!active || pending || spectrum?.detecting} onClick={() => void run("device.refresh", { device: "spectrometer" }, true)} variant="outline"><RefreshCw className={`size-4 ${spectrum?.detecting ? "animate-spin" : ""}`} />{spectrum?.detecting ? "识别中" : "识别"}</Button>
+          <Button className={`btn-refresh-spin ${spectrum?.detecting ? "cursor-wait" : ""}`} disabled={!active || pending || spectrum?.detecting || spectrum?.running} onClick={() => void run("device.refresh", { device: "spectrometer" }, true)} variant="outline"><RefreshCw className={`size-4 ${spectrum?.detecting ? "animate-spin" : ""}`} />{spectrum?.detecting ? "识别中" : "识别"}</Button>
         </div>
       </Field>
       <DetectionStatus detail={spectrum?.detail} detecting={spectrum?.detecting} />
@@ -877,7 +778,7 @@ function SpectrometerSettingsForm({ snapshot, config, update, active, pending, r
         <NumberField label="PIB 中心波长 (nm)" step="0.1" value={config.pibCenterWavelengthNm} onChange={(v) => update("pibCenterWavelengthNm", v)} />
         <NumberField label="PIB 半带宽 (nm)" step="0.1" value={config.pibHalfRangeNm} onChange={(v) => update("pibHalfRangeNm", v)} />
       </div>
-      <Button className={`w-full transition-all ${spectrum?.running ? "btn-running-pulse" : ""}`} disabled={!active || pending || spectrum?.detecting} onClick={() => void run(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
+      <Button className={`w-full transition-all ${spectrum?.running ? "btn-running-pulse" : ""}`} disabled={!active || pending || spectrum?.detecting || (!spectrum?.running && !selectedResourceAvailable)} onClick={() => void run(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
       <p className="text-xs text-muted-foreground">中心 {formatNumber(spectrum?.peakWavelengthNm, " nm")} · FWHM {formatNumber(spectrum?.fwhmNm, " nm")}</p>
     </div>
   )
@@ -3636,6 +3537,11 @@ const ManualPage = memo(function ManualPage({
   const selectedPowerSupplyResource = config.tdkResource.trim()
   const powerMeterResources = meter?.resources ?? []
   const selectedPowerMeterResource = config.powerMeterResource.trim()
+  const selectedPowerMeterResourceAvailable = powerMeterResources.some((item) => powerMeterResourceValue(item) === selectedPowerMeterResource)
+  const displayedPowerMeterResource = selectedPowerMeterResourceAvailable ? selectedPowerMeterResource : ""
+  const spectrometerResources = spectrum?.resources ?? []
+  const selectedSpectrometerResourceAvailable = spectrometerResources.includes(config.spectrometerResource)
+  const displayedSpectrometerResource = selectedSpectrometerResourceAvailable ? config.spectrometerResource : ""
   const otherStationId = stationId === "1" ? "2" : "1"
   const otherConfig = snapshot?.configurations?.[otherStationId]
   const commandLockRef = useRef(false)
@@ -3665,22 +3571,10 @@ const ManualPage = memo(function ManualPage({
           ) {
             conflicts.push(`CH341 端口 (${config.ch341SelectedLocationPath})`)
           }
-          if (
-            config.powerMeterResource &&
-            config.powerMeterResource === otherConfig.powerMeterResource
-          ) {
-            conflicts.push(`功率计资源 (${config.powerMeterResource})`)
-          }
-          if (
-            config.spectrometerResource &&
-            config.spectrometerResource === otherConfig.spectrometerResource
-          ) {
-            conflicts.push(`光谱仪资源 (${config.spectrometerResource})`)
-          }
           if (conflicts.length === 0) return null
           return (
             <div className="rounded-lg border border-[color-mix(in_srgb,var(--app-warning)_40%,transparent)] bg-[var(--app-warning-soft)] px-4 py-2.5 text-xs text-[var(--app-warning)]">
-              ⚠️ 硬件端口冲突提醒：工位 1 与工位 2 当前绑定了相同的 {conflicts.join("、")}，请为两个工位分配不同的硬件接口。
+              ⚠️ 硬件端口冲突提醒：工位 1 与工位 2 当前选择了相同的 {conflicts.join("、")}，请为两个工位选择不同的硬件接口。
             </div>
           )
         })()
@@ -3739,17 +3633,15 @@ const ManualPage = memo(function ManualPage({
             <div className="grid grid-cols-2 gap-2">
               {(() => {
                 const selectedLoc = config.ch341SelectedLocationPath
-                const binding = (config.ch341PortBindings || []).find((b) => b.locationPath === selectedLoc)
                 const port = snapshot?.devices?.powerSupply?.ch341?.ports?.find((p) => p.locationPath === selectedLoc)
                 const isCh341ReadyToConnect = Boolean(
-                  binding?.name &&
                   port?.online &&
                   snapshot?.devices?.powerSupply?.ch341?.discoveryState === "ready"
                 )
                 const btnText = psu?.connected
                   ? "安全断开"
-                  : binding?.name
-                  ? `连接 ${binding.name}`
+                  : port?.online
+                  ? `连接 Device ${port.deviceIndex}`
                   : "连接电源"
                 return (
                   <Button
@@ -3786,16 +3678,11 @@ const ManualPage = memo(function ManualPage({
           <ManualSectionHeading>资源设置</ManualSectionHeading>
           <Field label="串口资源">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-              <NativeSelect disabled={!active || meter?.detecting} value={selectedPowerMeterResource} onChange={(v) => update("powerMeterResource", v)}>
+              <NativeSelect disabled={!active || meter?.detecting || meter?.running} value={displayedPowerMeterResource} onChange={(v) => update("powerMeterResource", v)}>
                 <option value="">请选择串口资源</option>
-                {selectedPowerMeterResource && !powerMeterResources.some((item) => powerMeterResourceValue(item) === selectedPowerMeterResource) && (
-                  <option value={selectedPowerMeterResource}>
-                    {powerMeterResourceLabel(selectedPowerMeterResource, powerMeterResources)}
-                  </option>
-                )}
                 {powerMeterResources.map((item) => <option key={item} value={powerMeterResourceValue(item)}>{item}</option>)}
               </NativeSelect>
-              <Button className={`btn-refresh-spin ${meter?.detecting ? "cursor-wait" : ""}`} disabled={!active || meter?.detecting} onClick={() => void runManualCommand("device.refresh", { device: "powerMeter" }, true)} variant="outline"><RefreshCw className={`size-4 ${meter?.detecting ? "animate-spin" : ""}`} />{meter?.detecting ? "识别中" : "识别"}</Button>
+              <Button className={`btn-refresh-spin ${meter?.detecting ? "cursor-wait" : ""}`} disabled={!active || meter?.detecting || meter?.running} onClick={() => void runManualCommand("device.refresh", { device: "powerMeter" }, true)} variant="outline"><RefreshCw className={`size-4 ${meter?.detecting ? "animate-spin" : ""}`} />{meter?.detecting ? "识别中" : "识别"}</Button>
             </div>
           </Field>
           <DetectionStatus detail={meter?.detail} detecting={meter?.detecting} />
@@ -3805,21 +3692,21 @@ const ManualPage = memo(function ManualPage({
             <NumberField label="软件增益" value={config.softwareGain} onChange={(v) => update("softwareGain", v)} step="0.01" />
           </div>
           <ManualSectionHeading>功能操作</ManualSectionHeading>
-          <div className="grid grid-cols-2 gap-2"><Button disabled={!active || meter?.detecting || meter?.running} onClick={() => void runManualCommand("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button disabled={!active || meter?.detecting || meter?.running} onClick={() => void runManualCommand("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></div>
+          <div className="grid grid-cols-2 gap-2"><Button disabled={!active || meter?.detecting || meter?.running || !selectedPowerMeterResourceAvailable} onClick={() => void runManualCommand("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button disabled={!active || meter?.detecting || meter?.running || !selectedPowerMeterResourceAvailable} onClick={() => void runManualCommand("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></div>
           <ManualSectionHeading>状态</ManualSectionHeading>
           <p className="manual-device-status"><span className={`manual-device-status__dot ${meter?.running ? "is-active" : ""}`} />状态：{meter?.running ? "采集中" : "未调零"}</p>
-          <Button className={`w-full transition-all ${meter?.running ? "btn-running-pulse" : ""}`} disabled={!active || meter?.detecting} onClick={() => void runManualCommand(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
+          <Button className={`w-full transition-all ${meter?.running ? "btn-running-pulse" : ""}`} disabled={!active || meter?.detecting || (!meter?.running && !selectedPowerMeterResourceAvailable)} onClick={() => void runManualCommand(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
         </CardContent></Card>
 
         <Card size="sm" className="manual-device-card shadow-none"><CardHeader className="manual-device-card__header flex flex-row items-center justify-between"><CardTitle className="text-base">光谱仪</CardTitle><Radio className={`size-4 transition-colors ${isSpectrumActive ? "text-amber-500" : "text-muted-foreground"}`} /></CardHeader><CardContent className="manual-control-content manual-device-card__content">
           <ManualSectionHeading>资源设置</ManualSectionHeading>
           <Field label="设备资源">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-              <NativeSelect disabled={!active || spectrum?.detecting} value={config.spectrometerResource} onChange={(v) => update("spectrometerResource", v)}>
+              <NativeSelect disabled={!active || spectrum?.detecting || spectrum?.running} value={displayedSpectrometerResource} onChange={(v) => update("spectrometerResource", v)}>
                 <option value="">{defaultSpectrometerResourceLabel}</option>
-                {spectrum?.resources?.filter((item) => item !== defaultSpectrometerResourceLabel).map((item) => <option key={item} value={item}>{item}</option>)}
+                {spectrometerResources.map((item) => <option key={item} value={item}>{item}</option>)}
               </NativeSelect>
-              <Button className={`btn-refresh-spin ${spectrum?.detecting ? "cursor-wait" : ""}`} disabled={!active || spectrum?.detecting} onClick={() => void runManualCommand("device.refresh", { device: "spectrometer" }, true)} variant="outline"><RefreshCw className={`size-4 ${spectrum?.detecting ? "animate-spin" : ""}`} />{spectrum?.detecting ? "识别中" : "识别"}</Button>
+              <Button className={`btn-refresh-spin ${spectrum?.detecting ? "cursor-wait" : ""}`} disabled={!active || spectrum?.detecting || spectrum?.running} onClick={() => void runManualCommand("device.refresh", { device: "spectrometer" }, true)} variant="outline"><RefreshCw className={`size-4 ${spectrum?.detecting ? "animate-spin" : ""}`} />{spectrum?.detecting ? "识别中" : "识别"}</Button>
             </div>
           </Field>
           <DetectionStatus detail={spectrum?.detail} detecting={spectrum?.detecting} />
@@ -3832,7 +3719,7 @@ const ManualPage = memo(function ManualPage({
             <NumberField label="PIB 中心波长 (nm)" step="0.1" value={config.pibCenterWavelengthNm} onChange={(v) => update("pibCenterWavelengthNm", v)} />
             <NumberField label="PIB 半带宽 (nm)" step="0.1" value={config.pibHalfRangeNm} onChange={(v) => update("pibHalfRangeNm", v)} />
           </div>
-          <Button className={`w-full transition-all ${spectrum?.running ? "btn-running-pulse" : ""}`} disabled={!active || spectrum?.detecting} onClick={() => void runManualCommand(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
+          <Button className={`w-full transition-all ${spectrum?.running ? "btn-running-pulse" : ""}`} disabled={!active || spectrum?.detecting || (!spectrum?.running && !selectedSpectrometerResourceAvailable)} onClick={() => void runManualCommand(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
         </CardContent></Card>
       </section>
       <section className="automatic-chart-grid">

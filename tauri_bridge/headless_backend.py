@@ -127,7 +127,7 @@ DEFAULT_CONFIGURATION: dict[str, Any] = {
     "tdkResource": "",
     "setCurrentA": 0.0,
     "tdkVoltageV": 12.0,
-    "powerMeterResource": "ASRL3::INSTR",
+    "powerMeterResource": "",
     "powerMeterDriverKind": "caihuang",
     "powerMeterWavelengthNm": 976.0,
     "softwareGain": 1.0,
@@ -912,16 +912,7 @@ class StationRuntime:
             selected_loc = str(self.configuration.get("ch341SelectedLocationPath", "")).strip()
             if not selected_loc:
                 raise ValueError("请先选择 CH341 物理端口")
-            bindings = {
-                b["locationPath"]: b["name"]
-                for b in self.configuration.get("ch341PortBindings", [])
-                if isinstance(b, dict)
-            }
-            name = str(bindings.get(selected_loc, "")).strip()
-            if not name:
-                raise RuntimeError("未命名的端口不能连接；请先绑定工位名称")
             self.backend.check_device_conflicts(self.station_id, "ch341", selected_loc)
-
             # Always rescan immediately before opening: CH341 DLL indices are
             # enumeration-order handles and can swap after USB re-enumeration.
             self.backend.scan_ch341()
@@ -932,6 +923,7 @@ class StationRuntime:
                 raise RuntimeError(f"指定的 CH341 设备端口离线或未在线：{selected_loc}")
 
             target_index = desc.device_index
+            name = f"Device {target_index}"
             controller = create_ch341_controller(device_index=target_index)
             # The power controller used by this application requires the same
             # 20 kHz mode as the legacy/main implementation.  Merely creating
@@ -964,7 +956,7 @@ class StationRuntime:
                     self.power_supply_controller = controller
                     self.connected_ch341_port = {
                         "locationPath": selected_loc,
-                        "name": f"端口 {target_index}",
+                        "name": f"Device {target_index}",
                         "deviceIndex": target_index,
                     }
                     self.power_supply_identity_error = error
@@ -980,7 +972,7 @@ class StationRuntime:
             self.power_supply_identity_error = ""
             self.active_current_a = 0.0
             self._last_power_supply_command_at = None
-            self.notify("info", "电源连接", f"CH341 {name} 已连接 (Device {target_index})")
+            self.notify("info", "电源连接", f"CH341 Device {target_index} 已连接")
 
     def disconnect_power_supply(self) -> None:
         with self._lock:
@@ -1441,8 +1433,9 @@ class StationRuntime:
                 return
             device_id = self.configuration.get("spectrometerDeviceId")
             device_id_val = None if device_id in {None, ""} else int(device_id)
-            if device_id_val is not None:
-                self.backend.check_device_conflicts(self.station_id, "spectrometer", device_id_val)
+            if device_id_val is None:
+                raise ValueError("请先选择光谱仪设备")
+            self.backend.check_device_conflicts(self.station_id, "spectrometer", device_id_val)
 
             settings = SpectrometerSettings(
                 integration_time_us=int(self.configuration["integrationTimeUs"]),
@@ -1642,7 +1635,6 @@ class StationRuntime:
             self.backend.spectrometer_resources.append(
                 {"label": label, "deviceId": actual_device_id}
             )
-            self.backend._persist_configuration()
 
         if previous_device_id is not None and previous_device_id != actual_device_id:
             self.notify(
@@ -2527,10 +2519,14 @@ class HeadlessBackend:
         self.power_meter_options: list[PowerMeterOption] = []
         self.power_meter_detect_thread: PowerMeterDetectThread | None = None
         self.power_meter_detection_detail: str = ""
+        self.power_meter_detection_station_id: str = ""
         self.power_supply_detect_thread: _DeviceDiscoveryThread | None = None
         self.power_supply_detection_detail: str = ""
+        self.power_supply_detection_kind: Literal["ch341", "tdk"] | None = None
+        self.power_supply_detection_station_id: str = ""
         self.spectrometer_detect_thread: _DeviceDiscoveryThread | None = None
         self.spectrometer_detection_detail: str = ""
+        self.spectrometer_detection_station_id: str = ""
         self.spectrometer_resources: list[dict[str, Any]] = []
 
         # Initialize Stations
@@ -2540,13 +2536,24 @@ class HeadlessBackend:
         st1_config = dict(raw_st1_config) if isinstance(raw_st1_config, dict) else {}
         st2_config = dict(raw_st2_config) if isinstance(raw_st2_config, dict) else {}
 
-        for key in (
-            "ch341SelectedLocationPath",
-            "tdkResource",
-            "powerMeterResource",
-            "spectrometerResource",
-            "spectrometerDeviceId",
-        ):
+        discarded_device_persistence = any(
+            config.get("ch341SelectedLocationPath")
+            or config.get("ch341PortBindings")
+            or config.get("powerMeterResource")
+            or config.get("powerMeterDriverKind", "caihuang") != "caihuang"
+            or config.get("spectrometerResource")
+            or config.get("spectrometerDeviceId") not in {None, ""}
+            for config in (st1_config, st2_config)
+        )
+        for config in (st1_config, st2_config):
+            config["ch341SelectedLocationPath"] = ""
+            config["ch341PortBindings"] = []
+            config["powerMeterResource"] = ""
+            config["powerMeterDriverKind"] = "caihuang"
+            config["spectrometerResource"] = ""
+            config["spectrometerDeviceId"] = None
+
+        for key in ("tdkResource",):
             station_one_resource = st1_config.get(key)
             if station_one_resource not in {None, ""} and st2_config.get(key) == station_one_resource:
                 st2_config[key] = None if key == "spectrometerDeviceId" else ""
@@ -2555,7 +2562,7 @@ class HeadlessBackend:
             "1": StationRuntime("1", self, st1_config),
             "2": StationRuntime("2", self, st2_config),
         }
-        if any(
+        if discarded_device_persistence or any(
             station.power_meter_configuration_migrated
             for station in self.stations.values()
         ):
@@ -2784,10 +2791,20 @@ class HeadlessBackend:
                 self.stations[str(station_id)].status_message = str(message)
 
     def _persist_configuration(self) -> None:
-        self.settings.set("runtime/configuration", dict(self.stations["1"].configuration))
+        def persistent_configuration(station: StationRuntime) -> dict[str, Any]:
+            configuration = dict(station.configuration)
+            configuration["ch341SelectedLocationPath"] = ""
+            configuration["ch341PortBindings"] = []
+            configuration["powerMeterResource"] = ""
+            configuration["powerMeterDriverKind"] = "caihuang"
+            configuration["spectrometerResource"] = ""
+            configuration["spectrometerDeviceId"] = None
+            return configuration
+
+        self.settings.set("runtime/configuration", persistent_configuration(self.stations["1"]))
         self.settings.set(
             "runtime/stations",
-            {sid: dict(st.configuration) for sid, st in self.stations.items()},
+            {sid: persistent_configuration(st) for sid, st in self.stations.items()},
         )
 
     def ping(self) -> dict[str, Any]:
@@ -2896,12 +2913,14 @@ class HeadlessBackend:
                 return
             controller_kind = station.power_supply_kind
             self.power_supply_detection_detail = "正在准备电源识别"
+            self.power_supply_detection_kind = controller_kind
+            self.power_supply_detection_station_id = station.station_id
 
         def discover(report: Callable[[str], None]) -> tuple[str, list[Any]]:
             if controller_kind == "tdk":
                 report("正在枚举 TDK RS232 串口")
                 return controller_kind, list_tdk_serial_resources()
-            report("正在扫描 CH341 固定端口")
+            report("正在扫描 CH341 设备")
             return controller_kind, scan_ch341_devices()
 
         thread = _DeviceDiscoveryThread(discover)
@@ -2918,7 +2937,14 @@ class HeadlessBackend:
                     self.ch341_descriptors = list(devices)
                     self.ch341_discovery_state = "ready" if devices else "empty"
                     self.ch341_scan_error = ""
-                    self.power_supply_detection_detail = f"识别完成：发现 {len(devices)} 个 CH341 固定端口"
+                    self.power_supply_detection_detail = f"识别完成：发现 {len(devices)} 个 CH341 设备"
+            if kind == "ch341":
+                self.notify(
+                    "info",
+                    "CH341 识别",
+                    self.power_supply_detection_detail,
+                    station_id=station.station_id,
+                )
 
         def on_status(message: str) -> None:
             with self._lock:
@@ -2950,14 +2976,11 @@ class HeadlessBackend:
             if self.power_meter_detect_thread is not None:
                 return
         target_station_id = self._station_id_from_params(params)
-        target_station = self._station(target_station_id)
-        preferred = str(
-            params.get("preferredResource", target_station.configuration["powerMeterResource"])
-        )
-        thread = PowerMeterDetectThread(preferred_resource=preferred)
+        thread = PowerMeterDetectThread(preferred_resource="")
         with self._lock:
             self.power_meter_detect_thread = thread
             self.power_meter_detection_detail = "正在准备功率计识别"
+            self.power_meter_detection_station_id = target_station_id
 
         def on_detected(options: list[PowerMeterOption]) -> None:
             with self._lock:
@@ -2967,21 +2990,6 @@ class HeadlessBackend:
                     if options
                     else "识别完成：未找到兼容功率计，请检查 USB/串口连接与驱动"
                 )
-            if not options:
-                return
-            selected = next((item for item in options if item.resource == preferred), None)
-            if selected is None:
-                claimed = {
-                    str(st.configuration.get("powerMeterResource", ""))
-                    for sid, st in self.stations.items()
-                    if sid != target_station_id and st.power_meter_reader is not None
-                }
-                selected = next((item for item in options if item.resource not in claimed), options[0])
-            with target_station._lock:
-                target_station.configuration["powerMeterResource"] = selected.resource
-                target_station.configuration["powerMeterDriverKind"] = selected.driver_kind
-            self._persist_configuration()
-
         def on_finished() -> None:
             with self._lock:
                 self.power_meter_detect_thread = None
@@ -3003,10 +3011,12 @@ class HeadlessBackend:
         thread.start()
 
     def _refresh_spectrometer(self, station: StationRuntime | None = None) -> None:
+        target_station_id = station.station_id if station is not None else "1"
         with self._lock:
             if self.spectrometer_detect_thread is not None:
                 return
             self.spectrometer_detection_detail = "正在准备光谱仪识别"
+            self.spectrometer_detection_station_id = target_station_id
 
         def discover(report: Callable[[str], None]) -> list[int]:
             report("正在加载 Ocean Insight 驱动")
@@ -3326,10 +3336,14 @@ class HeadlessBackend:
                 "power_meter_options": list(self.power_meter_options),
                 "power_meter_detecting": self.power_meter_detect_thread is not None,
                 "power_meter_detection_detail": self.power_meter_detection_detail,
+                "power_meter_detection_station_id": self.power_meter_detection_station_id,
                 "power_supply_detecting": self.power_supply_detect_thread is not None,
                 "power_supply_detection_detail": self.power_supply_detection_detail,
+                "power_supply_detection_kind": self.power_supply_detection_kind,
+                "power_supply_detection_station_id": self.power_supply_detection_station_id,
                 "spectrometer_detecting": self.spectrometer_detect_thread is not None,
                 "spectrometer_detection_detail": self.spectrometer_detection_detail,
+                "spectrometer_detection_station_id": self.spectrometer_detection_station_id,
                 "spectrometer_resources": [dict(item) for item in self.spectrometer_resources],
             }
         with active_st._lock:
@@ -3355,12 +3369,34 @@ class HeadlessBackend:
         ch341_scan_error = shared["ch341_scan_error"]
         ch341_descriptors = shared["ch341_descriptors"]
         power_meter_options = shared["power_meter_options"]
-        power_meter_detecting = shared["power_meter_detecting"]
-        power_meter_detection_detail = shared["power_meter_detection_detail"]
-        power_supply_detecting = shared["power_supply_detecting"]
-        power_supply_detection_detail = shared["power_supply_detection_detail"]
-        spectrometer_detecting = shared["spectrometer_detecting"]
-        spectrometer_detection_detail = shared["spectrometer_detection_detail"]
+        power_meter_detection_matches = (
+            shared["power_meter_detection_station_id"] == active_station_id
+        )
+        power_meter_detecting = shared["power_meter_detecting"] and power_meter_detection_matches
+        power_meter_detection_detail = (
+            shared["power_meter_detection_detail"]
+            if power_meter_detection_matches
+            else ""
+        )
+        power_supply_detection_matches = (
+            shared["power_supply_detection_kind"] == active_st.power_supply_kind
+            and shared["power_supply_detection_station_id"] == active_station_id
+        )
+        power_supply_detecting = shared["power_supply_detecting"] and power_supply_detection_matches
+        power_supply_detection_detail = (
+            shared["power_supply_detection_detail"]
+            if power_supply_detection_matches
+            else ""
+        )
+        spectrometer_detection_matches = (
+            shared["spectrometer_detection_station_id"] == active_station_id
+        )
+        spectrometer_detecting = shared["spectrometer_detecting"] and spectrometer_detection_matches
+        spectrometer_detection_detail = (
+            shared["spectrometer_detection_detail"]
+            if spectrometer_detection_matches
+            else ""
+        )
         spectrometer_resources = shared["spectrometer_resources"]
 
         with active_st._pd_lock:
@@ -3449,21 +3485,52 @@ class HeadlessBackend:
                 series_patches["pd"] = pd_patch
 
         # CH341 device ports map
-        bindings_map = {
-            b["locationPath"]: b["name"]
-            for b in active_st.configuration.get("ch341PortBindings", [])
-            if isinstance(b, dict) and "locationPath" in b
-        }
         online_map = {d.location_path: d.device_index for d in ch341_descriptors}
-        all_paths = list(dict.fromkeys(list(bindings_map.keys()) + list(online_map.keys())))
+        occupied_paths = {
+            str(other_st.configuration.get("ch341SelectedLocationPath", "")).strip()
+            for other_id, other_st in self.stations.items()
+            if other_id != active_st.station_id
+            and other_st.power_supply_kind == "ch341"
+            and other_st.power_supply_controller is not None
+            and str(other_st.configuration.get("ch341SelectedLocationPath", "")).strip()
+        }
+        all_paths = [
+            loc
+            for loc in online_map
+            if loc not in occupied_paths
+        ]
         ports = [
             {
                 "locationPath": loc,
-                "name": bindings_map.get(loc),
-                "online": loc in online_map,
-                "deviceIndex": online_map.get(loc),
+                "name": None,
+                "online": True,
+                "deviceIndex": online_map[loc],
             }
             for loc in all_paths
+        ]
+        occupied_power_meter_resources = {
+            str(other_st.configuration.get("powerMeterResource", "")).strip()
+            for other_id, other_st in self.stations.items()
+            if other_id != active_st.station_id
+            and other_st.power_meter_reader is not None
+            and str(other_st.configuration.get("powerMeterResource", "")).strip()
+        }
+        available_power_meter_options = [
+            option
+            for option in power_meter_options
+            if option.resource not in occupied_power_meter_resources
+        ]
+        occupied_spectrometer_ids = {
+            int(other_st.configuration["spectrometerDeviceId"])
+            for other_id, other_st in self.stations.items()
+            if other_id != active_st.station_id
+            and other_st.spectrometer_reader is not None
+            and other_st.configuration.get("spectrometerDeviceId") not in {None, ""}
+        }
+        available_spectrometer_resources = [
+            resource
+            for resource in spectrometer_resources
+            if int(resource["deviceId"]) not in occupied_spectrometer_ids
         ]
         ch341_snapshot = {
             "discoveryState": ch341_discovery_state,
@@ -3475,10 +3542,7 @@ class HeadlessBackend:
         if active_st.power_supply_identity_error:
             power_supply_detail = active_st.power_supply_identity_error
         elif supply is not None and active_st.power_supply_kind == "ch341" and active_st.connected_ch341_port:
-            power_supply_detail = (
-                f"{active_st.connected_ch341_port['name']} · 已连接 · "
-                f"Device {active_st.connected_ch341_port['deviceIndex']}"
-            )
+            power_supply_detail = f"Device {active_st.connected_ch341_port['deviceIndex']} · 已连接"
         else:
             power_supply_detail = "已连接" if supply is not None else "未连接"
 
@@ -3542,7 +3606,7 @@ class HeadlessBackend:
                     "ready": bool(active_st.power_meter_reader and active_st.power_meter_reader.is_ready),
                     "powerW": _finite(None if active_st.latest_power is None else active_st.latest_power.power_w),
                     "stable": bool(active_st.latest_power and active_st.latest_power.stable),
-                    "resources": [item.label() for item in power_meter_options],
+                    "resources": [item.label() for item in available_power_meter_options],
                 },
                 "spectrometer": {
                     "state": "connecting" if spectrometer_detecting else _device_state(False, active_st.spectrometer_reader is not None, active_st.spectrometer_error),
@@ -3565,7 +3629,7 @@ class HeadlessBackend:
                         if active_st.spectrum_center_locked_nm is not None
                         else None
                     ),
-                    "resources": [item["label"] for item in spectrometer_resources],
+                    "resources": [item["label"] for item in available_spectrometer_resources],
                 },
             },
             "automaticTest": {
