@@ -5,7 +5,6 @@ import { fetchBackendSnapshot, mergeBackendSnapshot, sendBackendCommand, subscri
 // Acquisition remains device-owned; the native WebView2 bridge streams compact
 // snapshots without allocating a new command callback for every UI refresh.
 const DEMO_PREVIEW_ENABLED = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("demo") === "1"
-const WEBVIEW_GC_INTERVAL_MS = 30_000
 
 const DEMO_SPECTRUM = {
   wavelengthNm: [972, 973, 974, 975, 975.5, 975.8, 976, 976.2, 976.4, 976.7, 977, 977.5, 978, 979, 980],
@@ -144,13 +143,6 @@ export function useBackendSnapshot(view: SnapshotView) {
   useEffect(() => {
     mountedRef.current = true
     return () => { mountedRef.current = false }
-  }, [])
-
-  useEffect(() => {
-    const collectGarbage = (globalThis as typeof globalThis & { gc?: () => void }).gc
-    if (typeof collectGarbage !== "function") return
-    const timer = window.setInterval(() => collectGarbage(), WEBVIEW_GC_INTERVAL_MS)
-    return () => window.clearInterval(timer)
   }, [])
 
   const loadSnapshot = useCallback(async (showLoading: boolean, requestedView: SnapshotView) => {

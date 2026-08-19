@@ -25,7 +25,7 @@
           "y": 18
         },
         "zoomHotkeysEnabled": false,
-        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --js-flags=\"--max-old-space-size=64 --expose-gc\""
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection"
       }
     ],
     "security": {
