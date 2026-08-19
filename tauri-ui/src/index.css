@@ -304,6 +304,10 @@ body {
   font-weight: 650;
 }
 
+.automatic-metric-card--power .automatic-metric-card__current {
+  color: var(--foreground);
+}
+
 .automatic-metric-card--title-below {
   flex-direction: column;
   gap: 0;

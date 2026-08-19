@@ -57,6 +57,7 @@ const PD_TIME_TICK_INTERVAL_S = 10
 const SPECTRUM_Y_AXIS_PADDING_FRACTION = 0.08
 const SPECTRUM_Y_AXIS_SHRINK_TRIGGER_FRACTION = 0.72
 const SPECTRUM_Y_AXIS_SHRINK_REQUIRED_FRAMES = 6
+const SPECTRUM_Y_AXIS_MINIMUM_LIMIT = -1000
 const SHIPPING_PRODUCT_NAME_STORAGE_KEY = "power-test.shipping-report.product-name"
 const PLM_CHART_SERIES = {
   clay: "#ff7a1a",
@@ -102,7 +103,7 @@ function spectrumYAxisDomain(values: number[]): [number, number] {
   const span = Math.max(measuredSpan, fallbackSpan, 1)
   const padding = span * SPECTRUM_Y_AXIS_PADDING_FRACTION
   const lowerPadding = minimum > 0 ? Math.min(padding, minimum * 0.25) : padding
-  return [minimum - lowerPadding, maximum + padding]
+  return [Math.max(SPECTRUM_Y_AXIS_MINIMUM_LIMIT, minimum - lowerPadding), maximum + padding]
 }
 
 function stabilizeSpectrumYAxis(
@@ -1355,6 +1356,10 @@ function sameDeviceSnapshot(left: DeviceSnapshot | undefined, right: DeviceSnaps
     && sameCh341State(left.ch341, right.ch341)
     && left.outputEnabled === right.outputEnabled
     && left.activeCurrentA === right.activeCurrentA
+    && left.inputVoltageV === right.inputVoltageV
+    && left.outputVoltageV === right.outputVoltageV
+    && left.outputCurrentA === right.outputCurrentA
+    && left.temperatureC === right.temperatureC
     && left.powerW === right.powerW
     && left.stable === right.stable
     && left.peakWavelengthNm === right.peakWavelengthNm
@@ -1454,7 +1459,7 @@ function ChartLegend({ lines }: { lines: CanvasChartLine[] }) {
   )
 }
 
-const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, lines, empty = "暂无实时数据", heightClassName, annotations, stretch = false, compactHeader = false, hideHeader = false, xDomain, xTicks, yDomain, rightYDomain, preserveAllPoints = false, xLabel, xTickSuffix, yLabel }: {
+const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, lines, empty = "暂无实时数据", heightClassName, annotations, stretch = false, compactHeader = false, hideHeader = false, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, preserveAllPoints = false, xLabel, xTickSuffix, yLabel }: {
   title: string
   data?: Array<Record<string, number | null>>
   columns?: CanvasColumnarData
@@ -1469,6 +1474,7 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
   xDomain?: [number, number]
   xTicks?: number[]
   yDomain?: [number, number]
+  yMinimumLimit?: number
   rightYDomain?: [number, number]
   preserveAllPoints?: boolean
   xLabel?: string
@@ -1489,7 +1495,7 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
         {dataLength === 0 ? (
           <div className="grid h-full min-h-[120px] place-items-center rounded-lg bg-background/30 text-xs text-muted-foreground/70">{empty}</div>
         ) : (
-          <CanvasLineChart annotations={annotations} ariaLabel={`${title}曲线`} columns={columns} data={data} lines={lines} preserveAllPoints={preserveAllPoints} rightYDomain={rightYDomain} tightInsets={hideHeader} xDomain={xDomain} xKey={xKey} xLabel={xLabel} xTickSuffix={xTickSuffix} xTicks={xTicks} yDomain={yDomain} yLabel={yLabel} />
+          <CanvasLineChart annotations={annotations} ariaLabel={`${title}曲线`} columns={columns} data={data} lines={lines} preserveAllPoints={preserveAllPoints} rightYDomain={rightYDomain} tightInsets={hideHeader} xDomain={xDomain} xKey={xKey} xLabel={xLabel} xTickSuffix={xTickSuffix} xTicks={xTicks} yDomain={yDomain} yLabel={yLabel} yMinimumLimit={yMinimumLimit} />
         )}
       </CardContent>
     </Card>
@@ -1544,6 +1550,7 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
     && sameNumbers(previous.xDomain, next.xDomain)
     && sameNumbers(previous.xTicks, next.xTicks)
     && sameNumbers(previous.yDomain, next.yDomain)
+    && previous.yMinimumLimit === next.yMinimumLimit
     && sameNumbers(previous.rightYDomain, next.rightYDomain)
     && sameRows(previous.annotations, next.annotations, ["label", "x", "y"])
 })
@@ -1724,6 +1731,7 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
       xDomain={spectrumXDomain}
       xTickSuffix=" nm"
       yDomain={spectrumYDomain}
+      yMinimumLimit={SPECTRUM_Y_AXIS_MINIMUM_LIMIT}
       preserveAllPoints
       lines={[{ key: "intensity", label: "光谱（实时）", color: "#f5f5f5" }]}
       stretch={stretch}
@@ -1748,7 +1756,7 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
 function AutomaticMetricCard({ title, value, unit, valueTone = "muted", onClick, className = "" }: {
   title: string
   value: string
-  unit: string
+  unit: ReactNode
   valueTone?: "success" | "danger" | "warning" | "muted"
   onClick?: () => void
   className?: string
@@ -1803,7 +1811,7 @@ function RealtimeMetricCards({
         className="automatic-metric-card--power automatic-metric-card--title-below"
         title="Live Power"
         value={formatFixedNumber(powerW, 3)}
-        unit={`W @ ${formatTrimmedNumber(currentA, 2)} A`}
+        unit={<>W @ <span className="automatic-metric-card__current">{formatTrimmedNumber(currentA, 2)} A</span></>}
         valueTone="warning"
       />
       <AutomaticMetricCard
@@ -3729,7 +3737,7 @@ const ManualPage = memo(function ManualPage({
         </div>
         <RealtimeMetricCards
           config={config}
-          currentA={psu?.outputCurrentA ?? config.setCurrentA}
+          currentA={psu?.activeCurrentA ?? config.setCurrentA}
           powerW={meter?.powerW}
           spectrometer={spectrum}
         />

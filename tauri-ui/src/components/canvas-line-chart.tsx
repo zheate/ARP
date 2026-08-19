@@ -40,6 +40,7 @@ type CanvasLineChartProps = {
   xDomain?: [number, number]
   xTicks?: number[]
   yDomain?: [number, number]
+  yMinimumLimit?: number
   rightYDomain?: [number, number]
   annotations?: CanvasChartAnnotation[]
   ariaLabel: string
@@ -185,6 +186,13 @@ function fixedScale(domain: [number, number], ticks?: number[], targetTickCount 
   }
 }
 
+function applyMinimumLimit(scale: AxisScale, minimumLimit?: number): AxisScale {
+  if (!Number.isFinite(minimumLimit) || minimumLimit === undefined || scale.min >= minimumLimit) return scale
+  const ticks = scale.ticks.filter((value) => value >= minimumLimit)
+  if (!ticks.some((value) => Math.abs(value - minimumLimit) < NUMERIC_ZERO_EPSILON)) ticks.unshift(minimumLimit)
+  return { ...scale, min: minimumLimit, ticks }
+}
+
 function formatTick(value: number, scale: AxisScale): string {
   const span = Math.abs(scale.max - scale.min)
   const step = scale.ticks.length > 1 ? Math.abs(scale.ticks[1] - scale.ticks[0]) : span
@@ -204,6 +212,7 @@ function buildLayout(
   xDomain?: [number, number],
   xTicks?: number[],
   yDomain?: [number, number],
+  yMinimumLimit?: number,
   rightYDomain?: [number, number],
   xLabel?: string,
   yLabel?: string,
@@ -249,7 +258,10 @@ function buildLayout(
     plotWidth: Math.max(1, size.width - left - right),
     plotHeight,
     x,
-    leftY: yDomain ? fixedScale(yDomain, undefined, verticalTickTarget, false) : createScale(leftExtent[0], leftExtent[1], verticalTickTarget),
+    leftY: applyMinimumLimit(
+      yDomain ? fixedScale(yDomain, undefined, verticalTickTarget, false) : createScale(leftExtent[0], leftExtent[1], verticalTickTarget),
+      yMinimumLimit,
+    ),
     rightY: hasRightAxis
       ? rightYDomain
         ? fixedScale(rightYDomain, undefined, verticalTickTarget, false)
@@ -580,7 +592,7 @@ function tooltipNumber(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }
 
-export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, rightYDomain, annotations = [], ariaLabel, preserveAllPoints = false, tightInsets = false, xLabel, xTickSuffix, yLabel }: CanvasLineChartProps) {
+export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, annotations = [], ariaLabel, preserveAllPoints = false, tightInsets = false, xLabel, xTickSuffix, yLabel }: CanvasLineChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const baseCanvasRef = useRef<HTMLCanvasElement>(null)
   const hoverCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -593,8 +605,8 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
   const hoverDrawnRef = useRef(false)
   const chartData = useMemo(() => chartDataFrom(data, columns), [columns, data])
   const layout = useMemo(
-    () => buildLayout(chartData, xKey, lines, size, xDomain, xTicks, yDomain, rightYDomain, xLabel, yLabel, tightInsets),
-    [chartData, lines, rightYDomain, size, tightInsets, xDomain, xKey, xLabel, xTicks, yDomain, yLabel],
+    () => buildLayout(chartData, xKey, lines, size, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, xLabel, yLabel, tightInsets),
+    [chartData, lines, rightYDomain, size, tightInsets, xDomain, xKey, xLabel, xTicks, yDomain, yLabel, yMinimumLimit],
   )
   const visibleIndexes = useMemo(
     () => {
