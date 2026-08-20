@@ -9,7 +9,6 @@ import {
   FolderOpen,
   Gauge,
   Hand,
-  History,
   LoaderCircle,
   Milestone,
   OctagonAlert,
@@ -41,12 +40,13 @@ import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { useBackendSnapshot } from "@/hooks/use-backend-snapshot"
-import { sendBackendRequest, type AppConfiguration, type BackendSnapshot, type DeviceSnapshot, type ShippingReportBatchGenerationResult, type ShippingReportBatchInspection, type ShippingReportBatchItem, type ShippingReportFieldDefinition, type ShippingReportGenerationResult, type ShippingReportPointSuggestion, type ShippingReportPreviewResult, type ShippingReportType, type ShippingWorkbookInspection, type SnapshotView, type SpectrumAxisMode, type TestHistoryCandidate } from "@/lib/backend"
+import { sendBackendRequest, type AppConfiguration, type BackendSnapshot, type DeviceSnapshot, type ShippingReportBatchGenerationResult, type ShippingReportBatchInspection, type ShippingReportBatchItem, type ShippingReportFieldDefinition, type ShippingReportGenerationResult, type ShippingReportPointSuggestion, type ShippingReportPreviewResult, type ShippingReportType, type ShippingWorkbookInspection, type SnapshotView, type SpectrumAxisMode, type TestScript } from "@/lib/backend"
 import { powerMeterResourceValue } from "@/lib/power-meter-resource"
 import { spectrumPeakAnnotations } from "@/lib/spectrum-annotations"
 
 type Page = "automatic" | "manual" | "pd" | "shipping" | "settings"
 type Theme = "dark" | "light"
+type LatestPointMarkerStyle = "point" | "paper-plane"
 
 function DialogPortal({ children }: { children: ReactNode }) {
   return createPortal(children, document.body)
@@ -65,6 +65,7 @@ const SHIPPING_PRODUCT_NAME_STORAGE_KEY = "power-test.shipping-report.product-na
 const SHIPPING_REPORT_SPLIT_LAYOUT = "grid min-w-0 gap-6 xl:grid-cols-[minmax(380px,0.72fr)_minmax(560px,1.28fr)]"
 const DEFAULT_ENCIRCLED_ENERGY_NA = "0.17"
 const THEME_STORAGE_KEY = "power-test.theme"
+const LATEST_POINT_MARKER_STORAGE_KEY = "power-test.latest-point-marker"
 const PLM_CHART_SERIES = {
   clay: "#ff7a1a",
   tan: "#d5a98b",
@@ -98,6 +99,17 @@ function getStoredTheme(): Theme {
     // Local storage may be unavailable in restricted WebView environments.
   }
   return document.documentElement.dataset.theme === "light" ? "light" : "dark"
+}
+
+function getStoredLatestPointMarkerStyle(): LatestPointMarkerStyle {
+  if (typeof window === "undefined") return "point"
+  try {
+    const storedStyle = window.localStorage.getItem(LATEST_POINT_MARKER_STORAGE_KEY)
+    if (storedStyle === "point" || storedStyle === "paper-plane") return storedStyle
+  } catch {
+    // Use the original point marker if storage is unavailable.
+  }
+  return "point"
 }
 
 function applyTheme(theme: Theme): void {
@@ -191,6 +203,7 @@ const emptyConfig: AppConfiguration = {
   initialCurrentA: 1,
   targetCurrentA: 20,
   currentStepA: 3,
+  selectedScriptId: "standard",
   currentPlanMode: "range",
   customCurrentPoints: [
     { currentA: 3, dwellS: 300 },
@@ -210,6 +223,37 @@ function configurationsEqual(left: AppConfiguration, right: AppConfiguration): b
   return configurationKeys.every((key) => (
     key === "customCurrentPoints" || key === "ch341PortBindings" || left[key] === right[key]
   ))
+}
+
+const BUILTIN_TEST_SCRIPT_OPTIONS: TestScript[] = [
+  { id: "standard", name: "标准测试", builtin: true, currentPlanMode: "range" },
+  { id: "hold-points", name: "增加停留点", builtin: true, currentPlanMode: "custom" },
+  { id: "aging", name: "AU 老化测试", builtin: true, currentPlanMode: "custom", powerSupplyKinds: ["ch341"] },
+]
+
+function applyTestScript(current: AppConfiguration, script: TestScript): AppConfiguration {
+  if (script.id === "aging") {
+    return {
+      ...current,
+      selectedScriptId: script.id,
+      initialCurrentA: 2,
+      targetCurrentA: 20,
+      currentStepA: 2,
+      currentPlanMode: "custom",
+      customCurrentPoints: [{ currentA: 20, dwellS: 2 * 60 * 60 }],
+    }
+  }
+  if (script.currentPlanMode === "custom") {
+    return {
+      ...current,
+      selectedScriptId: script.id,
+      currentPlanMode: "custom",
+      customCurrentPoints: current.customCurrentPoints.length
+        ? current.customCurrentPoints
+        : [{ currentA: current.initialCurrentA, dwellS: 300 }],
+    }
+  }
+  return { ...current, selectedScriptId: script.id, currentPlanMode: "range" }
 }
 
 function asNumber(value: string): number {
@@ -291,14 +335,15 @@ function ManualSectionHeading({ children }: { children: ReactNode }) {
   return <h3 className="manual-device-section-heading">{children}</h3>
 }
 
-function NativeSelect({ value, onChange, children, disabled }: {
+function NativeSelect({ value, onChange, children, disabled, ariaLabel }: {
   value: string
   onChange: (value: string) => void
   children: ReactNode
   disabled?: boolean
+  ariaLabel?: string
 }) {
   const emptyValue = "__empty__"
-  const options = Children.toArray(children).filter((child): child is ReactElement<{ value?: string; children?: ReactNode }> => isValidElement(child))
+  const options = Children.toArray(children).filter((child): child is ReactElement<{ value?: string; children?: ReactNode; disabled?: boolean }> => isValidElement(child))
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
@@ -319,7 +364,10 @@ function NativeSelect({ value, onChange, children, disabled }: {
 
   useEffect(() => {
     if (!open || options.length === 0) return
-    const frame = window.requestAnimationFrame(() => optionRefs.current[Math.max(0, selectedIndex)]?.focus())
+    const initialIndex = selectedIndex >= 0 && !options[selectedIndex]?.props.disabled
+      ? selectedIndex
+      : options.findIndex((option) => !option.props.disabled)
+    const frame = window.requestAnimationFrame(() => optionRefs.current[Math.max(0, initialIndex)]?.focus())
     return () => window.cancelAnimationFrame(frame)
   }, [open, options.length, selectedIndex])
 
@@ -329,8 +377,20 @@ function NativeSelect({ value, onChange, children, disabled }: {
   }
 
   const moveOptionFocus = (currentIndex: number, offset: number) => {
-    const nextIndex = (currentIndex + offset + options.length) % options.length
-    optionRefs.current[nextIndex]?.focus()
+    for (let distance = 1; distance <= options.length; distance += 1) {
+      const nextIndex = (currentIndex + offset * distance + options.length) % options.length
+      if (!options[nextIndex]?.props.disabled) {
+        optionRefs.current[nextIndex]?.focus()
+        return
+      }
+    }
+  }
+
+  const focusBoundaryOption = (fromEnd: boolean) => {
+    const indices = options.map((_option, index) => index)
+    if (fromEnd) indices.reverse()
+    const index = indices.find((candidate) => !options[candidate]?.props.disabled)
+    if (index !== undefined) optionRefs.current[index]?.focus()
   }
 
   return (
@@ -338,6 +398,7 @@ function NativeSelect({ value, onChange, children, disabled }: {
       <button
         aria-expanded={open}
         aria-haspopup="listbox"
+        aria-label={ariaLabel}
         className="flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-input bg-background px-3 text-left text-sm outline-none transition-[color,background-color,border-color,box-shadow] duration-150 hover:border-[var(--app-border-strong)] hover:bg-muted/25 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 disabled:cursor-not-allowed disabled:border-border disabled:bg-muted/30 disabled:text-muted-foreground/55"
         disabled={disabled}
         onClick={() => setOpen((current) => !current)}
@@ -362,9 +423,12 @@ function NativeSelect({ value, onChange, children, disabled }: {
         {options.map((option, index) => {
           const optionValue = String(option.props.value ?? "") || emptyValue
           const selected = optionValue === selectedValue
+          const optionDisabled = Boolean(option.props.disabled)
           return <button
+            aria-disabled={optionDisabled}
             aria-selected={selected}
-            className={`relative flex w-full items-center rounded-md px-3 py-2 text-left text-sm outline-none transition-colors duration-150 hover:bg-[var(--plm-flat-hover)] hover:text-foreground focus-visible:bg-[var(--plm-flat-hover)] focus-visible:text-foreground ${selected ? "bg-[var(--app-selected-soft)] pl-4 text-foreground before:absolute before:inset-y-2 before:left-1.5 before:w-0.5 before:rounded-full before:bg-primary" : "text-muted-foreground"}`}
+            className={`relative flex w-full items-center rounded-md px-3 py-2 text-left text-sm outline-none transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-45 ${optionDisabled ? "" : "hover:bg-[var(--plm-flat-hover)] hover:text-foreground focus-visible:bg-[var(--plm-flat-hover)] focus-visible:text-foreground"} ${selected ? "bg-[var(--app-selected-soft)] pl-4 text-foreground before:absolute before:inset-y-2 before:left-1.5 before:w-0.5 before:rounded-full before:bg-primary" : "text-muted-foreground"}`}
+            disabled={optionDisabled}
             key={`${optionValue}-${index}`}
             onClick={() => {
               onChange(optionValue === emptyValue ? "" : optionValue)
@@ -379,10 +443,10 @@ function NativeSelect({ value, onChange, children, disabled }: {
                 moveOptionFocus(index, -1)
               } else if (event.key === "Home") {
                 event.preventDefault()
-                optionRefs.current[0]?.focus()
+                focusBoundaryOption(false)
               } else if (event.key === "End") {
                 event.preventDefault()
-                optionRefs.current[options.length - 1]?.focus()
+                focusBoundaryOption(true)
               } else if (event.key === "Escape") {
                 event.stopPropagation()
                 event.preventDefault()
@@ -527,7 +591,6 @@ function AutomaticTestControlCard({
   active,
   auto,
   controlsLocked,
-  historyLoading,
   pending,
   onStart,
   onStop,
@@ -536,7 +599,6 @@ function AutomaticTestControlCard({
   active: boolean
   auto?: BackendSnapshot["automaticTest"]
   controlsLocked: boolean
-  historyLoading: boolean
   pending: boolean
   onStart: () => void
   onStop: () => void
@@ -548,7 +610,7 @@ function AutomaticTestControlCard({
       <CardContent className="automatic-test-control-card__content px-4 py-0">
         <div className="automatic-test-control-card__actions">
           <Button
-            disabled={!active || pending || controlsLocked || historyLoading || running || !auto?.canStart}
+            disabled={!active || pending || controlsLocked || running || !auto?.canStart}
             onClick={onStart}
             size="sm"
           >
@@ -638,6 +700,7 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
   const psu = snapshot?.devices.powerSupply
   const resources = psu?.resources ?? []
   const selectedResource = config.tdkResource.trim()
+  const agingMode = config.selectedScriptId === "aging"
   return (
     <div className="power-settings-layout">
       <section className="power-settings-section">
@@ -646,7 +709,7 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
           <p className="power-settings-section-description">连接设备并执行输出控制与状态读取</p>
         </div>
         <div className="power-settings-fields">
-          <Field label="控制器"><NativeSelect disabled={!active || pending || psu?.detecting || psu?.connected} value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
+          <Field label="控制器"><NativeSelect disabled={!active || pending || psu?.detecting || psu?.connected} value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option disabled={agingMode} value="tdk">{agingMode ? "TDK RS232（AU 老化测试不可用）" : "TDK RS232"}</option></NativeSelect></Field>
           {config.powerSupplyKind === "tdk" ? <Field label="TDK 串口">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
               <NativeSelect disabled={!active || pending || psu?.detecting || psu?.connected} value={selectedResource} onChange={(value) => update("tdkResource", value)}>
@@ -713,19 +776,17 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
       </section>
       <section className="power-settings-section power-settings-section--automatic">
         <div className="power-settings-section-heading">
-          <p className="power-settings-section-title">自动测试电流</p>
-          <p className="power-settings-section-description">设置升流、单点等待和安全下电参数</p>
-        </div>
-        <div className="current-plan-mode" role="group" aria-label="自动测试电流计划模式">
-          <button aria-pressed={config.currentPlanMode === "range"} disabled={pending} onClick={() => update("currentPlanMode", "range")} type="button">等步长</button>
-          <button aria-pressed={config.currentPlanMode === "custom"} disabled={pending} onClick={() => update("currentPlanMode", "custom")} type="button">增加停留点</button>
+          <p className="power-settings-section-title">测试脚本参数</p>
+          <p className="power-settings-section-description">顶部选择脚本；这里查看升流节拍和设置安全下电参数</p>
         </div>
         <div className="power-settings-parameter-grid">
-          <NumberField label="起始电流 (A)" value={config.initialCurrentA} onChange={(v) => update("initialCurrentA", v)} max={currentInputMaximum(config, snapshot)} />
-          <NumberField label="目标电流 (A)" value={config.targetCurrentA} onChange={(v) => update("targetCurrentA", v)} max={currentInputMaximum(config, snapshot)} />
-          <NumberField label="电流间隔 (A)" value={config.currentStepA} onChange={(v) => update("currentStepA", v)} max={currentInputMaximum(config, snapshot)} />
+          <NumberField disabled={agingMode} label="起始电流 (A)" value={config.initialCurrentA} onChange={(v) => update("initialCurrentA", v)} max={currentInputMaximum(config, snapshot)} />
+          <NumberField disabled={agingMode} label="目标电流 (A)" value={config.targetCurrentA} onChange={(v) => update("targetCurrentA", v)} max={currentInputMaximum(config, snapshot)} />
+          <NumberField disabled={agingMode} label="电流间隔 (A)" value={config.currentStepA} onChange={(v) => update("currentStepA", v)} max={currentInputMaximum(config, snapshot)} />
         </div>
-        {config.currentPlanMode === "custom" && <CustomCurrentPlanEditor config={config} disabled={pending} maximumCurrentA={currentInputMaximum(config, snapshot)} update={update} />}
+        {agingMode ? <div className="custom-current-plan">
+          <p className="custom-current-plan__hint">CH341 从 2 A 开始，每步增加 2 A；每步等待 1 s，硬件命令保护下实际下发间隔不短于 1.1 s。到达 20 A 后不判稳，立即开始 2 小时老化计时。</p>
+        </div> : config.currentPlanMode === "custom" && <CustomCurrentPlanEditor config={config} disabled={pending} maximumCurrentA={currentInputMaximum(config, snapshot)} update={update} />}
         <div className="power-settings-parameter-grid power-settings-parameter-grid--safety">
           <NumberField label="单点超时 (s)" value={config.pointTimeoutS} onChange={(v) => update("pointTimeoutS", v)} />
           <NumberField label="下电步长 (A)" value={config.rampDownStepA} onChange={(v) => update("rampDownStepA", v)} max={currentInputMaximum(config, snapshot)} />
@@ -1537,6 +1598,7 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
         && line.yAxisId === other.yAxisId
         && line.showPoints === other.showPoints
         && line.showLatestPoint === other.showLatestPoint
+        && line.latestPointStyle === other.latestPointStyle
         && line.pointShape === other.pointShape
         && line.pointStyle === other.pointStyle
         && line.pointSize === other.pointSize
@@ -1581,7 +1643,7 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
     && sameRows(previous.annotations, next.annotations, ["label", "x", "y"])
 })
 
-const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; stretch?: boolean; heightClassName?: string }) {
+const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, latestPointMarkerStyle = "point", stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; latestPointMarkerStyle?: LatestPointMarkerStyle; stretch?: boolean; heightClassName?: string }) {
   const powerData = (snapshot?.measurements?.power ?? []) as Array<Record<string, number | null>>
   const latestElapsedS = powerData[powerData.length - 1]?.elapsedS
   const powerTimeDomain: [number, number] = typeof latestElapsedS === "number"
@@ -1598,7 +1660,7 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch 
       ? [row.powerW]
       : []
   )))
-  const lines: CanvasChartLine[] = [{ key: "powerW", label: "实时功率", color: powerStabilityColor, showLatestPoint: true }]
+  const lines: CanvasChartLine[] = [{ key: "powerW", label: "实时功率", color: powerStabilityColor, showLatestPoint: true, latestPointStyle: latestPointMarkerStyle }]
 
   return (
     <ChartPanel
@@ -1621,6 +1683,7 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch 
   const nextPower = next.snapshot?.measurements?.power
   return previous.stretch === next.stretch
     && previous.heightClassName === next.heightClassName
+    && previous.latestPointMarkerStyle === next.latestPointMarkerStyle
     && previous.snapshot?.automaticTest.currentA === next.snapshot?.automaticTest.currentA
     && previous.snapshot?.devices.powerMeter.powerW === next.snapshot?.devices.powerMeter.powerW
     && sameRows(previousPower, nextPower, ["elapsedS", "powerW"])
@@ -1940,6 +2003,7 @@ function App() {
   const [page, setPage] = useState<Page>(() => (typeof window !== "undefined" && (new URLSearchParams(window.location.search).get("page") as Page)) || "automatic")
   const [stationId, setStationId] = useState<"1" | "2">("1")
   const [theme, setTheme] = useState<Theme>(getStoredTheme)
+  const [latestPointMarkerStyle, setLatestPointMarkerStyle] = useState<LatestPointMarkerStyle>(getStoredLatestPointMarkerStyle)
   const currentView: SnapshotView = page === "automatic"
     ? (stationId === "1" ? "automatic_1" : "automatic_2")
     : page === "manual"
@@ -1957,13 +2021,6 @@ function App() {
   const configRevisionRef = useRef(0)
   const automaticSaveFlightRef = useRef<Promise<void>>(Promise.resolve())
   const pendingPersistedConfigRef = useRef<AppConfiguration | null>(null)
-  const [automaticHistoryItems, setAutomaticHistoryItems] = useState<TestHistoryCandidate[]>([])
-  const [automaticReferencePath, setAutomaticReferencePath] = useState("latest")
-  const [automaticHistoryLoading, setAutomaticHistoryLoading] = useState(false)
-  const [automaticHistoryError, setAutomaticHistoryError] = useState("")
-  const automaticHistoryCompletionSeenRef = useRef(false)
-  const automaticHistoryFlightRef = useRef<{ key: string; promise: Promise<void> } | null>(null)
-  const automaticHistoryKeyRef = useRef("")
   const [closeFailure, setCloseFailure] = useState<string | null>(null)
   const [automaticCompletion, setAutomaticCompletion] = useState<{ title: string; message: string } | null>(null)
   const [closeRequestPending, setCloseRequestPending] = useState(false)
@@ -1974,9 +2031,6 @@ function App() {
   const automaticWorkflowActive = Boolean(snapshot && !["idle", "completed"].includes(snapshot.automaticTest.state))
   const automaticPaused = snapshot?.automaticTest.state === "paused"
   const automaticInteractionLocked = automaticWorkflowActive || pendingCommand === "automatic.start"
-  const liveAcquisitionActive = automaticWorkflowActive
-    || snapshot?.devices.powerMeter.running === true
-    || snapshot?.devices.spectrometer.running === true
   const activeOutputCurrentA = snapshot?.devices.powerSupply.activeCurrentA
   const manualPowerOutputActive = Boolean(
     snapshot
@@ -1986,70 +2040,6 @@ function App() {
       || (config.powerSupplyKind === "tdk" && snapshot.devices.powerSupply.outputEnabled)
     )
   )
-  const automaticHistoryKey = `${config.outputDir.trim()}\u0000${config.sn.trim()}`
-  automaticHistoryKeyRef.current = automaticHistoryKey
-  const loadAutomaticHistory = useCallback((): Promise<void> => {
-    const outputDir = config.outputDir.trim()
-    const sn = config.sn.trim()
-    const key = `${outputDir}\u0000${sn}`
-    if (!outputDir || !sn) {
-      setAutomaticHistoryItems([])
-      return Promise.resolve()
-    }
-    const existing = automaticHistoryFlightRef.current
-    if (existing?.key === key) return existing.promise
-
-    setAutomaticHistoryLoading(true)
-    setAutomaticHistoryError("")
-    const flight = { key, promise: Promise.resolve() }
-    flight.promise = (async () => {
-      try {
-        const result = await sendBackendRequest<{ items: TestHistoryCandidate[] }>("automatic.references", {
-          outputDir,
-          sn,
-        })
-        if (automaticHistoryKeyRef.current !== key) return
-        setAutomaticHistoryItems(result.items)
-        setAutomaticReferencePath((current) => (
-          current === "latest" || current === "none" || result.items.some((item) => item.sourcePath === current)
-            ? current
-            : "latest"
-        ))
-      } catch (reason) {
-        if (automaticHistoryKeyRef.current === key) {
-          setAutomaticHistoryError(reason instanceof Error ? reason.message : String(reason))
-        }
-      } finally {
-        if (automaticHistoryFlightRef.current === flight) automaticHistoryFlightRef.current = null
-        if (automaticHistoryKeyRef.current === key) setAutomaticHistoryLoading(false)
-      }
-    })()
-    automaticHistoryFlightRef.current = flight
-    return flight.promise
-  }, [config.outputDir, config.sn])
-  useEffect(() => {
-    setAutomaticHistoryItems([])
-    setAutomaticReferencePath("latest")
-    setAutomaticHistoryError("")
-  }, [config.outputDir, config.sn])
-  useEffect(() => {
-    if (liveAcquisitionActive || !config.outputDir.trim() || !config.sn.trim()) return
-    const timer = window.setTimeout(() => void loadAutomaticHistory(), 300)
-    return () => window.clearTimeout(timer)
-  }, [liveAcquisitionActive, loadAutomaticHistory])
-  useEffect(() => {
-    const handleWindowFocus = () => {
-      if (!liveAcquisitionActive) void loadAutomaticHistory()
-    }
-    window.addEventListener("focus", handleWindowFocus)
-    return () => window.removeEventListener("focus", handleWindowFocus)
-  }, [liveAcquisitionActive, loadAutomaticHistory])
-  useEffect(() => {
-    const completed = snapshot?.automaticTest.state === "completed"
-    if (completed && !automaticHistoryCompletionSeenRef.current) void loadAutomaticHistory()
-    automaticHistoryCompletionSeenRef.current = completed
-  }, [snapshot?.automaticTest.state, loadAutomaticHistory])
-
   const attemptGracefulClose = useCallback(async () => {
     if (!("__TAURI_INTERNALS__" in window) || closeRequestInFlightRef.current) return
     closeRequestInFlightRef.current = true
@@ -2144,6 +2134,16 @@ function App() {
     setDirty(true)
   }, [])
 
+  const selectTestScript = useCallback((scriptId: string) => {
+    const script = (snapshot?.testScripts ?? BUILTIN_TEST_SCRIPT_OPTIONS).find((item) => item.id === scriptId)
+    if (!script) return
+    configRevisionRef.current += 1
+    const next = applyTestScript(configRef.current, script)
+    configRef.current = next
+    setConfig(next)
+    setDirty(true)
+  }, [snapshot?.testScripts])
+
   useEffect(() => {
     applyTheme(theme)
     try {
@@ -2152,6 +2152,14 @@ function App() {
       // The theme remains active for this session if storage is unavailable.
     }
   }, [theme])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LATEST_POINT_MARKER_STORAGE_KEY, latestPointMarkerStyle)
+    } catch {
+      // The marker preference remains active for this session if storage is unavailable.
+    }
+  }, [latestPointMarkerStyle])
 
   const pageIsBlocked = useCallback((targetPage: Page): boolean => {
     if (targetPage === "settings") return false
@@ -2331,11 +2339,11 @@ function App() {
             data-page={page}
             key={page}
           >
-            {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={active} controlsLocked={automaticInteractionLocked} stationSwitchDisabled={commandPending || dirty} pending={commandPending} run={run} saveConfiguration={saveConfiguration} historyItems={automaticHistoryItems} historyLoading={automaticHistoryLoading} historyError={automaticHistoryError} referencePath={automaticReferencePath} onReferencePathChange={setAutomaticReferencePath} stationId={stationId} onStationChange={setStationId} />}
+            {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={active} controlsLocked={automaticInteractionLocked} latestPointMarkerStyle={latestPointMarkerStyle} stationSwitchDisabled={commandPending || dirty} pending={commandPending} run={run} saveConfiguration={saveConfiguration} testScripts={snapshot?.testScripts ?? BUILTIN_TEST_SCRIPT_OPTIONS} onScriptSelect={selectTestScript} stationId={stationId} onStationChange={setStationId} />}
             {page === "manual" && <ManualPage snapshot={snapshot} config={config} update={update} active={active} pending={commandPending} run={run} stationId={stationId} />}
             {page === "pd" && <PdPage snapshot={snapshot} active={active} pending={commandPending} run={run} />}
             {page === "shipping" && <ShippingReportPage active={active} controlsLocked={automaticInteractionLocked} pending={commandPending} />}
-            {page === "settings" && <SystemSettingsPage theme={theme} onThemeChange={setTheme} />}
+            {page === "settings" && <SystemSettingsPage latestPointMarkerStyle={latestPointMarkerStyle} onLatestPointMarkerStyleChange={setLatestPointMarkerStyle} theme={theme} onThemeChange={setTheme} />}
           </div>
         </main>
       </div>
@@ -2346,7 +2354,7 @@ function App() {
 type UpdateConfig = <K extends keyof AppConfiguration>(key: K, value: AppConfiguration[K]) => void
 type RunCommand = (method: string, params?: Record<string, unknown>, sync?: boolean) => Promise<void>
 
-function SystemSettingsPage({ theme, onThemeChange }: { theme: Theme; onThemeChange: (theme: Theme) => void }) {
+function SystemSettingsPage({ theme, latestPointMarkerStyle, onThemeChange, onLatestPointMarkerStyleChange }: { theme: Theme; latestPointMarkerStyle: LatestPointMarkerStyle; onThemeChange: (theme: Theme) => void; onLatestPointMarkerStyleChange: (style: LatestPointMarkerStyle) => void }) {
   const lightMode = theme === "light"
   return (
     <section className="system-settings-page">
@@ -2356,7 +2364,7 @@ function SystemSettingsPage({ theme, onThemeChange }: { theme: Theme; onThemeCha
           <p className="mt-1 text-sm text-muted-foreground">管理软件的界面显示偏好。</p>
         </div>
       </div>
-      <Card className="system-settings-card shadow-none">
+      <Card className="system-settings-card overflow-visible shadow-none">
         <CardHeader className="system-settings-card__header">
           <div className="system-settings-card__icon"><Sun className="size-5" /></div>
           <div>
@@ -2385,6 +2393,22 @@ function SystemSettingsPage({ theme, onThemeChange }: { theme: Theme; onThemeCha
               </button>
             </div>
           </div>
+          <div className="system-settings-option">
+            <div>
+              <p className="text-sm font-medium">自动测试实时曲线最新点</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">纸飞机沿最后一段曲线旋转，上升时朝右上、下降时朝右下，设置会自动保存。</p>
+            </div>
+            <div className="system-settings-option__control">
+              <NativeSelect
+                ariaLabel="自动测试实时曲线最新点样式"
+                value={latestPointMarkerStyle}
+                onChange={(value) => onLatestPointMarkerStyleChange(value as LatestPointMarkerStyle)}
+              >
+                <option value="point">原来的点</option>
+                <option value="paper-plane">纸飞机</option>
+              </NativeSelect>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </section>
@@ -2399,6 +2423,7 @@ function currentInputMaximum(config: AppConfiguration, snapshot: BackendSnapshot
 }
 
 function updatePowerSupplyKind(config: AppConfiguration, update: UpdateConfig, kind: AppConfiguration["powerSupplyKind"]) {
+  if (config.selectedScriptId === "aging" && kind === "tdk") return
   update("powerSupplyKind", kind)
   if (kind === "tdk") return
   update("setCurrentA", Math.min(config.setCurrentA, I2C_CURRENT_LIMIT_A))
@@ -3341,15 +3366,13 @@ const AutomaticPage = memo(function AutomaticPage({
   update,
   active,
   controlsLocked,
+  latestPointMarkerStyle,
   stationSwitchDisabled,
   pending,
   run,
   saveConfiguration,
-  historyItems,
-  historyLoading,
-  historyError,
-  referencePath,
-  onReferencePathChange,
+  testScripts,
+  onScriptSelect,
   stationId,
   onStationChange,
 }: {
@@ -3358,19 +3381,20 @@ const AutomaticPage = memo(function AutomaticPage({
   update: UpdateConfig
   active: boolean
   controlsLocked: boolean
+  latestPointMarkerStyle: LatestPointMarkerStyle
   stationSwitchDisabled: boolean
   pending: boolean
   run: RunCommand
   saveConfiguration: () => Promise<void>
-  historyItems: TestHistoryCandidate[]
-  historyLoading: boolean
-  historyError: string
-  referencePath: string
-  onReferencePathChange: (path: string) => void
+  testScripts: TestScript[]
+  onScriptSelect: (scriptId: string) => void
   stationId: "1" | "2"
   onStationChange: (stationId: "1" | "2") => void
 }) {
   const auto = snapshot?.automaticTest
+  const availableTestScripts = testScripts.filter((script) => (
+    !script.powerSupplyKinds || script.powerSupplyKinds.includes(config.powerSupplyKind)
+  ))
   const [openSettings, setOpenSettings] = useState<DeviceSettingsKind | null>(null)
   const [specificationsOpen, setSpecificationsOpen] = useState(false)
   const closeSettings = () => setOpenSettings(null)
@@ -3378,7 +3402,7 @@ const AutomaticPage = memo(function AutomaticPage({
     if (controlsLocked) setOpenSettings(null)
   }, [controlsLocked])
   const startAutomaticTest = () => {
-    void run("automatic.start", { ...config, referencePath })
+    void run("automatic.start", { ...config })
   }
   const powerSupplySummary = config.powerSupplyKind === "ch341"
     ? `CH341 · ${config.initialCurrentA}A → ${config.targetCurrentA}A (${config.currentStepA}A)`
@@ -3409,7 +3433,7 @@ const AutomaticPage = memo(function AutomaticPage({
 
   return (
     <>
-      <div className="automatic-setup-panel relative z-20 shrink-0 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[minmax(110px,0.5fr)_minmax(180px,1fr)_minmax(150px,0.75fr)_minmax(190px,1fr)_minmax(280px,1.3fr)] items-end gap-3 rounded-lg border border-border/70 bg-card/40 p-3 shadow-none">
+      <div className="automatic-setup-panel relative z-20 shrink-0 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[minmax(110px,0.5fr)_minmax(160px,0.82fr)_minmax(160px,0.82fr)_minmax(190px,1fr)_minmax(280px,1.3fr)] items-end gap-3 rounded-lg border border-border/70 bg-card/40 p-3 shadow-none">
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">
             <Milestone className="mr-1 inline size-3.5" />测试工位
@@ -3434,7 +3458,7 @@ const AutomaticPage = memo(function AutomaticPage({
             <QrCode className="mr-1 inline size-3.5" />产品 SN
           </Label>
           <Input
-            className="h-9 text-xs font-mono rounded-lg"
+            className="h-9 text-[18px] md:text-[18px] leading-none font-mono rounded-lg"
             disabled={controlsLocked}
             id="automatic-sn"
             onChange={(event) => update("sn", event.target.value)}
@@ -3446,30 +3470,19 @@ const AutomaticPage = memo(function AutomaticPage({
             <Milestone className="mr-1 inline size-3.5" />测试站别
           </Label>
           <Input
-            className="h-9 text-xs rounded-lg"
+            className="h-9 text-[18px] md:text-[18px] leading-none rounded-lg"
             disabled={controlsLocked}
             id="automatic-station"
             onChange={(event) => update("station", event.target.value)}
             value={config.station}
           />
         </div>
-        <div className="space-y-1 min-w-0" title={historyError || undefined}>
-          <Label className={`text-xs ${historyError ? "text-[var(--app-warning)]" : "text-muted-foreground"}`}>
-            <History className="mr-1 inline size-3.5" />历史参考{historyLoading ? " · 自动更新中…" : ""}
+        <div className="space-y-1 min-w-0">
+          <Label className="text-xs text-muted-foreground">
+            <FileText className="mr-1 inline size-3.5" />脚本选择
           </Label>
-          <NativeSelect
-            disabled={controlsLocked || historyLoading}
-            value={referencePath}
-            onChange={onReferencePathChange}
-          >
-            <option value="latest">最新记录</option>
-            {historyItems.map((item) => {
-              const rawTime = item.startedAtUtc || new Date(item.modifiedAtMs).toISOString()
-              const timestamp = new Date(rawTime)
-              const timeLabel = Number.isNaN(timestamp.getTime()) ? rawTime : timestamp.toLocaleString()
-              return <option key={item.sourcePath} value={item.sourcePath}>{timeLabel} · {item.station || "未填写站别"} · {item.pointCount} 点</option>
-            })}
-            <option value="none">无</option>
+          <NativeSelect disabled={controlsLocked || pending} value={config.selectedScriptId} onChange={onScriptSelect}>
+            {availableTestScripts.map((script) => <option key={script.id} value={script.id}>{script.name}</option>)}
           </NativeSelect>
         </div>
         <div className="space-y-1">
@@ -3508,7 +3521,6 @@ const AutomaticPage = memo(function AutomaticPage({
           active={active}
           auto={auto}
           controlsLocked={controlsLocked}
-          historyLoading={historyLoading}
           onRetry={() => void run("automatic.retry")}
           onStart={startAutomaticTest}
           onStop={() => void run("automatic.end")}
@@ -3518,7 +3530,7 @@ const AutomaticPage = memo(function AutomaticPage({
 
       <section className={`automatic-chart-grid ${useSpectrometer ? "" : "without-spectrum"}`}>
         <div className="automatic-chart-grid__power-row">
-          <PowerRealtimeChart snapshot={snapshot} stretch />
+          <PowerRealtimeChart latestPointMarkerStyle={latestPointMarkerStyle} snapshot={snapshot} stretch />
           <PowerEfficiencyChart snapshot={snapshot} stretch />
         </div>
         {useSpectrometer && (
@@ -3541,11 +3553,9 @@ const AutomaticPage = memo(function AutomaticPage({
   && previous.stationId === next.stationId
   && previous.onStationChange === next.onStationChange
   && previous.controlsLocked === next.controlsLocked
+  && previous.latestPointMarkerStyle === next.latestPointMarkerStyle
   && previous.pending === next.pending
-  && previous.historyItems === next.historyItems
-  && previous.historyLoading === next.historyLoading
-  && previous.historyError === next.historyError
-  && previous.referencePath === next.referencePath
+  && previous.testScripts === next.testScripts
   && configurationsEqual(previous.config, next.config)
   && sameAutomaticTestState(previous.snapshot?.automaticTest, next.snapshot?.automaticTest)
   && sameDeviceSnapshot(previous.snapshot?.devices.powerSupply, next.snapshot?.devices.powerSupply)
@@ -3766,7 +3776,7 @@ const ManualPage = memo(function ManualPage({
           <ManualSectionHeading>资源设置</ManualSectionHeading>
           {config.powerSupplyKind === "tdk" ? <>
             <div className="manual-power-source-grid">
-              <Field label="控制器"><NativeSelect disabled={!active || pending || psu?.detecting || psu?.connected} value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
+              <Field label="控制器"><NativeSelect disabled={!active || pending || psu?.detecting || psu?.connected} value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option disabled={config.selectedScriptId === "aging"} value="tdk">{config.selectedScriptId === "aging" ? "TDK RS232（AU 老化测试不可用）" : "TDK RS232"}</option></NativeSelect></Field>
               <Field label="TDK 串口">
               <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
                 <NativeSelect disabled={!active || pending || psu?.detecting || psu?.connected} value={selectedPowerSupplyResource} onChange={(value) => update("tdkResource", value)}>
@@ -3798,7 +3808,7 @@ const ManualPage = memo(function ManualPage({
             </div>
           </> : <>
             <div className="manual-power-source-grid">
-              <Field label="控制器"><NativeSelect disabled={!active || pending || psu?.detecting || psu?.connected} value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option value="tdk">TDK RS232</option></NativeSelect></Field>
+              <Field label="控制器"><NativeSelect disabled={!active || pending || psu?.detecting || psu?.connected} value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option disabled={config.selectedScriptId === "aging"} value="tdk">{config.selectedScriptId === "aging" ? "TDK RS232（AU 老化测试不可用）" : "TDK RS232"}</option></NativeSelect></Field>
               <Ch341PortSelector
                 config={config}
                 snapshot={snapshot}

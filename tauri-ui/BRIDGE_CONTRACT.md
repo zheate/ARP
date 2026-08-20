@@ -24,14 +24,16 @@ The bridge being connected never means a physical device is connected. Every dev
 - Power supply: `powerSupply.connect`, `powerSupply.disconnect`, `powerSupply.setCurrent`, `powerSupply.setVoltage`, `powerSupply.setOutput`, `powerSupply.read`
 - Power meter: `powerMeter.start`, `powerMeter.stop`, `powerMeter.setRelativeZero`
 - Spectrometer: `spectrometer.start`, `spectrometer.stop`, `spectrometer.saveCsv`
-- Automatic test: `automatic.references`, `automatic.start`, `automatic.pause`, `automatic.retry`, `automatic.end`, `automatic.reset`
+- Automatic test: `automatic.start`, `automatic.pause`, `automatic.retry`, `automatic.end`, `automatic.reset`
 - Shipping report: `shippingReport.inspect`, `shippingReport.batchInspect`, `shippingReport.batchGenerateItem`, `shippingReport.preview`, `shippingReport.generate`
 - PD: `pd.refresh`, `pd.configure`, `pd.start`, `pd.stop`
 - Charts: `charts.reset`
 
 Every successful mutation returns a fresh full snapshot. The routine snapshot stream passes the active `view` (`automatic`, `manual`, `pd`, or `shipping`) so large chart and PD point arrays are only serialized for their consumer. Automatic and manual live views refresh at most five times per second, while PD and shipping refresh at most twice per second. Streaming pauses while the WebView is hidden. The acquisition threads continue at their configured hardware sampling rates.
 
-`automatic.start` accepts the selected history `referencePath`. The Python backend resolves it only against completed records for the current SN and returns the selected reference in `automaticTest.reference`; a path outside that set is rejected.
+`automatic.start` automatically resolves the newest completed record for the current SN from the output directory and returns it in `automaticTest.reference`. Missing or unreadable history remains non-blocking. The UI only exposes script selection; script parameters remain part of the normal station configuration and are saved through `app.configure`.
+
+`testScripts` contains the built-in script choices and may include `powerSupplyKinds` to restrict availability. `aging` is CH341-only: its parameters are fixed to 2 A through 20 A in 2 A increments, with a one-second wait requested between steps (the CH341 command guard keeps physical commands at least 1.1 seconds apart). It performs no power or spectrum stability decision at 20 A and starts a fixed 7200-second hold immediately. While `aging` is selected, every power-controller menu keeps `TDK RS232` visible but disabled and explains that the script is unavailable for it. TDK configurations selecting `aging` are rejected by Python even if the UI is bypassed.
 
 After the first full response, the frontend returns `seriesRevisions` as `params.since`. Unchanged power, stable-point, spectrum, and PD arrays are omitted and the frontend retains the previous arrays. Power and PD additionally send their last displayed `elapsedS` values in `params.cursors`; when the bounded history is continuous, the response uses `seriesPatches` to append only newer points and supplies `startX` so the frontend can discard points that left the display window. A missing cursor, reset curve, page change, or explicit refresh falls back to a complete array.
 
@@ -63,7 +65,7 @@ Backend notices are retained as a bounded queue of the most recent eight entries
 
 - Python is the single owner of physical device commands and automatic-test state.
 - UI actions call existing controller methods; JavaScript never generates current sequences or decides that shutdown succeeded.
-- Automatic start remains gated by SN, station, output directory, power supply, selected measurement resources, and validated timing/current settings.
+- Ordinary automatic tests remain gated by SN, station, output directory, power supply, selected measurement resources, and validated timing/current settings. The CH341-only aging script requires only its power supply because it does not collect or judge measurement points.
 - TDK output enable still requires a programmed and measured zero-current state.
 - End, emergency stop, disconnect, bridge shutdown, and process disposal use the existing zero-current/output-off boundary.
 - An unconfirmed TDK output-off state is surfaced as `safety.outputShutdownUnconfirmed` and must never be presented as a successful terminal result.

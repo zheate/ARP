@@ -93,6 +93,98 @@ class HeadlessBackendTests(unittest.TestCase):
         self.assertIn("automaticTest", snapshot)
         self.assertIn("configuration", snapshot)
         self.assertNotIn("points", snapshot["pd"])
+        aging_script = next(item for item in snapshot["testScripts"] if item["id"] == "aging")
+        self.assertEqual(aging_script["powerSupplyKinds"], ["ch341"])
+
+    def test_aging_script_is_fixed_to_ch341_two_amp_ramp_and_two_hour_hold(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            backend = self.backend(directory)
+            station = backend.stations["1"]
+            station.configure(
+                {
+                    "powerSupplyKind": "ch341",
+                    "selectedScriptId": "aging",
+                    "initialCurrentA": 8,
+                    "targetCurrentA": 10,
+                    "currentStepA": 1,
+                    "currentPlanMode": "range",
+                    "customCurrentPoints": [],
+                }
+            )
+
+            self.assertEqual(station.configuration["initialCurrentA"], 2.0)
+            self.assertEqual(station.configuration["targetCurrentA"], 20.0)
+            self.assertEqual(station.configuration["currentStepA"], 2.0)
+            self.assertEqual(
+                station.configuration["customCurrentPoints"],
+                [{"currentA": 20.0, "dwellS": 7_200.0}],
+            )
+
+            settings = station._automatic_settings()
+            station.automatic.start(
+                settings,
+                power_meter_ready=False,
+                spectrum_meter_ready=False,
+            )
+            waited: list[float] = []
+
+            def wait_duration(duration_s: float, **_kwargs: object) -> bool:
+                waited.append(duration_s)
+                return True
+
+            with (
+                patch.object(station, "_set_automatic_current") as set_current,
+                patch.object(station, "_wait_automatic_duration", side_effect=wait_duration),
+                patch.object(
+                    station,
+                    "_wait_for_automatic_stability",
+                    side_effect=AssertionError("AU 老化测试不应判稳"),
+                ) as wait_stable,
+            ):
+                station._run_aging_cycle()
+
+            self.assertEqual(
+                [call.args[0] for call in set_current.call_args_list],
+                [2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0],
+            )
+            self.assertEqual(waited, [1.0] * 9 + [7_200.0])
+            wait_stable.assert_not_called()
+
+    def test_tdk_rejects_aging_script(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            station = self.backend(directory).stations["1"]
+
+            with self.assertRaisesRegex(ValueError, "仅支持 CH341"):
+                station.configure(
+                    {
+                        "powerSupplyKind": "tdk",
+                        "selectedScriptId": "aging",
+                    }
+                )
+
+            self.assertEqual(station.power_supply_kind, "ch341")
+            self.assertEqual(station.configuration["selectedScriptId"], "standard")
+
+    def test_aging_start_does_not_require_measurement_devices(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            station = self.backend(directory).stations["1"]
+            station.power_supply_controller = _FakeController()
+
+            with (
+                patch("tauri_bridge.headless_backend.threading.Thread") as thread_class,
+                patch.object(station, "start_power_meter") as start_power_meter,
+                patch.object(station, "start_spectrometer") as start_spectrometer,
+            ):
+                station.start_automatic(
+                    {
+                        "powerSupplyKind": "ch341",
+                        "selectedScriptId": "aging",
+                    }
+                )
+
+            start_power_meter.assert_not_called()
+            start_spectrometer.assert_not_called()
+            thread_class.return_value.start.assert_called_once_with()
 
     def test_manual_power_meter_start_clears_power_efficiency_history(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

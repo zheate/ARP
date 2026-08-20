@@ -83,6 +83,12 @@ from .settings import JsonSettings
 
 _LOGGER = get_runtime_logger("headless_backend")
 MIN_SPECTRUM_PEAK_INTENSITY = 500.0
+AGING_TEST_SCRIPT_ID = "aging"
+AGING_START_CURRENT_A = 2.0
+AGING_TARGET_CURRENT_A = 20.0
+AGING_CURRENT_STEP_A = 2.0
+AGING_RAMP_INTERVAL_S = 1.0
+AGING_HOLD_DURATION_S = 2.0 * 60.0 * 60.0
 
 
 class _DeviceDiscoveryThread(WorkerThread):
@@ -149,6 +155,7 @@ DEFAULT_CONFIGURATION: dict[str, Any] = {
     "initialCurrentA": 1.0,
     "targetCurrentA": 20.0,
     "currentStepA": 3.0,
+    "selectedScriptId": "standard",
     "currentPlanMode": "range",
     "customCurrentPoints": [],
     "pointTimeoutS": 120.0,
@@ -156,6 +163,32 @@ DEFAULT_CONFIGURATION: dict[str, Any] = {
     "rampDownIntervalS": 1.1,
     "pauseRampDownTimeoutS": 30.0,
 }
+
+BUILTIN_TEST_SCRIPTS: tuple[dict[str, Any], ...] = (
+    {"id": "standard", "name": "标准测试", "builtin": True, "currentPlanMode": "range"},
+    {"id": "hold-points", "name": "增加停留点", "builtin": True, "currentPlanMode": "custom"},
+    {
+        "id": AGING_TEST_SCRIPT_ID,
+        "name": "AU 老化测试",
+        "builtin": True,
+        "currentPlanMode": "custom",
+        "powerSupplyKinds": ["ch341"],
+    },
+)
+
+
+def _apply_aging_script_configuration(configuration: dict[str, Any]) -> None:
+    configuration.update(
+        {
+            "initialCurrentA": AGING_START_CURRENT_A,
+            "targetCurrentA": AGING_TARGET_CURRENT_A,
+            "currentStepA": AGING_CURRENT_STEP_A,
+            "currentPlanMode": "custom",
+            "customCurrentPoints": [
+                {"currentA": AGING_TARGET_CURRENT_A, "dwellS": AGING_HOLD_DURATION_S}
+            ],
+        }
+    )
 
 
 def _finite(value: Any) -> float | None:
@@ -347,6 +380,13 @@ class StationRuntime:
         self.power_meter_configuration_migrated = _normalize_power_meter_configuration(
             self.configuration
         )
+
+        if str(self.configuration.get("selectedScriptId", "standard")) == AGING_TEST_SCRIPT_ID:
+            if str(self.configuration.get("powerSupplyKind", "ch341")).lower() == "ch341":
+                _apply_aging_script_configuration(self.configuration)
+            else:
+                self.configuration["selectedScriptId"] = "standard"
+                self.configuration["currentPlanMode"] = "range"
 
         self.power_supply_controller: Any | None = None
         self.power_supply_kind = str(self.configuration["powerSupplyKind"])
@@ -813,6 +853,11 @@ class StationRuntime:
             kind = str(params.get("powerSupplyKind", self.configuration["powerSupplyKind"])).lower()
             if kind not in {"ch341", "tdk"}:
                 raise ValueError("powerSupplyKind must be ch341 or tdk")
+            selected_script_id = str(
+                params.get("selectedScriptId", self.configuration["selectedScriptId"])
+            )
+            if selected_script_id == AGING_TEST_SCRIPT_ID and kind != "ch341":
+                raise ValueError("AU 老化测试仅支持 CH341 电源，TDK RS232 不允许使用此模式")
 
             if "ch341PortBindings" in params:
                 raw_bindings = params["ch341PortBindings"]
@@ -854,6 +899,8 @@ class StationRuntime:
             for key in DEFAULT_CONFIGURATION:
                 if key in params:
                     self.configuration[key] = params[key]
+            if selected_script_id == AGING_TEST_SCRIPT_ID:
+                _apply_aging_script_configuration(self.configuration)
 
             if "powerMeterResource" in params or "powerMeterDriverKind" in params:
                 _normalize_power_meter_configuration(
@@ -1388,7 +1435,10 @@ class StationRuntime:
     def _on_power_failed(self, message: str) -> None:
         self.power_meter_error = str(message)
         self.notify("error", "功率计", message)
-        if self.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED}:
+        if (
+            not self._aging_test_selected()
+            and self.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED}
+        ):
             self.automatic.power_meter_ready = False
             self._request_automatic_point_retry(
                 AttemptValidity.DEVICE_ERROR,
@@ -1398,7 +1448,7 @@ class StationRuntime:
     def _on_power_finished(self) -> None:
         self.power_meter_reader = None
         self.automatic.power_meter_ready = False
-        if not self._expected_power_meter_stop:
+        if not self._expected_power_meter_stop and not self._aging_test_selected():
             self._request_automatic_point_retry(
                 AttemptValidity.DEVICE_ERROR,
                 "功率计采集已停止",
@@ -1492,7 +1542,7 @@ class StationRuntime:
                 saturated = bool(frame.saturation and frame.saturation.saturated)
             else:
                 saturated = False
-        if saturated and self.automatic.state in {
+        if saturated and not self._aging_test_selected() and self.automatic.state in {
             AutomaticTestState.WAITING_STABLE,
             AutomaticTestState.WAITING_VOLTAGE,
         }:
@@ -1590,7 +1640,10 @@ class StationRuntime:
     def _on_spectrometer_failed(self, message: str) -> None:
         self.spectrometer_error = str(message)
         self.notify("error", "光谱仪", message)
-        if self.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED}:
+        if (
+            not self._aging_test_selected()
+            and self.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED}
+        ):
             self.automatic.spectrum_meter_ready = False
             self._request_automatic_point_retry(
                 AttemptValidity.DEVICE_ERROR,
@@ -1672,7 +1725,9 @@ class StationRuntime:
             ramp_down_step_a=float(self.configuration["rampDownStepA"]),
             ramp_down_interval_s=float(self.configuration["rampDownIntervalS"]),
             pause_ramp_down_timeout_s=float(self.configuration["pauseRampDownTimeoutS"]),
-            use_spectrometer=self.spectrometer_reader is not None,
+            use_spectrometer=(
+                self.spectrometer_reader is not None and not self._aging_test_selected()
+            ),
             maximum_current_a=None if self.power_supply_kind == "tdk" else 20.0,
             current_plan_mode=str(self.configuration["currentPlanMode"]),
             custom_current_points=points,
@@ -1687,11 +1742,16 @@ class StationRuntime:
             post_stable_delay_s=10.0,
         )
 
+    def _aging_test_selected(self) -> bool:
+        return str(self.configuration.get("selectedScriptId", "standard")) == AGING_TEST_SCRIPT_ID
+
     def start_automatic(self, params: dict[str, Any]) -> None:
         if self._automatic_thread is not None and self._automatic_thread.is_alive():
             raise ValueError(f"工位 {self.station_id} 自动测试已在运行")
         self.configure(params)
-        self._select_test_reference(params)
+        aging_test = self._aging_test_selected()
+        if not aging_test:
+            self._select_latest_test_reference(params)
         supply = self._require_power_supply()
         if self.power_supply_kind == "tdk" and not supply.output_enabled:
             raise ValueError("请先开启 TDK 电源输出")
@@ -1724,7 +1784,10 @@ class StationRuntime:
         self._automatic_retry_reason = ""
         self._automatic_pause_holds_current = False
         try:
-            self._begin_recording_session(settings)
+            if aging_test:
+                self.record_store = SessionRecordStore()
+            else:
+                self._begin_recording_session(settings)
         except Exception as exc:
             self.automatic = AutomaticTestOrchestrator()
             self.record_store = SessionRecordStore()
@@ -1732,17 +1795,19 @@ class StationRuntime:
             self.export_error = str(exc)
             self._close_automatic_sample_recorder()
             raise
-        started_power_reader = self.power_meter_reader is None
-        started_spectrum_reader = settings.use_spectrometer and self.spectrometer_reader is None
+        started_power_reader = not aging_test and self.power_meter_reader is None
+        started_spectrum_reader = (
+            not aging_test and settings.use_spectrometer and self.spectrometer_reader is None
+        )
         try:
-            if self.power_meter_reader is None:
+            if not aging_test and self.power_meter_reader is None:
                 self.start_power_meter()
-            else:
+            elif not aging_test:
                 self.power_meter_reader.update_stability_settings(
                     float(self.configuration["stableWindowS"]),
                     float(self.configuration["stableToleranceW"]),
                 )
-            if settings.use_spectrometer:
+            if not aging_test and settings.use_spectrometer:
                 self.configuration["autoIntegration"] = False
                 if self.spectrometer_reader is None:
                     self.start_spectrometer()
@@ -2128,11 +2193,40 @@ class StationRuntime:
             if self._await_automatic_resume() is None:
                 raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
 
+    def _run_aging_cycle(self) -> None:
+        currents = self.automatic.currents
+        for index, current_a in enumerate(currents):
+            self.automatic.current_index = index
+            self.automatic.set_state(AutomaticTestState.SETTING_CURRENT)
+            self.automatic_detail = f"老化升流：正在设置 {current_a:g} A"
+            self._set_automatic_current(current_a)
+            if index < len(currents) - 1 and not self._wait_automatic_duration(
+                AGING_RAMP_INTERVAL_S
+            ):
+                raise RuntimeError(self.automatic_terminal_reason or "AU 老化测试已停止")
+
+        self.automatic.set_state(AutomaticTestState.WAITING_VOLTAGE)
+        self.automatic_hold_started_at = time.monotonic()
+        self.automatic_detail = "已到达 20 A，不判稳，正在老化计时 2 小时"
+        if not self._wait_automatic_duration(AGING_HOLD_DURATION_S):
+            raise RuntimeError(self.automatic_terminal_reason or "AU 老化测试已停止")
+
     def _run_automatic(self) -> None:
         try:
             settings = self.automatic.settings
             if settings is None:
                 raise RuntimeError("自动测试配置不可用")
+
+            if self._aging_test_selected():
+                self._run_aging_cycle()
+                self.safe_ramp_down()
+                self.automatic.complete()
+                self.automatic_terminal_outcome = "succeeded"
+                self.automatic_terminal_reason = "AU 老化测试已完成并安全下电"
+                self.automatic_detail = "AU 老化测试已完成并安全下电"
+                self.export_status = "idle"
+                self.notify("info", "AU 老化测试", "2 小时老化已完成，电源已安全下电")
+                return
 
             for index, current_a in enumerate(self.automatic.currents):
                 self.automatic.current_index = index
@@ -2407,19 +2501,9 @@ class StationRuntime:
         sn = str(params.get("sn", self.configuration["sn"])).strip()
         return find_test_history(output, sn) if output and sn else ()
 
-    def _select_test_reference(self, params: dict[str, Any]) -> None:
-        selection = str(params.get("referencePath", "latest")).strip()
-        if selection == "none":
-            self._test_reference = None
-            return
+    def _select_latest_test_reference(self, params: dict[str, Any]) -> None:
         records = self._history_records(params)
-        if selection in {"", "latest"}:
-            self._test_reference = records[0] if records else None
-            return
-        selected = next((r for r in records if str(r.inspection.source_path) == selection), None)
-        if selected is None:
-            raise ValueError("选择的参考记录不属于当前壳体")
-        self._test_reference = selected
+        self._test_reference = records[0] if records else None
 
     def summary_snapshot(self) -> dict[str, Any]:
         with self._lock:
@@ -2719,9 +2803,6 @@ class HeadlessBackend:
     def _history_records(self, params: dict[str, Any]) -> tuple[Any, ...]:
         return self.stations["1"]._history_records(params)
 
-    def _select_test_reference(self, params: dict[str, Any]) -> None:
-        self.stations["1"]._select_test_reference(params)
-
     def check_device_conflicts(self, target_station_id: str, device_type: str, resource_identifier: Any) -> None:
         """Prevent Station 1 and Station 2 from binding to the same physical hardware."""
         for other_id, other_st in self.stations.items():
@@ -2831,7 +2912,6 @@ class HeadlessBackend:
             "spectrometer.stop": lambda _p: st.stop_spectrometer(),
             "spectrometer.saveCsv": lambda p: st.save_spectrum_csv(p),
             "automatic.start": lambda p: st.start_automatic(p),
-            "automatic.references": lambda p: self._list_automatic_references(p),
             "automatic.pause": lambda _p: st.pause_automatic(),
             "automatic.retry": lambda _p: st.resume_automatic(),
             "automatic.end": lambda _p: st.end_automatic(),
@@ -2853,13 +2933,11 @@ class HeadlessBackend:
         if action is None:
             raise KeyError(method)
         result = action(params)
-        if method not in {"automatic.references", "shippingReport.inspect", "shippingReport.batchInspect"}:
+        if method not in {"shippingReport.inspect", "shippingReport.batchInspect"}:
             self._persist_configuration()
         return self.snapshot(params) if result is None else result
 
     def dispatch_file_task(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
-        if method == "automatic.references":
-            return self._list_automatic_references(params)
         if method == "shippingReport.inspect":
             return self._inspect_shipping_report(params)
         if method == "shippingReport.batchInspect":
@@ -3062,11 +3140,6 @@ class HeadlessBackend:
     def _set_current(self, params: dict[str, Any]) -> None:
         st = self._station(self._station_id_from_params(params))
         st.set_current(params)
-
-    def _list_automatic_references(self, params: dict[str, Any]) -> dict[str, Any]:
-        st = self._station(self._station_id_from_params(params))
-        records = st._history_records(params)
-        return {"items": [record.summary_payload() for record in records]}
 
     def _report_module(self) -> Any:
         from combined_test import shipping_report
@@ -3581,6 +3654,7 @@ class HeadlessBackend:
             },
             "configuration": dict(active_st.configuration),
             "configurations": {sid: dict(st.configuration) for sid, st in self.stations.items()},
+            "testScripts": [dict(item) for item in BUILTIN_TEST_SCRIPTS],
             "devices": {
                 "powerSupply": {
                     "state": "connecting" if power_supply_detecting else _device_state(supply is not None, False, active_st.power_supply_identity_error),

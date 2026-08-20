@@ -101,6 +101,7 @@ export interface AppConfiguration {
   initialCurrentA: number
   targetCurrentA: number
   currentStepA: number
+  selectedScriptId: string
   currentPlanMode: "range" | "custom"
   customCurrentPoints: Array<{ currentA: number; dwellS: number }>
   pointTimeoutS: number
@@ -148,12 +149,21 @@ export interface TestHistoryReference extends TestHistoryCandidate {
   points: Array<{ currentA: number; powerW: number }>
 }
 
+export interface TestScript {
+  id: string
+  name: string
+  builtin: boolean
+  currentPlanMode: "range" | "custom"
+  powerSupplyKinds?: AppConfiguration["powerSupplyKind"][]
+}
+
 export interface BackendSnapshot {
   capturedAt: string
   seriesRevisions?: SeriesRevisions
   activeStation?: string
   stations?: Record<string, StationSummary>
   configurations?: Record<string, AppConfiguration>
+  testScripts?: TestScript[]
   backend: {
     connected: boolean
     mode: BackendMode

@@ -53,6 +53,7 @@ const DEMO_SNAPSHOT: BackendSnapshot = {
     initialCurrentA: 2,
     targetCurrentA: 12,
     currentStepA: 2,
+    selectedScriptId: "standard",
     currentPlanMode: "range",
     customCurrentPoints: [{ currentA: 3, dwellS: 300 }, { currentA: 5, dwellS: 300 }],
     pointTimeoutS: 120,
@@ -60,6 +61,11 @@ const DEMO_SNAPSHOT: BackendSnapshot = {
     rampDownIntervalS: 1.1,
     pauseRampDownTimeoutS: 30,
   },
+  testScripts: [
+    { id: "standard", name: "标准测试", builtin: true, currentPlanMode: "range" },
+    { id: "hold-points", name: "增加停留点", builtin: true, currentPlanMode: "custom" },
+    { id: "aging", name: "AU 老化测试", builtin: true, currentPlanMode: "custom", powerSupplyKinds: ["ch341"] },
+  ],
   devices: {
     powerSupply: {
       state: "connected",
@@ -343,7 +349,7 @@ export function useBackendSnapshot(view: SnapshotView) {
     }
 
     const start = async () => {
-      if (cancelled || document.visibilityState === "hidden") return
+      if (cancelled) return
       const epoch = ++streamEpoch
       setLoading(true)
       try {
@@ -373,13 +379,12 @@ export function useBackendSnapshot(view: SnapshotView) {
       }
     }
 
-    const handleVisibilityChange = () => document.visibilityState === "hidden" ? stop() : void start()
-    document.addEventListener("visibilitychange", handleVisibilityChange)
+    // The automatic test and its live charts must continue updating while the
+    // native window is hidden, minimized, or covered by another application.
     void start()
     return () => {
       cancelled = true
       stop()
-      document.removeEventListener("visibilitychange", handleVisibilityChange)
     }
   }, [loadSnapshot, view])
 

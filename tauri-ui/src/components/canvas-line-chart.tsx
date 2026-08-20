@@ -8,6 +8,7 @@ export type CanvasChartLine = {
   yAxisId?: "left" | "right"
   showPoints?: boolean
   showLatestPoint?: boolean
+  latestPointStyle?: "point" | "paper-plane"
   pointShape?: "circle" | "triangle"
   pointStyle?: "solid" | "hollow"
   pointSize?: number
@@ -352,6 +353,44 @@ function drawPoint(
   context.restore()
 }
 
+function drawPaperPlane(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  color: string,
+  size: number,
+  angle: number,
+): void {
+  const radius = size / 2
+  context.save()
+  context.translate(x, y)
+  context.rotate(angle)
+  context.lineJoin = "round"
+  context.lineCap = "round"
+  context.fillStyle = color
+  context.strokeStyle = "hsl(42 7% 25%)"
+  context.lineWidth = 1.2
+  context.shadowColor = color
+  context.shadowBlur = 4
+  context.beginPath()
+  context.moveTo(radius * 1.15, 0)
+  context.lineTo(-radius * 0.9, -radius * 0.72)
+  context.lineTo(-radius * 0.28, 0)
+  context.lineTo(-radius * 0.9, radius * 0.72)
+  context.closePath()
+  context.fill()
+  context.stroke()
+  context.shadowBlur = 0
+  context.beginPath()
+  context.moveTo(-radius * 0.9, -radius * 0.72)
+  context.lineTo(-radius * 0.28, 0)
+  context.lineTo(radius * 1.15, 0)
+  context.strokeStyle = "hsl(42 7% 25% / 0.72)"
+  context.lineWidth = 0.9
+  context.stroke()
+  context.restore()
+}
+
 function drawBaseChart(
   canvas: HTMLCanvasElement,
   container: HTMLDivElement,
@@ -504,22 +543,38 @@ function drawBaseChart(
   for (const line of lines) {
     if (line.showPoints || !line.showLatestPoint) continue
     const scale = line.yAxisId === "right" && layout.rightY ? layout.rightY : layout.leftY
+    let latestPoint: { x: number; y: number } | null = null
+    let previousPoint: { x: number; y: number } | null = null
     for (let index = data.length - 1; index >= 0; index -= 1) {
       const xValue = data.valueAt(index, xKey)
       const yValue = data.valueAt(index, line.key)
       if (xValue === null || yValue === null) continue
       if (xValue < layout.x.min || xValue > layout.x.max) continue
+      const point = { x: mapX(xValue, layout), y: mapY(yValue, scale, layout) }
+      if (!latestPoint) {
+        latestPoint = point
+        continue
+      }
+      previousPoint = point
+      break
+    }
+    if (!latestPoint) continue
+    if (line.latestPointStyle === "paper-plane") {
+      const angle = previousPoint
+        ? Math.atan2(latestPoint.y - previousPoint.y, latestPoint.x - previousPoint.x)
+        : 0
+      drawPaperPlane(context, latestPoint.x, latestPoint.y, line.color, line.pointSize ?? 15, angle)
+    } else {
       drawPoint(
         context,
-        mapX(xValue, layout),
-        mapY(yValue, scale, layout),
+        latestPoint.x,
+        latestPoint.y,
         line.color,
         line.pointShape ?? "circle",
         line.pointSize ?? 7,
         line.pointStyle ?? "solid",
         chartBackground,
       )
-      break
     }
   }
 
@@ -642,9 +697,9 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     return () => observer.disconnect()
   }, [])
 
-  // Coalesce data-driven redraws through requestAnimationFrame so a burst of
-  // snapshot updates draws at most once per frame instead of synchronously
-  // clearing and repainting the full chart for every update.
+  // Coalesce visible redraws through requestAnimationFrame. Chromium pauses
+  // requestAnimationFrame for hidden/occluded windows, so draw synchronously
+  // for background updates to keep the offscreen canvas current.
   const baseDrawArgsRef = useRef<null | {
     size: ChartSize
     layout: ChartLayout
@@ -669,7 +724,13 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
 
   useEffect(() => {
     baseDrawArgsRef.current = { size, layout, chartData, displayIndexes, xKey, lines, annotations, xLabel, xTickSuffix, yLabel }
-    if (baseFrameRef.current === null) {
+    if (document.visibilityState === "hidden") {
+      if (baseFrameRef.current !== null) {
+        window.cancelAnimationFrame(baseFrameRef.current)
+        baseFrameRef.current = null
+      }
+      flushBaseDraw()
+    } else if (baseFrameRef.current === null) {
       baseFrameRef.current = window.requestAnimationFrame(flushBaseDraw)
     }
   }, [annotations, chartData, displayIndexes, layout, lines, size, xKey, xLabel, xTickSuffix, yLabel, flushBaseDraw])

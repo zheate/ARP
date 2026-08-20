@@ -82,16 +82,14 @@ class TestHistoryTests(unittest.TestCase):
 
             backend = HeadlessBackend(JsonSettings(root / "settings.json"))
             backend.configuration.update({"outputDir": str(root), "sn": sn})
-            backend._select_test_reference({"referencePath": "latest"})
+            backend.stations["1"]._select_latest_test_reference({})
             self.assertEqual(backend._test_reference.station, "站别 B")
             self.assertEqual(
                 backend.snapshot({"view": "automatic"})["automaticTest"]["reference"]["station"],
                 "站别 B",
             )
-            backend._select_test_reference({"referencePath": str(records[-1].inspection.source_path)})
-            self.assertEqual(backend._test_reference.station, "站别 A")
-            with self.assertRaisesRegex(ValueError, "不属于当前壳体"):
-                backend._select_test_reference({"referencePath": str(root / "other.xlsx")})
+            backend.stations["1"]._select_latest_test_reference({"referencePath": str(records[-1].inspection.source_path)})
+            self.assertEqual(backend._test_reference.station, "站别 B")
 
     def test_unchanged_history_workbooks_are_not_reopened(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

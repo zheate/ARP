@@ -304,7 +304,6 @@ class TauriBridgeServiceTests(unittest.TestCase):
             BACKGROUND_FILE_TASK_METHODS,
             frozenset(
                 {
-                    "automatic.references",
                     "shippingReport.inspect",
                     "shippingReport.batchInspect",
                 }
