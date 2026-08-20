@@ -2295,8 +2295,9 @@ function App() {
               </button>
             ))}
           </nav>
-          <div className="mt-auto border-t border-border/60 px-3 pt-3 text-xs text-[var(--app-text-tertiary)]">
-            授权信息
+          <div className="mt-auto border-t border-border/60 px-3 pt-3 text-xs">
+            <p className="text-[var(--app-text-tertiary)]">授权状态</p>
+            <p className="mt-1 font-medium text-[var(--app-success)]">已授权</p>
           </div>
         </aside>
 
@@ -2374,7 +2375,7 @@ function SystemSettingsPage({ theme, latestPointMarkerStyle, onThemeChange, onLa
         </CardHeader>
         <CardContent>
           <div className="system-settings-option">
-            <div>
+            <div className="system-settings-option__copy">
               <p className="text-sm font-medium">浅色模式</p>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">开启后使用明亮背景与深色文字，设置会自动保存。</p>
             </div>
@@ -2394,7 +2395,7 @@ function SystemSettingsPage({ theme, latestPointMarkerStyle, onThemeChange, onLa
             </div>
           </div>
           <div className="system-settings-option">
-            <div>
+            <div className="system-settings-option__copy">
               <p className="text-sm font-medium">自动测试实时曲线最新点</p>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">纸飞机沿最后一段曲线旋转，上升时朝右上、下降时朝右下，设置会自动保存。</p>
             </div>

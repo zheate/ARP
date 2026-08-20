@@ -102,11 +102,13 @@ body {
 }
 
 .system-settings-page {
-  width: min(100%, 46rem);
+  width: min(100%, 52rem);
+  margin-inline: auto;
+  padding-top: clamp(0.5rem, 2vh, 1.5rem);
 }
 
 .system-settings-page__heading {
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.75rem;
 }
 
 .system-settings-card__header {
@@ -129,20 +131,50 @@ body {
 }
 
 .system-settings-option {
-  display: flex;
-  min-height: 5.25rem;
+  display: grid;
+  min-height: 5.75rem;
+  grid-template-columns: minmax(0, 1fr) 12rem;
   align-items: center;
-  justify-content: space-between;
-  gap: 1.5rem;
+  gap: 2rem;
   border-top: 1px solid var(--border);
-  padding-top: 1rem;
+  padding-block: 1rem;
+}
+
+.system-settings-option__copy {
+  min-width: 0;
 }
 
 .system-settings-option__control {
   display: flex;
-  flex: 0 0 auto;
   align-items: center;
+  justify-content: flex-end;
   gap: 0.75rem;
+}
+
+.system-settings-option__control > .relative {
+  width: 8.5rem;
+}
+
+@media (max-width: 52rem) {
+  .system-settings-page {
+    padding-top: 0;
+  }
+
+  .system-settings-option {
+    grid-template-columns: minmax(0, 1fr) 10rem;
+    gap: 1.25rem;
+  }
+}
+
+@media (max-width: 40rem) {
+  .system-settings-option {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+
+  .system-settings-option__control {
+    justify-content: flex-start;
+  }
 }
 
 .theme-switch {
