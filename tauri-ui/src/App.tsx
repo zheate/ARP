@@ -43,6 +43,7 @@ import { Separator } from "@/components/ui/separator"
 import { useBackendSnapshot } from "@/hooks/use-backend-snapshot"
 import { sendBackendRequest, type AppConfiguration, type BackendSnapshot, type DeviceSnapshot, type ShippingReportBatchGenerationResult, type ShippingReportBatchInspection, type ShippingReportBatchItem, type ShippingReportFieldDefinition, type ShippingReportGenerationResult, type ShippingReportPointSuggestion, type ShippingReportPreviewResult, type ShippingReportType, type ShippingWorkbookInspection, type SnapshotView, type SpectrumAxisMode, type TestHistoryCandidate } from "@/lib/backend"
 import { powerMeterResourceValue } from "@/lib/power-meter-resource"
+import { spectrumPeakAnnotations } from "@/lib/spectrum-annotations"
 
 type Page = "automatic" | "manual" | "pd" | "shipping" | "settings"
 type Theme = "dark" | "light"
@@ -1771,7 +1772,7 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
       lines={[{ key: "intensity", label: "光谱（实时）", color: lightTheme ? "#000000" : "#f5f5f5" }]}
       stretch={stretch}
       heightClassName={heightClassName}
-      annotations={spectrumPeaks.map((annotation) => ({ label: annotation.label, x: annotation.centroidNm, y: annotation.peakIntensity }))}
+      annotations={spectrumPeakAnnotations(spectrumPeaks)}
     />
   )
 }, (previous, next) => {
