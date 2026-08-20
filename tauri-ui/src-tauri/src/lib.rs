@@ -293,7 +293,6 @@ impl PythonBridge {
         let mut child = command
             .env("PYTHONUNBUFFERED", "1")
             .env("PYTHONIOENCODING", "utf-8")
-            .env("QT_QPA_PLATFORM", "offscreen")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())

@@ -52,6 +52,47 @@ class FakeVisaManager:
 
 
 class CoherentPowerMeterTests(unittest.TestCase):
+    def test_toolkit_free_reader_preserves_the_standalone_thread_contract(self) -> None:
+        actions: list[object] = []
+
+        class FakeMeter:
+            device_type = "Fake meter"
+
+            def __init__(self, resource: str) -> None:
+                actions.append(("open", resource))
+
+            def test(self) -> str:
+                return "OK"
+
+            def set_wavelength(self, wavelength_nm: float) -> None:
+                actions.append(("wavelength", wavelength_nm))
+
+            def read_power_w(self) -> float:
+                return 1.25
+
+            def close(self) -> None:
+                actions.append("close")
+
+        reader = power_meter_mvp.PowerReaderThread(
+            resource="ASRL3::INSTR",
+            wavelength_nm=976.0,
+            software_gain=2.0,
+            interval_ms=0,
+        )
+        samples: list[float] = []
+
+        def on_sample(_elapsed_s: float, power_w: float) -> None:
+            samples.append(power_w)
+            reader.stop()
+
+        reader.sample.connect(on_sample)
+        with patch.object(power_meter_mvp, "CaihuangPowerMeter", FakeMeter):
+            reader.start()
+            self.assertTrue(reader.wait(1_000))
+
+        self.assertEqual(samples, [2.5])
+        self.assertEqual(actions, [("open", "ASRL3::INSTR"), ("wavelength", 976.0), "close"])
+
     def test_probe_identifies_pm150_and_configures_documented_serial_port(self) -> None:
         instrument = FakeVisaInstrument()
         manager = FakeVisaManager(instrument)

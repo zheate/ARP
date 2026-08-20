@@ -1,4 +1,4 @@
-"""Qt-free renderer that mirrors the approved ``main`` shipping report."""
+"""Toolkit-free renderer for the approved shipping report layout."""
 
 from __future__ import annotations
 
@@ -372,7 +372,11 @@ class _HeadlessShippingReportRenderer:
         _draw_text(figure, 90.0, 291.0, 30.0, 4.0, f"第 {page_number} 页", size=6.3, color="#666666", chinese=True, horizontal="center")
 
     def _definitions(self, report_type: ShippingReportType) -> tuple[Any, ...]:
-        return _report_definitions(report_type, self.request.custom_fields)
+        return _report_definitions(
+            report_type,
+            self.request.custom_fields,
+            encircled_energy_na=self.request.encircled_energy_na,
+        )
 
     def _selected_fields(self, definitions: Iterable[Any]) -> list[tuple[Any, str]]:
         output: list[tuple[Any, str]] = []
@@ -574,11 +578,11 @@ class _HeadlessShippingReportRenderer:
         y_ticks = [axis.minimum + index / 4.0 * (axis.maximum - axis.minimum) for index in range(5)]
         axes.xaxis.set_major_locator(FixedLocator(x_ticks))
         axes.yaxis.set_major_locator(FixedLocator(y_ticks))
-        axes.set_xticklabels([f"{value:.1f}" for value in x_ticks], fontproperties=_font(8.0, chart=True))
-        axes.set_yticklabels([_format_scientific_axis_tick(value) if axis.mode is SpectrumAxisMode.COUNTS else f"{value:g}" for value in y_ticks], fontproperties=_font(8.0, chart=True))
+        axes.set_xticklabels([f"{value:.1f}" for value in x_ticks], fontproperties=_font(9.0, chart=True))
+        axes.set_yticklabels([_format_scientific_axis_tick(value) if axis.mode is SpectrumAxisMode.COUNTS else f"{value:g}" for value in y_ticks], fontproperties=_font(9.0, chart=True))
         axes.grid(True, which="major", color="#d7dade", linewidth=_line_width(0.13))
-        axes.tick_params(axis="x", direction="in", length=4.4, width=0.9, colors="#202020", pad=7)
-        axes.tick_params(axis="y", direction="in", length=4.4, width=0.9, colors="#202020", pad=7)
+        axes.tick_params(axis="x", direction="in", length=4.4, width=0.9, colors="#202020", pad=9)
+        axes.tick_params(axis="y", direction="in", length=4.4, width=0.9, colors="#202020", pad=9)
         for spine in axes.spines.values():
             spine.set_color("#202020")
             spine.set_linewidth(_line_width(0.42))

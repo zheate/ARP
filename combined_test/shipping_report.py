@@ -2,52 +2,24 @@
 
 from __future__ import annotations
 
-import base64
-import gc
 import math
 import json
 import os
 import re
 import sys
-import tempfile
 from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from openpyxl import load_workbook
-try:
-    from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QMarginsF, QPointF, QRectF, QSize, Qt
-    from PySide6.QtGui import (
-        QColor,
-        QFont,
-        QFontDatabase,
-        QFontMetricsF,
-        QImage,
-        QPageLayout,
-        QPageSize,
-        QPainter,
-        QPainterPath,
-        QPdfWriter,
-        QPen,
-        QPolygonF,
-    )
-    from PySide6.QtPdf import QPdfDocument
-    from PySide6.QtSvg import QSvgRenderer
-    from PySide6.QtWidgets import QApplication
-except ModuleNotFoundError:
-    QBuffer = QByteArray = QIODevice = QMarginsF = QPointF = QRectF = QSize = Qt = None
-    QColor = QFont = QFontDatabase = QFontMetricsF = QImage = QPageLayout = None
-    QPageSize = QPainter = QPainterPath = QPdfWriter = QPen = QPolygonF = None
-    QPdfDocument = QSvgRenderer = QApplication = None
-
 from .excel_export import EXPORT_WORKBOOK_SCHEMA_VERSION, sanitize_sn
 
 
 REPORT_WORKBOOK_SCHEMA_VERSION = EXPORT_WORKBOOK_SCHEMA_VERSION
 REPORT_DATA_SHEET = "测试数据"
 REPORT_SESSION_SHEET = "会话信息"
-_REPORT_QT_APPLICATION: QApplication | None = None
+DEFAULT_ENCIRCLED_ENERGY_NA = "0.17"
 
 
 _RESULT_COLUMN_ALIASES = {
@@ -398,6 +370,7 @@ class ShippingReportRequest:
     operating_current_a: float
     fields: Mapping[str, SelectedReportField]
     legacy_completion_confirmed: bool
+    encircled_energy_na: str = DEFAULT_ENCIRCLED_ENERGY_NA
     custom_fields: tuple[ReportFieldDefinition, ...] = ()
     spectrum_axis: SpectrumAxisSettings | None = None
 
@@ -473,6 +446,9 @@ class ShippingReportRequest:
             operating_current_a=operating_current_a,
             fields=fields,
             legacy_completion_confirmed=bool(values.get("legacyCompletionConfirmed")),
+            encircled_energy_na=str(
+                values.get("encircledEnergyNa", DEFAULT_ENCIRCLED_ENERGY_NA)
+            ).strip(),
             custom_fields=tuple(custom_fields),
             spectrum_axis=spectrum_axis,
         )
@@ -508,8 +484,17 @@ def _required_number(value: Any, name: str) -> float:
 def _report_definitions(
     report_type: ShippingReportType,
     custom_fields: Iterable[ReportFieldDefinition] = (),
+    *,
+    encircled_energy_na: str = DEFAULT_ENCIRCLED_ENERGY_NA,
 ) -> tuple[ReportFieldDefinition, ...]:
     standard = SPECTRUM_FIELD_DEFINITIONS if report_type is ShippingReportType.SPECTRUM else POLE_FIELD_DEFINITIONS
+    if report_type is ShippingReportType.SPECTRUM:
+        standard = tuple(
+            replace(field, label=f"NA {encircled_energy_na} Encircled Energy")
+            if field.key == "na017Energy"
+            else field
+            for field in standard
+        )
     return (*standard, *tuple(custom_fields))
 
 
@@ -874,6 +859,10 @@ def validate_shipping_report_request(inspection: WorkbookInspection, request: Sh
         raise ValueError("SN 不能为空")
     if request.report_type.value not in inspection.allowed_report_types:
         raise ValueError("该 Excel 的光谱数据不完整，只能生成 Pole 无光谱报告")
+    if request.report_type is ShippingReportType.SPECTRUM:
+        encircled_energy_na = _required_number(request.encircled_energy_na, "Encircled Energy NA")
+        if not 0 < encircled_energy_na <= 1:
+            raise ValueError("Encircled Energy NA 必须大于 0 且不大于 1")
     inspection.point_for_current(request.operating_current_a)
     definitions = _report_definitions(request.report_type, request.custom_fields)
     standard_keys = {field.key for field in _report_definitions(request.report_type)}
@@ -1061,6 +1050,10 @@ def load_shipping_report_preferences(settings: Any) -> dict[str, Any]:
             "customFields": normalized_custom_fields,
         }
         if report_type is ShippingReportType.SPECTRUM:
+            preference["encircledEnergyNa"] = (
+                str(settings.get(prefix + "encircled_energy_na", DEFAULT_ENCIRCLED_ENERGY_NA)).strip()
+                or DEFAULT_ENCIRCLED_ENERGY_NA
+            )
             mode = str(settings.get(prefix + "axis_mode", SpectrumAxisMode.RELATIVE_DB.value))
             if mode not in {item.value for item in SpectrumAxisMode}:
                 mode = SpectrumAxisMode.RELATIVE_DB.value
@@ -1098,6 +1091,8 @@ def save_shipping_report_preferences(settings: Any, request: ShippingReportReque
         prefix + "custom_fields",
         json.dumps([_field_payload(item) for item in request.custom_fields], ensure_ascii=False),
     )
+    if request.report_type is ShippingReportType.SPECTRUM:
+        settings.set(prefix + "encircled_energy_na", request.encircled_energy_na)
     if request.spectrum_axis is not None:
         settings.set(prefix + "axis_mode", request.spectrum_axis.mode.value)
         settings.set(prefix + "axis_minimum", request.spectrum_axis.minimum)
@@ -1130,13 +1125,9 @@ def generate_shipping_report(
     if temporary.exists():
         temporary.unlink()
     try:
-        if QApplication is None or os.environ.get("ARP_USE_QT_REPORT_RENDERER") != "1":
-            from .shipping_report_headless import render_pdf
+        from .shipping_report_headless import render_pdf
 
-            render_pdf(temporary, inspection, request)
-        else:
-            renderer = _ShippingReportRenderer(temporary, inspection, request)
-            renderer.render()
+        render_pdf(temporary, inspection, request)
         if not temporary.is_file() or temporary.stat().st_size == 0:
             raise RuntimeError("PDF 生成结果为空")
         os.replace(temporary, target)
@@ -1150,122 +1141,22 @@ def render_shipping_report_preview(
     source_path: Path | str,
     request: ShippingReportRequest,
     *,
-    page_width_px: int = 720,
+    page_width_px: int = 1440,
 ) -> list[str]:
-    """Render the final report layout into compact PNG pages for live preview.
-
-    The preview first uses the same PDF renderer as the saved report, rather
-    than maintaining a second HTML approximation.  This keeps page geometry,
-    charts, fonts, and the approved header/footer artwork in sync with export.
-    The temporary PDF and rendered images stay in a private temporary directory.
-    """
+    """Render the final report layout into PNG pages for live preview."""
 
     if page_width_px < 240 or page_width_px > 1600:
         raise ValueError("预览宽度必须在 240 到 1600 像素之间")
     inspection = inspect_shipping_workbook(source_path)
     validate_shipping_report_request(inspection, request)
-    if QApplication is None or os.environ.get("ARP_USE_QT_REPORT_RENDERER") != "1":
-        from .shipping_report_headless import render_preview_pages
+    from .shipping_report_headless import render_preview_pages
 
-        return render_preview_pages(inspection, request, page_width_px=page_width_px)
-    with tempfile.TemporaryDirectory(prefix="shipping-report-preview-") as directory:
-        temporary = Path(directory) / "preview.pdf"
-        renderer = _ShippingReportRenderer(temporary, inspection, request)
-        renderer.render()
-        if not temporary.is_file() or temporary.stat().st_size == 0:
-            raise RuntimeError("出货报告预览生成失败")
-
-        document = QPdfDocument()
-        pages: list[str] = []
-        try:
-            if document.load(str(temporary)) != QPdfDocument.Error.None_:
-                raise RuntimeError("无法读取出货报告预览")
-            if document.pageCount() < 1:
-                raise RuntimeError("出货报告预览没有页面")
-
-            for page_number in range(document.pageCount()):
-                page_size = document.pagePointSize(page_number)
-                if page_size.width() <= 0 or page_size.height() <= 0:
-                    raise RuntimeError("出货报告预览页面尺寸无效")
-                page_height_px = max(1, round(page_width_px * page_size.height() / page_size.width()))
-                image = document.render(page_number, QSize(page_width_px, page_height_px))
-                if image.isNull():
-                    raise RuntimeError("无法绘制出货报告预览页面")
-                data = QByteArray()
-                buffer = QBuffer(data)
-                try:
-                    if not buffer.open(QIODevice.OpenModeFlag.WriteOnly):
-                        raise RuntimeError("无法写入出货报告预览")
-                    if not image.save(buffer, "PNG"):
-                        raise RuntimeError("无法编码出货报告预览")
-                finally:
-                    buffer.close()
-                pages.append(base64.b64encode(bytes(data)).decode("ascii"))
-        finally:
-            document.close()
-            del document
-            gc.collect()
-        return pages
+    return render_preview_pages(inspection, request, page_width_px=page_width_px)
 
 
 def _resource_path(relative: str) -> Path:
     base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[1]))
     return base / relative
-
-
-def _load_report_font_family(
-    paths: Iterable[Path],
-    preferred_families: Iterable[str],
-) -> str | None:
-    """Register a report font and return its preferred Qt family name."""
-
-    preferred = tuple(preferred_families)
-    loaded_families: list[str] = []
-    for path in paths:
-        if not path.is_file():
-            continue
-        font_id = QFontDatabase.addApplicationFont(str(path))
-        if font_id >= 0:
-            loaded_families.extend(QFontDatabase.applicationFontFamilies(font_id))
-
-    available = set(QFontDatabase.families())
-    for candidate in preferred:
-        if candidate in loaded_families or candidate in available:
-            return candidate
-    return loaded_families[0] if loaded_families else None
-
-
-def _available_font_families() -> tuple[str, str]:
-    """Load the Latin and Chinese fonts used by dynamically drawn report text.
-
-    Some headless Qt Windows platforms expose an empty system font database.  In
-    that case QPainter silently falls back to a non-embeddable placeholder font,
-    which Poppler renders as square glyphs. Registering concrete font files before
-    QPdfWriter starts drawing makes both GUI and headless output deterministic.
-
-    Times New Roman is the primary family, so Latin letters, numbers and symbols
-    use it. Microsoft YaHei is the fallback family and supplies all Chinese
-    glyphs in mixed-language strings.
-    """
-
-    windows_fonts = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
-    latin_family = _load_report_font_family(
-        (
-            windows_fonts / "times.ttf",
-            windows_fonts / "timesbd.ttf",
-        ),
-        ("Times New Roman",),
-    )
-    chinese_family = _load_report_font_family(
-        (
-            windows_fonts / "msyh.ttc",
-            windows_fonts / "msyhbd.ttc",
-            _resource_path("assets/report/report_font.ttf"),
-        ),
-        ("Microsoft YaHei", "微软雅黑"),
-    )
-    default_family = QFont().defaultFamily()
-    return latin_family or default_family, chinese_family or default_family
 
 
 def _nice_ceiling(value: float) -> float:
@@ -1409,813 +1300,3 @@ def _balanced_report_columns(
 
     split_index = (len(fields) + 1) // 2
     return fields[:split_index], fields[split_index:]
-
-
-class _ShippingReportRenderer:
-    A4_WIDTH_MM = 210.0
-    A4_HEIGHT_MM = 297.0
-    CONTENT_LEFT_MM = 18.0
-    CONTENT_RIGHT_MM = 192.0
-    FOOTER_TOP_MM = 266.0
-    HEADER_ARTWORK_TOP_MM = 17.5
-    TITLE_TOP_MM = 32.5
-    SERIAL_NUMBER_TOP_MM = 44.5
-    TITLE_DIVIDER_Y_MM = 55.0
-    POLE_SUMMARY_TOP_MM = 62.0
-    POLE_TABLE_VALUE_FONT_SIZE = 10.7
-    DETAIL_TABLE_VALUE_FONT_SIZE = POLE_TABLE_VALUE_FONT_SIZE
-
-    def __init__(self, path: Path, inspection: WorkbookInspection, request: ShippingReportRequest) -> None:
-        global _REPORT_QT_APPLICATION
-        application = QApplication.instance()
-        if application is None:
-            _REPORT_QT_APPLICATION = QApplication([])
-            application = _REPORT_QT_APPLICATION
-        self._application = application
-        self.path = path
-        self.inspection = inspection
-        self.request = request
-        self.latin_font_family, self.chinese_font_family = _available_font_families()
-        self.writer = QPdfWriter(str(path))
-        self.writer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
-        self.writer.setPageMargins(QMarginsF(0, 0, 0, 0), QPageLayout.Unit.Millimeter)
-        self.writer.setResolution(144)
-        self.writer.setTitle(f"{request.product_name} - {request.sn} Shipping Report")
-        self.writer.setCreator("Pump Driver Integrated Test")
-        self.painter = QPainter()
-        self.page_number = 0
-        self.scale = self.writer.resolution() / 25.4
-
-    def mm(self, value: float) -> float:
-        return value * self.scale
-
-    def rect(self, x: float, y: float, width: float, height: float) -> QRectF:
-        return QRectF(self.mm(x), self.mm(y), self.mm(width), self.mm(height))
-
-    def font(self, size: float, *, bold: bool = False) -> QFont:
-        result = QFont(self.latin_font_family)
-        result.setFamilies((self.latin_font_family, self.chinese_font_family))
-        result.setPointSizeF(size)
-        result.setBold(bold)
-        return result
-
-    def chart_font(self, size: float, *, bold: bool = False) -> QFont:
-        """Return the shared sans-serif font used by every report chart."""
-
-        result = QFont("Arial")
-        result.setFamilies(("Arial", "Helvetica", self.chinese_font_family))
-        result.setPointSizeF(size)
-        result.setBold(bold)
-        return result
-
-    def _reference_image(self, relative_path: str) -> QImage:
-        """Load approved report artwork without recreating any of its content."""
-
-        path = _resource_path(relative_path)
-        image = QImage(str(path))
-        if image.isNull():
-            raise RuntimeError(f"无法读取出货报告原始图片：{path}")
-        return image
-
-    def render(self) -> None:
-        if not self.painter.begin(self.writer):
-            raise RuntimeError("无法启动 PDF 绘制")
-        try:
-            self.painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            self.painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
-            if self.request.report_type is ShippingReportType.SPECTRUM:
-                self._render_spectrum_report()
-            else:
-                self._render_pole_report()
-        finally:
-            self.painter.end()
-
-    def _new_page(self, continuation_title: str = "") -> None:
-        if self.page_number:
-            self.writer.newPage()
-        self.page_number += 1
-        self._draw_header()
-        self._draw_title(continuation_title)
-        self._draw_footer()
-
-    def _draw_header(self) -> None:
-        # Keep the supplied ribbon mark as vector artwork.  The corporate
-        # EVERBRIGHT wordmark is cropped from the approved source artwork so
-        # its custom letterforms are not replaced by a generic font.
-        logo = QSvgRenderer(str(_resource_path("assets/report/everbright_logo.svg")))
-        if not logo.isValid():
-            raise RuntimeError("无法读取出货报告矢量品牌标志")
-        logo.render(
-            self.painter,
-            self.rect(self.CONTENT_LEFT_MM, self.HEADER_ARTWORK_TOP_MM, 13.5, 11.9),
-        )
-        approved_header = self._reference_image("assets/report/everbright_header_reference.png")
-        wordmark_width = 49.0
-        wordmark_height = wordmark_width * 53.0 / 443.0
-        self.painter.drawImage(
-            self.rect(
-                33.0,
-                self.HEADER_ARTWORK_TOP_MM + (11.9 - wordmark_height) / 2.0,
-                wordmark_width,
-                wordmark_height,
-            ),
-            approved_header,
-            QRectF(254.0, 95.0, 443.0, 53.0),
-        )
-
-        company_x = 137.0
-        company_width = self.CONTENT_RIGHT_MM - company_x
-        self.painter.setPen(QColor("#161616"))
-        self.painter.setFont(self.chart_font(7.2, bold=True))
-        self.painter.drawText(
-            self.rect(company_x, self.HEADER_ARTWORK_TOP_MM - 0.3, company_width, 4.6),
-            int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
-            "Suzhou Everbright Photonics Co., Ltd.",
-        )
-        self.painter.setFont(self.chart_font(6.8))
-        self.painter.drawText(
-            self.rect(company_x, self.HEADER_ARTWORK_TOP_MM + 4.5, company_width, 9.0),
-            int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop),
-            "No. 56 Lijiang Road, Suzhou New District\n"
-            "Tel: +86-512-69372570\n"
-            "Fax: +86-512-69372559",
-        )
-
-    def _draw_title(self, continuation_title: str = "") -> None:
-        self.painter.setPen(QColor("#090909"))
-        self.painter.setFont(self.font(16, bold=True))
-        title = self.request.product_name if not continuation_title else f"{self.request.product_name} - {continuation_title}"
-        self.painter.drawText(
-            self.rect(self.CONTENT_LEFT_MM, self.TITLE_TOP_MM, self.CONTENT_RIGHT_MM - self.CONTENT_LEFT_MM, 10),
-            int(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter),
-            title,
-        )
-        self.painter.setFont(self.font(16, bold=True))
-        self.painter.drawText(
-            self.rect(self.CONTENT_LEFT_MM, self.SERIAL_NUMBER_TOP_MM, self.CONTENT_RIGHT_MM - self.CONTENT_LEFT_MM, 8),
-            int(Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter),
-            f"TEST SN: {self.request.sn}",
-        )
-        self.painter.setPen(QPen(QColor("#d7dade"), self.mm(0.18)))
-        self.painter.drawLine(
-            QPointF(self.mm(self.CONTENT_LEFT_MM), self.mm(self.TITLE_DIVIDER_Y_MM)),
-            QPointF(self.mm(self.CONTENT_RIGHT_MM), self.mm(self.TITLE_DIVIDER_Y_MM)),
-        )
-
-    def _draw_footer(self) -> None:
-        top = self.FOOTER_TOP_MM
-        self.painter.setPen(QPen(QColor("#d1d1d1"), self.mm(0.25)))
-        self.painter.drawLine(
-            QPointF(self.mm(self.CONTENT_LEFT_MM), self.mm(top)),
-            QPointF(self.mm(self.CONTENT_RIGHT_MM), self.mm(top)),
-        )
-        self.painter.setPen(QColor("#1a1a1a"))
-        self.painter.setFont(self.font(8.0))
-        notice = (
-            "Notice: Everbright Photonics continuously improves its products to provide customers with outstanding "
-            "quality and reliability. Specifications and product descriptions may be changed at any time without "
-            "notice. Warranty support is provided to ensure customer satisfaction. For complete information, "
-            "please contact our sales representative."
-        )
-        self.painter.drawText(
-            self.rect(self.CONTENT_LEFT_MM, 269, 142, 20),
-            int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter | Qt.TextFlag.TextWordWrap),
-            notice,
-        )
-        # The warning artwork includes all of its original text.  Do not overlay
-        # translated/retyped content or stretch it away from its source ratio.
-        warning = self._reference_image("assets/report/laser_warning_reference.png")
-        footer_content_bottom_mm = 289.0
-        warning_height_mm = 18.0
-        warning_width_mm = warning_height_mm * warning.width() / warning.height()
-        warning_x_mm = self.CONTENT_RIGHT_MM - warning_width_mm
-        warning_y_mm = footer_content_bottom_mm - warning_height_mm
-        self.painter.drawImage(
-            self.rect(warning_x_mm, warning_y_mm, warning_width_mm, warning_height_mm),
-            warning,
-        )
-        self.painter.setFont(self.font(6.3))
-        self.painter.setPen(QColor("#666666"))
-        self.painter.drawText(
-            self.rect(90, 291, 30, 4),
-            int(Qt.AlignmentFlag.AlignCenter),
-            f"第 {self.page_number} 页",
-        )
-
-    def _selected_fields(self, definitions: Iterable[ReportFieldDefinition]) -> list[tuple[ReportFieldDefinition, str]]:
-        output = []
-        for definition in definitions:
-            selected = self.request.fields.get(definition.key, SelectedReportField(False, ""))
-            if selected.include:
-                output.append((definition, selected.value))
-        return output
-
-    def _definitions(self, report_type: ShippingReportType) -> tuple[ReportFieldDefinition, ...]:
-        return _report_definitions(report_type, self.request.custom_fields)
-
-    def _render_spectrum_report(self) -> None:
-        self._new_page()
-        fields = self._selected_fields(self._definitions(ShippingReportType.SPECTRUM))
-        left, right = _balanced_report_columns(fields)
-        self._draw_section_title(
-            self.POLE_SUMMARY_TOP_MM,
-            _format_performance_parameters_title(self.request.operating_current_a),
-            height=8.0,
-            font_size=14.0,
-            accent_width=0.75,
-            accent_height=5.0,
-        )
-        summary_height = self._draw_spectrum_summary(72, left, right)
-        chart_top = min(116.0, 75.0 + summary_height + 4.0)
-        available = self.FOOTER_TOP_MM - chart_top - 7.0
-        section_gap = 2.0
-        section_title_height = 7.0
-        chart_gap = 1.0
-        chart_height = max(
-            45.0,
-            (available - section_gap - section_title_height - chart_gap) / 2.0,
-        )
-        self._draw_power_efficiency_chart(self.rect(23, chart_top, 164, chart_height), title="")
-        spectrum_title_top = chart_top + chart_height + section_gap
-        self._draw_section_title(
-            spectrum_title_top,
-            "Spectrum",
-            height=section_title_height,
-            font_size=14.0,
-            accent_width=0.75,
-            accent_height=5.0,
-        )
-        self._draw_spectrum_chart(
-            self.rect(
-                23,
-                spectrum_title_top + section_title_height + chart_gap,
-                164,
-                chart_height,
-            )
-        )
-
-    def _draw_spectrum_summary(
-        self,
-        top: float,
-        left: list[tuple[ReportFieldDefinition, str]],
-        right: list[tuple[ReportFieldDefinition, str]],
-    ) -> float:
-        row_count = max(len(left), len(right), 1)
-        row_height = min(6.1, 36.0 / row_count)
-        height = row_count * row_height
-        x, width = 21.0, 168.0
-        self.painter.setPen(QPen(QColor("#333333"), self.mm(0.2)))
-        self.painter.drawLine(QPointF(self.mm(x), self.mm(top)), QPointF(self.mm(x + width), self.mm(top)))
-        self.painter.drawLine(QPointF(self.mm(x), self.mm(top + height)), QPointF(self.mm(x + width), self.mm(top + height)))
-        self.painter.drawLine(QPointF(self.mm(105), self.mm(top)), QPointF(self.mm(105), self.mm(top + height)))
-        for side_x, values in ((23.0, left), (107.0, right)):
-            for index, (definition, value) in enumerate(values):
-                y = top + index * row_height
-                self.painter.setPen(QColor("#161616"))
-                self.painter.setFont(self.font(8.5, bold=True))
-                self.painter.drawText(self.rect(side_x, y, 43, row_height), int(Qt.AlignmentFlag.AlignVCenter), definition.label)
-                self.painter.setFont(self.font(8.6, bold=True))
-                self.painter.drawText(self.rect(side_x + 47, y, 20, row_height), int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter), value)
-                self.painter.setFont(self.font(8.2))
-                self.painter.drawText(self.rect(side_x + 69, y, 13, row_height), int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter), definition.unit)
-        return height
-
-    def _render_pole_report(self) -> None:
-        fields = self._selected_fields(self._definitions(ShippingReportType.POLE))
-        points = list(self.inspection.points)
-        first_capacity = 12
-        remaining = points
-        self._new_page()
-        summary_height = self._draw_pole_summary(self.POLE_SUMMARY_TOP_MM, fields)
-        chart_top = self.POLE_SUMMARY_TOP_MM + summary_height + 6.0
-        chart_height = 54.0
-        self._draw_power_efficiency_chart(self.rect(31, chart_top, 148, chart_height), title="")
-        table_top = chart_top + chart_height
-        room_rows = max(1, min(first_capacity, int((self.FOOTER_TOP_MM - table_top - 5.0) / 6.0) - 1))
-        current_page = remaining[:room_rows]
-        remaining = remaining[room_rows:]
-        self._draw_detail_table(table_top, current_page)
-        while remaining:
-            self._new_page("Detailed Measurement Data (Continued)")
-            capacity = max(1, int((self.FOOTER_TOP_MM - 76.0) / 6.0) - 1)
-            current_page = remaining[:capacity]
-            remaining = remaining[capacity:]
-            self._draw_detail_table(74.0, current_page)
-
-    def _draw_pole_summary(self, top: float, fields: list[tuple[ReportFieldDefinition, str]]) -> float:
-        title_height = 8.0
-        title_gap = 3.0
-        header_height = 7.2
-        row_height = 7.4
-        table_x, table_width = 18.0, 174.0
-        parameter_width = table_width * 0.45
-        value_width = table_width * 0.30
-        unit_width = table_width - parameter_width - value_width
-        cell_padding = 3.5
-        divider_pen = QPen(QColor("#dfe4e8"), self.mm(0.18))
-
-        self._draw_section_title(
-            top,
-            _format_performance_parameters_title(self.request.operating_current_a),
-            height=title_height,
-            font_size=14.0,
-            accent_width=0.75,
-            accent_height=5.0,
-        )
-        table_top = top + title_height + title_gap
-        table_height = header_height + len(fields) * row_height
-
-        # A lightly tinted header and horizontal dividers establish the columns
-        # without the heavy grid or alternating body fills of the old layout.
-        self.painter.fillRect(self.rect(table_x, table_top, table_width, header_height), QColor("#f6f8fa"))
-        self.painter.setPen(divider_pen)
-        self.painter.drawLine(
-            QPointF(self.mm(table_x), self.mm(table_top)),
-            QPointF(self.mm(table_x + table_width), self.mm(table_top)),
-        )
-        self.painter.drawLine(
-            QPointF(self.mm(table_x), self.mm(table_top + header_height)),
-            QPointF(self.mm(table_x + table_width), self.mm(table_top + header_height)),
-        )
-
-        self.painter.setPen(QColor("#0b4b82"))
-        self.painter.setFont(self.font(10.3, bold=True))
-        self.painter.drawText(
-            self.rect(table_x + cell_padding, table_top, parameter_width - 2 * cell_padding, header_height),
-            int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
-            "Parameter",
-        )
-        self.painter.drawText(
-            self.rect(
-                table_x + parameter_width + cell_padding,
-                table_top,
-                value_width - 2 * cell_padding,
-                header_height,
-            ),
-            int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
-            "Value",
-        )
-        self.painter.drawText(
-            self.rect(
-                table_x + parameter_width + value_width + cell_padding,
-                table_top,
-                unit_width - 2 * cell_padding,
-                header_height,
-            ),
-            int(Qt.AlignmentFlag.AlignCenter),
-            "Unit",
-        )
-
-        for index, (definition, value) in enumerate(fields):
-            y = table_top + header_height + index * row_height
-            self.painter.setPen(QColor("#252a2e"))
-            self.painter.setFont(self.font(self.POLE_TABLE_VALUE_FONT_SIZE))
-            self.painter.drawText(
-                self.rect(table_x + cell_padding, y, parameter_width - 2 * cell_padding, row_height),
-                int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
-                definition.label,
-            )
-            self.painter.drawText(
-                self.rect(
-                    table_x + parameter_width + cell_padding,
-                    y,
-                    value_width - 2 * cell_padding,
-                    row_height,
-                ),
-                int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
-                _format_pole_summary_value(definition, value),
-            )
-            self.painter.setFont(self.font(10.5))
-            self.painter.drawText(
-                self.rect(
-                    table_x + parameter_width + value_width + cell_padding,
-                    y,
-                    unit_width - 2 * cell_padding,
-                    row_height,
-                ),
-                int(Qt.AlignmentFlag.AlignCenter),
-                definition.unit,
-            )
-            self.painter.setPen(divider_pen)
-            self.painter.drawLine(
-                QPointF(self.mm(table_x), self.mm(y + row_height)),
-                QPointF(self.mm(table_x + table_width), self.mm(y + row_height)),
-            )
-        return title_height + title_gap + table_height
-
-    def _draw_power_efficiency_chart(self, outer: QRectF, *, title: str) -> None:
-        points = self.inspection.points
-        currents = [point.current_a for point in points]
-        powers = [point.power_w for point in points]
-        efficiencies = [point.efficiency * 100.0 for point in points]
-
-        left_margin = self.mm(17)
-        right_margin = self.mm(18)
-        top_margin = self.mm(10 if title else 3)
-        bottom_margin = self.mm(12)
-        plot = QRectF(
-            outer.left() + left_margin,
-            outer.top() + top_margin,
-            outer.width() - left_margin - right_margin,
-            outer.height() - top_margin - bottom_margin,
-        )
-        if title:
-            self.painter.setPen(QColor("#343434"))
-            self.painter.setFont(self.chart_font(10.2, bold=True))
-            self.painter.drawText(
-                QRectF(outer.left(), outer.top(), outer.width(), self.mm(8)),
-                int(Qt.AlignmentFlag.AlignCenter),
-                title,
-            )
-        # Default shipment-report style: retain a compact dual-Y layout and
-        # label the measured current points directly instead of adding a
-        # synthetic zero-current tick when it was not measured.
-        x_data_min = min(currents)
-        x_data_max = max(currents)
-        if math.isclose(x_data_min, x_data_max, rel_tol=1e-12, abs_tol=1e-12):
-            x_step = _reference_axis_step(max(abs(x_data_min), 1.0), target_intervals=4)
-            x_min = x_data_min - 0.75 * x_step
-            x_max = x_data_max + 0.75 * x_step
-        else:
-            unique_currents = sorted(set(currents))
-            measured_steps = [
-                current - previous
-                for previous, current in zip(unique_currents, unique_currents[1:])
-                if current > previous
-            ]
-            x_step = _reference_axis_step(min(measured_steps), target_intervals=1)
-            x_padding = max(0.25 * x_step, 0.04 * (x_data_max - x_data_min))
-            x_min = x_data_min - x_padding
-            x_max = x_data_max + x_padding
-        power_min, power_max, power_step = _reference_axis_bounds(
-            powers,
-            singleton_span_fraction=1.2,
-            minimum=0.0,
-        )
-        efficiency_min, efficiency_max, efficiency_step = _reference_axis_bounds(
-            efficiencies,
-            singleton_span_fraction=0.5,
-            minimum=0.0,
-            snap_to_major_ticks=True,
-        )
-
-        def map_x(value: float) -> float:
-            return plot.left() + (value - x_min) / (x_max - x_min) * plot.width()
-
-        def map_power(value: float) -> float:
-            return plot.bottom() - (value - power_min) / (power_max - power_min) * plot.height()
-
-        def map_efficiency(value: float) -> float:
-            return plot.bottom() - (value - efficiency_min) / (efficiency_max - efficiency_min) * plot.height()
-
-        axis_color = QColor("#202020")
-        power_color = QColor("#0072B2")
-        efficiency_label_color = QColor("#D55E00")
-        major_tick_pen = QPen(power_color, self.mm(0.32))
-        minor_tick_pen = QPen(power_color, self.mm(0.22))
-        right_major_tick_pen = QPen(efficiency_label_color, self.mm(0.32))
-        right_minor_tick_pen = QPen(efficiency_label_color, self.mm(0.22))
-        x_major_tick_pen = QPen(axis_color, self.mm(0.32))
-        x_minor_tick_pen = QPen(axis_color, self.mm(0.22))
-        major_tick_length = self.mm(1.55)
-        minor_tick_length = self.mm(0.85)
-
-        def is_major_tick(value: float, major_values: list[float]) -> bool:
-            return any(math.isclose(value, major, rel_tol=0.0, abs_tol=1e-8) for major in major_values)
-
-        power_ticks = _axis_tick_values(power_min, power_max, power_step)
-        power_minor_ticks = _axis_tick_values(power_min, power_max, power_step / 2.0)
-        self.painter.setFont(self.chart_font(8.0))
-        for value in power_minor_ticks:
-            if is_major_tick(value, power_ticks):
-                continue
-            y = map_power(value)
-            self.painter.setPen(minor_tick_pen)
-            self.painter.drawLine(QPointF(plot.left(), y), QPointF(plot.left() + minor_tick_length, y))
-        for value in power_ticks:
-            y = map_power(value)
-            self.painter.setPen(major_tick_pen)
-            self.painter.drawLine(QPointF(plot.left(), y), QPointF(plot.left() + major_tick_length, y))
-            self.painter.setPen(power_color)
-            self.painter.drawText(
-                QRectF(plot.left() - self.mm(14), y - self.mm(2.2), self.mm(12), self.mm(4.4)),
-                int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
-                _format_axis_tick(value, power_step),
-            )
-
-        efficiency_ticks = _axis_tick_values(efficiency_min, efficiency_max, efficiency_step)
-        efficiency_minor_ticks = _axis_tick_values(efficiency_min, efficiency_max, efficiency_step / 2.0)
-        for value in efficiency_minor_ticks:
-            if is_major_tick(value, efficiency_ticks):
-                continue
-            y = map_efficiency(value)
-            self.painter.setPen(right_minor_tick_pen)
-            self.painter.drawLine(QPointF(plot.right(), y), QPointF(plot.right() - minor_tick_length, y))
-        for value in efficiency_ticks:
-            y = map_efficiency(value)
-            self.painter.setPen(right_major_tick_pen)
-            self.painter.drawLine(QPointF(plot.right(), y), QPointF(plot.right() - major_tick_length, y))
-            self.painter.setPen(efficiency_label_color)
-            self.painter.drawText(
-                QRectF(plot.right() + self.mm(2), y - self.mm(2.2), self.mm(13), self.mm(4.4)),
-                int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
-                _format_axis_tick(value, efficiency_step),
-            )
-
-        x_ticks = _axis_tick_values(x_min, x_max, x_step)
-        x_minor_ticks = _axis_tick_values(x_min, x_max, x_step / 2.0)
-        for value in x_minor_ticks:
-            if is_major_tick(value, x_ticks):
-                continue
-            x = map_x(value)
-            self.painter.setPen(x_minor_tick_pen)
-            self.painter.drawLine(QPointF(x, plot.bottom()), QPointF(x, plot.bottom() - minor_tick_length))
-            self.painter.drawLine(QPointF(x, plot.top()), QPointF(x, plot.top() + minor_tick_length))
-        for value in x_ticks:
-            x = map_x(value)
-            self.painter.setPen(x_major_tick_pen)
-            self.painter.drawLine(QPointF(x, plot.bottom()), QPointF(x, plot.bottom() - major_tick_length))
-            self.painter.drawLine(QPointF(x, plot.top()), QPointF(x, plot.top() + major_tick_length))
-            self.painter.setPen(axis_color)
-            self.painter.drawText(
-                QRectF(x - self.mm(7), plot.bottom() + self.mm(1.5), self.mm(14), self.mm(4.5)),
-                int(Qt.AlignmentFlag.AlignCenter),
-                _format_axis_tick(value, x_step),
-            )
-
-        # Frame and axis labels mirror the standard shipment-report reference:
-        # neutral horizontal frame, blue left power axis, and orange right axis.
-        frame_pen = QPen(axis_color, self.mm(0.42))
-        self.painter.setPen(frame_pen)
-        self.painter.drawLine(QPointF(plot.left(), plot.top()), QPointF(plot.right(), plot.top()))
-        self.painter.drawLine(QPointF(plot.left(), plot.bottom()), QPointF(plot.right(), plot.bottom()))
-        self.painter.setPen(QPen(power_color, self.mm(0.42)))
-        self.painter.drawLine(QPointF(plot.left(), plot.top()), QPointF(plot.left(), plot.bottom()))
-        self.painter.setPen(QPen(efficiency_label_color, self.mm(0.42)))
-        self.painter.drawLine(QPointF(plot.right(), plot.top()), QPointF(plot.right(), plot.bottom()))
-
-        self.painter.setFont(self.chart_font(8.8))
-        self.painter.setPen(axis_color)
-        self.painter.drawText(
-            QRectF(plot.left(), plot.bottom() + self.mm(6.5), plot.width(), self.mm(5.5)),
-            int(Qt.AlignmentFlag.AlignCenter),
-            "Drive current (A)",
-        )
-        vertical_label_span = outer.height() - self.mm(2.0)
-        vertical_label_height = self.mm(6.5)
-        self.painter.save()
-        self.painter.translate(outer.left() + self.mm(3.2), plot.center().y())
-        self.painter.rotate(-90)
-        self.painter.setPen(power_color)
-        self.painter.drawText(
-            QRectF(-vertical_label_span / 2, -vertical_label_height / 2, vertical_label_span, vertical_label_height),
-            int(Qt.AlignmentFlag.AlignCenter),
-            "Output power (W)",
-        )
-        self.painter.restore()
-        self.painter.save()
-        self.painter.translate(outer.right() - self.mm(3.2), plot.center().y())
-        self.painter.rotate(90)
-        self.painter.setPen(efficiency_label_color)
-        self.painter.drawText(
-            QRectF(-vertical_label_span / 2, -vertical_label_height / 2, vertical_label_span, vertical_label_height),
-            int(Qt.AlignmentFlag.AlignCenter),
-            "E-O efficiency (%)",
-        )
-        self.painter.restore()
-
-        power_points = QPolygonF([QPointF(map_x(x), map_power(y)) for x, y in zip(currents, powers)])
-        efficiency_points = QPolygonF([QPointF(map_x(x), map_efficiency(y)) for x, y in zip(currents, efficiencies)])
-        marker_outline = QPen(QColor("#ffffff"), self.mm(0.24))
-        self.painter.setPen(QPen(power_color, self.mm(0.60)))
-        self.painter.drawPolyline(power_points)
-        self.painter.setBrush(power_color)
-        self.painter.setPen(marker_outline)
-        for point in power_points:
-            self.painter.drawEllipse(point, self.mm(1.15), self.mm(1.15))
-        self.painter.setPen(QPen(efficiency_label_color, self.mm(0.60)))
-        self.painter.drawPolyline(efficiency_points)
-        self.painter.setBrush(efficiency_label_color)
-        self.painter.setPen(marker_outline)
-        for point in efficiency_points:
-            self.painter.drawRect(QRectF(point.x() - self.mm(1.05), point.y() - self.mm(1.05), self.mm(2.1), self.mm(2.1)))
-
-        # Position the legend from its measured text bounds so its right and
-        # bottom whitespace are visually equal instead of relying on a fixed
-        # horizontal offset.
-        legend_labels = ("Output power", "E-O efficiency")
-        legend_font = self.chart_font(8.0)
-        legend_metrics = QFontMetricsF(legend_font, self.painter.device())
-        legend_label_width = max(legend_metrics.horizontalAdvance(label) for label in legend_labels)
-        legend_margin = self.mm(2.5)
-        legend_label_height = self.mm(5.0)
-        legend_row_gap = self.mm(6.3)
-        legend_line_width = self.mm(11.0)
-        legend_label_offset = self.mm(13.0)
-        legend_x = plot.right() - legend_margin - legend_label_offset - legend_label_width
-        legend_label_x = legend_x + legend_label_offset
-        second_legend_y = plot.bottom() - legend_margin - legend_label_height / 2.0
-        legend_y = second_legend_y - legend_row_gap
-        self.painter.setFont(legend_font)
-
-        def draw_legend_entry(y: float, color: QColor, label: str, marker: str) -> None:
-            line_end = legend_x + legend_line_width
-            marker_center = (legend_x + line_end) / 2
-            self.painter.setPen(QPen(color, self.mm(0.56)))
-            self.painter.drawLine(QPointF(legend_x, y), QPointF(line_end, y))
-            self.painter.setBrush(color)
-            self.painter.setPen(marker_outline)
-            if marker == "circle":
-                self.painter.drawEllipse(QPointF(marker_center, y), self.mm(1.05), self.mm(1.05))
-            else:
-                self.painter.drawRect(
-                    QRectF(marker_center - self.mm(1.0), y - self.mm(1.0), self.mm(2.0), self.mm(2.0))
-                )
-            self.painter.setPen(axis_color)
-            self.painter.drawText(
-                QRectF(legend_label_x, y - legend_label_height / 2.0, legend_label_width, legend_label_height),
-                int(Qt.AlignmentFlag.AlignVCenter),
-                label,
-            )
-
-        draw_legend_entry(legend_y, power_color, "Output power", "circle")
-        draw_legend_entry(second_legend_y, efficiency_label_color, "E-O efficiency", "square")
-        self.painter.setBrush(Qt.BrushStyle.NoBrush)
-
-    def _draw_spectrum_chart(self, outer: QRectF) -> None:
-        axis = self.request.spectrum_axis
-        assert axis is not None
-        left_margin = self.mm(17)
-        right_margin = self.mm(18)
-        top_margin = self.mm(10)
-        bottom_margin = self.mm(12)
-        plot = QRectF(
-            outer.left() + left_margin,
-            outer.top() + top_margin,
-            outer.width() - left_margin - right_margin,
-            outer.height() - top_margin - bottom_margin,
-        )
-        self.painter.setPen(QColor("#343434"))
-        self.painter.setFont(self.chart_font(10.2, bold=True))
-        self.painter.drawText(
-            QRectF(outer.left(), outer.top(), outer.width(), self.mm(8)),
-            int(Qt.AlignmentFlag.AlignCenter),
-            "Spectrum at Different Currents",
-        )
-        default_x_range = self.inspection.spectrum_wavelength_range
-        assert default_x_range is not None
-        if axis.wavelength_minimum is None:
-            x_min, x_max = default_x_range
-        else:
-            x_min, x_max = axis.wavelength_minimum, axis.wavelength_maximum
-
-        def map_x(value: float) -> float:
-            return plot.left() + (value - x_min) / (x_max - x_min) * plot.width()
-
-        def map_y(value: float) -> float:
-            return plot.bottom() - (value - axis.minimum) / (axis.maximum - axis.minimum) * plot.height()
-
-        axis_color = QColor("#202020")
-        major_tick_pen = QPen(axis_color, self.mm(0.32))
-        major_tick_length = self.mm(1.55)
-        self.painter.setFont(self.chart_font(8.0))
-        for index in range(5):
-            ratio = index / 4
-            y = plot.bottom() - ratio * plot.height()
-            value = axis.minimum + ratio * (axis.maximum - axis.minimum)
-            self.painter.setPen(QPen(QColor("#d7dade"), self.mm(0.13)))
-            self.painter.drawLine(QPointF(plot.left(), y), QPointF(plot.right(), y))
-            self.painter.setPen(major_tick_pen)
-            self.painter.drawLine(QPointF(plot.left(), y), QPointF(plot.left() + major_tick_length, y))
-            self.painter.setPen(axis_color)
-            label = (
-                _format_scientific_axis_tick(value)
-                if axis.mode is SpectrumAxisMode.COUNTS
-                else f"{value:g}"
-            )
-            self.painter.drawText(QRectF(plot.left() - self.mm(14), y - self.mm(2.2), self.mm(12), self.mm(4.4)), int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter), label)
-        for index in range(5):
-            ratio = index / 4
-            x = plot.left() + ratio * plot.width()
-            self.painter.setPen(QPen(QColor("#e0e3e6"), self.mm(0.12)))
-            self.painter.drawLine(QPointF(x, plot.top()), QPointF(x, plot.bottom()))
-            self.painter.setPen(axis_color)
-            self.painter.drawText(QRectF(x - self.mm(7), plot.bottom() + self.mm(1.5), self.mm(14), self.mm(4.5)), int(Qt.AlignmentFlag.AlignCenter), f"{x_min + ratio * (x_max - x_min):.1f}")
-        self.painter.setPen(QPen(axis_color, self.mm(0.42)))
-        self.painter.drawRect(plot)
-        self.painter.setFont(self.chart_font(8.8))
-        self.painter.setPen(axis_color)
-        self.painter.drawText(
-            QRectF(plot.left(), plot.bottom() + self.mm(6.5), plot.width(), self.mm(5.5)),
-            int(Qt.AlignmentFlag.AlignCenter),
-            "Wavelength (nm)",
-        )
-        self.painter.save()
-        self.painter.translate(outer.left() + self.mm(3.2), plot.center().y())
-        self.painter.rotate(-90)
-        y_label = "Intensity"
-        vertical_label_span = outer.height() - self.mm(2.0)
-        self.painter.drawText(QRectF(-vertical_label_span / 2, -self.mm(3.25), vertical_label_span, self.mm(6.5)), int(Qt.AlignmentFlag.AlignCenter), y_label)
-        self.painter.restore()
-        colors = (
-            "#376f9f", "#c54e4e", "#799442", "#72548c", "#3f9298", "#d27b36",
-            "#254f69", "#8b493d", "#536d2d", "#60456f", "#32767a", "#9b5c22",
-        )
-        self.painter.save()
-        self.painter.setClipRect(plot)
-        for index, point in enumerate(self.inspection.points):
-            values = list(point.intensity)
-            if axis.mode is SpectrumAxisMode.RELATIVE_DB:
-                peak = max(values)
-                if peak <= 0:
-                    transformed = [axis.minimum for _value in values]
-                else:
-                    floor = peak * 1e-12
-                    transformed = [10.0 * math.log10(max(value, floor) / peak) for value in values]
-            else:
-                transformed = values
-            visible_points = [
-                (x, y)
-                for x, y in zip(point.wavelength, transformed)
-                if math.isfinite(x) and math.isfinite(y) and x_min <= x <= x_max
-            ]
-            stride = max(1, len(visible_points) // 800)
-            polygon = QPolygonF()
-            for x, y in visible_points[::stride]:
-                polygon.append(QPointF(map_x(x), map_y(y)))
-            self.painter.setPen(QPen(QColor(colors[index % len(colors)]), self.mm(0.35)))
-            self.painter.drawPolyline(polygon)
-        self.painter.restore()
-        legend_width = self.mm(20.0)
-        legend_x = plot.right() - legend_width - self.mm(2.0)
-        legend_y = plot.top() + self.mm(1.0)
-        legend_row = min(self.mm(4.6), (plot.height() - self.mm(2.0)) / max(1, len(self.inspection.points)))
-        legend_number_x = legend_x + self.mm(8.0)
-        legend_number_width = self.mm(7.0)
-        legend_unit_gap = self.mm(0.8)
-        legend_unit_x = legend_number_x + legend_number_width + legend_unit_gap
-        self.painter.setFont(self.chart_font(8.0))
-        for index, point in enumerate(self.inspection.points):
-            y = legend_y + index * legend_row + legend_row / 2
-            self.painter.setPen(QPen(QColor(colors[index % len(colors)]), self.mm(0.4)))
-            self.painter.drawLine(QPointF(legend_x, y), QPointF(legend_x + self.mm(6.5), y))
-            self.painter.setPen(axis_color)
-            self.painter.drawText(
-                QRectF(legend_number_x, y - legend_row / 2, legend_number_width, legend_row),
-                int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
-                f"{point.current_a:g}",
-            )
-            self.painter.drawText(
-                QRectF(legend_unit_x, y - legend_row / 2, self.mm(3.0), legend_row),
-                int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
-                "A",
-            )
-
-    def _draw_detail_table(self, top: float, points: list[ReportPoint]) -> None:
-        self._draw_section_title(top, "Detailed Measurement Data")
-        table_top = top + 9
-        row_height = 6.0
-        column_widths = (43.5, 43.5, 43.5, 43.5)
-        headers = ("Current (A)", "Power (W)", "Voltage (V)", "E-O efficiency (%)")
-        x = 18.0
-        self.painter.fillRect(self.rect(x, table_top, sum(column_widths), row_height), QColor("#0b4b82"))
-        self.painter.setPen(QColor("#ffffff"))
-        self.painter.setFont(self.font(7.7, bold=True))
-        cursor = x
-        for width, header in zip(column_widths, headers):
-            self.painter.drawText(self.rect(cursor, table_top, width, row_height), int(Qt.AlignmentFlag.AlignCenter), header)
-            cursor += width
-        self.painter.setFont(self.font(self.DETAIL_TABLE_VALUE_FONT_SIZE))
-        for row_index, point in enumerate(points, start=1):
-            y = table_top + row_index * row_height
-            self.painter.fillRect(self.rect(x, y, sum(column_widths), row_height), QColor("#f3f4f5" if row_index % 2 else "#ffffff"))
-            values = (
-                f"{point.current_a:g}",
-                f"{point.power_w:.1f}",
-                f"{point.voltage_v:.2f}",
-                f"{point.efficiency * 100.0:.2f}%",
-            )
-            cursor = x
-            for width, value in zip(column_widths, values):
-                self.painter.setPen(QColor("#d0d4d8"))
-                self.painter.drawRect(self.rect(cursor, y, width, row_height))
-                self.painter.setPen(QColor("#202020"))
-                self.painter.drawText(self.rect(cursor, y, width, row_height), int(Qt.AlignmentFlag.AlignCenter), value)
-                cursor += width
-
-    def _draw_section_title(
-        self,
-        top: float,
-        title: str,
-        *,
-        height: float = 7.0,
-        font_size: float = 10.5,
-        accent_width: float = 1.4,
-        accent_height: float | None = None,
-    ) -> None:
-        accent_height = height if accent_height is None else min(accent_height, height)
-        accent_top = top + (height - accent_height) / 2
-        self.painter.setPen(QColor("#0b4b82"))
-        self.painter.fillRect(self.rect(self.CONTENT_LEFT_MM, accent_top, accent_width, accent_height), QColor("#0b4b82"))
-        self.painter.setFont(self.font(font_size, bold=True))
-        self.painter.drawText(self.rect(21, top, 100, height), int(Qt.AlignmentFlag.AlignVCenter), title)

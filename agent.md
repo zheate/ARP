@@ -56,9 +56,11 @@
 - Device commands inside a settings dialog must use an internal command lock to prevent duplicate or concurrent requests without toggling every visible control into a disabled color state. Clicking `识别` must not make the acquisition, zeroing, save, or close controls flash between enabled and disabled styles.
 - After changing these interactions, verify all three dialog selectors and at least one `识别` action in the live preview/runtime, including layout stability and Escape/close behavior.
 
-The local spectrometer wrapper is loaded lazily and cached after its first successful import. Device detection and acquisition therefore share one loaded wrapper instead of re-executing the GUI-heavy `spectrometer_mvp.py` module.
+The local spectrometer wrapper is loaded lazily and cached after its first successful import. Device detection and acquisition therefore share one loaded wrapper instead of re-executing the hardware module.
 
-Run standalone diagnostics from the repository root with `python -m tools.power_meter_mvp` or `python -m tools.spectrometer_mvp`.
+Run toolkit-free standalone diagnostics from the repository root with
+`python -m tools.power_meter_mvp --help`, `python -m tools.spectrometer_mvp --help`,
+or `python -m tools.pd_daq_mvp --help`.
 
 ## Device Detection
 

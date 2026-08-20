@@ -93,7 +93,7 @@ class SpectrumFrameAverager:
 
 
 class AutoIntegrationSearch:
-    """Binary-search integration time using the original Qt test thresholds."""
+    """Binary-search integration time using the established test thresholds."""
 
     def __init__(self, minimum_us: int, maximum_us: int, full_scale_counts: float) -> None:
         self.minimum_us = max(AUTO_INTEGRATION_MIN_US, int(minimum_us))
@@ -719,7 +719,7 @@ class SpectrometerReaderThread(WorkerThread):
         return spectrum
 
     def _publish_latest_spectrum(self, frame: SpectrumFrame) -> None:
-        # The GUI deliberately polls this one-slot mailbox. A queued Qt signal
+        # The frontend deliberately polls this one-slot mailbox. A queued callback
         # per frame would retain every pair of arrays when plotting is slower
         # than acquisition and can grow memory without a bound.
         # OceanDirect/native wrappers are allowed to reuse their output buffers.
@@ -766,7 +766,7 @@ class SpectrometerReaderThread(WorkerThread):
         """Analyze an averaged frame on the reader thread and publish it.
 
         Mirrors the GUI-side analysis previously done per frame in
-        ``MainWindow.on_spectrum_curve``: saturation detection, PIB, SMSR and
+        the frontend spectrum callback: saturation detection, PIB, SMSR and
         peak annotations all run here so the GUI thread only consumes results.
         """
         saturation = detect_spectrum_saturation(intensity, self.full_scale_counts)

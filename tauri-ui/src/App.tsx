@@ -24,6 +24,7 @@ import {
   Save,
   Settings,
   Square,
+  Sun,
   X,
 } from "lucide-react"
 import { open as openDialog } from "@tauri-apps/plugin-dialog"
@@ -43,7 +44,8 @@ import { useBackendSnapshot } from "@/hooks/use-backend-snapshot"
 import { sendBackendRequest, type AppConfiguration, type BackendSnapshot, type DeviceSnapshot, type ShippingReportBatchGenerationResult, type ShippingReportBatchInspection, type ShippingReportBatchItem, type ShippingReportFieldDefinition, type ShippingReportGenerationResult, type ShippingReportPointSuggestion, type ShippingReportPreviewResult, type ShippingReportType, type ShippingWorkbookInspection, type SnapshotView, type SpectrumAxisMode, type TestHistoryCandidate } from "@/lib/backend"
 import { powerMeterResourceValue } from "@/lib/power-meter-resource"
 
-type Page = "automatic" | "manual" | "pd" | "shipping"
+type Page = "automatic" | "manual" | "pd" | "shipping" | "settings"
+type Theme = "dark" | "light"
 
 function DialogPortal({ children }: { children: ReactNode }) {
   return createPortal(children, document.body)
@@ -59,6 +61,9 @@ const SPECTRUM_Y_AXIS_SHRINK_TRIGGER_FRACTION = 0.72
 const SPECTRUM_Y_AXIS_SHRINK_REQUIRED_FRAMES = 6
 const SPECTRUM_Y_AXIS_MINIMUM_LIMIT = -1000
 const SHIPPING_PRODUCT_NAME_STORAGE_KEY = "power-test.shipping-report.product-name"
+const SHIPPING_REPORT_SPLIT_LAYOUT = "grid min-w-0 gap-6 xl:grid-cols-[minmax(380px,0.72fr)_minmax(560px,1.28fr)]"
+const DEFAULT_ENCIRCLED_ENERGY_NA = "0.17"
+const THEME_STORAGE_KEY = "power-test.theme"
 const PLM_CHART_SERIES = {
   clay: "#ff7a1a",
   tan: "#d5a98b",
@@ -76,12 +81,32 @@ const navigation = [
   { id: "pd" as const, label: "PD 采集", icon: BarChart3, shortcut: 3 },
   { id: "data" as const, label: "数据浏览", icon: FileText, unavailable: true },
   { id: "shipping" as const, label: "出货报告", icon: FileText, shortcut: 4 },
-  { id: "settings" as const, label: "系统设置", icon: Settings, unavailable: true },
+  { id: "settings" as const, label: "系统设置", icon: Settings },
 ]
 
 const pageShortcuts: Page[] = ["automatic", "manual", "pd", "shipping"]
 const INFO_TOAST_DURATION_MS = 3000
 const MAX_CUSTOM_CURRENT_POINTS = 50
+
+function getStoredTheme(): Theme {
+  if (typeof window === "undefined") return "dark"
+  try {
+    const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY)
+    if (storedTheme === "light" || storedTheme === "dark") return storedTheme
+  } catch {
+    // Local storage may be unavailable in restricted WebView environments.
+  }
+  return document.documentElement.dataset.theme === "light" ? "light" : "dark"
+}
+
+function applyTheme(theme: Theme): void {
+  const root = document.documentElement
+  root.classList.toggle("dark", theme === "dark")
+  root.dataset.theme = theme
+  root.style.background = theme === "dark" ? "#0f1112" : "#f4f6f8"
+  root.style.colorScheme = theme
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#0f1112" : "#f4f6f8")
+}
 
 type SpectrumYAxisState = { domain: [number, number]; compactFrameCount: number }
 
@@ -1601,7 +1626,7 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, stretch 
 })
 
 const powerEfficiencyLines: CanvasChartLine[] = [
-  { key: "powerW", label: "功率 (W)", color: PLM_CHART_SERIES.clay, axisColor: PLM_CHART_SERIES.yellow, showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 2.4, connectNulls: true },
+  { key: "powerW", label: "功率 (W)", color: PLM_CHART_SERIES.clay, axisColor: PLM_CHART_SERIES.clay, showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 2.4, connectNulls: true },
   { key: "efficiencyPercent", label: "效率 (%)", color: PLM_CHART_SERIES.blue, axisColor: PLM_CHART_SERIES.blue, yAxisId: "right", showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 2.4, connectNulls: true },
 ]
 
@@ -1673,6 +1698,9 @@ const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stre
   && sameRows(previous.snapshot?.automaticTest.reference?.points, next.snapshot?.automaticTest.reference?.points, ["currentA", "powerW"]))
 
 const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; stretch?: boolean; heightClassName?: string }) {
+  const [lightTheme, setLightTheme] = useState(() => (
+    typeof document !== "undefined" && document.documentElement.dataset.theme === "light"
+  ))
   const spectrumSource = snapshot?.measurements?.spectrum
   const spectrumData = spectrumSource
     ? { wavelengthNm: spectrumSource.wavelengthNm, intensity: spectrumSource.intensity }
@@ -1680,6 +1708,13 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
   const spectrum = snapshot?.devices.spectrometer
   const spectrumPeaks = snapshot?.measurements?.spectrumPeaks ?? []
   const spectrumYAxisStateRef = useRef<SpectrumYAxisState | null>(null)
+  useEffect(() => {
+    const root = document.documentElement
+    const syncTheme = () => setLightTheme(root.dataset.theme === "light")
+    const observer = new MutationObserver(syncTheme)
+    observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] })
+    return () => observer.disconnect()
+  }, [])
   const spectrumXDomain = useMemo<[number, number] | undefined>(() => {
     const spectrumWindow = spectrum?.spectrumWindow
     if (
@@ -1733,7 +1768,7 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
       yDomain={spectrumYDomain}
       yMinimumLimit={SPECTRUM_Y_AXIS_MINIMUM_LIMIT}
       preserveAllPoints
-      lines={[{ key: "intensity", label: "光谱（实时）", color: "#f5f5f5" }]}
+      lines={[{ key: "intensity", label: "光谱（实时）", color: lightTheme ? "#000000" : "#f5f5f5" }]}
       stretch={stretch}
       heightClassName={heightClassName}
       annotations={spectrumPeaks.map((annotation) => ({ label: annotation.label, x: annotation.centroidNm, y: annotation.peakIntensity }))}
@@ -1903,12 +1938,15 @@ function AppTitlebar({
 function App() {
   const [page, setPage] = useState<Page>(() => (typeof window !== "undefined" && (new URLSearchParams(window.location.search).get("page") as Page)) || "automatic")
   const [stationId, setStationId] = useState<"1" | "2">("1")
+  const [theme, setTheme] = useState<Theme>(getStoredTheme)
   const currentView: SnapshotView = page === "automatic"
     ? (stationId === "1" ? "automatic_1" : "automatic_2")
     : page === "manual"
     ? (stationId === "1" ? "manual_1" : "manual_2")
     : page === "pd"
     ? (stationId === "1" ? "pd_1" : "pd_2")
+    : page === "settings"
+    ? (stationId === "1" ? "automatic_1" : "automatic_2")
     : page
   const { snapshot, error, commandPending, pendingCommand, command } = useBackendSnapshot(currentView)
   const [config, setConfig] = useState<AppConfiguration>(emptyConfig)
@@ -1930,7 +1968,7 @@ function App() {
   const [closeRequestPending, setCloseRequestPending] = useState(false)
   const closeRequestInFlightRef = useRef(false)
   const automaticRunSeenRef = useRef(false)
-  const pageScrollPositionsRef = useRef<Record<Page, number>>({ automatic: 0, manual: 0, pd: 0, shipping: 0 })
+  const pageScrollPositionsRef = useRef<Record<Page, number>>({ automatic: 0, manual: 0, pd: 0, shipping: 0, settings: 0 })
   const active = snapshot?.backend.mode === "active"
   const automaticWorkflowActive = Boolean(snapshot && !["idle", "completed"].includes(snapshot.automaticTest.state))
   const automaticPaused = snapshot?.automaticTest.state === "paused"
@@ -2105,7 +2143,17 @@ function App() {
     setDirty(true)
   }, [])
 
+  useEffect(() => {
+    applyTheme(theme)
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme)
+    } catch {
+      // The theme remains active for this session if storage is unavailable.
+    }
+  }, [theme])
+
   const pageIsBlocked = useCallback((targetPage: Page): boolean => {
+    if (targetPage === "settings") return false
     if (targetPage === "pd") return false
     if (targetPage === "automatic") return manualPowerOutputActive
     if (targetPage === "manual") return automaticWorkflowActive && !automaticPaused
@@ -2238,6 +2286,9 @@ function App() {
               </button>
             ))}
           </nav>
+          <div className="mt-auto border-t border-border/60 px-3 pt-3 text-xs text-[var(--app-text-tertiary)]">
+            授权信息
+          </div>
         </aside>
 
         <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
@@ -2283,6 +2334,7 @@ function App() {
             {page === "manual" && <ManualPage snapshot={snapshot} config={config} update={update} active={active} pending={commandPending} run={run} stationId={stationId} />}
             {page === "pd" && <PdPage snapshot={snapshot} active={active} pending={commandPending} run={run} />}
             {page === "shipping" && <ShippingReportPage active={active} controlsLocked={automaticInteractionLocked} pending={commandPending} />}
+            {page === "settings" && <SystemSettingsPage theme={theme} onThemeChange={setTheme} />}
           </div>
         </main>
       </div>
@@ -2292,6 +2344,51 @@ function App() {
 
 type UpdateConfig = <K extends keyof AppConfiguration>(key: K, value: AppConfiguration[K]) => void
 type RunCommand = (method: string, params?: Record<string, unknown>, sync?: boolean) => Promise<void>
+
+function SystemSettingsPage({ theme, onThemeChange }: { theme: Theme; onThemeChange: (theme: Theme) => void }) {
+  const lightMode = theme === "light"
+  return (
+    <section className="system-settings-page">
+      <div className="system-settings-page__heading">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">系统设置</h1>
+          <p className="mt-1 text-sm text-muted-foreground">管理软件的界面显示偏好。</p>
+        </div>
+      </div>
+      <Card className="system-settings-card shadow-none">
+        <CardHeader className="system-settings-card__header">
+          <div className="system-settings-card__icon"><Sun className="size-5" /></div>
+          <div>
+            <CardTitle className="text-base">外观</CardTitle>
+            <CardDescription>选择适合当前环境的界面主题。</CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="system-settings-option">
+            <div>
+              <p className="text-sm font-medium">浅色模式</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">开启后使用明亮背景与深色文字，设置会自动保存。</p>
+            </div>
+            <div className="system-settings-option__control">
+              <span className="text-xs text-muted-foreground">{lightMode ? "已开启" : "已关闭"}</span>
+              <button
+                aria-checked={lightMode}
+                aria-label="切换浅色模式"
+                className="theme-switch"
+                data-state={lightMode ? "checked" : "unchecked"}
+                onClick={() => onThemeChange(lightMode ? "dark" : "light")}
+                role="switch"
+                type="button"
+              >
+                <span className="theme-switch__thumb" />
+              </button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </section>
+  )
+}
 
 function currentInputMaximum(config: AppConfiguration, snapshot: BackendSnapshot | null): number | undefined {
   const connectedKind = snapshot?.devices.powerSupply.connected
@@ -2316,6 +2413,53 @@ function updatePowerSupplyKind(config: AppConfiguration, update: UpdateConfig, k
 
 type ShippingFieldState = Record<string, { include: boolean; value: string }>
 
+function ShippingReportFieldSelector({
+  checked,
+  definition,
+  disabled = false,
+  encircledEnergyNa,
+  onCheckedChange,
+  onEncircledEnergyNaChange,
+}: {
+  checked: boolean
+  definition: ShippingReportFieldDefinition
+  disabled?: boolean
+  encircledEnergyNa: string
+  onCheckedChange: (checked: boolean) => void
+  onEncircledEnergyNaChange: (value: string) => void
+}) {
+  if (definition.key !== "na017Energy") {
+    return (
+      <label className="flex items-center gap-2 text-sm">
+        <input checked={checked} disabled={disabled} onChange={(event) => onCheckedChange(event.target.checked)} type="checkbox" />
+        <span>{definition.label}</span>
+      </label>
+    )
+  }
+
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm">
+      <label className="flex items-center gap-2 whitespace-nowrap">
+        <input checked={checked} disabled={disabled} onChange={(event) => onCheckedChange(event.target.checked)} type="checkbox" />
+        <span>NA</span>
+      </label>
+      <Input
+        aria-label="Encircled Energy NA"
+        className="h-7 w-16 px-2 text-sm"
+        disabled={disabled}
+        inputMode="decimal"
+        max="1"
+        min="0"
+        step="0.01"
+        type="number"
+        value={encircledEnergyNa}
+        onChange={(event) => onEncircledEnergyNaChange(event.target.value)}
+      />
+      <span>Encircled Energy</span>
+    </div>
+  )
+}
+
 function shippingSuggestedValue(point: ShippingReportPointSuggestion | undefined, measuredKey?: string | null): string {
   if (!point || !measuredKey) return ""
   const value = (point as unknown as Record<string, unknown>)[measuredKey]
@@ -2324,6 +2468,14 @@ function shippingSuggestedValue(point: ShippingReportPointSuggestion | undefined
   if (measuredKey === "powerW") return value.toFixed(1)
   if (measuredKey === "voltageV" || measuredKey === "efficiencyPercent") return value.toFixed(2)
   return value.toFixed(3).replace(/\.?0+$/, "")
+}
+
+function compactSpectrumAxisMaximum(peakCounts: number): number {
+  if (peakCounts <= 0 || !Number.isFinite(peakCounts)) return 1
+  const paddedPeak = peakCounts * 1.03
+  const magnitude = 10 ** Math.floor(Math.log10(paddedPeak))
+  const multiplier = [1, 2, 2.5, 5, 10].find((candidate) => candidate * magnitude >= paddedPeak) ?? 10
+  return multiplier * magnitude
 }
 
 function suggestedSpectrumAxis(inspection: ShippingWorkbookInspection, currentA: number) {
@@ -2341,7 +2493,7 @@ function suggestedSpectrumAxis(inspection: ShippingWorkbookInspection, currentA:
   return {
     mode: "counts" as const,
     minimum: 0,
-    maximum: maximumPeakCounts > 0 ? maximumPeakCounts * 1.08 : 1,
+    maximum: compactSpectrumAxisMaximum(maximumPeakCounts),
     wavelengthMinimum: centerWavelength - 15,
     wavelengthMaximum: centerWavelength + 15,
   }
@@ -2351,10 +2503,17 @@ function preferredSpectrumAxis(inspection: ShippingWorkbookInspection, currentA:
   const suggested = suggestedSpectrumAxis(inspection, currentA)
   const saved = inspection.preferences.spectrum?.spectrumAxis
   if (!saved) return suggested
+  if (saved.mode === "counts") {
+    return {
+      ...suggested,
+      wavelengthMinimum: saved.wavelengthMinimum ?? suggested.wavelengthMinimum,
+      wavelengthMaximum: saved.wavelengthMaximum ?? suggested.wavelengthMaximum,
+    }
+  }
   return {
     mode: saved.mode,
     minimum: saved.minimum,
-    maximum: saved.mode === "counts" ? Math.max(saved.maximum, suggested.maximum) : saved.maximum,
+    maximum: saved.maximum,
     wavelengthMinimum: saved.wavelengthMinimum ?? suggested.wavelengthMinimum,
     wavelengthMaximum: saved.wavelengthMaximum ?? suggested.wavelengthMaximum,
   }
@@ -2399,6 +2558,7 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
   const [operatingCurrentA, setOperatingCurrentA] = useState(0)
   const [fields, setFields] = useState<ShippingFieldState>({})
   const [customFields, setCustomFields] = useState<ShippingReportFieldDefinition[]>([])
+  const [encircledEnergyNa, setEncircledEnergyNa] = useState(DEFAULT_ENCIRCLED_ENERGY_NA)
   const [axisMode, setAxisMode] = useState<SpectrumAxisMode>("relative_db")
   const [axisMinimum, setAxisMinimum] = useState(-80)
   const [axisMaximum, setAxisMaximum] = useState(0)
@@ -2432,6 +2592,7 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
     setFields(nextFields)
     setCustomFields(nextCustomFields)
     if (nextType === "spectrum") {
+      setEncircledEnergyNa(preference.encircledEnergyNa ?? DEFAULT_ENCIRCLED_ENERGY_NA)
       const axis = preferredSpectrumAxis(nextInspection, currentA)
       setAxisMode(axis.mode)
       setAxisMinimum(axis.minimum)
@@ -2574,6 +2735,7 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
         operatingCurrentA,
         fields,
         customFields,
+        encircledEnergyNa,
         legacyCompletionConfirmed: true,
         ...(reportType === "spectrum" ? { spectrumAxis: { mode: axisMode, minimum: axisMinimum, maximum: axisMaximum, wavelengthMinimum, wavelengthMaximum } } : {}),
       })
@@ -2613,6 +2775,7 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
         operatingCurrentA,
         fields,
         customFields,
+        encircledEnergyNa,
         legacyCompletionConfirmed: true,
         ...(reportType === "spectrum" ? { spectrumAxis: { mode: axisMode, minimum: axisMinimum, maximum: axisMaximum, wavelengthMinimum, wavelengthMaximum } } : {}),
       })
@@ -2633,7 +2796,7 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [axisMaximum, axisMinimum, axisMode, busy, customFields, fields, inspection, operatingCurrentA, productName, reportType, sn, wavelengthMaximum, wavelengthMinimum])
+  }, [axisMaximum, axisMinimum, axisMode, busy, customFields, encircledEnergyNa, fields, inspection, operatingCurrentA, productName, reportType, sn, wavelengthMaximum, wavelengthMinimum])
 
   const definitions: ShippingReportFieldDefinition[] = inspection ? [...inspection.fieldDefinitions[reportType], ...customFields] : []
   const outputPath = shippingOutputFilePath(outputDirectory, sn)
@@ -2683,7 +2846,7 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
             </button>
           </div>
 
-          <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(360px,0.9fr)]">
+          <div className={SHIPPING_REPORT_SPLIT_LAYOUT}>
             <div className="min-w-0">
               <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2">
                 <Field label="报告类型"><NativeSelect value={reportType} onChange={(value) => changeReportType(value as ShippingReportType)}>{inspection.allowedReportTypes.includes("spectrum") && <option value="spectrum">含光谱测试报告</option>}<option value="pole">Pole 无光谱测试报告</option></NativeSelect></Field>
@@ -2705,13 +2868,19 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
                     <Button disabled={busy} onClick={addCustomField} size="sm" type="button" variant="outline"><Plus className="size-3.5" />增加参数</Button>
                   </div>
                 </div>
-                <div className="max-h-[340px] 2xl:max-h-[440px] overflow-y-auto pr-1">
+                <div className="pr-1">
                   <div className="grid grid-cols-1 gap-x-6 gap-y-3 2xl:grid-cols-2">
                     {definitions.filter((definition) => !customFields.some((field) => field.key === definition.key)).map((definition) => {
                       const state = fields[definition.key] ?? { include: false, value: "" }
                       return (
                         <div className="grid grid-cols-[minmax(150px,0.9fr)_minmax(110px,1fr)_52px] items-center gap-2" key={definition.key}>
-                          <label className="flex items-center gap-2 text-sm"><input checked={state.include} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" /><span>{definition.label}</span></label>
+                          <ShippingReportFieldSelector
+                            checked={state.include}
+                            definition={definition}
+                            encircledEnergyNa={encircledEnergyNa}
+                            onCheckedChange={(include) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include } }))}
+                            onEncircledEnergyNaChange={setEncircledEnergyNa}
+                          />
                           <Input aria-label={`${definition.label}数值`} className="h-8" value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} />
                           <span className="text-xs text-muted-foreground">{definition.unit || "-"}</span>
                         </div>
@@ -2757,7 +2926,7 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
               {error && <p className="mt-4 rounded-md bg-destructive/10 px-3 py-2 text-sm font-medium text-destructive">{error}</p>}
             </div>
 
-            <aside aria-labelledby="shipping-report-preview-title" className="min-w-0 border-t border-border pt-5 lg:sticky lg:top-2 lg:self-start lg:max-h-[calc(100vh-140px)] lg:overflow-y-auto lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0 pr-1">
+            <aside aria-labelledby="shipping-report-preview-title" className="min-w-0 border-t border-border pt-5 pr-1 pb-4 xl:border-l xl:border-t-0 xl:pl-6 xl:pt-0">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-600 border-emerald-500/30">
@@ -2817,6 +2986,7 @@ function BatchShippingReportWorkflow({ disabled }: { disabled: boolean }) {
   const [operatingCurrentA, setOperatingCurrentA] = useState(Number.NaN)
   const [fields, setFields] = useState<ShippingFieldState>({})
   const [customFields, setCustomFields] = useState<ShippingReportFieldDefinition[]>([])
+  const [encircledEnergyNa, setEncircledEnergyNa] = useState(DEFAULT_ENCIRCLED_ENERGY_NA)
   const [axisMode, setAxisMode] = useState<SpectrumAxisMode>("relative_db")
   const [axisMinimum, setAxisMinimum] = useState(-80)
   const [axisMaximum, setAxisMaximum] = useState(0)
@@ -2851,6 +3021,7 @@ function BatchShippingReportWorkflow({ disabled }: { disabled: boolean }) {
     ])))
     setCustomFields(nextCustomFields)
     if (nextType === "spectrum") {
+      setEncircledEnergyNa(preference.encircledEnergyNa ?? DEFAULT_ENCIRCLED_ENERGY_NA)
       const axis = preferredSpectrumAxis(inspection, currentA)
       setAxisMode(axis.mode)
       setAxisMinimum(axis.minimum)
@@ -3076,6 +3247,7 @@ function BatchShippingReportWorkflow({ disabled }: { disabled: boolean }) {
           operatingCurrentA,
           fields,
           customFields,
+          encircledEnergyNa,
           legacyCompletionConfirmed: true,
           ...(reportType === "spectrum" ? { spectrumAxis: { mode: axisMode, minimum: axisMinimum, maximum: axisMaximum, wavelengthMinimum, wavelengthMaximum } } : {}),
         })
@@ -3108,6 +3280,7 @@ function BatchShippingReportWorkflow({ disabled }: { disabled: boolean }) {
         operatingCurrentA,
         fields,
         customFields,
+        encircledEnergyNa,
         legacyCompletionConfirmed: true,
         ...(reportType === "spectrum" ? { spectrumAxis: { mode: axisMode, minimum: axisMinimum, maximum: axisMaximum, wavelengthMinimum, wavelengthMaximum } } : {}),
       }).then((result) => {
@@ -3125,7 +3298,7 @@ function BatchShippingReportWorkflow({ disabled }: { disabled: boolean }) {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [axisMaximum, axisMinimum, axisMode, busy, customFields, fields, operatingCurrentA, productName, reportType, representative, wavelengthMaximum, wavelengthMinimum])
+  }, [axisMaximum, axisMinimum, axisMode, busy, customFields, encircledEnergyNa, fields, operatingCurrentA, productName, reportType, representative, wavelengthMaximum, wavelengthMinimum])
 
   const reportTypes: ShippingReportType[] = batch?.items.some((item) => item.status === "ready" && item.allowedReportTypes.includes("spectrum")) ? ["spectrum", "pole"] : ["pole"]
   const definitions = representative ? [...representative.fieldDefinitions[reportType], ...customFields] : []
@@ -3149,12 +3322,12 @@ function BatchShippingReportWorkflow({ disabled }: { disabled: boolean }) {
       {representative && <section className="mt-6 border-t border-border pt-6">
         <div className="mb-5"><h2 className="text-base font-semibold">统一报告配置</h2><p className="mt-1 max-w-3xl truncate text-xs text-muted-foreground">预览样本：{representative.sourcePath}</p></div>
         {productMismatch && <p className="mb-4 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-950">Excel 中存在多个产品名称，本次统一使用下方填写的产品名称。</p>}
-        <div className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(365px,0.95fr)]"><div className="min-w-0">
+        <div className={SHIPPING_REPORT_SPLIT_LAYOUT}><div className="min-w-0">
           <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2"><Field label="报告类型"><NativeSelect disabled={busy} value={reportType} onChange={(value) => void changeReportType(value as ShippingReportType)}>{reportTypes.includes("spectrum") && <option value="spectrum">含光谱测试报告</option>}<option value="pole">Pole 无光谱测试报告</option></NativeSelect></Field><Field label="统一工作电流"><NativeSelect disabled={busy} value={Number.isFinite(operatingCurrentA) ? String(operatingCurrentA) : ""} onChange={(value) => void changeOperatingCurrent(Number(value))}><option disabled value="">请选择工作电流</option>{batch.unionCurrents.map((current) => <option key={current} value={String(current)}>{Number.isInteger(current) ? current.toFixed(0) : String(current)} A{batch.commonCurrents.includes(current) ? " · 全部共有" : ""}</option>)}</NativeSelect></Field><Field className="2xl:col-span-2" label="统一产品名称"><Input disabled={busy} value={productName} onChange={(event) => changeProductName(event.target.value)} /></Field></div>
           <Separator className="my-5" />
-          <div><div className="mb-3 flex items-end justify-between gap-4"><div><h3 className="text-sm font-semibold">报告参数</h3><p className="mt-1 text-xs text-muted-foreground">测量参数会按每份 Excel 重新取值；手工参数统一应用。</p></div><div className="flex shrink-0 items-center gap-3"><span className="text-xs text-muted-foreground">已选 {Object.values(fields).filter((item) => item.include).length} 项</span><Button disabled={busy} onClick={addCustomField} size="sm" type="button" variant="outline"><Plus className="size-3.5" />手动增加参数</Button></div></div><div className="max-h-[340px] 2xl:max-h-[440px] overflow-y-auto pr-1"><div className="grid grid-cols-1 gap-x-6 gap-y-3 2xl:grid-cols-2">{definitions.filter((definition) => !customFields.some((field) => field.key === definition.key)).map((definition) => { const state = fields[definition.key] ?? { include: false, value: "" }; return <div className="grid grid-cols-[minmax(150px,0.9fr)_minmax(110px,1fr)_52px] items-center gap-2" key={definition.key}><label className="flex items-center gap-2 text-sm"><input checked={state.include} disabled={busy} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" /><span>{definition.label}</span></label><Input aria-label={`${definition.label}数值`} className="h-8" disabled={busy || Boolean(definition.measuredKey)} value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} /><span className="text-xs text-muted-foreground">{definition.unit || "-"}</span></div>})}{customFields.map((definition) => { const state = fields[definition.key] ?? { include: true, value: "" }; return <div className="col-span-1 grid grid-cols-[auto_minmax(130px,0.8fr)_minmax(110px,1fr)_minmax(60px,0.35fr)_auto] items-center gap-2 rounded-md border border-dashed border-border bg-muted/20 p-2 2xl:col-span-2" key={definition.key}><input checked={state.include} disabled={busy} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" /><Input className="h-8" disabled={busy} placeholder="参数名称" value={definition.label} onChange={(event) => updateCustomField(definition.key, { label: event.target.value })} /><Input className="h-8" disabled={busy} placeholder="参数值" value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} /><Input className="h-8" disabled={busy} placeholder="单位" value={definition.unit} onChange={(event) => updateCustomField(definition.key, { unit: event.target.value })} /><button aria-label={`删除${definition.label}`} disabled={busy} onClick={() => removeCustomField(definition.key)} type="button"><X className="size-4" /></button></div>})}</div></div></div>
+          <div><div className="mb-3 flex items-end justify-between gap-4"><div><h3 className="text-sm font-semibold">报告参数</h3><p className="mt-1 text-xs text-muted-foreground">测量参数会按每份 Excel 重新取值；手工参数统一应用。</p></div><div className="flex shrink-0 items-center gap-3"><span className="text-xs text-muted-foreground">已选 {Object.values(fields).filter((item) => item.include).length} 项</span><Button disabled={busy} onClick={addCustomField} size="sm" type="button" variant="outline"><Plus className="size-3.5" />手动增加参数</Button></div></div><div className="pr-1"><div className="grid grid-cols-1 gap-x-6 gap-y-3 2xl:grid-cols-2">{definitions.filter((definition) => !customFields.some((field) => field.key === definition.key)).map((definition) => { const state = fields[definition.key] ?? { include: false, value: "" }; return <div className="grid grid-cols-[minmax(150px,0.9fr)_minmax(110px,1fr)_52px] items-center gap-2" key={definition.key}><ShippingReportFieldSelector checked={state.include} definition={definition} disabled={busy} encircledEnergyNa={encircledEnergyNa} onCheckedChange={(include) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include } }))} onEncircledEnergyNaChange={setEncircledEnergyNa} /><Input aria-label={`${definition.label}数值`} className="h-8" disabled={busy || Boolean(definition.measuredKey)} value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} /><span className="text-xs text-muted-foreground">{definition.unit || "-"}</span></div>})}{customFields.map((definition) => { const state = fields[definition.key] ?? { include: true, value: "" }; return <div className="col-span-1 grid grid-cols-[auto_minmax(130px,0.8fr)_minmax(110px,1fr)_minmax(60px,0.35fr)_auto] items-center gap-2 rounded-md border border-dashed border-border bg-muted/20 p-2 2xl:col-span-2" key={definition.key}><input checked={state.include} disabled={busy} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" /><Input className="h-8" disabled={busy} placeholder="参数名称" value={definition.label} onChange={(event) => updateCustomField(definition.key, { label: event.target.value })} /><Input className="h-8" disabled={busy} placeholder="参数值" value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} /><Input className="h-8" disabled={busy} placeholder="单位" value={definition.unit} onChange={(event) => updateCustomField(definition.key, { unit: event.target.value })} /><button aria-label={`删除${definition.label}`} disabled={busy} onClick={() => removeCustomField(definition.key)} type="button"><X className="size-4" /></button></div>})}</div></div></div>
           {reportType === "spectrum" && <><Separator className="my-5" /><div><h3 className="text-sm font-semibold">光谱纵轴</h3><div className="mt-3 grid grid-cols-3 gap-4"><Field label="单位"><NativeSelect disabled value={axisMode} onChange={() => undefined}><option value="counts">原始强度 (counts)</option></NativeSelect></Field><NumberField disabled={busy} label="下限" value={axisMinimum} onChange={setAxisMinimum} /><NumberField disabled={busy} label="上限" value={axisMaximum} onChange={setAxisMaximum} /></div></div><Separator className="my-5" /><div><h3 className="text-sm font-semibold">光谱横轴</h3><div className="mt-3 grid grid-cols-2 gap-4"><NumberField disabled={busy} label="下限 (nm)" value={wavelengthMinimum} onChange={setWavelengthMinimum} step="0.1" /><NumberField disabled={busy} label="上限 (nm)" value={wavelengthMaximum} onChange={setWavelengthMaximum} step="0.1" /></div></div></>}
-        </div><aside className="min-w-0 border-t border-border pt-5 lg:sticky lg:top-2 lg:self-start lg:max-h-[calc(100vh-140px)] lg:overflow-y-auto lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0 pr-1"><div className="flex items-center justify-between"><div><h3 className="text-sm font-semibold">代表文件预览</h3><p className="mt-1 text-xs text-muted-foreground">SN：{representative.sn}</p></div>{previewBusy && <LoaderCircle className="size-4 animate-spin text-muted-foreground" />}</div>{previewError && <p className="mt-4 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-950">{previewError}</p>}{previewPages.length ? <div className="mt-4 space-y-5">{previewPages.map((page, index) => <img alt={`批量出货报告代表预览，第 ${index + 1} 页`} className="w-full border border-border bg-white" key={`${index}-${page.slice(-24)}`} src={`data:image/png;base64,${page}`} />)}</div> : !previewBusy && !previewError && <div className="mt-4 grid min-h-56 place-items-center border border-dashed border-border text-xs text-muted-foreground">等待有效配置</div>}</aside></div>
+        </div><aside className="min-w-0 border-t border-border pt-5 pr-1 pb-4 xl:border-l xl:border-t-0 xl:pl-6 xl:pt-0"><div className="flex items-center justify-between"><div><h3 className="text-sm font-semibold">代表文件预览</h3><p className="mt-1 text-xs text-muted-foreground">SN：{representative.sn}</p></div>{previewBusy && <LoaderCircle className="size-4 animate-spin text-muted-foreground" />}</div>{previewError && <p className="mt-4 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-950">{previewError}</p>}{previewPages.length ? <div className="mt-4 space-y-5">{previewPages.map((page, index) => <img alt={`批量出货报告代表预览，第 ${index + 1} 页`} className="w-full border border-border bg-white" key={`${index}-${page.slice(-24)}`} src={`data:image/png;base64,${page}`} />)}</div> : !previewBusy && !previewError && <div className="mt-4 grid min-h-56 place-items-center border border-dashed border-border text-xs text-muted-foreground">等待有效配置</div>}</aside></div>
         <div className="mt-6 border-t border-border pt-4">{generationProgress.total > 0 && <div className="mb-4"><div className="mb-2 flex justify-between text-xs text-muted-foreground"><span>批量生成进度</span><span>{generationProgress.completed} / {generationProgress.total}</span></div><Progress value={generationProgress.total ? generationProgress.completed / generationProgress.total * 100 : 0} /></div>}<div className="flex flex-wrap items-center justify-between gap-3"><div className="text-xs text-muted-foreground">{resultValues.length ? `成功 ${successCount}，跳过 ${skippedCount}，失败 ${failedCount}` : `输出目录：${outputDirectory || "未选择"}`}</div><div className="flex gap-2">{resultValues.length > 0 && <Button disabled={!outputDirectory.trim()} onClick={() => void openOutputDirectory()} variant="outline"><FolderOpen className="size-4" />打开输出文件夹</Button>}<Button disabled={disabled || busy} onClick={() => void generateBatch()}>{generating ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}{generating ? "正在批量生成…" : "批量生成 PDF"}</Button></div></div></div>
       </section>}
     </>}

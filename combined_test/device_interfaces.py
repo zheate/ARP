@@ -1,7 +1,7 @@
 """Stable device ports used by the application and automatic test runner.
 
 The concrete Windows drivers remain behind these protocols.  This keeps the
-workflow independent from CH341, TDK/VISA, and Qt thread implementations.
+workflow independent from CH341, TDK/VISA, and concrete thread implementations.
 """
 
 from __future__ import annotations

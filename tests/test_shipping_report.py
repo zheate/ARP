@@ -24,6 +24,7 @@ from combined_test.shipping_report import (
     _balanced_report_columns,
     _format_performance_parameters_title,
     _format_pole_summary_value,
+    _report_definitions,
     _format_scientific_axis_tick,
     build_batch_shipping_report_request,
     generate_shipping_report,
@@ -101,6 +102,7 @@ class ShippingReportTests(unittest.TestCase):
                 key: {"include": selected.include, "value": selected.value}
                 for key, selected in request.fields.items()
             },
+            "encircledEnergyNa": request.encircled_energy_na,
             "legacyCompletionConfirmed": request.legacy_completion_confirmed,
             "customFields": [
                 {"key": field.key, "label": field.label, "unit": field.unit, "side": field.side}
@@ -547,6 +549,38 @@ class ShippingReportTests(unittest.TestCase):
             self.assertEqual(restored["spectrumAxis"]["wavelengthMinimum"], 974.0)
             self.assertEqual(restored["spectrumAxis"]["wavelengthMaximum"], 978.0)
 
+    def test_encircled_energy_na_is_configurable_validated_and_remembered(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "source.xlsx"
+            self._write(source)
+            inspection = inspect_shipping_workbook(source)
+            request = ShippingReportRequest(
+                **{**self._request(ShippingReportType.SPECTRUM).__dict__, "encircled_energy_na": "0.22"}
+            )
+
+            validate_shipping_report_request(inspection, request)
+            parsed = ShippingReportRequest.from_mapping(self._request_payload(request))
+            self.assertEqual(parsed.encircled_energy_na, "0.22")
+            definitions = _report_definitions(
+                ShippingReportType.SPECTRUM,
+                encircled_energy_na=request.encircled_energy_na,
+            )
+            self.assertEqual(
+                next(field.label for field in definitions if field.key == "na017Energy"),
+                "NA 0.22 Encircled Energy",
+            )
+
+            settings = JsonSettings(Path(temp_dir) / "report.json")
+            save_shipping_report_preferences(settings, request)
+            self.assertEqual(
+                load_shipping_report_preferences(settings)["spectrum"]["encircledEnergyNa"],
+                "0.22",
+            )
+
+            invalid = ShippingReportRequest(**{**request.__dict__, "encircled_energy_na": "1.1"})
+            with self.assertRaisesRegex(ValueError, "必须大于 0 且不大于 1"):
+                validate_shipping_report_request(inspection, invalid)
+
     def test_first_use_pole_preferences_match_the_approved_six_row_template(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             settings = JsonSettings(Path(temp_dir) / "report.json")
@@ -557,6 +591,7 @@ class ShippingReportTests(unittest.TestCase):
                 preferences["pole"]["selectedFields"],
                 [definition.key for definition in POLE_FIELD_DEFINITIONS],
             )
+            self.assertEqual(preferences["spectrum"]["encircledEnergyNa"], "0.17")
 
     def test_custom_report_fields_are_validated_rendered_and_remembered(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -1,63 +1,24 @@
-"""Standalone power-meter diagnostic UI and serial power-meter adapters."""
+"""Power-meter adapters and standalone command-line diagnostics."""
 
 from __future__ import annotations
 
+import argparse
+import json
 import math
 import re
-import sys
 import time
-from collections import deque
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Deque
+from typing import Any
 
 import pyvisa
 from pyvisa import constants
 
-try:  # Standalone diagnostic UI; not needed by the production sidecar.
-    from PySide6.QtCore import QThread, Qt, Signal
-    from PySide6.QtGui import QCloseEvent
-    from PySide6.QtWidgets import (
-        QApplication,
-        QComboBox,
-        QDoubleSpinBox,
-        QFormLayout,
-        QHBoxLayout,
-        QLabel,
-        QLineEdit,
-        QMainWindow,
-        QMessageBox,
-        QPushButton,
-        QSpinBox,
-        QStatusBar,
-        QVBoxLayout,
-        QWidget,
-    )
-    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
-    from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
-except ModuleNotFoundError:
-    from combined_test.concurrency import Signal, WorkerThread as QThread
-
-    class _DiagnosticUiUnavailable:
-        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
-            raise RuntimeError("The retired PySide diagnostic UI is unavailable")
-
-    class _QtPlaceholder:
-        class AlignmentFlag:
-            AlignCenter = 0
-
-    Qt = _QtPlaceholder()
-    QCloseEvent = object
-    QApplication = QComboBox = QDoubleSpinBox = QFormLayout = QHBoxLayout = _DiagnosticUiUnavailable
-    QLabel = QLineEdit = QMainWindow = QMessageBox = QPushButton = _DiagnosticUiUnavailable
-    QSpinBox = QStatusBar = QVBoxLayout = QWidget = _DiagnosticUiUnavailable
-    FigureCanvas = NavigationToolbar = _DiagnosticUiUnavailable
-
+from combined_test.concurrency import Signal, WorkerThread
 from tools.visa_session import acquire_visa_resource_manager, release_visa_resource_manager
 
-from matplotlib.figure import Figure
 
-
-MAX_SAMPLES = 10000
+MAX_SAMPLES = 10_000
 PLOT_HISTORY_S = 30.0
 PLOT_REFRESH_S = 0.2
 DEFAULT_RESOURCE = "ASRL3::INSTR"
@@ -839,7 +800,9 @@ class OphirPowerMeter:
                 pythoncom.CoUninitialize()
 
 
-class PowerReaderThread(QThread):
+class PowerReaderThread(WorkerThread):
+    """Toolkit-free compatibility reader for standalone diagnostics."""
+
     sample = Signal(float, float)
     status = Signal(str)
     failed = Signal(str)
@@ -851,7 +814,7 @@ class PowerReaderThread(QThread):
         software_gain: float,
         interval_ms: int,
         driver_kind: str = "caihuang",
-        parent: QWidget | None = None,
+        parent: object | None = None,
     ) -> None:
         super().__init__(parent)
         self.resource = resource
@@ -865,11 +828,13 @@ class PowerReaderThread(QThread):
         self._running = False
 
     def run(self) -> None:
-        meter: CaihuangPowerMeter | CoherentPowerMeter | None = None
+        meter: Any | None = None
         try:
             meter_classes = {
                 "caihuang": CaihuangPowerMeter,
                 "coherent": CoherentPowerMeter,
+                "laserpoint": LaserPointPowerMeter,
+                "ophir": OphirPowerMeter,
             }
             meter_class = meter_classes.get(self.driver_kind)
             if meter_class is None:
@@ -877,10 +842,12 @@ class PowerReaderThread(QThread):
             meter = meter_class(self.resource)
             if meter.test() != "OK":
                 raise RuntimeError("device test did not return OK")
-            if self.driver_kind == "coherent":
+            if self.driver_kind == "coherent" and hasattr(meter, "set_power_mode"):
                 meter.set_power_mode()
             meter.set_wavelength(self.wavelength_nm)
-            self.status.emit(f"Connected: {meter.device_type} on {normalize_resource(self.resource)}")
+            self.status.emit(
+                f"Connected: {meter.device_type} on {normalize_resource(self.resource)}"
+            )
             start = time.monotonic()
             self._running = True
             while self._running:
@@ -897,274 +864,96 @@ class PowerReaderThread(QThread):
                     pass
 
 
-class MainWindow(QMainWindow):
-    def __init__(self) -> None:
-        super().__init__()
-        self.setWindowTitle("Power Meter MVP")
-        self.resize(1100, 720)
+def discover_power_meters(resources: Iterable[str] | None = None) -> list[ProbeResult]:
+    """Probe every supported VISA and Ophir meter without a GUI toolkit."""
 
-        self.rm = acquire_visa_resource_manager()
-        self.reader: PowerReaderThread | None = None
-        self.detected_driver_kind = "caihuang"
-        self.times: Deque[float] = deque(maxlen=MAX_SAMPLES)
-        self.powers: Deque[float] = deque(maxlen=MAX_SAMPLES)
-        self.sample_count = 0
-        self.last_plot_update = 0.0
-
-        root = QWidget(self)
-        self.setCentralWidget(root)
-        layout = QVBoxLayout(root)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
-
-        top = QHBoxLayout()
-        top.setSpacing(8)
-        layout.addLayout(top)
-
-        form = QFormLayout()
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
-        top.addLayout(form, stretch=1)
-
-        self.resource_combo = QComboBox(self)
-        self.resource_combo.setEditable(True)
-        form.addRow("Resource", self.resource_combo)
-
-        self.device_field = QLineEdit(self)
-        self.device_field.setReadOnly(True)
-        form.addRow("Detected", self.device_field)
-
-        self.wavelength_spin = QDoubleSpinBox(self)
-        self.wavelength_spin.setRange(190.0, 25000.0)
-        self.wavelength_spin.setDecimals(3)
-        self.wavelength_spin.setSingleStep(0.1)
-        self.wavelength_spin.setValue(976.0)
-        self.wavelength_spin.setSuffix(" nm")
-        form.addRow("Wavelength", self.wavelength_spin)
-
-        self.gain_spin = QDoubleSpinBox(self)
-        self.gain_spin.setRange(0.000001, 1000000.0)
-        self.gain_spin.setDecimals(6)
-        self.gain_spin.setValue(1.0)
-        form.addRow("Software gain", self.gain_spin)
-
-        self.interval_spin = QSpinBox(self)
-        self.interval_spin.setRange(20, 5000)
-        self.interval_spin.setValue(300)
-        self.interval_spin.setSingleStep(50)
-        self.interval_spin.setSuffix(" ms")
-        form.addRow("Interval", self.interval_spin)
-
-        actions = QVBoxLayout()
-        actions.setSpacing(8)
-        top.addLayout(actions)
-
-        self.refresh_button = QPushButton("Refresh Ports", self)
-        self.detect_button = QPushButton("Auto Detect", self)
-        self.start_button = QPushButton("Start", self)
-        self.stop_button = QPushButton("Stop", self)
-        self.zero_on_button = QPushButton("REL Zero On", self)
-        self.zero_off_button = QPushButton("REL Zero Off", self)
-        self.stop_button.setEnabled(False)
-        actions.addWidget(self.refresh_button)
-        actions.addWidget(self.detect_button)
-        actions.addWidget(self.start_button)
-        actions.addWidget(self.stop_button)
-        actions.addWidget(self.zero_on_button)
-        actions.addWidget(self.zero_off_button)
-        actions.addStretch(1)
-
-        power_row = QHBoxLayout()
-        layout.addLayout(power_row)
-
-        self.power_label = QLabel("-- W", self)
-        self.power_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.power_label.setStyleSheet("font-size: 42px; font-weight: 700;")
-        power_row.addWidget(self.power_label, stretch=1)
-
-        self.stats_label = QLabel("Samples: 0", self)
-        self.stats_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        power_row.addWidget(self.stats_label)
-
-        self.figure = Figure(figsize=(8, 4), dpi=100)
-        self.canvas = FigureCanvas(self.figure)
-        self.ax = self.figure.add_subplot(111)
-        self.line, = self.ax.plot([], [], color="#1476d4", linewidth=1.8)
-        self.ax.set_xlabel("Elapsed time (s), showing last 30 s")
-        self.ax.set_ylabel("Power (W)")
-        self.ax.grid(True, alpha=0.25)
-        layout.addWidget(NavigationToolbar(self.canvas, self))
-        layout.addWidget(self.canvas, stretch=1)
-
-        self.setStatusBar(QStatusBar(self))
-
-        self.refresh_button.clicked.connect(self.refresh_resources)
-        self.detect_button.clicked.connect(self.auto_detect)
-        self.start_button.clicked.connect(self.start_reading)
-        self.stop_button.clicked.connect(self.stop_reading)
-        self.zero_on_button.clicked.connect(lambda: self.set_relative_zero(True))
-        self.zero_off_button.clicked.connect(lambda: self.set_relative_zero(False))
-
-        self.resource_combo.addItem(DEFAULT_RESOURCE)
-        self.resource_combo.setCurrentText(DEFAULT_RESOURCE)
-        self.statusBar().showMessage("Ready. Use Auto Detect or Refresh Ports if the port changed.")
-
-    def refresh_resources(self) -> None:
-        current = self.resource_combo.currentText().strip()
-        self.resource_combo.clear()
-        try:
-            resources = sorted(str(item) for item in self.rm.list_resources() if str(item).startswith("ASRL"))
-        except Exception as exc:
-            self.statusBar().showMessage(f"List resources failed: {exc}")
-            resources = []
-        self.resource_combo.addItems(resources)
-        if current:
-            index = self.resource_combo.findText(current)
-            if index >= 0:
-                self.resource_combo.setCurrentIndex(index)
-            else:
-                self.resource_combo.setEditText(current)
-        elif resources:
-            self.resource_combo.setCurrentIndex(0)
-        self.statusBar().showMessage(f"Found {len(resources)} serial resource(s)")
-
-    def auto_detect(self) -> None:
-        typed = self.resource_combo.currentText().strip()
-        candidates = []
-        if typed and typed not in candidates:
-            candidates.insert(0, typed)
-        candidates.extend(
-            self.resource_combo.itemText(i)
-            for i in range(self.resource_combo.count())
-            if self.resource_combo.itemText(i) not in candidates
-        )
-        if not candidates:
-            self.refresh_resources()
-            candidates = [self.resource_combo.itemText(i) for i in range(self.resource_combo.count())]
-        for resource in candidates:
-            for meter_class in (CaihuangPowerMeter, CoherentPowerMeter):
-                result = meter_class.probe(resource)
-                if result:
-                    self.detected_driver_kind = result.driver_kind
-                    self.resource_combo.setEditText(result.resource)
-                    self.device_field.setText(f"{result.device_type} ({result.detail})")
-                    self.statusBar().showMessage(
-                        f"Detected {result.device_type} on {result.resource}"
-                    )
-                    return
-        self.device_field.clear()
-        QMessageBox.warning(self, "Auto Detect", "No supported power meter was detected.")
-
-    def start_reading(self) -> None:
-        if self.reader is not None:
-            return
-        resource = self.resource_combo.currentText().strip()
-        if not resource:
-            QMessageBox.warning(self, "Start", "Select a serial resource first.")
-            return
-        self.times.clear()
-        self.powers.clear()
-        self.sample_count = 0
-        self.last_plot_update = 0.0
-        self.update_plot()
-        self.reader = PowerReaderThread(
-            resource=resource,
-            wavelength_nm=self.wavelength_spin.value(),
-            software_gain=self.gain_spin.value(),
-            interval_ms=self.interval_spin.value(),
-            driver_kind=self.detected_driver_kind,
-            parent=self,
-        )
-        self.reader.sample.connect(self.on_sample)
-        self.reader.status.connect(self.statusBar().showMessage)
-        self.reader.failed.connect(self.on_reader_failed)
-        self.reader.finished.connect(self.on_reader_finished)
-        self.reader.start()
-        self.set_running_state(True)
-
-    def stop_reading(self) -> None:
-        if self.reader is not None:
-            self.reader.stop()
-            self.reader.wait(2000)
-
-    def on_sample(self, elapsed_s: float, power_w: float) -> None:
-        self.times.append(elapsed_s)
-        self.powers.append(power_w)
-        self.sample_count += 1
-        self.power_label.setText(f"{power_w:.2f} W")
-        self.stats_label.setText(f"Samples: {self.sample_count}")
-        now = time.monotonic()
-        if now - self.last_plot_update >= PLOT_REFRESH_S:
-            self.last_plot_update = now
-            self.update_plot()
-
-    def on_reader_failed(self, message: str) -> None:
-        QMessageBox.critical(self, "Power Meter Error", message)
-
-    def on_reader_finished(self) -> None:
-        self.reader = None
-        self.set_running_state(False)
-        self.statusBar().showMessage("Stopped")
-
-    def update_plot(self) -> None:
-        if self.times and self.powers:
-            x_min = max(0.0, self.times[-1] - PLOT_HISTORY_S)
-            x_max = max(10.0, self.times[-1])
-            visible = [(t, p) for t, p in zip(self.times, self.powers) if t >= x_min]
-            visible_times = [item[0] for item in visible]
-            visible_powers = [item[1] for item in visible]
-            self.line.set_data(visible_times, visible_powers)
-            y_min = min(visible_powers)
-            y_max = max(visible_powers)
-            if math.isclose(y_min, y_max):
-                pad = max(abs(y_min) * 0.1, 0.001)
-            else:
-                pad = (y_max - y_min) * 0.12
-            self.ax.set_xlim(x_min, x_max)
-            self.ax.set_ylim(y_min - pad, y_max + pad)
+    resource_manager = None
+    try:
+        if resources is None:
+            resource_manager = acquire_visa_resource_manager()
+            candidates = [
+                str(item)
+                for item in resource_manager.list_resources()
+                if str(item).upper().startswith("ASRL")
+            ]
         else:
-            self.line.set_data([], [])
-            self.ax.set_xlim(0, 10)
-            self.ax.set_ylim(-0.01, 0.01)
-        self.canvas.draw_idle()
+            candidates = [normalize_resource(item) for item in resources if str(item).strip()]
 
-    def set_relative_zero(self, enabled: bool) -> None:
-        resource = self.resource_combo.currentText().strip()
-        if not resource:
-            QMessageBox.warning(self, "REL Zero", "Select a serial resource first.")
-            return
+        detected: list[ProbeResult] = []
+        for resource in candidates:
+            for meter_class in (CaihuangPowerMeter, CoherentPowerMeter, LaserPointPowerMeter):
+                result = meter_class.probe(resource)
+                if result is not None:
+                    detected.append(result)
+                    break
+        detected.extend(OphirPowerMeter.probe_all())
+        return detected
+    finally:
+        if resource_manager is not None:
+            release_visa_resource_manager(resource_manager)
+
+
+def _open_diagnostic_meter(driver_kind: str, resource: str) -> Any:
+    meter_classes = {
+        "caihuang": CaihuangPowerMeter,
+        "coherent": CoherentPowerMeter,
+        "laserpoint": LaserPointPowerMeter,
+        "ophir": OphirPowerMeter,
+    }
+    if driver_kind == "auto":
+        matches = discover_power_meters([resource] if resource else None)
+        if not matches:
+            raise RuntimeError("未检测到受支持的功率计")
+        match = matches[0]
+        driver_kind = match.driver_kind
+        resource = match.resource
+    meter_class = meter_classes[driver_kind]
+    return meter_class(resource)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="无界面功率计诊断工具")
+    parser.add_argument("--list", action="store_true", help="识别并列出所有受支持的功率计")
+    parser.add_argument("--resource", default="", help="VISA 或 OPHIR::USB 资源")
+    parser.add_argument(
+        "--driver",
+        choices=("auto", "caihuang", "coherent", "laserpoint", "ophir"),
+        default="auto",
+    )
+    parser.add_argument("--wavelength", type=float, default=976.0, help="校准波长，单位 nm")
+    parser.add_argument("--samples", type=int, default=0, help="读取样本数量")
+    parser.add_argument("--interval-ms", type=int, default=300, help="样本间隔，单位 ms")
+    parser.add_argument("--zero", choices=("on", "off"), help="切换支持设备的相对调零")
+    args = parser.parse_args(argv)
+
+    if args.list:
+        print(json.dumps([result.__dict__ for result in discover_power_meters()], ensure_ascii=False, indent=2))
+    if args.samples < 0:
+        parser.error("--samples 必须大于或等于 0")
+    if args.interval_ms < 0:
+        parser.error("--interval-ms 必须大于或等于 0")
+    if not args.list and args.samples == 0 and args.zero is None:
+        parser.print_help()
+        return 0
+
+    if args.samples or args.zero is not None:
+        meter = _open_diagnostic_meter(args.driver, args.resource)
         try:
-            meter_class = (
-                CoherentPowerMeter
-                if self.detected_driver_kind == "coherent"
-                else CaihuangPowerMeter
-            )
-            meter = meter_class(resource)
-            meter.set_relative_zero(enabled)
+            if meter.test() != "OK":
+                raise RuntimeError("设备自检未返回 OK")
+            if args.zero is not None:
+                meter.set_relative_zero(args.zero == "on")
+            if args.samples:
+                if getattr(meter, "driver_kind", "") == "coherent" and hasattr(meter, "set_power_mode"):
+                    meter.set_power_mode()
+                meter.set_wavelength(args.wavelength)
+                for index in range(args.samples):
+                    print(json.dumps({"sample": index + 1, "power_w": meter.read_power_w()}, ensure_ascii=False))
+                    if index + 1 < args.samples:
+                        time.sleep(args.interval_ms / 1000.0)
+        finally:
             meter.close()
-            self.statusBar().showMessage(f"REL zero {'enabled' if enabled else 'disabled'}")
-        except Exception as exc:
-            QMessageBox.critical(self, "REL Zero", str(exc))
-
-    def set_running_state(self, running: bool) -> None:
-        self.start_button.setEnabled(not running)
-        self.stop_button.setEnabled(running)
-        self.refresh_button.setEnabled(not running)
-        self.detect_button.setEnabled(not running)
-        self.resource_combo.setEnabled(not running)
-
-    def closeEvent(self, event: QCloseEvent) -> None:
-        self.stop_reading()
-        rm, self.rm = self.rm, None
-        if rm is not None:
-            release_visa_resource_manager(rm)
-        super().closeEvent(event)
-
-
-def main() -> int:
-    app = QApplication(sys.argv)
-    window = MainWindow()
-    window.show()
-    return app.exec()
+    return 0
 
 
 if __name__ == "__main__":

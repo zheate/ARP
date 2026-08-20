@@ -58,7 +58,7 @@ def list_tdk_serial_resources(resource_manager_factory: Callable[[], Any] | None
         raise RuntimeError("缺少 TDK 电源依赖 pyvisa，请在 sth_eb314 环境中运行。") from exc
     try:
         # Restrict VISA discovery to serial resources. An unrestricted NI-VISA
-        # scan also probes USB/LAN/GPIB and can block the Qt UI for ~10 seconds.
+        # scan also probes USB/LAN/GPIB and can block the operator UI for ~10 seconds.
         return sorted(str(item) for item in manager.list_resources("ASRL?*::INSTR"))
     finally:
         if shared_manager:

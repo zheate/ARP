@@ -110,7 +110,7 @@ class HeadlessBackendTests(unittest.TestCase):
             self.assertEqual(station.efficiency_points, {})
             self.assertEqual(station.series_revisions["stable"], 8)
 
-    def test_sidecar_starts_when_every_pyside_import_is_blocked(self) -> None:
+    def test_runtime_modules_do_not_attempt_to_import_pyside(self) -> None:
         script = r'''
 import importlib.abc
 import json
@@ -119,12 +119,19 @@ import sys
 class BlockPySide(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
         if fullname.startswith("PySide6"):
-            raise ModuleNotFoundError(fullname)
+            raise AssertionError(f"unexpected GUI toolkit import: {fullname}")
         return None
 
 sys.meta_path.insert(0, BlockPySide())
+import combined_test.shipping_report
+import tools.pd_daq_mvp
+import tools.power_meter_mvp
+import tools.spectrometer_mvp
+from combined_test.concurrency import WorkerThread
 from tauri_bridge.headless_backend import HeadlessBackend
 from tauri_bridge.settings import JsonSettings
+assert issubclass(tools.power_meter_mvp.PowerReaderThread, WorkerThread)
+assert issubclass(tools.spectrometer_mvp.SpectrumReaderThread, WorkerThread)
 backend = HeadlessBackend(JsonSettings())
 print(json.dumps(backend.ping()))
 '''

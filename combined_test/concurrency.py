@@ -54,7 +54,7 @@ class Signal:
 
 
 class WorkerThread:
-    """Worker wrapper exposing the small QThread API used by this project."""
+    """Small worker wrapper used by the toolkit-free runtime."""
 
     finished = Signal()
 

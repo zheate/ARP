@@ -4,12 +4,15 @@ from ctypes import c_double, c_long
 from pathlib import Path
 from unittest.mock import patch
 
+import numpy as np
+
 from combined_test.ocean_direct_adapter import (
     OceanDirectControl,
     OceanDirectError,
     _GLOBAL_SESSIONS,
     _GLOBAL_SESSIONS_LOCK,
 )
+from tools import spectrometer_mvp
 
 
 class FakeOceanDirectApi:
@@ -108,6 +111,38 @@ class OceanDirectControlTests(unittest.TestCase):
     def tearDown(self) -> None:
         with _GLOBAL_SESSIONS_LOCK:
             _GLOBAL_SESSIONS.clear()
+
+    def test_toolkit_free_reader_preserves_the_standalone_thread_contract(self) -> None:
+        actions: list[object] = []
+
+        class FakeSpectrometer:
+            def open_first(self) -> int:
+                actions.append("open")
+                return 101
+
+            def set_integration_time(self, integration_time_us: int) -> None:
+                actions.append(("integration", integration_time_us))
+
+            def read_spectrum(self):
+                return np.array([975.0, 976.0, 977.0]), np.array([1.0, 5.0, 2.0])
+
+            def close(self) -> None:
+                actions.append("close")
+
+        reader = spectrometer_mvp.SpectrumReaderThread(10_000, 0)
+        peaks: list[float] = []
+
+        def on_spectrum(_wavelength, _intensity, stats) -> None:
+            peaks.append(stats.peak_intensity)
+            reader.stop()
+
+        reader.spectrum.connect(on_spectrum)
+        with patch.object(spectrometer_mvp, "OceanSpectrometer", FakeSpectrometer):
+            reader.start()
+            self.assertTrue(reader.wait(1_000))
+
+        self.assertEqual(peaks, [5.0])
+        self.assertEqual(actions, ["open", ("integration", 10_000), "close"])
 
     def test_uses_injected_api_to_find_open_read_and_close_device(self) -> None:
         api = FakeOceanDirectApi()

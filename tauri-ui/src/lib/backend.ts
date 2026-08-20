@@ -345,6 +345,7 @@ export interface ShippingReportPreferences {
   selectedFields: string[]
   manualValues: Record<string, string>
   customFields: ShippingReportFieldDefinition[]
+  encircledEnergyNa?: string
   spectrumAxis?: {
     mode: SpectrumAxisMode
     minimum: number
