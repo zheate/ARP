@@ -189,6 +189,34 @@ class HeadlessBackendContractTests(unittest.TestCase):
         self.assertEqual(snapshot["measurements"]["power"], list(self.backend.power_points))
         self.assertNotIn("seriesPatches", snapshot)
 
+    def test_live_snapshot_only_sends_aging_power_when_it_changes(self) -> None:
+        station = self.backend.stations["1"]
+        station.aging_power_points.append({"elapsedMinutes": 5.0, "powerW": 1.2})
+        station.series_revisions["aging"] = 1
+        initial = self.backend.snapshot({"view": "automatic"})
+
+        station.aging_power_points.append({"elapsedMinutes": 10.0, "powerW": 1.18})
+        station.series_revisions["aging"] += 1
+        incremental = self.backend.snapshot(
+            {"view": "automatic", "since": initial["seriesRevisions"]}
+        )
+
+        self.assertEqual(
+            incremental["measurements"]["agingPower"],
+            [
+                {"elapsedMinutes": 5.0, "powerW": 1.2},
+                {"elapsedMinutes": 10.0, "powerW": 1.18},
+            ],
+        )
+        self.assertNotIn("power", incremental["measurements"])
+        self.assertNotIn("stable", incremental["measurements"])
+        self.assertNotIn("spectrum", incremental["measurements"])
+
+        unchanged = self.backend.snapshot(
+            {"view": "automatic", "since": incremental["seriesRevisions"]}
+        )
+        self.assertEqual(unchanged["measurements"], {})
+
     def test_incremental_spectrum_reuses_unchanged_wavelength_grid(self) -> None:
         self.backend.latest_spectrum = SimpleNamespace(
             wavelength=[974.0, 974.5, 975.0],

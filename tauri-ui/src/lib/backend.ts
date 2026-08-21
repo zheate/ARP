@@ -5,7 +5,7 @@ import { decodeColumnarSpectrum, mergeSpectrumColumns, type SpectrumColumns, typ
 export type BackendMode = "read_only" | "active"
 export type DeviceConnectionState = "disconnected" | "connecting" | "connected" | "error"
 export type SnapshotView = "automatic" | "automatic_1" | "automatic_2" | "manual" | "manual_1" | "manual_2" | "pd" | "pd_1" | "pd_2" | "shipping"
-export type SeriesRevisions = { power: number; stable: number; spectrum: number; pd: number }
+export type SeriesRevisions = { power: number; stable: number; aging: number; spectrum: number; pd: number }
 export type SeriesCursors = { power?: number; pd?: number }
 export type { SpectrumColumns } from "@/lib/spectrum-columns"
 
@@ -212,6 +212,7 @@ export interface BackendSnapshot {
   measurements?: {
     power: Array<{ elapsedS: number; powerW: number }>
     stable: Array<{ currentA: number; powerW: number | null; efficiencyPercent: number | null }>
+    agingPower: Array<{ elapsedMinutes: number; powerW: number }>
     spectrum: SpectrumColumns
     spectrumPeaks: Array<{ label: string; centroidNm: number; peakWavelengthNm: number; peakIntensity: number }>
   }
@@ -294,6 +295,7 @@ export function mergeBackendSnapshot(previous: BackendSnapshot | null, patch: Ba
       ?? mergeAppendSeries(previousMeasurements?.power, seriesPatches?.power, (point) => point.elapsedS)
       ?? [],
     stable: patchMeasurements?.stable ?? previousMeasurements?.stable ?? [],
+    agingPower: patchMeasurements?.agingPower ?? previousMeasurements?.agingPower ?? [],
     spectrum: mergeSpectrumColumns(previousMeasurements?.spectrum, patchMeasurements?.spectrum),
     spectrumPeaks: patchMeasurements?.spectrumPeaks ?? previousMeasurements?.spectrumPeaks ?? [],
   } : undefined

@@ -89,6 +89,7 @@ AGING_TARGET_CURRENT_A = 20.0
 AGING_CURRENT_STEP_A = 2.0
 AGING_RAMP_INTERVAL_S = 1.0
 AGING_HOLD_DURATION_S = 2.0 * 60.0 * 60.0
+AGING_POWER_SAMPLE_INTERVAL_S = 5.0 * 60.0
 
 
 class _DeviceDiscoveryThread(WorkerThread):
@@ -427,7 +428,14 @@ class StationRuntime:
 
         self.stable_power_points: dict[float, float] = {}
         self.efficiency_points: dict[float, float] = {}
-        self.series_revisions = {"power": 0, "stable": 0, "spectrum": 0, "pd": 0}
+        self.aging_power_points: list[dict[str, float]] = []
+        self.series_revisions = {
+            "power": 0,
+            "stable": 0,
+            "aging": 0,
+            "spectrum": 0,
+            "pd": 0,
+        }
         self.pending_manual_stable_current_a: float | None = None
         self.pending_manual_stability_generation: int | None = None
         self.recorded_manual_stable_current_a: float | None = None
@@ -747,9 +755,12 @@ class StationRuntime:
         sample_point_index: int | None = None,
         target_current_a: float = 0.0,
         on_tick: Callable[[], None] | None = None,
+        interval_s: float | None = None,
+        on_interval: Callable[[float], None] | None = None,
     ) -> bool:
         active_elapsed = 0.0
         next_sample_s = 1.0
+        next_interval_s = interval_s
         last_tick = time.monotonic()
         while active_elapsed < max(0.0, duration_s):
             paused_duration = self._await_automatic_resume()
@@ -771,6 +782,14 @@ class StationRuntime:
                     target_current_a=target_current_a,
                 )
                 next_sample_s += 1.0
+            while (
+                on_interval is not None
+                and next_interval_s is not None
+                and next_interval_s > 0.0
+                and next_interval_s <= min(active_elapsed, duration_s) + 0.05
+            ):
+                on_interval(min(next_interval_s, duration_s))
+                next_interval_s += interval_s or 0.0
         return True
 
     def _save_record_store(self) -> Path | None:
@@ -1435,11 +1454,14 @@ class StationRuntime:
     def _on_power_failed(self, message: str) -> None:
         self.power_meter_error = str(message)
         self.notify("error", "功率计", message)
-        if (
-            not self._aging_test_selected()
-            and self.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED}
-        ):
+        if self.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED}:
             self.automatic.power_meter_ready = False
+            if self._aging_test_selected():
+                reason = f"AU 老化功率采集失败：{message}"
+                self.automatic_terminal_reason = reason
+                self._automatic_stop.set()
+                self._automatic_resume.set()
+                return
             self._request_automatic_point_retry(
                 AttemptValidity.DEVICE_ERROR,
                 f"功率计错误：{message}",
@@ -1448,7 +1470,17 @@ class StationRuntime:
     def _on_power_finished(self) -> None:
         self.power_meter_reader = None
         self.automatic.power_meter_ready = False
-        if not self._expected_power_meter_stop and not self._aging_test_selected():
+        if self._expected_power_meter_stop:
+            return
+        if self._aging_test_selected() and self.automatic.state not in {
+            AutomaticTestState.IDLE,
+            AutomaticTestState.COMPLETED,
+        }:
+            self.automatic_terminal_reason = "AU 老化功率采集已停止"
+            self._automatic_stop.set()
+            self._automatic_resume.set()
+            return
+        if not self._aging_test_selected():
             self._request_automatic_point_retry(
                 AttemptValidity.DEVICE_ERROR,
                 "功率计采集已停止",
@@ -1795,14 +1827,14 @@ class StationRuntime:
             self.export_error = str(exc)
             self._close_automatic_sample_recorder()
             raise
-        started_power_reader = not aging_test and self.power_meter_reader is None
+        started_power_reader = self.power_meter_reader is None
         started_spectrum_reader = (
             not aging_test and settings.use_spectrometer and self.spectrometer_reader is None
         )
         try:
-            if not aging_test and self.power_meter_reader is None:
+            if self.power_meter_reader is None:
                 self.start_power_meter()
-            elif not aging_test:
+            else:
                 self.power_meter_reader.update_stability_settings(
                     float(self.configuration["stableWindowS"]),
                     float(self.configuration["stableToleranceW"]),
@@ -1940,6 +1972,42 @@ class StationRuntime:
             self._await_automatic_resume()
             if time.monotonic() >= deadline:
                 raise TimeoutError("采集设备在 15 秒内未全部就绪")
+
+    def _wait_for_aging_power_meter(self, timeout_s: float = 15.0) -> None:
+        deadline = time.monotonic() + timeout_s
+        while not self.automatic.power_meter_ready:
+            if self._automatic_stop.wait(0.05):
+                raise RuntimeError(self.automatic_terminal_reason or "AU 老化测试已停止")
+            if time.monotonic() >= deadline:
+                raise TimeoutError("功率计在 15 秒内未就绪，无法开始 AU 老化测试")
+
+    def _record_aging_power_sample(self, elapsed_s: float) -> None:
+        with self._lock:
+            reader = self.power_meter_reader
+            reading = self.latest_power
+            received_at = self.latest_power_received_monotonic_s
+            freshness_limit_s = max(
+                5.0,
+                float(self.configuration["powerMeterIntervalMs"]) / 1_000.0 * 3.0,
+            )
+            if (
+                reader is None
+                or not reader.is_ready
+                or reading is None
+                or received_at is None
+                or time.monotonic() - received_at > freshness_limit_s
+                or not math.isfinite(float(reading.power_w))
+            ):
+                raise RuntimeError("AU 老化功率采样失败：功率计没有新鲜有效读数")
+            elapsed_minutes = elapsed_s / 60.0
+            power_w = float(reading.power_w)
+            self.aging_power_points.append(
+                {"elapsedMinutes": elapsed_minutes, "powerW": power_w}
+            )
+            self.series_revisions["aging"] += 1
+        self.automatic_detail = (
+            f"20 A 老化中：已记录 {elapsed_minutes:g} 分钟功率 {power_w:.6g} W"
+        )
 
     def _set_automatic_current(self, current_a: float) -> None:
         try:
@@ -2194,6 +2262,7 @@ class StationRuntime:
                 raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
 
     def _run_aging_cycle(self) -> None:
+        self._wait_for_aging_power_meter()
         currents = self.automatic.currents
         for index, current_a in enumerate(currents):
             self.automatic.current_index = index
@@ -2208,7 +2277,11 @@ class StationRuntime:
         self.automatic.set_state(AutomaticTestState.WAITING_VOLTAGE)
         self.automatic_hold_started_at = time.monotonic()
         self.automatic_detail = "已到达 20 A，不判稳，正在老化计时 2 小时"
-        if not self._wait_automatic_duration(AGING_HOLD_DURATION_S):
+        if not self._wait_automatic_duration(
+            AGING_HOLD_DURATION_S,
+            interval_s=AGING_POWER_SAMPLE_INTERVAL_S,
+            on_interval=self._record_aging_power_sample,
+        ):
             raise RuntimeError(self.automatic_terminal_reason or "AU 老化测试已停止")
 
     def _run_automatic(self) -> None:
@@ -2462,6 +2535,7 @@ class StationRuntime:
             self.power_points.clear()
             self.stable_power_points.clear()
             self.efficiency_points.clear()
+            self.aging_power_points.clear()
             self.latest_spectrum = None
             self.spectrum_center_candidate_nm = None
             self.spectrum_center_candidate_count = 0
@@ -2469,7 +2543,7 @@ class StationRuntime:
             self.spectrum_centroid_candidate_count = 0
             self.spectrum_center_locked_nm = None
             # PD 曲线是独立采集链路；普通图表重置不应让 PD 视图误判为有新数据。
-            for key in ("power", "stable", "spectrum"):
+            for key in ("power", "stable", "aging", "spectrum"):
                 self.series_revisions[key] += 1
 
     def stop_all(self) -> None:
@@ -2546,6 +2620,10 @@ class StationRuntime:
                 }
                 for current, power in sorted(self.stable_power_points.items())
             ]
+
+    def build_aging_power_snapshot(self) -> list[dict[str, float]]:
+        with self._lock:
+            return [dict(point) for point in self.aging_power_points]
 
     def build_spectrum_snapshot(
         self,
@@ -3495,6 +3573,7 @@ class HeadlessBackend:
         merged_revisions = {
             "power": active_st.series_revisions["power"],
             "stable": active_st.series_revisions["stable"],
+            "aging": active_st.series_revisions["aging"],
             "spectrum": active_st.series_revisions["spectrum"],
             "pd": pd_revision,
         }
@@ -3541,6 +3620,8 @@ class HeadlessBackend:
                 series_patches["power"] = power_patch
         if include_series("stable", include_live):
             measurements["stable"] = active_st.build_stable_snapshot()
+        if include_series("aging", include_live):
+            measurements["agingPower"] = active_st.build_aging_power_snapshot()
         if include_series("spectrum", include_live):
             spectrum, spectrum_peaks = active_st.build_spectrum_snapshot(
                 allow_cached_grid=since_revisions is not None,

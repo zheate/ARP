@@ -13,7 +13,7 @@ const DEMO_SPECTRUM = {
 
 const DEMO_SNAPSHOT: BackendSnapshot = {
   capturedAt: "2026-07-19T12:00:00.000Z",
-  seriesRevisions: { power: 1, stable: 1, spectrum: 1, pd: 0 },
+  seriesRevisions: { power: 1, stable: 1, aging: 1, spectrum: 1, pd: 0 },
   backend: {
     connected: true,
     mode: "active",
@@ -127,6 +127,10 @@ const DEMO_SNAPSHOT: BackendSnapshot = {
       { currentA: 4, powerW: 0.408, efficiencyPercent: 7.4 },
       { currentA: 6, powerW: 0.612, efficiencyPercent: 10.2 },
     ],
+    agingPower: Array.from({ length: 24 }, (_, index) => ({
+      elapsedMinutes: (index + 1) * 5,
+      powerW: Number((0.86 - index * 0.0007 + Math.sin(index * 0.8) * 0.0018).toFixed(4)),
+    })),
     spectrum: DEMO_SPECTRUM,
     spectrumPeaks: [{ label: "P1", centroidNm: 976.2, peakWavelengthNm: 976.2, peakIntensity: 12400 }],
   },

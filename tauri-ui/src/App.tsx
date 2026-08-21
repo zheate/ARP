@@ -1462,6 +1462,7 @@ function sameMeasurements(left: BackendSnapshot["measurements"], right: BackendS
   if (!left || !right) return false
   return left.power === right.power
     && left.stable === right.stable
+    && left.agingPower === right.agingPower
     && left.spectrum === right.spectrum
     && left.spectrumPeaks === right.spectrumPeaks
 }
@@ -1688,6 +1689,41 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, latestPo
     && previous.snapshot?.devices.powerMeter.powerW === next.snapshot?.devices.powerMeter.powerW
     && sameRows(previousPower, nextPower, ["elapsedS", "powerW"])
 })
+
+const agingPowerLines: CanvasChartLine[] = [
+  { key: "powerW", label: "功率 (W)", color: PLM_CHART_SERIES.clay, axisColor: PLM_CHART_SERIES.clay, showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 7, lineWidth: 2.4 },
+]
+
+const agingPowerTimeDomain: [number, number] = [0, 120]
+const agingPowerTimeTicks = [0, 20, 40, 60, 80, 100, 120]
+
+const AgingPowerChart = memo(function AgingPowerChart({ snapshot, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; stretch?: boolean; heightClassName?: string }) {
+  const chartData = snapshot?.measurements?.agingPower ?? []
+  const powerDomain = useMemo(
+    () => powerYAxisDomain(chartData.map((row) => row.powerW)),
+    [chartData],
+  )
+
+  return (
+    <ChartPanel
+      compactHeader
+      data={chartData}
+      empty="AU 老化测试每 5 分钟记录一次功率"
+      hideHeader
+      lines={agingPowerLines}
+      stretch={stretch}
+      heightClassName={heightClassName}
+      title="AU 老化功率"
+      xDomain={agingPowerTimeDomain}
+      xKey="elapsedMinutes"
+      xTickSuffix=" min"
+      xTicks={agingPowerTimeTicks}
+      yDomain={powerDomain}
+    />
+  )
+}, (previous, next) => previous.stretch === next.stretch
+  && previous.heightClassName === next.heightClassName
+  && sameRows(previous.snapshot?.measurements?.agingPower, next.snapshot?.measurements?.agingPower, ["elapsedMinutes", "powerW"]))
 
 const powerEfficiencyLines: CanvasChartLine[] = [
   { key: "powerW", label: "功率 (W)", color: PLM_CHART_SERIES.clay, axisColor: PLM_CHART_SERIES.clay, showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 2.4, connectNulls: true },
@@ -3532,7 +3568,9 @@ const AutomaticPage = memo(function AutomaticPage({
       <section className={`automatic-chart-grid ${useSpectrometer ? "" : "without-spectrum"}`}>
         <div className="automatic-chart-grid__power-row">
           <PowerRealtimeChart latestPointMarkerStyle={latestPointMarkerStyle} snapshot={snapshot} stretch />
-          <PowerEfficiencyChart snapshot={snapshot} stretch />
+          {config.selectedScriptId === "aging"
+            ? <AgingPowerChart snapshot={snapshot} stretch />
+            : <PowerEfficiencyChart snapshot={snapshot} stretch />}
         </div>
         {useSpectrometer && (
           <RealtimeMetricCards

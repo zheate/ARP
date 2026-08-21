@@ -4,8 +4,10 @@ import json
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from combined_test.concurrency import Signal, WorkerThread
@@ -133,8 +135,13 @@ class HeadlessBackendTests(unittest.TestCase):
                 return True
 
             with (
+                patch.object(station, "_wait_for_aging_power_meter") as wait_power_meter,
                 patch.object(station, "_set_automatic_current") as set_current,
-                patch.object(station, "_wait_automatic_duration", side_effect=wait_duration),
+                patch.object(
+                    station,
+                    "_wait_automatic_duration",
+                    side_effect=wait_duration,
+                ) as wait_duration_mock,
                 patch.object(
                     station,
                     "_wait_for_automatic_stability",
@@ -143,12 +150,69 @@ class HeadlessBackendTests(unittest.TestCase):
             ):
                 station._run_aging_cycle()
 
+            wait_power_meter.assert_called_once_with()
             self.assertEqual(
                 [call.args[0] for call in set_current.call_args_list],
                 [2.0, 4.0, 6.0, 8.0, 10.0, 12.0, 14.0, 16.0, 18.0, 20.0],
             )
             self.assertEqual(waited, [1.0] * 9 + [7_200.0])
+            self.assertEqual(wait_duration_mock.call_args_list[-1].kwargs["interval_s"], 300.0)
+            self.assertEqual(
+                wait_duration_mock.call_args_list[-1].kwargs["on_interval"],
+                station._record_aging_power_sample,
+            )
             wait_stable.assert_not_called()
+
+    def test_aging_power_sample_records_elapsed_minutes_and_fresh_power(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            backend = self.backend(directory)
+            station = backend.stations["1"]
+            station.power_meter_reader = SimpleNamespace(is_ready=True)
+            station.latest_power = SimpleNamespace(power_w=1.234, stable=True)
+            station.latest_power_received_monotonic_s = time.monotonic()
+
+            station._record_aging_power_sample(300.0)
+            station.latest_power = SimpleNamespace(power_w=1.198, stable=True)
+            station.latest_power_received_monotonic_s = time.monotonic()
+            station._record_aging_power_sample(600.0)
+
+            self.assertEqual(
+                station.aging_power_points,
+                [
+                    {"elapsedMinutes": 5.0, "powerW": 1.234},
+                    {"elapsedMinutes": 10.0, "powerW": 1.198},
+                ],
+            )
+            self.assertEqual(station.series_revisions["aging"], 2)
+            snapshot = backend.snapshot({"view": "automatic"})
+            self.assertEqual(
+                snapshot["measurements"]["agingPower"],
+                station.aging_power_points,
+            )
+
+    def test_automatic_duration_runs_interval_callback_on_exact_boundaries(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            station = self.backend(directory).stations["1"]
+            clock = [0.0]
+            recorded: list[float] = []
+
+            def advance_clock(timeout_s: float) -> bool:
+                clock[0] += timeout_s
+                return False
+
+            with (
+                patch.object(station, "_await_automatic_resume", return_value=0.0),
+                patch.object(station._automatic_stop, "wait", side_effect=advance_clock),
+                patch("tauri_bridge.headless_backend.time.monotonic", side_effect=lambda: clock[0]),
+            ):
+                completed = station._wait_automatic_duration(
+                    15.0,
+                    interval_s=5.0,
+                    on_interval=recorded.append,
+                )
+
+            self.assertTrue(completed)
+            self.assertEqual(recorded, [5.0, 10.0, 15.0])
 
     def test_tdk_rejects_aging_script(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -165,7 +229,7 @@ class HeadlessBackendTests(unittest.TestCase):
             self.assertEqual(station.power_supply_kind, "ch341")
             self.assertEqual(station.configuration["selectedScriptId"], "standard")
 
-    def test_aging_start_does_not_require_measurement_devices(self) -> None:
+    def test_aging_start_starts_power_meter_but_not_spectrometer(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             station = self.backend(directory).stations["1"]
             station.power_supply_controller = _FakeController()
@@ -182,7 +246,7 @@ class HeadlessBackendTests(unittest.TestCase):
                     }
                 )
 
-            start_power_meter.assert_not_called()
+            start_power_meter.assert_called_once_with()
             start_spectrometer.assert_not_called()
             thread_class.return_value.start.assert_called_once_with()
 
