@@ -2,6 +2,8 @@
 // production runtime. The React development runtime retains substantially more
 // transient render metadata during a continuous measurement stream.
 process.env.NODE_ENV = "production"
+const parentPid = process.ppid
+if (parentPid <= 1) process.exit(0)
 
 const { createServer } = await import("vite")
 const server = await createServer()
@@ -9,7 +11,6 @@ await server.listen()
 server.printUrls()
 
 let closing = false
-const parentPid = process.ppid
 
 const close = async () => {
   if (closing) return
@@ -20,6 +21,10 @@ const close = async () => {
 }
 
 const parentWatch = setInterval(() => {
+  if (process.ppid !== parentPid) {
+    void close()
+    return
+  }
   try {
     process.kill(parentPid, 0)
   } catch (error) {
