@@ -83,6 +83,7 @@ class HeadlessBackendTests(unittest.TestCase):
             self.assertEqual(controller.current_a, 4.5)
             result = backend.dispatch("app.shutdown", {})
             self.assertTrue(result["shutdownConfirmed"])
+            self.assertTrue(result["exportsDrained"])
             self.assertEqual(controller.current_a, 0.0)
             self.assertFalse(controller.output_enabled)
 
@@ -243,6 +244,8 @@ class HeadlessBackendTests(unittest.TestCase):
                     {
                         "powerSupplyKind": "ch341",
                         "selectedScriptId": "aging",
+                        "sn": "AGING-001",
+                        "powerMeterResource": "ASRL3::INSTR",
                     }
                 )
 

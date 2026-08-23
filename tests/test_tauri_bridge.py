@@ -11,10 +11,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from combined_test.automation import AutomaticTestState
 from tauri_bridge.__main__ import _read_request_lines, _write_response
 from tauri_bridge.headless_backend import HeadlessBackend
 from tauri_bridge.protocol import PROTOCOL_VERSION
-from tauri_bridge.service import BACKGROUND_FILE_TASK_METHODS, BridgeService
+from tauri_bridge.service import BACKGROUND_FILE_TASK_METHODS, SAFETY_TASK_METHODS, BridgeService
 from tauri_bridge.settings import JsonSettings
 
 
@@ -309,18 +310,38 @@ class HeadlessBackendContractTests(unittest.TestCase):
         self.backend.power_supply_controller = controller
         self.backend.power_supply_kind = "tdk"
 
-        with self.assertRaisesRegex(RuntimeError, "无法确认电源输出电流已归零"):
-            self.backend._shutdown()
+        result = self.backend._shutdown()
 
-        self.assertTrue(self.backend.automatic_output_shutdown_unconfirmed)
+        self.assertFalse(result["shutdownConfirmed"])
+        self.assertTrue(result["exportsDrained"])
+        self.assertFalse(result["stations"]["1"]["confirmed"])
+        self.assertEqual(result["stations"]["1"]["measuredCurrentA"], 0.5)
+        self.assertIn("无法确认电源输出电流已归零", result["stations"]["1"]["reason"])
 
     def test_safe_shutdown_returns_explicit_confirmation(self) -> None:
         controller = _FakePowerController(measured_current_a=0.0)
         self.backend.power_supply_controller = controller
         self.backend.power_supply_kind = "tdk"
 
-        self.assertEqual(self.backend._shutdown(), {"shutdownConfirmed": True})
+        result = self.backend._shutdown()
+        self.assertTrue(result["shutdownConfirmed"])
+        self.assertTrue(result["exportsDrained"])
+        self.assertTrue(result["shutdown"]["outputOffConfirmed"])
+        self.assertEqual(result["stations"]["1"]["measuredCurrentA"], 0.0)
         self.assertEqual(controller.current_writes[-1], 0.0)
+
+    def test_automatic_failure_uses_unconfirmed_terminal_outcome_when_shutdown_fails(self) -> None:
+        controller = _FakePowerController(measured_current_a=0.5)
+        station = self.backend.stations["1"]
+        station.power_supply_controller = controller
+        station.power_supply_kind = "tdk"
+        station.automatic.state = AutomaticTestState.STARTING
+
+        station._run_automatic()
+
+        self.assertEqual(station.automatic_terminal_outcome, "shutdown_unconfirmed")
+        self.assertFalse(station.shutdown_snapshot()["confirmed"])
+        self.assertEqual(station.automatic.state, AutomaticTestState.COMPLETED)
 
 
 class TauriBridgeServiceTests(unittest.TestCase):
@@ -334,8 +355,15 @@ class TauriBridgeServiceTests(unittest.TestCase):
                 {
                     "shippingReport.inspect",
                     "shippingReport.batchInspect",
+                    "shippingReport.preview",
+                    "shippingReport.generate",
+                    "shippingReport.batchGenerateItem",
                 }
             ),
+        )
+        self.assertEqual(
+            SAFETY_TASK_METHODS,
+            frozenset({"app.stopAll", "app.shutdown", "automatic.end"}),
         )
 
     def test_request_pipe_is_decoded_as_utf8_on_windows(self) -> None:
@@ -413,7 +441,10 @@ class TauriBridgeServiceTests(unittest.TestCase):
         )
 
         self.assertTrue(response["ok"])
-        self.assertEqual(response["result"], {"shutdownConfirmed": True})
+        self.assertTrue(response["result"]["shutdownConfirmed"])
+        self.assertTrue(response["result"]["exportsDrained"])
+        self.assertTrue(response["result"]["shutdown"]["confirmed"])
+        self.assertEqual(response["result"]["stations"], {})
 
     def test_injected_backend_owns_snapshot_and_mutating_commands(self) -> None:
         class FakeBackend:

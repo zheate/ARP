@@ -14,6 +14,7 @@ import re
 import threading
 import time
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -65,6 +66,7 @@ from combined_test.record_store import (
     SessionRecordStore,
     SessionStatus,
 )
+from combined_test.session_journal import SessionJournalError
 from combined_test.runtime_logging import get_runtime_logger, runtime_log_path
 from combined_test.spectrum import (
     SPECTRUM_CENTER_LOCK_HALF_RANGE_NM,
@@ -78,10 +80,30 @@ from combined_test.tdk_power_supply import (
     list_tdk_serial_resources,
 )
 
+from .service import BACKGROUND_FILE_TASK_METHODS
 from .settings import JsonSettings
 
 
 _LOGGER = get_runtime_logger("headless_backend")
+MANUAL_CONTROL_METHODS = frozenset(
+    {
+        "app.configure",
+        "device.refresh",
+        "powerSupply.connect",
+        "powerSupply.disconnect",
+        "powerSupply.setCurrent",
+        "powerSupply.setVoltage",
+        "powerSupply.setOutput",
+        "powerSupply.read",
+        "powerMeter.start",
+        "powerMeter.stop",
+        "powerMeter.setRelativeZero",
+        "manual.saveExcel",
+        "spectrometer.start",
+        "spectrometer.stop",
+        "spectrometer.saveCsv",
+    }
+)
 MIN_SPECTRUM_PEAK_INTENSITY = 500.0
 AGING_TEST_SCRIPT_ID = "aging"
 AGING_START_CURRENT_A = 2.0
@@ -90,6 +112,15 @@ AGING_CURRENT_STEP_A = 2.0
 AGING_RAMP_INTERVAL_S = 1.0
 AGING_HOLD_DURATION_S = 2.0 * 60.0 * 60.0
 AGING_POWER_SAMPLE_INTERVAL_S = 5.0 * 60.0
+AUTOMATIC_PAUSE_ACTIONS: dict[str, tuple[str, ...]] = {
+    "operator": ("resume", "safe_end"),
+    "spectrum_saturated": ("adjust_spectrum", "retry_point", "safe_end"),
+    "power_meter_disconnected": ("recover_power_meter", "retry_point", "safe_end"),
+    "spectrometer_disconnected": ("recover_spectrometer", "retry_point", "safe_end"),
+    "record_persistence_failed": ("retry_persist", "safe_end"),
+    "measurement_timeout": ("retry_point", "safe_end"),
+    "device_error": ("retry_point", "safe_end"),
+}
 
 
 class _DeviceDiscoveryThread(WorkerThread):
@@ -257,41 +288,55 @@ class ExportQueueWorker:
     def __init__(self) -> None:
         self._queue: queue.Queue[ExportTask | None] = queue.Queue(maxsize=32)
         self._thread: threading.Thread | None = None
-        self._stop_event = threading.Event()
+        self._state_lock = threading.Lock()
+        self._accepting = False
+        self._sentinel_enqueued = False
 
     def start(self) -> None:
-        if self._thread is None or not self._thread.is_alive():
-            self._stop_event.clear()
-            self._thread = threading.Thread(
-                target=self._run,
-                name="export-queue-worker",
-                daemon=True,
-            )
-            self._thread.start()
+        with self._state_lock:
+            if self._thread is None or not self._thread.is_alive():
+                self._accepting = True
+                self._sentinel_enqueued = False
+                self._thread = threading.Thread(
+                    target=self._run,
+                    name="export-queue-worker",
+                    daemon=True,
+                )
+                self._thread.start()
 
     def submit(self, task: ExportTask) -> bool:
-        try:
-            self._queue.put_nowait(task)
-            return True
-        except queue.Full:
-            return False
+        with self._state_lock:
+            if not self._accepting:
+                return False
+            try:
+                self._queue.put_nowait(task)
+                return True
+            except queue.Full:
+                return False
 
-    def stop(self) -> None:
-        self._stop_event.set()
-        try:
-            self._queue.put_nowait(None)
-        except queue.Full:
-            pass
-        if self._thread is not None and self._thread.is_alive():
-            self._thread.join(timeout=3.0)
+    def graceful_stop(self, timeout_s: float = 30.0) -> bool:
+        """Stop accepting work, drain accepted tasks, and then stop the worker."""
+
+        timeout = max(0.0, float(timeout_s))
+        deadline = time.monotonic() + timeout
+        with self._state_lock:
+            self._accepting = False
+            if not self._sentinel_enqueued:
+                try:
+                    self._queue.put(None, timeout=timeout)
+                except queue.Full:
+                    return False
+                self._sentinel_enqueued = True
+            thread = self._thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=max(0.0, deadline - time.monotonic()))
+        return thread is None or not thread.is_alive()
 
     def _run(self) -> None:
-        while not self._stop_event.is_set():
-            try:
-                task = self._queue.get(timeout=0.5)
-            except queue.Empty:
-                continue
+        while True:
+            task = self._queue.get()
             if task is None:
+                self._queue.task_done()
                 break
             started_at = time.perf_counter()
             out_path: str | None = None
@@ -316,12 +361,12 @@ class ExportQueueWorker:
                 error = exc
                 _LOGGER.exception("工位 %s Excel 导出失败", task.station_id)
             finally:
-                self._queue.task_done()
                 if task.callback is not None:
                     try:
                         task.callback(out_path, error)
                     except Exception:
-                        pass
+                        _LOGGER.exception("工位 %s Excel 导出回调失败", task.station_id)
+                self._queue.task_done()
 
 
 def _normalize_power_meter_configuration(
@@ -405,6 +450,7 @@ class StationRuntime:
         self.power_meter_error = ""
         self.latest_power: PowerMeterReading | None = None
         self.latest_power_received_monotonic_s: float | None = None
+        self.latest_power_sampled_at_utc: str | None = None
         self.power_points: deque[dict[str, float]] = deque(maxlen=1_200)
         self.power_drop_protection = PowerDropProtectionDetector()
         self._expected_power_meter_stop = False
@@ -414,6 +460,7 @@ class StationRuntime:
         self.latest_spectrometer_reading: SpectrometerReading | None = None
         self.latest_spectrum: SpectrumFrame | None = None
         self.latest_spectrum_received_monotonic_s: float | None = None
+        self.latest_spectrum_sampled_at_utc: str | None = None
         self.spectrum_revision = 0
         self.spectrum_grid_revision = 0
         self._last_spectrum_grid: list[float] = []
@@ -449,10 +496,21 @@ class StationRuntime:
         self.automatic_hold_started_at: float | None = None
         self.automatic_terminal_outcome: str | None = None
         self.automatic_terminal_reason = ""
-        self.automatic_output_shutdown_unconfirmed = False
+        self.shutdown_requested = False
+        self.shutdown_confirmed = False
+        self.shutdown_measured_current_a: float | None = None
+        self._shutdown_measurement_candidate: float | None = None
+        self.shutdown_output_off_confirmed = False
+        self.shutdown_reason = ""
         self.automatic_sample_path = ""
         self.automatic_sample_recorder: AutomaticSampleRecorder | None = None
-        self.record_store = SessionRecordStore()
+        journal_root = (
+            self.backend.settings.path.parent
+            / "test-records"
+            / f"station-{self.station_id}"
+        )
+        self._journal_root = journal_root
+        self.record_store = self._new_record_store()
         self._automatic_thread: threading.Thread | None = None
         self._automatic_stop = threading.Event()
         self._automatic_resume = threading.Event()
@@ -461,7 +519,12 @@ class StationRuntime:
         self._automatic_retry_reason = ""
         self._automatic_pause_holds_current = False
         self._automatic_pause_generation = 0
+        self.automatic_pause_kind: str | None = None
+        self.automatic_pause_started_at_utc: str | None = None
+        self.automatic_pause_deadline_at_utc: str | None = None
+        self.automatic_pause_actions: tuple[str, ...] = ()
         self._emergency_ramp_thread: threading.Thread | None = None
+        self._emergency_ramp_thread_lock = threading.Lock()
         self._safe_ramp_lock = threading.Lock()
         self._supply_io_lock = threading.RLock()
         self._expected_spectrometer_stop = False
@@ -469,6 +532,7 @@ class StationRuntime:
         self.export_status: str = "idle"
         self.export_path: str = ""
         self.export_error: str = ""
+        self._export_generation = 0
 
         # PD acquisition is a station-owned resource just like the power
         # meter and spectrometer.  Keep its mutable state behind its own lock
@@ -494,6 +558,73 @@ class StationRuntime:
             station_id=self.station_id,
             code=code,
         )
+
+    def _new_record_store(self) -> SessionRecordStore:
+        return SessionRecordStore(self._journal_root)
+
+    def manual_controls_allowed(self) -> bool:
+        return self.automatic.state in {
+            AutomaticTestState.IDLE,
+            AutomaticTestState.COMPLETED,
+        }
+
+    @staticmethod
+    def measurement_freshness(
+        *,
+        received_at_monotonic_s: float | None,
+        sampled_at_utc: str | None,
+        running: bool,
+        interval_ms: float,
+        valid: bool,
+        saturated: bool = False,
+    ) -> dict[str, Any]:
+        if received_at_monotonic_s is None or sampled_at_utc is None or not valid:
+            return {"sampledAt": sampled_at_utc, "ageMs": None, "quality": "invalid"}
+        # Whole-second age is sufficient for operators and avoids turning an
+        # otherwise unchanged snapshot into a fresh WebView IPC message at 5 Hz.
+        age_ms = int(max(0.0, time.monotonic() - received_at_monotonic_s)) * 1_000
+        live_limit_ms = max(1_000, int(max(0.0, interval_ms) * 3.0))
+        invalid_limit_ms = max(5_000, live_limit_ms * 3)
+        if running and age_ms <= live_limit_ms:
+            quality = "saturated" if saturated else "live"
+        elif age_ms <= invalid_limit_ms:
+            quality = "stale"
+        else:
+            quality = "invalid"
+        return {"sampledAt": sampled_at_utc, "ageMs": age_ms, "quality": quality}
+
+    def shutdown_snapshot(self) -> dict[str, Any]:
+        with self._lock:
+            return {
+                "requested": self.shutdown_requested,
+                "confirmed": self.shutdown_confirmed,
+                "measuredCurrentA": _finite(self.shutdown_measured_current_a),
+                "outputOffConfirmed": self.shutdown_output_off_confirmed,
+                "reason": self.shutdown_reason,
+            }
+
+    def _record_shutdown_result(
+        self,
+        *,
+        confirmed: bool,
+        measured_current_a: float | None,
+        output_off_confirmed: bool,
+        reason: str,
+    ) -> None:
+        with self._lock:
+            self.shutdown_requested = True
+            self.shutdown_confirmed = confirmed
+            self.shutdown_measured_current_a = measured_current_a
+            self.shutdown_output_off_confirmed = output_off_confirmed
+            self.shutdown_reason = reason
+
+    def _clear_shutdown_result(self) -> None:
+        with self._lock:
+            self.shutdown_requested = False
+            self.shutdown_confirmed = False
+            self.shutdown_measured_current_a = None
+            self.shutdown_output_off_confirmed = False
+            self.shutdown_reason = ""
 
     def _power_supply(self) -> ControllerPowerSupply | None:
         return ControllerPowerSupply(self.power_supply_controller) if self.power_supply_controller is not None else None
@@ -590,7 +721,7 @@ class StationRuntime:
 
     def _start_emergency_ramp_down(self, reason: str) -> None:
         """Start physical shutdown independently of Excel or acquisition callbacks."""
-        with self._lock:
+        with self._emergency_ramp_thread_lock:
             current = self._emergency_ramp_thread
             if current is not None and current.is_alive():
                 return
@@ -599,7 +730,6 @@ class StationRuntime:
                 try:
                     self.safe_ramp_down()
                 except Exception as exc:
-                    self.automatic_output_shutdown_unconfirmed = True
                     self.notify("error", "安全下电失败", f"{reason}：{exc}")
 
             self._emergency_ramp_thread = threading.Thread(
@@ -637,12 +767,51 @@ class StationRuntime:
             daemon=True,
         ).start()
 
+    def _set_automatic_pause(
+        self,
+        reason: str,
+        *,
+        kind: str,
+        hold_current: bool,
+        retry_point: bool,
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        settings = self.automatic.settings
+        timeout_s = 0.0 if settings is None else settings.pause_ramp_down_timeout_s
+        self.automatic_pause_kind = kind
+        self.automatic_pause_started_at_utc = now.isoformat(timespec="milliseconds")
+        self.automatic_pause_deadline_at_utc = (
+            None
+            if hold_current or timeout_s <= 0.0
+            else datetime.fromtimestamp(now.timestamp() + timeout_s, timezone.utc).isoformat(
+                timespec="milliseconds"
+            )
+        )
+        self.automatic_pause_actions = AUTOMATIC_PAUSE_ACTIONS.get(
+            kind,
+            ("retry_point", "safe_end"),
+        )
+        self._automatic_retry_requested = retry_point
+        self._automatic_retry_reason = str(reason)
+        self._automatic_pause_holds_current = bool(hold_current)
+        self.automatic.pause(reason)
+        self.automatic_detail = f"已暂停：{reason}"
+        self._automatic_resume.clear()
+        self._schedule_pause_safety_timeout()
+
+    def _clear_automatic_pause(self) -> None:
+        self.automatic_pause_kind = None
+        self.automatic_pause_started_at_utc = None
+        self.automatic_pause_deadline_at_utc = None
+        self.automatic_pause_actions = ()
+
     def _request_automatic_point_retry(
         self,
         validity: AttemptValidity,
         reason: str,
         *,
         hold_current: bool = False,
+        pause_kind: str | None = None,
     ) -> None:
         if self.automatic.state in {
             AutomaticTestState.IDLE,
@@ -653,19 +822,36 @@ class StationRuntime:
         if not self._automatic_retry_requested:
             current_a = self.automatic.current_a
             if current_a is not None:
-                self.record_store.record_invalid_attempt(
-                    current_a,
-                    validity,
-                    reason,
-                    integration_time_us=int(self.configuration["integrationTimeUs"]),
-                )
-        self._automatic_retry_requested = True
-        self._automatic_retry_reason = str(reason)
-        self._automatic_pause_holds_current = bool(hold_current)
-        self.automatic.pause(reason)
-        self.automatic_detail = f"已暂停：{reason}"
-        self._automatic_resume.clear()
-        self._schedule_pause_safety_timeout()
+                try:
+                    self.record_store.record_invalid_attempt(
+                        current_a,
+                        validity,
+                        reason,
+                        integration_time_us=int(self.configuration["integrationTimeUs"]),
+                    )
+                except SessionJournalError as exc:
+                    self._set_automatic_pause(
+                        str(exc),
+                        kind="record_persistence_failed",
+                        hold_current=False,
+                        retry_point=True,
+                    )
+                    return
+        resolved_kind = pause_kind
+        if resolved_kind is None:
+            resolved_kind = (
+                "spectrum_saturated"
+                if validity == AttemptValidity.SATURATED
+                else "measurement_timeout"
+                if validity == AttemptValidity.TIMEOUT
+                else "device_error"
+            )
+        self._set_automatic_pause(
+            reason,
+            kind=resolved_kind,
+            hold_current=hold_current,
+            retry_point=True,
+        )
 
     def _write_automatic_second_sample(
         self,
@@ -855,17 +1041,94 @@ class StationRuntime:
         self.export_path = str(saved_path)
         return saved_path
 
-    def _delete_embedded_automatic_samples(self, saved_path: Path | None) -> None:
-        """Remove the temporary CSV only after its final workbook was saved."""
-        if saved_path is None or not self.automatic_sample_path:
+    def _queue_automatic_export(self) -> None:
+        store = self.record_store
+        records = tuple(store.snapshot())
+        session = store.current_session
+        path = store.workbook_path
+        if not records or session is None or path is None:
+            self.export_status = "idle"
             return
-        sample_path = Path(self.automatic_sample_path)
-        expected_path = automatic_sample_path(Path(saved_path))
-        if sample_path.resolve(strict=False) != expected_path.resolve(strict=False):
-            self.notify("error", "逐秒记录", f"临时 CSV 路径不匹配，未删除：{sample_path}")
+        recorder = self.automatic_sample_recorder
+        if recorder is not None:
+            recorder.flush_now()
+        attempts = store.list_attempts(session.session_id)
+        sample_path = Path(self.automatic_sample_path) if self.automatic_sample_path else None
+        self._export_generation += 1
+        generation = self._export_generation
+        self.export_status = "exporting"
+        self.export_error = ""
+
+        def on_export_done(out_path: str | None, error: Exception | None) -> None:
+            final_error = error
+            saved_path = None if not out_path else Path(out_path)
+            if final_error is None and saved_path is not None:
+                try:
+                    store.mark_saved(records)
+                except Exception as exc:
+                    final_error = exc
+            if final_error is None and saved_path is not None and sample_path is not None:
+                expected = automatic_sample_path(saved_path)
+                if sample_path.resolve(strict=False) == expected.resolve(strict=False):
+                    try:
+                        sample_path.unlink(missing_ok=True)
+                    except OSError as exc:
+                        self.notify("error", "逐秒记录", f"临时 CSV 删除失败：{exc}")
+            if generation != self._export_generation:
+                if final_error is not None:
+                    self.notify(
+                        "error",
+                        "上一台 Excel 生成失败",
+                        f"SN {session.sn} 的 JSONL 已保留：{final_error}",
+                    )
+                return
+            if final_error is not None:
+                self.export_status = "failed"
+                self.export_error = str(final_error)
+                self.notify(
+                    "error",
+                    "Excel 生成失败",
+                    f"原始测试记录已保存在本地 JSONL：{final_error}",
+                )
+                return
+            if saved_path is None:
+                self.export_status = "failed"
+                self.export_error = "Excel 生成未返回目标路径"
+                return
+            self.export_status = "completed"
+            self.export_path = str(saved_path)
+            if self.automatic_sample_path == str(sample_path or ""):
+                self.automatic_sample_path = ""
+            self.notify("info", "导出完成", f"测试记录已保存：{saved_path}")
+
+        worker = getattr(self.backend, "export_worker", None)
+        if worker is None:
+            try:
+                saved_path = save_test_records(
+                    path,
+                    records,
+                    session=session,
+                    attempts=attempts,
+                    automatic_samples_path=sample_path,
+                )
+            except Exception as exc:
+                on_export_done(None, exc)
+            else:
+                on_export_done(str(saved_path), None)
             return
-        sample_path.unlink(missing_ok=True)
-        self.automatic_sample_path = ""
+        submitted = worker.submit(
+            ExportTask(
+                station_id=self.station_id,
+                target_path=path,
+                records=list(records),
+                callback=on_export_done,
+                session=session,
+                attempts=attempts,
+                automatic_samples_path=sample_path,
+            )
+        )
+        if not submitted:
+            on_export_done(None, RuntimeError("Excel 保存队列已满，请稍后重新生成"))
 
     def configure(self, params: dict[str, Any]) -> None:
         with self._lock:
@@ -1065,6 +1328,7 @@ class StationRuntime:
                     supply.set_current(0.0)
                     supply.set_output_enabled(False)
                     measured_current_a = float(supply.read_output_current())
+                    self.latest_power_supply_output_current_a = measured_current_a
                     if not math.isfinite(measured_current_a) or abs(measured_current_a) > 0.01:
                         raise RuntimeError(
                             f"安全断开已取消：无法确认 TDK 输出电流归零（{measured_current_a:.3f} A）"
@@ -1229,6 +1493,8 @@ class StationRuntime:
             self.power_meter_reader = reader
             self.power_meter_error = ""
             self.latest_power = None
+            self.latest_power_received_monotonic_s = None
+            self.latest_power_sampled_at_utc = None
             self.power_points.clear()
             self.series_revisions["power"] += 1
             reader.reading.connect(self._on_power_reading)
@@ -1256,6 +1522,9 @@ class StationRuntime:
         with self._lock:
             self.latest_power = reading
             self.latest_power_received_monotonic_s = time.monotonic()
+            self.latest_power_sampled_at_utc = datetime.now(timezone.utc).isoformat(
+                timespec="milliseconds"
+            )
             self.power_points.append({"elapsedS": reading.elapsed_s, "powerW": reading.power_w})
             self.series_revisions["power"] += 1
             automatic_active = self.automatic.state in {
@@ -1465,6 +1734,7 @@ class StationRuntime:
             self._request_automatic_point_retry(
                 AttemptValidity.DEVICE_ERROR,
                 f"功率计错误：{message}",
+                pause_kind="power_meter_disconnected",
             )
 
     def _on_power_finished(self) -> None:
@@ -1484,6 +1754,7 @@ class StationRuntime:
             self._request_automatic_point_retry(
                 AttemptValidity.DEVICE_ERROR,
                 "功率计采集已停止",
+                pause_kind="power_meter_disconnected",
             )
 
     def set_relative_zero(self, params: dict[str, Any]) -> None:
@@ -1531,6 +1802,11 @@ class StationRuntime:
             reader = SpectrometerReaderThread(settings, headless=True)
             self.spectrometer_reader = reader
             self.spectrometer_error = ""
+            self.latest_spectrometer_reading = None
+            self.latest_spectrum = None
+            self.latest_spectrum_received_monotonic_s = None
+            self.latest_spectrum_sampled_at_utc = None
+            self.series_revisions["spectrum"] += 1
             reader.reading.connect(self._on_spectrometer_reading)
             reader.ready.connect(self._on_spectrometer_ready)
             reader.failed.connect(self._on_spectrometer_failed)
@@ -1569,6 +1845,9 @@ class StationRuntime:
             if frame is not None:
                 self.latest_spectrum = frame
                 self.latest_spectrum_received_monotonic_s = time.monotonic()
+                self.latest_spectrum_sampled_at_utc = datetime.now(timezone.utc).isoformat(
+                    timespec="milliseconds"
+                )
                 self.spectrum_revision += 1
                 self.series_revisions["spectrum"] += 1
                 saturated = bool(frame.saturation and frame.saturation.saturated)
@@ -1680,6 +1959,7 @@ class StationRuntime:
             self._request_automatic_point_retry(
                 AttemptValidity.DEVICE_ERROR,
                 f"光谱仪错误：{message}",
+                pause_kind="spectrometer_disconnected",
             )
 
     def _on_spectrometer_finished(self) -> None:
@@ -1689,6 +1969,7 @@ class StationRuntime:
             self._request_automatic_point_retry(
                 AttemptValidity.DEVICE_ERROR,
                 "光谱仪采集已停止",
+                pause_kind="spectrometer_disconnected",
             )
 
     def _on_spectrometer_device_opened(self, device_id: int) -> None:
@@ -1758,7 +2039,8 @@ class StationRuntime:
             ramp_down_interval_s=float(self.configuration["rampDownIntervalS"]),
             pause_ramp_down_timeout_s=float(self.configuration["pauseRampDownTimeoutS"]),
             use_spectrometer=(
-                self.spectrometer_reader is not None and not self._aging_test_selected()
+                bool(str(self.configuration.get("spectrometerResource", "")).strip())
+                and not self._aging_test_selected()
             ),
             maximum_current_a=None if self.power_supply_kind == "tdk" else 20.0,
             current_plan_mode=str(self.configuration["currentPlanMode"]),
@@ -1774,6 +2056,63 @@ class StationRuntime:
             post_stable_delay_s=10.0,
         )
 
+    def automatic_readiness(self) -> dict[str, Any]:
+        blockers: list[dict[str, str]] = []
+
+        def block(code: str, message: str) -> None:
+            blockers.append({"code": code, "message": message})
+
+        if self.automatic.state != AutomaticTestState.IDLE:
+            block("automatic_not_idle", "当前自动测试尚未重置")
+        if not str(self.configuration.get("sn", "")).strip():
+            block("missing_sn", "请填写产品 SN")
+        if not str(self.configuration.get("outputDir", "")).strip():
+            block("missing_output_dir", "请选择测试数据输出目录")
+
+        script_id = str(self.configuration.get("selectedScriptId", "")).strip()
+        script = next(
+            (item for item in BUILTIN_TEST_SCRIPTS if str(item.get("id")) == script_id),
+            None,
+        )
+        if script is None:
+            block("invalid_script", "请选择有效的测试脚本")
+        elif self.power_supply_kind not in tuple(
+            script.get("powerSupplyKinds", ()) or (self.power_supply_kind,)
+        ):
+            block("script_power_supply_mismatch", "当前测试脚本与电源类型不兼容")
+
+        supply = self._power_supply()
+        if supply is None:
+            block("power_supply_not_connected", "请先连接电源控制器")
+        if self.power_supply_identity_error:
+            block("power_supply_identity_error", f"电源状态异常：{self.power_supply_identity_error}")
+        if float(self.active_current_a or 0.0) > 0.005:
+            block("output_current_not_zero", "开始自动测试前必须先将输出电流归零")
+        if supply is not None and self.power_supply_kind == "tdk" and not supply.output_enabled:
+            block("tdk_output_disabled", "请先开启 TDK 电源输出")
+
+        if not str(self.configuration.get("powerMeterResource", "")).strip():
+            block("power_meter_not_selected", "请选择功率计资源")
+        if not self._aging_test_selected():
+            if not str(self.configuration.get("spectrometerResource", "")).strip():
+                block("spectrometer_not_selected", "请选择光谱仪资源")
+            elif self.configuration.get("spectrometerDeviceId") in {None, ""}:
+                block("spectrometer_device_not_selected", "请识别并选择光谱仪设备")
+
+        try:
+            self._automatic_settings()
+        except (TypeError, ValueError) as exc:
+            block("invalid_test_settings", str(exc))
+
+        return {"ready": not blockers, "blockers": blockers}
+
+    def _require_automatic_ready(self) -> AutomaticTestSettings:
+        readiness = self.automatic_readiness()
+        blockers = readiness["blockers"]
+        if blockers:
+            raise ValueError("；".join(str(item["message"]) for item in blockers))
+        return self._automatic_settings()
+
     def _aging_test_selected(self) -> bool:
         return str(self.configuration.get("selectedScriptId", "standard")) == AGING_TEST_SCRIPT_ID
 
@@ -1784,13 +2123,7 @@ class StationRuntime:
         aging_test = self._aging_test_selected()
         if not aging_test:
             self._select_latest_test_reference(params)
-        supply = self._require_power_supply()
-        if self.power_supply_kind == "tdk" and not supply.output_enabled:
-            raise ValueError("请先开启 TDK 电源输出")
-        if float(self.active_current_a or 0.0) > 0.0:
-            raise ValueError("开始自动测试前必须先将输出电流归零")
-
-        settings = self._automatic_settings()
+        settings = self._require_automatic_ready()
         self.reset_charts()
         self.automatic.start(
             settings,
@@ -1800,6 +2133,7 @@ class StationRuntime:
         self.automatic_started_at = time.monotonic()
         self.automatic_terminal_outcome = None
         self.automatic_terminal_reason = ""
+        self._clear_shutdown_result()
         self._automatic_stop.clear()
         self._automatic_resume.set()
         self.power_drop_protection.reset()
@@ -1815,14 +2149,16 @@ class StationRuntime:
         self._automatic_retry_requested = False
         self._automatic_retry_reason = ""
         self._automatic_pause_holds_current = False
+        self._clear_automatic_pause()
+        self._export_generation += 1
         try:
             if aging_test:
-                self.record_store = SessionRecordStore()
+                self.record_store = self._new_record_store()
             else:
                 self._begin_recording_session(settings)
         except Exception as exc:
             self.automatic = AutomaticTestOrchestrator()
-            self.record_store = SessionRecordStore()
+            self.record_store = self._new_record_store()
             self.export_status = "failed"
             self.export_error = str(exc)
             self._close_automatic_sample_recorder()
@@ -1853,7 +2189,7 @@ class StationRuntime:
             if started_spectrum_reader:
                 self.stop_spectrometer()
             self._close_automatic_sample_recorder()
-            self.record_store = SessionRecordStore()
+            self.record_store = self._new_record_store()
             self.automatic = AutomaticTestOrchestrator()
             self.export_status = "failed"
             self.export_error = str(exc)
@@ -2214,49 +2550,41 @@ class StationRuntime:
             smsr_db=math.nan if frame is None or frame.smsr is None else frame.smsr.smsr_db,
             test_station=str(self.configuration["station"]),
         )
-        self.record_store.queue(
-            record,
-            actual_current_a=float(self.active_current_a or current_a),
-            voltage_raw_v=raw_voltage_v,
-            stable_span_w=stable_reading.stable_span_w,
-            stable_window_s=stable_reading.stable_window_s,
-            stable_tolerance_w=float(self.configuration["stableToleranceW"]),
-            integration_time_us=int(self.configuration["integrationTimeUs"]),
-        )
+        self.automatic.set_state(AutomaticTestState.SAVING_POINT)
+        while True:
+            try:
+                self.record_store.queue(
+                    record,
+                    actual_current_a=float(self.active_current_a or current_a),
+                    voltage_raw_v=raw_voltage_v,
+                    stable_span_w=stable_reading.stable_span_w,
+                    stable_window_s=stable_reading.stable_window_s,
+                    stable_tolerance_w=float(self.configuration["stableToleranceW"]),
+                    integration_time_us=int(self.configuration["integrationTimeUs"]),
+                )
+                break
+            except SessionJournalError as exc:
+                self._set_automatic_pause(
+                    str(exc),
+                    kind="record_persistence_failed",
+                    hold_current=False,
+                    retry_point=False,
+                )
+                self.notify(
+                    "error",
+                    "本地记录失败",
+                    f"{exc}；测试不会进入下一点",
+                )
+                if self._await_automatic_resume() is None:
+                    raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
+                self.automatic.set_state(AutomaticTestState.SAVING_POINT)
         with self._lock:
             self.stable_power_points[current_a] = stable_power_w
             self.efficiency_points[current_a] = efficiency
             self.series_revisions["stable"] += 1
-        self.automatic.set_state(AutomaticTestState.SAVING_POINT)
-        while True:
-            self.export_status = "exporting"
-            try:
-                saved_path = self._save_record_store()
-                break
-            except Exception as exc:
-                reason = f"Excel 保存失败：{exc}"
-                self.export_status = "failed"
-                self.export_error = str(exc)
-                self.automatic.pause(reason)
-                self.automatic_detail = f"已暂停：{reason}"
-                self._automatic_pause_holds_current = False
-                self._automatic_resume.clear()
-                self._schedule_pause_safety_timeout()
-                self.notify("error", "导出失败", f"{reason}；请重试当前保存")
-                try:
-                    if self._await_automatic_resume() is None:
-                        raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
-                except _AutomaticPointRetry:
-                    # A device callback may also arrive while saving. The
-                    # measurement is already buffered, so reconnect devices
-                    # but retry this exact record instead of re-measuring it.
-                    pass
-                self.automatic.set_state(AutomaticTestState.SAVING_POINT)
         self.export_status = "recording"
-        self.automatic_detail = f"{current_a:g} A 已保存：{saved_path}"
+        self.automatic_detail = f"{current_a:g} A 已写入本地测试记录"
         if self.automatic.state == AutomaticTestState.PAUSED:
-            # The point is durably saved. A device callback that arrived while
-            # Excel was writing must not cause this current to be measured twice.
             self._automatic_retry_requested = False
             if self._await_automatic_resume() is None:
                 raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
@@ -2332,35 +2660,38 @@ class StationRuntime:
                 "所有计划测试点均已保存",
                 shutdown_confirmed=True,
             )
-            self.export_status = "exporting"
-            saved_path = self._save_record_store()
             self._close_automatic_sample_recorder()
-            self._delete_embedded_automatic_samples(saved_path)
-            self.export_status = "completed"
-            self.export_path = "" if saved_path is None else str(saved_path)
+            self._queue_automatic_export()
             self.automatic.complete()
+            self._clear_automatic_pause()
             self.automatic_terminal_outcome = "succeeded"
             self.automatic_terminal_reason = "所有计划测试点均已保存"
-            self.automatic_detail = "自动测试已安全完成"
-            self.notify("info", "导出完成", f"测试记录已保存：{self.export_path}")
+            self.automatic_detail = "自动测试已安全完成，本地记录已保存"
         except Exception as exc:
             _LOGGER.exception("工位 %s 自动测试异常", self.station_id)
             reason = self.automatic_terminal_reason or str(exc)
-            operator_stopped = reason in {"操作者提前结束测试", "自动测试已停止"}
+            operator_stopped = reason in {
+                "操作者提前结束测试",
+                "全部工位急停",
+                "自动测试已停止",
+            }
             self.automatic_detail = reason
-            self.automatic_terminal_outcome = (
-                "stopped_by_operator" if operator_stopped else "aborted_safely"
-            )
             self.automatic_terminal_reason = reason
             shutdown_confirmed = False
             try:
                 self.safe_ramp_down()
                 shutdown_confirmed = True
             except Exception as shutdown_error:
-                self.automatic_output_shutdown_unconfirmed = True
                 self.notify("error", "安全下电失败", str(shutdown_error))
                 reason = f"{reason}；安全下电失败：{shutdown_error}"
                 self.automatic_terminal_reason = reason
+            self.automatic_terminal_outcome = (
+                "shutdown_unconfirmed"
+                if not shutdown_confirmed
+                else "stopped_shutdown_confirmed"
+                if operator_stopped
+                else "aborted_shutdown_confirmed"
+            )
             current_a = self.automatic.current_a
             if current_a is not None:
                 validity = (
@@ -2368,40 +2699,55 @@ class StationRuntime:
                     if isinstance(exc, TimeoutError)
                     else AttemptValidity.DEVICE_ERROR
                 )
-                self.record_store.record_invalid_attempt(current_a, validity, reason)
-            self.record_store.complete_session(
-                SessionStatus.STOPPED_BY_OPERATOR if operator_stopped else SessionStatus.ABORTED_SAFELY,
-                reason,
-                shutdown_confirmed=shutdown_confirmed,
-            )
-            saved_path: Path | None = None
             try:
-                self.export_status = "exporting"
-                saved_path = self._save_record_store()
-                self.export_path = "" if saved_path is None else str(saved_path)
-                self.export_status = "completed" if saved_path is not None else "idle"
-            except Exception as export_error:
-                self.export_status = "failed"
-                self.export_error = str(export_error)
-                self.notify("error", "导出失败", str(export_error))
+                if current_a is not None:
+                    self.record_store.record_invalid_attempt(current_a, validity, reason)
+                self.record_store.complete_session(
+                    SessionStatus.SHUTDOWN_UNCONFIRMED
+                    if not shutdown_confirmed
+                    else SessionStatus.STOPPED_BY_OPERATOR
+                    if operator_stopped
+                    else SessionStatus.ABORTED_SAFELY,
+                    reason,
+                    shutdown_confirmed=shutdown_confirmed,
+                )
+            except SessionJournalError as journal_error:
+                self.notify("error", "本地记录失败", str(journal_error))
             try:
                 self._close_automatic_sample_recorder()
-                self._delete_embedded_automatic_samples(saved_path)
+                self._queue_automatic_export()
             except Exception as sample_error:
                 self.notify("error", "逐秒记录失败", str(sample_error))
             self.automatic.complete()
+            self._clear_automatic_pause()
 
     def safe_ramp_down(self) -> None:
         with self._safe_ramp_lock:
-            with self._supply_io_lock:
-                self._safe_ramp_down_impl()
+            self._shutdown_measurement_candidate = None
+            try:
+                with self._supply_io_lock:
+                    measured_current_a, output_off_confirmed = self._safe_ramp_down_impl()
+            except Exception as exc:
+                self._record_shutdown_result(
+                    confirmed=False,
+                    measured_current_a=self._shutdown_measurement_candidate,
+                    output_off_confirmed=False,
+                    reason=str(exc),
+                )
+                raise
+            self._record_shutdown_result(
+                confirmed=True,
+                measured_current_a=measured_current_a,
+                output_off_confirmed=output_off_confirmed,
+                reason="电源输出已确认关闭" if output_off_confirmed else "电流已确认归零",
+            )
 
-    def _safe_ramp_down_impl(self) -> None:
+    def _safe_ramp_down_impl(self) -> tuple[float | None, bool]:
         if self.power_supply_identity_error:
             raise RuntimeError("CH341 端口身份校验失败，禁止下发电流指令；请先安全断开")
         supply = self._power_supply()
         if supply is None:
-            return
+            return None, True
         settings = self.automatic.settings
         if settings is None:
             try:
@@ -2452,13 +2798,15 @@ class StationRuntime:
                 if self.power_supply_kind == "tdk":
                     supply.set_output_enabled(False)
                     measured_current_a = float(supply.read_output_current())
+                    self._shutdown_measurement_candidate = measured_current_a
                     if not math.isfinite(measured_current_a) or abs(measured_current_a) > 0.01:
                         raise RuntimeError(
                             f"无法确认电源输出电流已归零：{measured_current_a:.3f} A"
                         )
                     self.active_current_a = 0.0
                     self.configuration["setCurrentA"] = 0.0
-                    return
+                    self.latest_power_supply_output_current_a = measured_current_a
+                    return measured_current_a, True
                 raise
             self.active_current_a = current_a
             if current_a > 0.0:
@@ -2473,9 +2821,12 @@ class StationRuntime:
             supply.set_output_enabled(False)
         if self.power_supply_kind == "tdk":
             measured_current_a = float(supply.read_output_current())
+            self._shutdown_measurement_candidate = measured_current_a
+            self.latest_power_supply_output_current_a = measured_current_a
             if not math.isfinite(measured_current_a) or abs(measured_current_a) > 0.01:
                 raise RuntimeError(f"无法确认电源输出电流已归零：{measured_current_a:.3f} A")
-        self.automatic_output_shutdown_unconfirmed = False
+            return measured_current_a, True
+        return None, True
 
     def pause_automatic(self) -> None:
         if self.automatic.state in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED, AutomaticTestState.PAUSED}:
@@ -2483,18 +2834,46 @@ class StationRuntime:
         if self.automatic.state == AutomaticTestState.SAVING_POINT:
             self.automatic_detail = "当前测试点正在保存，保存完成后再暂停"
             return
-        self.automatic.pause("操作员暂停")
-        self._automatic_pause_holds_current = False
-        self._automatic_resume.clear()
-        self._schedule_pause_safety_timeout()
+        self._set_automatic_pause(
+            "操作员暂停",
+            kind="operator",
+            hold_current=False,
+            retry_point=False,
+        )
 
-    def resume_automatic(self) -> None:
+    def resume_automatic(
+        self,
+        action: str = "retry_point",
+        params: dict[str, Any] | None = None,
+    ) -> None:
         if self.automatic.state != AutomaticTestState.PAUSED:
             raise ValueError("当前状态不能重试")
+        action_name = str(action)
+        if action_name not in self.automatic_pause_actions:
+            raise ValueError(f"当前暂停状态不允许执行：{action_name}")
+        values = params or {}
+        if action_name == "adjust_spectrum":
+            integration_time_us = int(values.get("integrationTimeUs", 0))
+            if integration_time_us <= 0:
+                raise ValueError("积分时间必须大于 0 μs")
+            self.configuration["autoIntegration"] = False
+            self.configuration["integrationTimeUs"] = integration_time_us
+        self._automatic_retry_requested = action_name in {
+            "adjust_spectrum",
+            "recover_power_meter",
+            "recover_spectrometer",
+            "retry_point",
+        }
         settings = self.automatic.settings
-        if self.power_meter_reader is None:
+        if action_name == "recover_power_meter" and self.power_meter_reader is None:
             self.start_power_meter()
-        if settings is not None and settings.use_spectrometer:
+        if action_name == "recover_spectrometer" and self.spectrometer_reader is None:
+            self.start_spectrometer()
+        if settings is not None and settings.use_spectrometer and action_name in {
+            "adjust_spectrum",
+            "recover_spectrometer",
+            "retry_point",
+        }:
             if self.spectrometer_reader is None:
                 self.start_spectrometer()
             if self.spectrometer_reader is not None:
@@ -2505,30 +2884,65 @@ class StationRuntime:
         self.automatic.pause_reason = ""
         self._automatic_pause_holds_current = False
         self._automatic_pause_generation += 1
+        self._clear_automatic_pause()
         self._automatic_resume.set()
 
-    def end_automatic(self) -> None:
+    def request_emergency_stop(self, reason: str = "操作者提前结束测试") -> None:
         if self._automatic_thread is not None and self._automatic_thread.is_alive():
             if not self.automatic_terminal_reason:
-                self.automatic_terminal_reason = "操作者提前结束测试"
+                self.automatic_terminal_reason = reason
         self._automatic_stop.set()
         self._automatic_resume.set()
+        self._start_emergency_ramp_down(reason)
+
+    def end_automatic(self) -> None:
+        self.request_emergency_stop()
         thread = self._automatic_thread
         if thread is not None:
             thread.join(30.0)
             if thread.is_alive():
                 raise RuntimeError("自动测试安全下电超时，后台线程仍在运行")
+        ramp_thread = self._emergency_ramp_thread
+        if ramp_thread is not None:
+            ramp_thread.join(30.0)
+            if ramp_thread.is_alive():
+                raise RuntimeError("电源安全降流超时，后台线程仍在运行")
+        if not self.shutdown_confirmed:
+            self.safe_ramp_down()
 
-    def reset_automatic(self) -> None:
+    def prepare_next_device(self) -> None:
         if self._automatic_thread is not None and self._automatic_thread.is_alive():
-            raise ValueError("自动测试运行中，不能重置")
+            raise ValueError("自动测试仍在运行，不能进入下一台")
+        if self.automatic.state != AutomaticTestState.COMPLETED:
+            raise ValueError("当前测试尚未结束")
+        if not self.shutdown_confirmed:
+            raise RuntimeError("尚未确认安全下电，不能进入下一台")
+        self._export_generation += 1
         self.automatic = AutomaticTestOrchestrator()
-        self.automatic_detail = "准备测试"
+        self.record_store = self._new_record_store()
+        self.configuration["sn"] = ""
+        self.automatic_detail = "请输入下一台产品 SN"
         self.automatic_terminal_outcome = None
         self.automatic_terminal_reason = ""
+        self.automatic_started_at = None
         self._test_reference = None
         self.export_status = "idle"
+        self.export_path = ""
         self.export_error = ""
+        self.automatic_sample_path = ""
+        self._clear_automatic_pause()
+        self._clear_shutdown_result()
+        self.reset_charts()
+        self.backend.clear_station_transient_notices(self.station_id)
+
+    def retry_automatic_export(self, params: dict[str, Any]) -> None:
+        if self.automatic.state != AutomaticTestState.COMPLETED:
+            raise ValueError("测试结束后才能重新生成 Excel")
+        output_dir = str(params.get("outputDir", "")).strip()
+        if output_dir:
+            self.configuration["outputDir"] = output_dir
+            self.record_store.retarget_workbook(Path(output_dir))
+        self._queue_automatic_export()
 
     def reset_charts(self) -> None:
         with self._lock:
@@ -2537,6 +2951,8 @@ class StationRuntime:
             self.efficiency_points.clear()
             self.aging_power_points.clear()
             self.latest_spectrum = None
+            self.latest_spectrum_received_monotonic_s = None
+            self.latest_spectrum_sampled_at_utc = None
             self.spectrum_center_candidate_nm = None
             self.spectrum_center_candidate_count = 0
             self.spectrum_centroid_candidate_nm = None
@@ -2563,7 +2979,6 @@ class StationRuntime:
         try:
             self.safe_ramp_down()
         except Exception as exc:
-            self.automatic_output_shutdown_unconfirmed = True
             errors.append(f"安全下电失败：{exc}")
         if errors:
             raise RuntimeError("；".join(errors))
@@ -2582,6 +2997,7 @@ class StationRuntime:
     def summary_snapshot(self) -> dict[str, Any]:
         with self._lock:
             supply = self._power_supply()
+            readiness = self.automatic_readiness()
             currents = list(self.automatic.currents)
             current_index = int(self.automatic.current_index)
             progress = max(0.0, min(1.0, (current_index + 1) / len(currents))) if currents else 0.0
@@ -2599,12 +3015,24 @@ class StationRuntime:
                 "powerSupplyConnected": supply is not None,
                 "powerMeterRunning": self.power_meter_reader is not None,
                 "spectrometerRunning": self.spectrometer_reader is not None,
-                "canStart": supply is not None and not self.power_supply_identity_error and float(self.active_current_a or 0.0) <= 0.0,
+                "canStart": readiness["ready"],
+                "readiness": readiness,
                 "canPause": self.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED, AutomaticTestState.PAUSED, AutomaticTestState.RAMPING_DOWN},
-                "canRetry": self.automatic.state == AutomaticTestState.PAUSED,
                 "canEnd": self.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED, AutomaticTestState.RAMPING_DOWN},
                 "terminalOutcome": self.automatic_terminal_outcome,
                 "terminalReason": self.automatic_terminal_reason,
+                "pauseKind": self.automatic_pause_kind,
+                "pauseStartedAtUtc": self.automatic_pause_started_at_utc,
+                "pauseDeadlineAtUtc": self.automatic_pause_deadline_at_utc,
+                "pauseActions": list(self.automatic_pause_actions),
+                "savedPointCount": len(self.record_store.recorded_currents),
+                "exportedPointCount": len(self.record_store.exported_currents),
+                "journalPath": "" if self.record_store.journal_path is None else str(self.record_store.journal_path),
+                "canNextDevice": self.automatic.state == AutomaticTestState.COMPLETED and self.shutdown_confirmed,
+                "canRetryExport": self.automatic.state == AutomaticTestState.COMPLETED and self.export_status == "failed",
+                "controlOwner": "manual" if self.manual_controls_allowed() else "automatic",
+                "manualControlsAllowed": self.manual_controls_allowed(),
+                "shutdown": self.shutdown_snapshot(),
                 "exportStatus": self.export_status,
                 "exportPath": self.export_path,
                 "exportError": self.export_error,
@@ -2825,14 +3253,6 @@ class HeadlessBackend:
         self.stations["1"].automatic_detail = value
 
     @property
-    def automatic_output_shutdown_unconfirmed(self) -> bool:
-        return any(st.automatic_output_shutdown_unconfirmed for st in self.stations.values())
-
-    @automatic_output_shutdown_unconfirmed.setter
-    def automatic_output_shutdown_unconfirmed(self, value: bool) -> None:
-        self.stations["1"].automatic_output_shutdown_unconfirmed = value
-
-    @property
     def power_meter_reader(self) -> PowerMeterReaderThread | None:
         return self.stations["1"].power_meter_reader
 
@@ -2949,6 +3369,19 @@ class HeadlessBackend:
             if station_id is not None and str(station_id) in self.stations:
                 self.stations[str(station_id)].status_message = str(message)
 
+    def clear_station_transient_notices(self, station_id: str) -> None:
+        with self._lock:
+            self.notices = deque(
+                (
+                    notice
+                    for notice in self.notices
+                    if str(notice.get("stationId", "")) != str(station_id)
+                    or notice.get("level") == "error"
+                    or notice.get("code") == "power_protection"
+                ),
+                maxlen=8,
+            )
+
     def _persist_configuration(self) -> None:
         def persistent_configuration(station: StationRuntime) -> dict[str, Any]:
             configuration = dict(station.configuration)
@@ -2973,6 +3406,11 @@ class HeadlessBackend:
         station_id = self._station_id_from_params(params)
         st = self._station(station_id)
 
+        if method in MANUAL_CONTROL_METHODS and not st.manual_controls_allowed():
+            raise RuntimeError(
+                f"工位 {station_id} 的硬件控制权由自动测试持有；请先结束并安全下电"
+            )
+
         actions: dict[str, Callable[[dict[str, Any]], Any]] = {
             "app.configure": lambda p: self._configure(p),
             "device.refresh": self._refresh_device,
@@ -2991,9 +3429,15 @@ class HeadlessBackend:
             "spectrometer.saveCsv": lambda p: st.save_spectrum_csv(p),
             "automatic.start": lambda p: st.start_automatic(p),
             "automatic.pause": lambda _p: st.pause_automatic(),
-            "automatic.retry": lambda _p: st.resume_automatic(),
+            "automatic.resume": lambda p: st.resume_automatic("resume", p),
+            "automatic.retryPoint": lambda p: st.resume_automatic("retry_point", p),
+            "automatic.recoverPowerMeter": lambda p: st.resume_automatic("recover_power_meter", p),
+            "automatic.recoverSpectrometer": lambda p: st.resume_automatic("recover_spectrometer", p),
+            "automatic.adjustSpectrum": lambda p: st.resume_automatic("adjust_spectrum", p),
+            "automatic.retryPersist": lambda p: st.resume_automatic("retry_persist", p),
             "automatic.end": lambda _p: st.end_automatic(),
-            "automatic.reset": lambda _p: st.reset_automatic(),
+            "automatic.nextDevice": lambda _p: st.prepare_next_device(),
+            "automatic.retryExport": lambda p: st.retry_automatic_export(p),
             "shippingReport.inspect": self._inspect_shipping_report,
             "shippingReport.batchInspect": self._inspect_shipping_report_batch,
             "shippingReport.batchGenerateItem": self._generate_shipping_report_batch_item,
@@ -3011,15 +3455,26 @@ class HeadlessBackend:
         if action is None:
             raise KeyError(method)
         result = action(params)
-        if method not in {"shippingReport.inspect", "shippingReport.batchInspect"}:
+        if method not in {
+            "automatic.end",
+            "app.stopAll",
+            "app.shutdown",
+            *BACKGROUND_FILE_TASK_METHODS,
+        }:
             self._persist_configuration()
         return self.snapshot(params) if result is None else result
 
     def dispatch_file_task(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
-        if method == "shippingReport.inspect":
-            return self._inspect_shipping_report(params)
-        if method == "shippingReport.batchInspect":
-            return self._inspect_shipping_report_batch(params)
+        actions: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+            "shippingReport.inspect": self._inspect_shipping_report,
+            "shippingReport.batchInspect": self._inspect_shipping_report_batch,
+            "shippingReport.batchGenerateItem": self._generate_shipping_report_batch_item,
+            "shippingReport.preview": self._preview_shipping_report,
+            "shippingReport.generate": self._generate_shipping_report,
+        }
+        action = actions.get(method)
+        if action is not None:
+            return action(params)
         raise KeyError(method)
 
     def _configure(self, params: dict[str, Any]) -> None:
@@ -3434,31 +3889,67 @@ class HeadlessBackend:
 
     def _stop_all(self) -> None:
         errors: list[str] = []
-        for st in self.stations.values():
+        stations = tuple(self.stations.values())
+        for st in stations:
+            st.request_emergency_stop("全部工位急停")
+
+        def stop_station(station: StationRuntime) -> list[str]:
+            station_errors: list[str] = []
             try:
-                st.stop_all()
+                station.stop_all()
             except Exception as exc:
-                errors.append(f"工位 {st.station_id}：{exc}")
+                station_errors.append(f"工位 {station.station_id}：{exc}")
             try:
-                self._stop_pd(st)
+                self._stop_pd(station)
             except Exception as exc:
-                errors.append(f"工位 {st.station_id} PD：{exc}")
+                station_errors.append(f"工位 {station.station_id} PD：{exc}")
+            return station_errors
+
+        with ThreadPoolExecutor(
+            max_workers=len(stations),
+            thread_name_prefix="station-emergency-stop",
+        ) as executor:
+            futures = [executor.submit(stop_station, st) for st in stations]
+            for future in as_completed(futures):
+                errors.extend(future.result())
         if errors:
             raise RuntimeError("停止未完全确认：" + "；".join(errors))
 
-    def _shutdown(self) -> dict[str, bool]:
-        self._stop_all()
-        self.export_worker.stop()
-        for st in self.stations.values():
-            supply = st._power_supply()
-            if supply is not None:
-                if st.power_supply_kind == "tdk" and supply.output_enabled:
-                    supply.set_output_enabled(False)
-                measured = supply.read_output_current()
-                if not math.isfinite(measured) or abs(measured) > 0.01:
-                    st.automatic_output_shutdown_unconfirmed = True
-                    raise RuntimeError(f"无法确认电源输出电流已归零（工位 {st.station_id}）")
-        return {"shutdownConfirmed": True}
+    def _shutdown(self) -> dict[str, Any]:
+        stop_error = ""
+        try:
+            self._stop_all()
+        except Exception as exc:
+            stop_error = str(exc)
+        finally:
+            exports_drained = self.export_worker.graceful_stop()
+
+        station_results = {
+            station_id: st.shutdown_snapshot()
+            for station_id, st in self.stations.items()
+        }
+        confirmed = all(result["confirmed"] for result in station_results.values())
+        reasons = [
+            f"工位 {station_id}：{result['reason']}"
+            for station_id, result in station_results.items()
+            if not result["confirmed"] and result["reason"]
+        ]
+        if stop_error:
+            reasons.insert(0, stop_error)
+        return {
+            "shutdownConfirmed": confirmed,
+            "exportsDrained": exports_drained,
+            "shutdown": {
+                "requested": True,
+                "confirmed": confirmed,
+                "measuredCurrentA": None,
+                "outputOffConfirmed": all(
+                    result["outputOffConfirmed"] for result in station_results.values()
+                ),
+                "reason": "；".join(reasons) if reasons else "全部工位已确认安全下电",
+            },
+            "stations": station_results,
+        }
 
     def snapshot(self, params: dict[str, Any] | None = None) -> dict[str, Any]:
         # Do not hold the backend-wide lock while reading a station.  Worker
@@ -3565,6 +4056,29 @@ class HeadlessBackend:
         frame = active_st.latest_spectrum
         spectrum_saturated = bool(frame and frame.saturation and frame.saturation.saturated)
         spectrum_stats = None if frame is None else frame.stats
+        power_value = _finite(
+            None if active_st.latest_power is None else active_st.latest_power.power_w
+        )
+        power_freshness = active_st.measurement_freshness(
+            received_at_monotonic_s=active_st.latest_power_received_monotonic_s,
+            sampled_at_utc=active_st.latest_power_sampled_at_utc,
+            running=bool(
+                active_st.power_meter_reader and active_st.power_meter_reader.is_ready
+            ),
+            interval_ms=float(active_st.configuration["powerMeterIntervalMs"]),
+            valid=power_value is not None,
+        )
+        spectrum_freshness = active_st.measurement_freshness(
+            received_at_monotonic_s=active_st.latest_spectrum_received_monotonic_s,
+            sampled_at_utc=active_st.latest_spectrum_sampled_at_utc,
+            running=bool(
+                active_st.spectrometer_reader and active_st.spectrometer_reader.is_ready
+            ),
+            interval_ms=float(active_st.configuration["spectrometerIntervalMs"]),
+            valid=frame is not None,
+            saturated=spectrum_saturated,
+        )
+        automatic_readiness = active_st.automatic_readiness()
 
         raw_since = params.get("since")
         since_revisions = raw_since if isinstance(raw_since, dict) else None
@@ -3759,8 +4273,9 @@ class HeadlessBackend:
                     "running": active_st.power_meter_reader is not None,
                     "detecting": power_meter_detecting,
                     "ready": bool(active_st.power_meter_reader and active_st.power_meter_reader.is_ready),
-                    "powerW": _finite(None if active_st.latest_power is None else active_st.latest_power.power_w),
+                    "powerW": power_value,
                     "stable": bool(active_st.latest_power and active_st.latest_power.stable),
+                    **power_freshness,
                     "resources": [item.label() for item in available_power_meter_options],
                 },
                 "spectrometer": {
@@ -3776,6 +4291,7 @@ class HeadlessBackend:
                     "pib": None if frame is None or not math.isfinite(getattr(frame, "pib", math.nan)) else _finite(frame.pib * 100.0 if frame.pib <= 1.0 else frame.pib),
                     "smsrDb": None if frame is None or frame.smsr is None else _finite(frame.smsr.smsr_db),
                     "saturated": spectrum_saturated,
+                    **spectrum_freshness,
                     "spectrumWindow": (
                         {
                             "centerNm": active_st.spectrum_center_locked_nm,
@@ -3791,11 +4307,15 @@ class HeadlessBackend:
                 "state": active_st.automatic.state.value,
                 "detail": active_st.automatic_detail,
                 "controlsEnabled": True,
-                "canStart": supply is not None and not active_st.power_supply_identity_error and float(active_st.active_current_a or 0.0) <= 0.0,
-                "canRetry": active_st.automatic.state == AutomaticTestState.PAUSED,
+                "canStart": automatic_readiness["ready"],
+                "readiness": automatic_readiness,
                 "canPause": active_st.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED, AutomaticTestState.PAUSED, AutomaticTestState.RAMPING_DOWN},
                 "canEnd": active_st.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED, AutomaticTestState.RAMPING_DOWN},
-                "settingsError": "",
+                "settingsError": (
+                    ""
+                    if automatic_readiness["ready"]
+                    else str(automatic_readiness["blockers"][0]["message"])
+                ),
                 "currents": currents,
                 "dwellTimesS": list(active_st.automatic.dwell_times_s),
                 "currentIndex": current_index,
@@ -3805,8 +4325,17 @@ class HeadlessBackend:
                 "samplePath": active_st.automatic_sample_path,
                 "progress": progress,
                 "pauseReason": active_st.automatic.pause_reason,
+                "pauseKind": active_st.automatic_pause_kind,
+                "pauseStartedAtUtc": active_st.automatic_pause_started_at_utc,
+                "pauseDeadlineAtUtc": active_st.automatic_pause_deadline_at_utc,
+                "pauseActions": list(active_st.automatic_pause_actions),
                 "terminalOutcome": active_st.automatic_terminal_outcome,
                 "terminalReason": active_st.automatic_terminal_reason,
+                "savedPointCount": len(active_st.record_store.recorded_currents),
+                "exportedPointCount": len(active_st.record_store.exported_currents),
+                "journalPath": "" if active_st.record_store.journal_path is None else str(active_st.record_store.journal_path),
+                "canNextDevice": active_st.automatic.state == AutomaticTestState.COMPLETED and active_st.shutdown_confirmed,
+                "canRetryExport": active_st.automatic.state == AutomaticTestState.COMPLETED and active_st.export_status == "failed",
                 "exportStatus": active_st.export_status,
                 "exportPath": active_st.export_path,
                 "exportError": active_st.export_error,
@@ -3833,7 +4362,9 @@ class HeadlessBackend:
                 "hardwareAccess": True,
                 "commandMode": "controller_owned",
                 "detail": "设备命令、自动流程和安全下电由无界面 Python 后台执行",
-                "outputShutdownUnconfirmed": self.automatic_output_shutdown_unconfirmed,
+                "controlOwner": "manual" if active_st.manual_controls_allowed() else "automatic",
+                "manualControlsAllowed": active_st.manual_controls_allowed(),
+                "shutdown": active_st.shutdown_snapshot(),
             },
             "status": {"message": status_message},
         }
