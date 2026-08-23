@@ -8,6 +8,8 @@ const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 60;
 const FILE_SCAN_REQUEST_TIMEOUT_SECS: u64 = 120;
 const REPORT_REQUEST_TIMEOUT_SECS: u64 = 10 * 60;
 const SHUTDOWN_REQUEST_TIMEOUT_SECS: u64 = 90;
+#[cfg(any(windows, test))]
+const WEBVIEW_SEND_TIMEOUT_SECS: u64 = 5;
 use std::collections::HashMap;
 use std::env;
 use std::io::{BufRead, BufReader, BufWriter, Write};
@@ -64,9 +66,7 @@ fn request_timeout(method: &str) -> Duration {
     let seconds = match method {
         "app.snapshot" => SNAPSHOT_REQUEST_TIMEOUT_SECS,
         "app.shutdown" => SHUTDOWN_REQUEST_TIMEOUT_SECS,
-        "shippingReport.inspect" | "shippingReport.batchInspect" => {
-            FILE_SCAN_REQUEST_TIMEOUT_SECS
-        }
+        "shippingReport.inspect" | "shippingReport.batchInspect" => FILE_SCAN_REQUEST_TIMEOUT_SECS,
         "shippingReport.preview"
         | "shippingReport.generate"
         | "shippingReport.batchGenerateItem" => REPORT_REQUEST_TIMEOUT_SECS,
@@ -630,6 +630,25 @@ fn stream_envelope(subscription_id: &str, message: Value) -> Value {
     })
 }
 
+#[cfg(any(windows, test))]
+fn await_webview_send_result<F>(dispatch: F) -> Result<(), String>
+where
+    F: FnOnce(Sender<Result<(), String>>) -> Result<(), String>,
+{
+    let (result_sender, result_receiver) = mpsc::channel();
+    dispatch(result_sender)?;
+    match result_receiver.recv_timeout(Duration::from_secs(WEBVIEW_SEND_TIMEOUT_SECS)) {
+        Ok(result) => result,
+        Err(RecvTimeoutError::Timeout) => Err(format!(
+            "WebView2 实时消息发送在 {} 秒内未返回结果",
+            WEBVIEW_SEND_TIMEOUT_SECS
+        )),
+        Err(RecvTimeoutError::Disconnected) => {
+            Err("WebView2 实时消息发送回执通道意外关闭".to_string())
+        }
+    }
+}
+
 struct StreamSender {
     subscription_id: String,
     #[allow(dead_code)]
@@ -643,23 +662,26 @@ impl StreamSender {
     fn send(&self, message: Value) -> Result<(), String> {
         let payload = serde_json::to_string(&stream_envelope(&self.subscription_id, message))
             .map_err(|error| format!("无法编码 WebView2 实时消息：{error}"))?;
-        self.webview
-            .with_webview(move |platform_webview| {
-                let wide_payload = payload
-                    .encode_utf16()
-                    .chain(std::iter::once(0))
-                    .collect::<Vec<_>>();
-                let result = unsafe {
-                    platform_webview
-                        .controller()
-                        .CoreWebView2()
-                        .and_then(|core| core.PostWebMessageAsJson(PCWSTR(wide_payload.as_ptr())))
-                };
-                if let Err(error) = result {
-                    eprintln!("无法发送 WebView2 实时消息：{error}");
-                }
-            })
-            .map_err(|error| format!("无法调度 WebView2 实时消息：{error}"))
+        await_webview_send_result(|result_sender| {
+            self.webview
+                .with_webview(move |platform_webview| {
+                    let wide_payload = payload
+                        .encode_utf16()
+                        .chain(std::iter::once(0))
+                        .collect::<Vec<_>>();
+                    let result = unsafe {
+                        platform_webview
+                            .controller()
+                            .CoreWebView2()
+                            .and_then(|core| {
+                                core.PostWebMessageAsJson(PCWSTR(wide_payload.as_ptr()))
+                            })
+                    }
+                    .map_err(|error| format!("无法发送 WebView2 实时消息：{error}"));
+                    let _ = result_sender.send(result);
+                })
+                .map_err(|error| format!("无法调度 WebView2 实时消息：{error}"))
+        })
     }
 
     #[cfg(not(windows))]
@@ -720,12 +742,15 @@ fn start_bridge_stream(view: String, sender: StreamSender, state: &BridgeState) 
                         continue;
                     }
                     last_fingerprint = Some(fingerprint);
-                    if sender.send(json!({ "snapshot": snapshot })).is_err() {
+                    if let Err(error) = sender.send(json!({ "snapshot": snapshot })) {
+                        eprintln!("WebView 实时推流已停止：{error}");
                         break;
                     }
                 }
                 Err(error) => {
-                    let _ = sender.send(json!({ "error": error }));
+                    if let Err(send_error) = sender.send(json!({ "error": error })) {
+                        eprintln!("无法发送后端推流错误：{send_error}");
+                    }
                     break;
                 }
             }
@@ -800,6 +825,7 @@ async fn bridge_disconnect(state: State<'_, BridgeState>) -> Result<(), String> 
 
 #[tauri::command]
 async fn bridge_force_disconnect(state: State<'_, BridgeState>) -> Result<(), String> {
+    eprintln!("操作员已确认实体电源状态，执行强制断开 Python 后端");
     state.stream_generation.fetch_add(1, Ordering::SeqCst);
     let shared_bridge = Arc::clone(&state.bridge);
     tauri::async_runtime::spawn_blocking(move || {
@@ -871,9 +897,28 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        request_timeout, should_reset_bridge, snapshot_interval_ms, snapshot_state_fingerprint,
-        stream_envelope, validate_columnar_spectrum, PythonBridge, PythonBridgeError,
+        await_webview_send_result, request_timeout, should_reset_bridge, snapshot_interval_ms,
+        snapshot_state_fingerprint, stream_envelope, validate_columnar_spectrum, PythonBridge,
+        PythonBridgeError,
     };
+
+    #[test]
+    fn webview_send_callback_error_is_propagated() {
+        let result = await_webview_send_result(|sender| {
+            sender
+                .send(Err("post failed".to_string()))
+                .map_err(|error| error.to_string())
+        });
+
+        assert_eq!(result, Err("post failed".to_string()));
+    }
+
+    #[test]
+    fn webview_send_dispatch_error_is_propagated() {
+        let result = await_webview_send_result(|_sender| Err("dispatch failed".to_string()));
+
+        assert_eq!(result, Err("dispatch failed".to_string()));
+    }
 
     #[test]
     fn backend_action_errors_do_not_restart_the_python_process() {
@@ -912,17 +957,26 @@ mod tests {
             "status": { "message": "ready" },
         });
 
-        assert_eq!(snapshot_state_fingerprint(&first), snapshot_state_fingerprint(&second));
+        assert_eq!(
+            snapshot_state_fingerprint(&first),
+            snapshot_state_fingerprint(&second)
+        );
         assert!(first["measurements"].is_object());
         assert!(first["pd"]["points"].is_array());
 
         let mut changed = second.clone();
         changed["seriesRevisions"]["power"] = serde_json::json!(8);
-        assert_ne!(snapshot_state_fingerprint(&first), snapshot_state_fingerprint(&changed));
+        assert_ne!(
+            snapshot_state_fingerprint(&first),
+            snapshot_state_fingerprint(&changed)
+        );
 
         let mut pd_points_changed = second;
         pd_points_changed["pd"]["points"] = serde_json::json!([{ "elapsedS": 2.0, "value": 1.0 }]);
-        assert_eq!(snapshot_state_fingerprint(&first), snapshot_state_fingerprint(&pd_points_changed));
+        assert_eq!(
+            snapshot_state_fingerprint(&first),
+            snapshot_state_fingerprint(&pd_points_changed)
+        );
     }
 
     #[test]

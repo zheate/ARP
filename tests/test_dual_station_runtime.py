@@ -63,7 +63,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.backend = HeadlessBackend(JsonSettings(settings_path))
 
     def tearDown(self) -> None:
-        self.backend.export_worker.stop()
+        self.backend.export_worker.graceful_stop(timeout_s=5.0)
         self.temp_dir.cleanup()
 
     def test_dual_stations_have_independent_configurations_and_runtimes(self) -> None:
@@ -83,8 +83,78 @@ class DualStationRuntimeTests(unittest.TestCase):
 
         self.assertFalse(station._automatic_settings().use_spectrometer)
 
-        station.spectrometer_reader = MagicMock(is_ready=True)
+        station.configuration.update(
+            {
+                "spectrometerResource": "Ocean Insight | 设备 ID 7",
+                "spectrometerDeviceId": 7,
+            }
+        )
         self.assertTrue(station._automatic_settings().use_spectrometer)
+
+    def test_automatic_readiness_matches_start_requirements(self) -> None:
+        station = self.backend.stations["1"]
+        station.power_supply_controller = _FakeController()
+
+        readiness = station.automatic_readiness()
+
+        self.assertFalse(readiness["ready"])
+        blocker_codes = {item["code"] for item in readiness["blockers"]}
+        self.assertIn("missing_sn", blocker_codes)
+        self.assertIn("power_meter_not_selected", blocker_codes)
+        self.assertIn("spectrometer_not_selected", blocker_codes)
+        with self.assertRaisesRegex(ValueError, "请填写产品 SN"):
+            station.start_automatic({})
+
+        station.configuration.update(
+            {
+                "sn": "SN-READY",
+                "powerMeterResource": "ASRL3::INSTR",
+                "spectrometerResource": "Ocean Insight | 设备 ID 7",
+                "spectrometerDeviceId": 7,
+            }
+        )
+        self.assertTrue(station.automatic_readiness()["ready"])
+
+    def test_snapshot_marks_old_measurements_stale_then_invalid(self) -> None:
+        station = self.backend.stations["1"]
+        station.latest_power = PowerMeterReading(
+            elapsed_s=1.0,
+            power_w=0.8,
+            stable=True,
+            stable_span_w=0.01,
+            stable_window_s=3.0,
+            stable_median_w=0.8,
+        )
+        station.latest_power_received_monotonic_s = 99.5
+        station.latest_power_sampled_at_utc = "2026-08-23T01:00:00.000+00:00"
+        station.power_meter_reader = MagicMock(is_ready=True)
+
+        with patch("tauri_bridge.headless_backend.time.monotonic", return_value=100.0):
+            live = self.backend.snapshot({"view": "automatic_1"})["devices"]["powerMeter"]
+        self.assertEqual(live["quality"], "live")
+        self.assertEqual(live["ageMs"], 0)
+
+        station.power_meter_reader = None
+        with patch("tauri_bridge.headless_backend.time.monotonic", return_value=100.0):
+            stale = self.backend.snapshot({"view": "automatic_1"})["devices"]["powerMeter"]
+        self.assertEqual(stale["quality"], "stale")
+
+        with patch("tauri_bridge.headless_backend.time.monotonic", return_value=110.0):
+            invalid = self.backend.snapshot({"view": "automatic_1"})["devices"]["powerMeter"]
+        self.assertEqual(invalid["quality"], "invalid")
+
+    def test_saturated_measurement_is_not_reported_live(self) -> None:
+        with patch("tauri_bridge.headless_backend.time.monotonic", return_value=10.0):
+            freshness = self.backend.stations["1"].measurement_freshness(
+                received_at_monotonic_s=9.9,
+                sampled_at_utc="2026-08-23T01:00:00.000+00:00",
+                running=True,
+                interval_ms=200.0,
+                valid=True,
+                saturated=True,
+            )
+
+        self.assertEqual(freshness["quality"], "saturated")
 
     def test_tdk_discovery_publishes_progress_before_it_finishes(self) -> None:
         started = threading.Event()
@@ -244,7 +314,7 @@ class DualStationRuntimeTests(unittest.TestCase):
                 self.assertEqual(config["spectrometerResource"], "")
                 self.assertIsNone(config["spectrometerDeviceId"])
         finally:
-            backend.export_worker.stop()
+            backend.export_worker.graceful_stop(timeout_s=5.0)
 
     def test_loaded_power_meter_identity_is_not_restored(self) -> None:
         settings = JsonSettings(Path(self.temp_dir.name) / "ophir-settings.json")
@@ -266,7 +336,7 @@ class DualStationRuntimeTests(unittest.TestCase):
             self.assertEqual(persisted["powerMeterResource"], "")
             self.assertEqual(persisted["powerMeterDriverKind"], "caihuang")
         finally:
-            backend.export_worker.stop()
+            backend.export_worker.graceful_stop(timeout_s=5.0)
 
     def test_configuring_ophir_resource_synchronizes_driver_kind(self) -> None:
         self.backend.dispatch(
@@ -869,6 +939,174 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertEqual(ctrl1.current_a, 0.0)
         self.assertEqual(ctrl2.current_a, 0.0)
 
+    def test_global_stop_broadcasts_before_parallel_station_cleanup(self) -> None:
+        first = self.backend.stations["1"]
+        second = self.backend.stations["2"]
+        first_cleanup_release = threading.Event()
+        second_cleanup_started = threading.Event()
+        broadcasts: list[str] = []
+
+        first.request_emergency_stop = lambda _reason: broadcasts.append("1")
+        second.request_emergency_stop = lambda _reason: broadcasts.append("2")
+        first.stop_all = lambda: first_cleanup_release.wait(2.0)
+        second.stop_all = second_cleanup_started.set
+
+        with patch.object(self.backend, "_stop_pd", return_value=None):
+            worker = threading.Thread(target=self.backend._stop_all)
+            worker.start()
+            self.assertTrue(second_cleanup_started.wait(1.0))
+            self.assertEqual(broadcasts, ["1", "2"])
+            first_cleanup_release.set()
+            worker.join(2.0)
+
+        self.assertFalse(worker.is_alive())
+
+    def test_emergency_stop_signal_does_not_wait_for_station_state_lock(self) -> None:
+        station = self.backend.stations["1"]
+        station._lock.acquire()
+        try:
+            worker = threading.Thread(
+                target=station.request_emergency_stop,
+                args=("全部工位急停",),
+            )
+            worker.start()
+            worker.join(0.5)
+            self.assertFalse(worker.is_alive())
+            self.assertTrue(station._automatic_stop.is_set())
+        finally:
+            station._lock.release()
+        ramp_thread = station._emergency_ramp_thread
+        if ramp_thread is not None:
+            ramp_thread.join(1.0)
+
+    def test_safety_commands_do_not_depend_on_configuration_persistence(self) -> None:
+        with patch.object(
+            self.backend,
+            "_persist_configuration",
+            side_effect=RuntimeError("settings disk full"),
+        ):
+            snapshot = self.backend.dispatch("app.stopAll", {})
+
+        self.assertTrue(snapshot["safety"]["shutdown"]["confirmed"])
+
+    def test_manual_hardware_commands_are_rejected_while_automatic_owns_control(self) -> None:
+        station = self.backend.stations["1"]
+        station.automatic.state = AutomaticTestState.PAUSED
+
+        with self.assertRaisesRegex(RuntimeError, "硬件控制权由自动测试持有"):
+            self.backend.dispatch("powerSupply.setCurrent", {"stationId": "1", "currentA": 1.0})
+
+        snapshot = self.backend.snapshot({"view": "manual_1"})
+        self.assertEqual(snapshot["safety"]["controlOwner"], "automatic")
+        self.assertFalse(snapshot["safety"]["manualControlsAllowed"])
+
+    def test_snapshot_reports_actual_saved_point_count(self) -> None:
+        station = self.backend.stations["1"]
+        station.record_store.recorded_currents.update({2.0, 4.0})
+
+        snapshot = self.backend.snapshot({"view": "automatic_1"})
+
+        self.assertEqual(snapshot["automaticTest"]["savedPointCount"], 2)
+
+    def test_operator_pause_publishes_reason_actions_and_deadline(self) -> None:
+        station = self.backend.stations["1"]
+        station.automatic.settings = AutomaticTestSettings(
+            pause_ramp_down_timeout_s=60.0,
+            use_spectrometer=False,
+        )
+        station.automatic.state = AutomaticTestState.WAITING_STABLE
+
+        station.pause_automatic()
+        snapshot = self.backend.snapshot({"view": "automatic_1"})["automaticTest"]
+
+        self.assertEqual(snapshot["pauseKind"], "operator")
+        self.assertEqual(snapshot["pauseActions"], ["resume", "safe_end"])
+        self.assertIsNotNone(snapshot["pauseStartedAtUtc"])
+        self.assertIsNotNone(snapshot["pauseDeadlineAtUtc"])
+        station.resume_automatic("resume")
+        self.assertEqual(station.automatic.state, AutomaticTestState.WAITING_STABLE)
+
+    def test_spectrum_pause_only_accepts_controlled_recovery_action(self) -> None:
+        station = self.backend.stations["1"]
+        station.automatic.settings = AutomaticTestSettings(use_spectrometer=True)
+        station.automatic.state = AutomaticTestState.WAITING_STABLE
+        station.spectrometer_reader = MagicMock()
+        station._set_automatic_pause(
+            "光谱饱和",
+            kind="spectrum_saturated",
+            hold_current=True,
+            retry_point=True,
+        )
+
+        with self.assertRaisesRegex(ValueError, "不允许"):
+            station.resume_automatic("resume")
+
+        station.resume_automatic("adjust_spectrum", {"integrationTimeUs": 12_000})
+        self.assertEqual(station.configuration["integrationTimeUs"], 12_000)
+        station.spectrometer_reader.use_fixed_integration_time.assert_called_once_with(12_000)
+
+    def test_next_device_preserves_setup_and_clears_session_state(self) -> None:
+        station = self.backend.stations["1"]
+        station.configuration.update(
+            {
+                "sn": "SN-DONE",
+                "productModel": "PUMP-976",
+                "batch": "B-23",
+                "selectedScriptId": "standard",
+            }
+        )
+        station.automatic.state = AutomaticTestState.COMPLETED
+        station.shutdown_confirmed = True
+        station.stable_power_points[2.0] = 5.0
+        station.record_store.recorded_currents.add(2.0)
+
+        snapshot = self.backend.dispatch("automatic.nextDevice", {"stationId": "1"})
+
+        self.assertEqual(snapshot["configuration"]["sn"], "")
+        self.assertEqual(snapshot["configuration"]["productModel"], "PUMP-976")
+        self.assertEqual(snapshot["configuration"]["batch"], "B-23")
+        self.assertEqual(snapshot["automaticTest"]["state"], "idle")
+        self.assertEqual(snapshot["automaticTest"]["savedPointCount"], 0)
+        self.assertEqual(snapshot["measurements"]["stable"], [])
+
+    def test_automatic_export_is_queued_without_waiting_for_excel(self) -> None:
+        station = self.backend.stations["1"]
+        station.record_store.begin_session(
+            Path(self.temp_dir.name) / "excel",
+            "SN-ASYNC",
+            datetime.now(),
+            test_station="工位 1",
+            mode="automatic",
+        )
+        record = ExcelTestRecord(
+            current_a=2.0,
+            voltage_v=8.0,
+            power_w=5.0,
+            efficiency=0.3,
+            peak_wavelength_nm=976.0,
+            centroid_nm=976.0,
+            fwhm_nm=0.4,
+            pib=0.95,
+            wavelength=[975.0, 976.0],
+            intensity=[10.0, 20.0],
+            test_station="工位 1",
+        )
+        station.record_store.queue(record)
+        captured: list[ExportTask] = []
+
+        with patch.object(
+            self.backend.export_worker,
+            "submit",
+            side_effect=lambda task: captured.append(task) or True,
+        ):
+            station._queue_automatic_export()
+
+        self.assertEqual(station.export_status, "exporting")
+        self.assertEqual(len(captured), 1)
+        captured[0].callback(str(captured[0].target_path), None)  # type: ignore[misc]
+        self.assertEqual(station.export_status, "completed")
+        self.assertEqual(station.record_store.exported_currents, {2.0})
+
     def test_snapshots_distinguish_active_station_and_summaries(self) -> None:
         self.backend.stations["1"].latest_spectrum = SimpleNamespace(
             wavelength=[975.0, 976.0],
@@ -981,14 +1219,39 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertTrue(worker.submit(task1))
         self.assertTrue(worker.submit(task2))
 
-        deadline = time.time() + 5.0
-        while len(results) < 2 and time.time() < deadline:
-            time.sleep(0.05)
-
-        worker.stop()
+        self.assertTrue(worker.graceful_stop(timeout_s=5.0))
         self.assertEqual(len(results), 2)
         self.assertTrue(path1.exists())
         self.assertTrue(path2.exists())
+        self.assertFalse(worker.submit(task1))
+
+    def test_export_queue_reports_timeout_without_dropping_accepted_task(self) -> None:
+        worker = ExportQueueWorker()
+        started = threading.Event()
+        release = threading.Event()
+        callback_results: list[tuple[str | None, Exception | None]] = []
+        task = ExportTask(
+            "1",
+            Path(self.temp_dir.name) / "slow.xlsx",
+            [],
+            lambda path, error: callback_results.append((path, error)),
+        )
+
+        def slow_save(*_args: object, **_kwargs: object) -> Path:
+            started.set()
+            release.wait(2.0)
+            return task.target_path
+
+        with patch("tauri_bridge.headless_backend.save_test_records", side_effect=slow_save):
+            worker.start()
+            self.assertTrue(worker.submit(task))
+            self.assertTrue(started.wait(1.0))
+            self.assertFalse(worker.graceful_stop(timeout_s=0.01))
+            self.assertFalse(worker.submit(task))
+            release.set()
+            self.assertTrue(worker.graceful_stop(timeout_s=1.0))
+
+        self.assertEqual(callback_results, [(str(task.target_path), None)])
 
 
 if __name__ == "__main__":

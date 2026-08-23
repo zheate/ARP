@@ -1,4 +1,4 @@
-"""In-memory test-point buffer used by the Excel export workflow."""
+"""Session facts persisted to JSONL and materialized to Excel."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Mapping, Protocol, runtime_checkable
 
 from .excel_export import ExcelTestRecord, build_test_workbook_path
+from .session_journal import SessionJournal
 
 
 APP_VERSION = "1.0.0"
@@ -22,6 +23,7 @@ class SessionStatus(str, Enum):
     COMPLETED = "completed"
     STOPPED_BY_OPERATOR = "stopped_by_operator"
     ABORTED_SAFELY = "aborted_safely"
+    SHUTDOWN_UNCONFIRMED = "shutdown_unconfirmed"
 
 
 class AttemptValidity(str, Enum):
@@ -150,16 +152,18 @@ class RecordStore(Protocol):
 
 
 class SessionRecordStore:
-    """Keep the active test in memory and persist only through Excel export."""
+    """Keep the active test in memory and durably journal accepted facts."""
 
-    def __init__(self) -> None:
+    def __init__(self, journal_root: Path | None = None) -> None:
         self.workbook_path: Path | None = None
+        self.journal_path: Path | None = None
         self.pending_records: dict[float, ExcelTestRecord] = {}
         self.recorded_currents: set[float] = set()
         self.exported_currents: set[float] = set()
         self.current_session: TestSession | None = None
         self.planned_currents: tuple[float, ...] = ()
         self._attempts: list[MeasurementAttempt] = []
+        self._journal = None if journal_root is None else SessionJournal(journal_root)
 
     def begin_session(
         self,
@@ -179,7 +183,7 @@ class SessionRecordStore:
             return self.current_session.workbook_path
         workbook_path = build_test_workbook_path(output_dir, sn, started_at, test_station)
         workbook_path.parent.mkdir(parents=True, exist_ok=True)
-        self.current_session = TestSession(
+        session = TestSession(
             session_id=str(uuid.uuid4()),
             sn=str(sn),
             station=str(test_station),
@@ -197,17 +201,42 @@ class SessionRecordStore:
             calculation_version=CALCULATION_VERSION,
             workbook_path=workbook_path,
         )
-        self.workbook_path = workbook_path
         if reset:
             self.pending_records.clear()
             self.recorded_currents.clear()
             self.exported_currents.clear()
             self._attempts.clear()
             self.planned_currents = ()
+        self.journal_path = None if self._journal is None else self._journal.begin(session)
+        self.current_session = session
+        self.workbook_path = workbook_path
         return workbook_path
 
     def configure_sequence(self, currents: tuple[float, ...]) -> None:
         self.planned_currents = tuple(float(current) for current in currents)
+
+    def retarget_workbook(self, output_dir: Path) -> Path:
+        session = self.current_session
+        if session is None:
+            raise RuntimeError("当前没有可重新生成的测试会话")
+        started_at = datetime.fromisoformat(session.started_at_utc).astimezone()
+        workbook_path = build_test_workbook_path(
+            Path(output_dir),
+            session.sn,
+            started_at,
+            session.station,
+        )
+        workbook_path.parent.mkdir(parents=True, exist_ok=True)
+        if self._journal is not None:
+            self._journal.append(
+                {
+                    "type": "excel_retargeted",
+                    "workbookPath": workbook_path,
+                }
+            )
+        self.current_session = replace(session, workbook_path=workbook_path)
+        self.workbook_path = workbook_path
+        return workbook_path
 
     def _sequence_index(self, current_a: float) -> int:
         current = float(current_a)
@@ -247,37 +276,45 @@ class SessionRecordStore:
         current = float(record.current_a)
         sequence_index = self._sequence_index(current)
         point_id = f"{session.session_id}:{sequence_index}"
-        self._deselect_point_attempts(point_id)
-        self._attempts.append(
-            MeasurementAttempt(
-                attempt_id=str(uuid.uuid4()),
-                session_id=session.session_id,
-                point_id=point_id,
-                sequence_index=sequence_index,
-                target_current_a=current,
-                attempt_no=self._next_attempt_number(point_id),
-                created_at_utc=utc_now_iso(),
-                validity=AttemptValidity.VALID,
-                invalid_reason="",
-                selected=True,
-                current_a=current,
-                actual_current_a=actual_current_a,
-                voltage_raw_v=voltage_raw_v,
-                voltage_v=record.voltage_v,
-                power_w=record.power_w,
-                efficiency=record.efficiency,
-                peak_wavelength_nm=record.peak_wavelength_nm,
-                centroid_nm=record.centroid_nm,
-                fwhm_nm=record.fwhm_nm,
-                pib=record.pib,
-                smsr_db=record.smsr_db,
-                stable_span_w=stable_span_w,
-                stable_window_s=stable_window_s,
-                stable_tolerance_w=stable_tolerance_w,
-                integration_time_us=integration_time_us,
-            )
+        attempt = MeasurementAttempt(
+            attempt_id=str(uuid.uuid4()),
+            session_id=session.session_id,
+            point_id=point_id,
+            sequence_index=sequence_index,
+            target_current_a=current,
+            attempt_no=self._next_attempt_number(point_id),
+            created_at_utc=utc_now_iso(),
+            validity=AttemptValidity.VALID,
+            invalid_reason="",
+            selected=True,
+            current_a=current,
+            actual_current_a=actual_current_a,
+            voltage_raw_v=voltage_raw_v,
+            voltage_v=record.voltage_v,
+            power_w=record.power_w,
+            efficiency=record.efficiency,
+            peak_wavelength_nm=record.peak_wavelength_nm,
+            centroid_nm=record.centroid_nm,
+            fwhm_nm=record.fwhm_nm,
+            pib=record.pib,
+            smsr_db=record.smsr_db,
+            stable_span_w=stable_span_w,
+            stable_window_s=stable_window_s,
+            stable_tolerance_w=stable_tolerance_w,
+            integration_time_us=integration_time_us,
         )
+        if self._journal is not None:
+            self._journal.append(
+                {
+                    "type": "point_committed",
+                    "attempt": attempt,
+                    "record": record,
+                }
+            )
+        self._deselect_point_attempts(point_id)
+        self._attempts.append(attempt)
         self.pending_records[current] = record
+        self.recorded_currents.add(current)
         self.exported_currents.discard(current)
 
     def record_invalid_attempt(
@@ -320,6 +357,8 @@ class SessionRecordStore:
             stable_tolerance_w=math.nan,
             integration_time_us=_spectrum.get("integration_time_us"),
         )
+        if self._journal is not None:
+            self._journal.append({"type": "attempt_rejected", "attempt": attempt})
         self._attempts.append(attempt)
         return attempt
 
@@ -343,10 +382,19 @@ class SessionRecordStore:
             ):
                 continue
             separator = "；" if attempt.invalid_reason else ""
-            self._attempts[index] = replace(
+            updated_attempt = replace(
                 attempt,
                 invalid_reason=f"{attempt.invalid_reason}{separator}{diagnostic}",
             )
+            if self._journal is not None:
+                self._journal.append(
+                    {
+                        "type": "attempt_diagnostic",
+                        "attemptId": attempt.attempt_id,
+                        "detail": diagnostic,
+                    }
+                )
+            self._attempts[index] = updated_attempt
             return True
         return False
 
@@ -370,12 +418,17 @@ class SessionRecordStore:
         return tuple(sorted(self.pending_records.values(), key=lambda record: record.current_a))
 
     def mark_saved(self, records: tuple[ExcelTestRecord, ...]) -> None:
+        saved_currents: list[float] = []
         for saved_record in records:
             current_record = self.pending_records.get(float(saved_record.current_a))
             if current_record == saved_record:
                 current = float(saved_record.current_a)
-                self.exported_currents.add(current)
-                self.recorded_currents.add(current)
+                saved_currents.append(current)
+        if saved_currents and self._journal is not None:
+            self._journal.append(
+                {"type": "excel_materialized", "currentsA": saved_currents}
+            )
+        self.exported_currents.update(saved_currents)
 
     def list_attempts(
         self,
@@ -398,10 +451,15 @@ class SessionRecordStore:
     ) -> None:
         if self.current_session is None:
             return
-        self.current_session = replace(
+        completed_session = replace(
             self.current_session,
             ended_at_utc=utc_now_iso(),
             status=status,
             termination_reason=str(reason),
             shutdown_confirmed=shutdown_confirmed,
         )
+        if self._journal is not None:
+            self._journal.append(
+                {"type": "session_completed", "session": completed_session}
+            )
+        self.current_session = completed_session

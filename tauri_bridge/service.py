@@ -20,6 +20,17 @@ BACKGROUND_FILE_TASK_METHODS = frozenset(
     {
         "shippingReport.inspect",
         "shippingReport.batchInspect",
+        "shippingReport.preview",
+        "shippingReport.generate",
+        "shippingReport.batchGenerateItem",
+    }
+)
+
+SAFETY_TASK_METHODS = frozenset(
+    {
+        "app.stopAll",
+        "app.shutdown",
+        "automatic.end",
     }
 )
 
@@ -112,7 +123,22 @@ class BridgeService:
         # Read-only mode owns no hardware, so there is nothing that needs an
         # emergency ramp-down before the Tauri window may close.
         if method == "app.shutdown" and self.backend is None:
-            return success_response(request_id, {"shutdownConfirmed": True})
+            shutdown = {
+                "requested": True,
+                "confirmed": True,
+                "measuredCurrentA": None,
+                "outputOffConfirmed": True,
+                "reason": "只读后端未持有硬件输出",
+            }
+            return success_response(
+                request_id,
+                {
+                    "shutdownConfirmed": True,
+                    "exportsDrained": True,
+                    "shutdown": shutdown,
+                    "stations": {},
+                },
+            )
 
         if self.backend is not None:
             params = request.get("params", {})
@@ -185,5 +211,14 @@ class BridgeService:
                 "hardwareAccess": False,
                 "commandMode": "read_only",
                 "detail": "当前桥接层不会扫描、连接或控制真实设备",
+                "controlOwner": "none",
+                "manualControlsAllowed": False,
+                "shutdown": {
+                    "requested": False,
+                    "confirmed": True,
+                    "measuredCurrentA": None,
+                    "outputOffConfirmed": True,
+                    "reason": "只读后端未持有硬件输出",
+                },
             },
         }

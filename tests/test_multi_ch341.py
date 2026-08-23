@@ -503,7 +503,7 @@ class MultiCH341Test(unittest.TestCase):
                 self.assertEqual(persisted["2"]["ch341SelectedLocationPath"], "")
                 self.assertEqual(persisted["2"]["ch341PortBindings"], [])
             finally:
-                backend.export_worker.stop()
+                backend.export_worker.graceful_stop(timeout_s=5.0)
 
     def test_legacy_device_index_is_not_loaded_or_persisted(self):
         with TemporaryDirectory() as directory:
@@ -526,7 +526,9 @@ class MultiCH341Test(unittest.TestCase):
         backend.ch341_descriptors = [Ch341DeviceDescriptor(0, "iface", "loc")]
 
         # Switch to TDK
-        backend._configure({"powerSupplyKind": "tdk"})
+        backend._configure(
+            {"powerSupplyKind": "tdk", "selectedScriptId": "standard"}
+        )
         self.assertEqual(backend.power_supply_kind, "tdk")
         self.assertEqual(backend.ch341_discovery_state, "not_scanned")
         self.assertEqual(backend.ch341_descriptors, [])

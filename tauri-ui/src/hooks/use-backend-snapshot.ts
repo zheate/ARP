@@ -81,15 +81,14 @@ const DEMO_SNAPSHOT: BackendSnapshot = {
         connectedPort: { locationPath: "PCIROOT(0)#USB(1)", name: "1号工位", deviceIndex: 0 },
       },
     },
-    powerMeter: { state: "connected", label: "功率计", detail: "彩煌功率计 (ASRL3::INSTR)", connected: true, running: true, ready: true, stable: true, powerW: 0.86, resources: ["彩煌功率计 | ASRL3::INSTR | 通道 1", "Coherent功率计 | ASRL4::INSTR"] },
-    spectrometer: { state: "connected", label: "光谱仪", detail: "Ocean Insight · 示例", connected: true, running: true, ready: true, resources: ["自动选择第一台 Ocean Insight"], peakWavelengthNm: 976.2, centroidNm: 976.2, fwhmNm: 0.776, pib: 96.85, smsrDb: null, spectrumWindow: { centerNm: 976.2, halfRangeNm: 6.2 } },
+    powerMeter: { state: "connected", label: "功率计", detail: "彩煌功率计 (ASRL3::INSTR)", connected: true, running: true, ready: true, stable: true, powerW: 0.86, sampledAt: "2026-07-19T12:00:00.000Z", ageMs: 0, quality: "live", resources: ["彩煌功率计 | ASRL3::INSTR | 通道 1", "Coherent功率计 | ASRL4::INSTR"] },
+    spectrometer: { state: "connected", label: "光谱仪", detail: "Ocean Insight · 示例", connected: true, running: true, ready: true, resources: ["自动选择第一台 Ocean Insight"], peakWavelengthNm: 976.2, centroidNm: 976.2, fwhmNm: 0.776, pib: 96.85, smsrDb: null, sampledAt: "2026-07-19T12:00:00.000Z", ageMs: 0, quality: "live", spectrumWindow: { centerNm: 976.2, halfRangeNm: 6.2 } },
   },
   automaticTest: {
     state: "waiting_stable",
     detail: "示例数据预览",
     controlsEnabled: false,
     canStart: false,
-    canRetry: false,
     canEnd: true,
     currents: [2, 4, 6, 8, 10, 12],
     dwellTimesS: [0, 0, 0, 0, 0, 0],
@@ -138,7 +137,20 @@ const DEMO_SNAPSHOT: BackendSnapshot = {
       { label: "P3", peakWavelengthNm: 973, peakIntensity: 900 },
     ],
   },
-  safety: { hardwareAccess: false, commandMode: "controller_owned", detail: "示例数据模式" },
+  safety: {
+    hardwareAccess: false,
+    commandMode: "controller_owned",
+    detail: "示例数据模式",
+    controlOwner: "automatic",
+    manualControlsAllowed: false,
+    shutdown: {
+      requested: false,
+      confirmed: false,
+      measuredCurrentA: null,
+      outputOffConfirmed: false,
+      reason: "",
+    },
+  },
 }
 
 export function useBackendSnapshot(view: SnapshotView) {
@@ -244,7 +256,7 @@ export function useBackendSnapshot(view: SnapshotView) {
             { state: "waiting_voltage", currentA: 10.0, currentIndex: 2, detail: "第 3 点：稳态达成，正在读取输出电压并记录数据...", powerW: 0.76, stable: true, stablePoint: { currentA: 10, powerW: 0.76, efficiencyPercent: 8.5 } },
             { state: "saving_point", currentA: 10.0, currentIndex: 2, detail: "全部测试点完成，正在归档数据...", powerW: 0.76, stable: true },
             { state: "ramping_down", currentA: 2.0, currentIndex: 2, detail: "全部点完成，正在安全降电归零...", powerW: 0.05, stable: false },
-            { state: "completed", currentA: 0.0, currentIndex: 2, detail: "测试完成，数据已归档并安全下电", powerW: 0.0, stable: true, terminalOutcome: "succeeded" },
+            { state: "completed", currentA: 0.0, currentIndex: 2, detail: "测试完成，数据已归档并安全下电", powerW: 0.0, stable: true, terminalOutcome: "succeeded" as const },
           ]
           const stablePoints: Array<{ currentA: number; powerW: number; efficiencyPercent: number }> = []
 
@@ -271,10 +283,31 @@ export function useBackendSnapshot(view: SnapshotView) {
                 currentA: stage.currentA,
                 currentIndex: stage.currentIndex,
                 currents: [2, 6, 10],
-                canStart: stage.state === "completed" || stage.state === "idle",
+                canStart: stage.state === "idle",
                 canEnd: stage.state !== "completed" && stage.state !== "idle",
-                terminalOutcome: stage.terminalOutcome,
+                terminalOutcome: stage.terminalOutcome as BackendSnapshot["automaticTest"]["terminalOutcome"],
+                savedPointCount: stage.state === "completed" ? stablePoints.length : 0,
+                exportedPointCount: stage.state === "completed" ? stablePoints.length : 0,
+                journalPath: "/preview/test-records/demo-session.jsonl",
+                canNextDevice: stage.state === "completed",
+                canRetryExport: false,
+                exportStatus: stage.state === "completed" ? "completed" : "recording",
+                exportPath: stage.state === "completed" ? "/preview/DEMO-001.xlsx" : "",
               },
+              safety: stage.state === "completed"
+                ? {
+                    ...DEMO_SNAPSHOT.safety,
+                    controlOwner: "manual",
+                    manualControlsAllowed: true,
+                    shutdown: {
+                      requested: true,
+                      confirmed: true,
+                      measuredCurrentA: 0,
+                      outputOffConfirmed: true,
+                      reason: "示例数据已确认安全下电",
+                    },
+                  }
+                : DEMO_SNAPSHOT.safety,
               measurements: {
                 ...DEMO_SNAPSHOT.measurements!,
                 stable: [...stablePoints],
@@ -294,10 +327,64 @@ export function useBackendSnapshot(view: SnapshotView) {
             ...DEMO_SNAPSHOT,
             automaticTest: {
               ...DEMO_SNAPSHOT.automaticTest,
-              state: "idle",
+              state: "completed",
               detail: "测试已手动终止并安全下电",
+              canStart: false,
+              canEnd: false,
+              canNextDevice: true,
+              terminalOutcome: "stopped_shutdown_confirmed",
+              savedPointCount: 3,
+              exportedPointCount: 3,
+              journalPath: "/preview/test-records/DEMO-001.jsonl",
+              canRetryExport: false,
+              exportStatus: "completed",
+              exportPath: "/preview/DEMO-001.xlsx",
+            },
+            safety: {
+              ...DEMO_SNAPSHOT.safety,
+              controlOwner: "manual",
+              manualControlsAllowed: true,
+              shutdown: {
+                requested: true,
+                confirmed: true,
+                measuredCurrentA: 0,
+                outputOffConfirmed: true,
+                reason: "示例数据已确认安全下电",
+              },
+            },
+          }
+          if (mountedRef.current) setSnapshot(nextSnap)
+          return nextSnap
+        }
+
+        if (method === "automatic.nextDevice") {
+          const nextSnap: BackendSnapshot = {
+            ...DEMO_SNAPSHOT,
+            configuration: { ...DEMO_SNAPSHOT.configuration!, sn: "" },
+            configurations: {
+              ...DEMO_SNAPSHOT.configurations,
+              "1": { ...(DEMO_SNAPSHOT.configurations?.["1"] ?? DEMO_SNAPSHOT.configuration!), sn: "" },
+            },
+            automaticTest: {
+              ...DEMO_SNAPSHOT.automaticTest,
+              state: "idle",
+              detail: "请输入下一台产品 SN",
               canStart: true,
               canEnd: false,
+              terminalOutcome: null,
+              savedPointCount: 0,
+              exportedPointCount: 0,
+              canNextDevice: false,
+              exportStatus: "idle",
+              exportPath: "",
+            },
+            measurements: {
+              ...DEMO_SNAPSHOT.measurements!,
+              power: [],
+              stable: [],
+              agingPower: [],
+              spectrum: { wavelengthNm: [], intensity: [] },
+              spectrumPeaks: [],
             },
           }
           if (mountedRef.current) setSnapshot(nextSnap)

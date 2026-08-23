@@ -40,8 +40,10 @@ import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { useBackendSnapshot } from "@/hooks/use-backend-snapshot"
-import { sendBackendRequest, type AppConfiguration, type BackendSnapshot, type DeviceSnapshot, type ShippingReportBatchGenerationResult, type ShippingReportBatchInspection, type ShippingReportBatchItem, type ShippingReportFieldDefinition, type ShippingReportGenerationResult, type ShippingReportPointSuggestion, type ShippingReportPreviewResult, type ShippingReportType, type ShippingWorkbookInspection, type SnapshotView, type SpectrumAxisMode, type TestScript } from "@/lib/backend"
+import { sendBackendRequest, type AppConfiguration, type AppShutdownResult, type AutomaticPauseAction, type AutomaticTerminalOutcome, type BackendSnapshot, type DeviceSnapshot, type SafetyShutdownResult, type ShippingReportBatchGenerationResult, type ShippingReportBatchInspection, type ShippingReportBatchItem, type ShippingReportFieldDefinition, type ShippingReportGenerationResult, type ShippingReportPointSuggestion, type ShippingReportPreviewResult, type ShippingReportType, type ShippingWorkbookInspection, type SnapshotView, type SpectrumAxisMode, type TestScript } from "@/lib/backend"
 import { powerMeterResourceValue } from "@/lib/power-meter-resource"
+import { automaticPauseCommand, automaticPauseCopy, pauseRemainingSeconds } from "@/lib/automatic-pause"
+import { automaticTerminalTitle, shutdownPresentation } from "@/lib/safety-state"
 import { spectrumFwhmAnnotation, spectrumPeakAnnotations, spectrumPeakLegend } from "@/lib/spectrum-annotations"
 
 type Page = "automatic" | "manual" | "pd" | "shipping" | "settings"
@@ -321,7 +323,14 @@ function pendingCommandLabel(method: string | null): string {
   if (method === "app.stopAll") return "正在安全停止"
   if (method === "automatic.start") return "正在启动自动测试"
   if (method === "automatic.pause") return "正在暂停自动测试"
-  if (method === "automatic.retry") return "正在重试当前点"
+  if (method === "automatic.resume") return "正在继续自动测试"
+  if (method === "automatic.retryPoint") return "正在重试当前点"
+  if (method === "automatic.retryPersist") return "正在重试本地记录"
+  if (method === "automatic.adjustSpectrum") return "正在应用光谱参数"
+  if (method === "automatic.recoverPowerMeter") return "正在恢复功率计"
+  if (method === "automatic.recoverSpectrometer") return "正在恢复光谱仪"
+  if (method === "automatic.nextDevice") return "正在准备下一台"
+  if (method === "automatic.retryExport") return "正在重新生成 Excel"
   if (method === "automatic.end") return "正在结束并安全下电"
   if (method === "device.refresh") return "正在识别设备"
   if (method.startsWith("powerSupply.")) return "正在执行电源操作"
@@ -613,7 +622,6 @@ function AutomaticTestControlCard({
   pending,
   onStart,
   onStop,
-  onRetry,
 }: {
   active: boolean
   auto?: BackendSnapshot["automaticTest"]
@@ -621,9 +629,10 @@ function AutomaticTestControlCard({
   pending: boolean
   onStart: () => void
   onStop: () => void
-  onRetry: () => void
 }) {
   const running = Boolean(auto?.canEnd)
+  const readinessMessages = auto?.readiness?.blockers.map((blocker) => blocker.message)
+    ?? (auto?.settingsError ? [auto.settingsError] : [])
   return (
     <Card className="automatic-test-control-card gap-2.5 py-3 shadow-none">
       <CardContent className="automatic-test-control-card__content px-4 py-0">
@@ -643,12 +652,12 @@ function AutomaticTestControlCard({
           >
             <Square className="size-4" />停止
           </Button>
-          {auto?.canRetry && (
-            <Button className="automatic-test-control-card__retry" disabled={!active || pending} onClick={onRetry} size="sm" variant="outline">
-              <RotateCcw className="size-4" />重试当前点
-            </Button>
-          )}
         </div>
+        {!running && readinessMessages.length > 0 && (
+          <p aria-live="polite" className="mt-2 text-xs leading-5 text-destructive" title={readinessMessages.join("；")}>
+            未就绪：{readinessMessages.slice(0, 2).join("；")}{readinessMessages.length > 2 ? `；另有 ${readinessMessages.length - 2} 项` : ""}
+          </p>
+        )}
       </CardContent>
     </Card>
   )
@@ -658,6 +667,11 @@ function formatDuration(seconds: number): string {
   if (!Number.isFinite(seconds) || seconds <= 0) return "0 s"
   if (seconds % 60 === 0) return `${seconds / 60} min`
   return `${seconds} s`
+}
+
+function formatMeasurementAge(ageMs?: number | null): string {
+  if (typeof ageMs !== "number" || !Number.isFinite(ageMs)) return "时间未知"
+  return `${Math.max(1, Math.ceil(ageMs / 1000))} s 前`
 }
 
 function CustomCurrentPlanEditor({ config, update, disabled, maximumCurrentA }: {
@@ -824,6 +838,13 @@ function PowerMeterSettingsForm({ snapshot, config, update, active, pending, run
   const selectedResource = config.powerMeterResource.trim()
   const selectedResourceAvailable = resources.some((item) => powerMeterResourceValue(item) === selectedResource)
   const displayedResource = selectedResourceAvailable ? selectedResource : ""
+  const measurementSummary = meter?.quality === "live"
+    ? `实时功率 ${formatNumber(meter.powerW, " W")} · ${meter.stable ? "已稳定" : "稳定中"}`
+    : meter?.quality === "stale"
+      ? `最后读数 ${formatNumber(meter.powerW, " W")} · ${formatMeasurementAge(meter.ageMs)}`
+      : meter?.quality === "saturated"
+        ? "功率计读数已饱和"
+        : "功率数据不可用"
   return (
     <div className="device-settings-form">
       <Field label="串口资源">
@@ -840,7 +861,7 @@ function PowerMeterSettingsForm({ snapshot, config, update, active, pending, run
       <NumberField label="软件增益" value={config.softwareGain} onChange={(v) => update("softwareGain", v)} step="0.01" />
       <div className="device-settings-action-grid"><Button disabled={!active || pending || meter?.detecting || meter?.running || !selectedResourceAvailable} onClick={() => void run("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button disabled={!active || pending || meter?.detecting || meter?.running || !selectedResourceAvailable} onClick={() => void run("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></div>
       <Button className={`w-full transition-all ${meter?.running ? "btn-running-pulse" : ""}`} disabled={!active || pending || meter?.detecting || (!meter?.running && !selectedResourceAvailable)} onClick={() => void run(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
-      <p className="text-xs text-muted-foreground">实时功率 {formatNumber(meter?.powerW, " W")} · {meter?.stable ? "已稳定" : "稳定中"}</p>
+      <p className="text-xs text-muted-foreground">{measurementSummary}</p>
     </div>
   )
 }
@@ -865,6 +886,13 @@ function SpectrometerSettingsForm({ snapshot, config, update, active, pending, r
   const resources = spectrum?.resources ?? []
   const selectedResourceAvailable = resources.includes(config.spectrometerResource)
   const displayedResource = selectedResourceAvailable ? config.spectrometerResource : ""
+  const measurementSummary = spectrum?.quality === "live"
+    ? `中心 ${formatNumber(spectrum.peakWavelengthNm, " nm")} · FWHM ${formatNumber(spectrum.fwhmNm, " nm")}`
+    : spectrum?.quality === "stale"
+      ? `最后光谱 ${formatMeasurementAge(spectrum.ageMs)}`
+      : spectrum?.quality === "saturated"
+        ? "光谱已饱和，指标无效"
+        : "光谱数据不可用"
   return (
     <div className="device-settings-form">
       <Field label="设备资源">
@@ -886,7 +914,7 @@ function SpectrometerSettingsForm({ snapshot, config, update, active, pending, r
         <NumberField label="PIB 半带宽 (nm)" step="0.1" value={config.pibHalfRangeNm} onChange={(v) => update("pibHalfRangeNm", v)} />
       </div>
       <Button className={`w-full transition-all ${spectrum?.running ? "btn-running-pulse" : ""}`} disabled={!active || pending || spectrum?.detecting || (!spectrum?.running && !selectedResourceAvailable)} onClick={() => void run(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
-      <p className="text-xs text-muted-foreground">中心 {formatNumber(spectrum?.peakWavelengthNm, " nm")} · FWHM {formatNumber(spectrum?.fwhmNm, " nm")}</p>
+      <p className="text-xs text-muted-foreground">{measurementSummary}</p>
     </div>
   )
 }
@@ -1134,17 +1162,34 @@ function PowerProtectionDialog({ message, onClose }: { message: string; onClose:
   )
 }
 
-function SpectrumSaturationDialog({ message, onClose }: { message: string; onClose: () => void }) {
-  const acknowledgeButtonRef = useRef<HTMLButtonElement>(null)
+function AutomaticPauseDialog({ auto, integrationTimeUs, pending, onAction }: {
+  auto: BackendSnapshot["automaticTest"]
+  integrationTimeUs: number
+  pending: boolean
+  onAction: (action: AutomaticPauseAction, params?: Record<string, unknown>) => void
+}) {
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const [now, setNow] = useState(() => Date.now())
+  const [draftIntegrationTimeUs, setDraftIntegrationTimeUs] = useState(integrationTimeUs)
+  const actions = new Set(auto.pauseActions ?? [])
+  const deadlineMs = auto.pauseDeadlineAtUtc ? new Date(auto.pauseDeadlineAtUtc).getTime() : null
+  const remainingSeconds = pauseRemainingSeconds(auto.pauseDeadlineAtUtc, now)
+  const copy = automaticPauseCopy(auto.pauseKind)
+
+  useEffect(() => {
+    if (deadlineMs === null) return
+    const timer = window.setInterval(() => setNow(Date.now()), 500)
+    return () => window.clearInterval(timer)
+  }, [deadlineMs])
 
   useEffect(() => {
     const body = document.body
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const previousOverflow = body.style.overflow
     const previousPaddingRight = body.style.paddingRight
-    const focusFrame = window.requestAnimationFrame(() => acknowledgeButtonRef.current?.focus())
     const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth
     const hasStableScrollbarGutter = getComputedStyle(document.documentElement).scrollbarGutter.includes("stable")
+    const focusFrame = window.requestAnimationFrame(() => dialogRef.current?.focus())
     body.style.overflow = "hidden"
     if (scrollbarWidth > 0 && !hasStableScrollbarGutter) body.style.paddingRight = `${scrollbarWidth}px`
     return () => {
@@ -1158,13 +1203,38 @@ function SpectrumSaturationDialog({ message, onClose }: { message: string; onClo
   return (
     <DialogPortal>
       <div className="motion-overlay-enter fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-[2px]">
-        <div aria-labelledby="spectrum-saturation-title" aria-modal="true" className="status-dialog motion-dialog-enter w-[min(540px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--app-warning)_55%,transparent)] bg-popover shadow-2xl shadow-black/45" role="alertdialog">
-        <div className="flex items-start gap-4 border-b border-border px-5 py-5">
-          <div className="grid size-11 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,var(--app-warning)_16%,transparent)] text-[var(--app-warning)]"><OctagonAlert className="size-6" /></div>
-          <div><h2 className="text-lg font-semibold" id="spectrum-saturation-title">光谱强度异常，测试已暂停</h2><p className="mt-1 text-sm text-muted-foreground">当前电流保持不变、未下电，程序不会继续升流</p></div>
-        </div>
-        <div className="px-5 py-5"><p className="whitespace-pre-line text-sm leading-6 text-foreground">{message}</p></div>
-          <div className="flex justify-end border-t border-border bg-background/35 px-5 py-3"><Button className="border-[color-mix(in_srgb,var(--app-warning)_45%,transparent)] text-[var(--app-warning)] hover:bg-[var(--app-warning-soft)]" onClick={onClose} ref={acknowledgeButtonRef} variant="outline">已调整位置，继续测试</Button></div>
+        <div aria-labelledby="automatic-pause-title" aria-modal="true" className="status-dialog motion-dialog-enter w-[min(580px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--app-warning)_55%,transparent)] bg-popover shadow-2xl shadow-black/45" ref={dialogRef} role="alertdialog" tabIndex={-1}>
+          <div className="flex items-start gap-4 border-b border-border px-5 py-5">
+            <div className="grid size-11 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,var(--app-warning)_16%,transparent)] text-[var(--app-warning)]"><Pause className="size-6" /></div>
+            <div>
+              <h2 className="text-lg font-semibold" id="automatic-pause-title">{copy[0]}</h2>
+              <p className="mt-1 text-sm text-muted-foreground">{copy[1]}</p>
+            </div>
+          </div>
+          <div className="space-y-4 px-5 py-5">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="rounded-lg border border-border bg-muted/25 px-3.5 py-3"><p className="text-[11px] text-muted-foreground">当前测试点</p><p className="mt-1 font-mono text-sm font-semibold">{typeof auto.currentA === "number" ? `${auto.currentA} A` : "--"}</p></div>
+              <div className="rounded-lg border border-border bg-muted/25 px-3.5 py-3"><p className="text-[11px] text-muted-foreground">安全处理</p><p className={`mt-1 text-sm font-semibold ${remainingSeconds === null ? "text-amber-600" : remainingSeconds <= 5 ? "text-destructive" : "text-foreground"}`}>{remainingSeconds === null ? "等待明确操作" : `${remainingSeconds} s 后自动安全降流`}</p></div>
+            </div>
+            <div className="rounded-lg border border-border/70 bg-muted/20 px-3.5 py-3"><p className="text-[11px] text-muted-foreground">原因</p><p className="mt-1 whitespace-pre-line text-sm leading-6">{auto.pauseReason || auto.detail}</p></div>
+            {actions.has("adjust_spectrum") && (
+              <div className="rounded-lg border border-border px-3.5 py-3">
+                <Label className="text-xs" htmlFor="pause-integration-time">积分时间 (μs)</Label>
+                <div className="mt-2 flex gap-2">
+                  <Input id="pause-integration-time" min={1} onChange={(event) => setDraftIntegrationTimeUs(Number(event.target.value))} type="number" value={draftIntegrationTimeUs} />
+                  <Button disabled={pending || !Number.isFinite(draftIntegrationTimeUs) || draftIntegrationTimeUs <= 0} onClick={() => onAction("adjust_spectrum", { integrationTimeUs: draftIntegrationTimeUs })} variant="outline">应用并重测</Button>
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="flex flex-wrap justify-end gap-2 border-t border-border bg-background/35 px-5 py-3">
+            {actions.has("resume") && <Button disabled={pending} onClick={() => onAction("resume")} variant="outline">继续测试</Button>}
+            {actions.has("recover_power_meter") && <Button disabled={pending} onClick={() => onAction("recover_power_meter")} variant="outline">重新识别功率计并重测</Button>}
+            {actions.has("recover_spectrometer") && <Button disabled={pending} onClick={() => onAction("recover_spectrometer")} variant="outline">重新识别光谱仪并重测</Button>}
+            {actions.has("retry_persist") && <Button disabled={pending} onClick={() => onAction("retry_persist")} variant="outline">重试本地保存</Button>}
+            {actions.has("retry_point") && <Button disabled={pending} onClick={() => onAction("retry_point")} variant="outline"><RotateCcw className="size-4" />重测当前点</Button>}
+            {actions.has("safe_end") && <Button disabled={pending} onClick={() => onAction("safe_end")} variant="destructive">安全结束</Button>}
+          </div>
         </div>
       </div>
     </DialogPortal>
@@ -1177,16 +1247,38 @@ function AutomaticCompletionDialog({
   onClose,
   outcome,
   stationId,
+  shutdown,
   totalPoints,
   completedPoints,
+  sn,
+  exportStatus,
+  exportPath,
+  exportError,
+  journalPath,
+  canNextDevice,
+  canRetryExport,
+  onNextDevice,
+  onRetryExport,
+  onChooseExportDirectory,
 }: {
   title: string
   message: string
   onClose: () => void
-  outcome?: string | null
+  outcome?: AutomaticTerminalOutcome | null
   stationId?: "1" | "2"
+  shutdown?: SafetyShutdownResult
   totalPoints?: number
   completedPoints?: number
+  sn: string
+  exportStatus?: string
+  exportPath?: string
+  exportError?: string
+  journalPath?: string
+  canNextDevice: boolean
+  canRetryExport: boolean
+  onNextDevice: () => void
+  onRetryExport: () => void
+  onChooseExportDirectory: () => void
 }) {
   const acknowledgeButtonRef = useRef<HTMLButtonElement>(null)
   const onCloseRef = useRef(onClose)
@@ -1217,8 +1309,10 @@ function AutomaticCompletionDialog({
     }
   }, [])
 
-  const isSuccess = outcome === "succeeded" || (!outcome && !title.includes("中止") && !title.includes("提前") && !title.includes("异常"))
-  const isStopped = outcome === "stopped_by_operator" || title.includes("提前")
+  const shutdownState = shutdownPresentation(outcome, shutdown)
+  const shutdownConfirmed = shutdownState.confirmed
+  const isSuccess = outcome === "succeeded" && shutdownConfirmed
+  const isStopped = outcome === "stopped_shutdown_confirmed" && shutdownConfirmed
 
   const iconContainerClass = isSuccess
     ? "bg-emerald-500/15 text-emerald-500 ring-1 ring-emerald-500/25"
@@ -1227,10 +1321,21 @@ function AutomaticCompletionDialog({
     : "bg-destructive/15 text-destructive ring-1 ring-destructive/25"
 
   const subtitle = isSuccess
-    ? `老化站 ${stationId || "1"} · 测试流程已完成，电流已归零安全下电`
+    ? `工位 ${stationId || "1"} · 测试流程已完成，电源状态已确认`
     : isStopped
-    ? `老化站 ${stationId || "1"} · 测试由操作员手动终止，设备已安全下电`
-    : `老化站 ${stationId || "1"} · 测试异常中断，设备已执行安全保护下电`
+    ? `工位 ${stationId || "1"} · 测试由操作员终止，电源状态已确认`
+    : shutdownConfirmed
+    ? `工位 ${stationId || "1"} · 测试异常中断，电源状态已确认`
+    : `工位 ${stationId || "1"} · 测试已停止，但下电状态未确认`
+
+  const shutdownStatus = shutdownState.label
+  const exportLabel = exportStatus === "completed"
+    ? "Excel 已生成"
+    : exportStatus === "failed"
+    ? "Excel 生成失败"
+    : exportStatus === "exporting"
+    ? "Excel 后台生成中"
+    : "尚未生成 Excel"
 
   const showDetailMessage = Boolean(message && message !== title && message !== "测试完成" && message !== "测试已完成")
 
@@ -1240,8 +1345,8 @@ function AutomaticCompletionDialog({
         <div
           aria-labelledby="automatic-completion-title"
           aria-modal="true"
-          className="status-dialog motion-dialog-enter w-[min(480px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border/80 bg-popover shadow-2xl shadow-black/50"
-          role="dialog"
+          className="status-dialog motion-dialog-enter w-[min(560px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border/80 bg-popover shadow-2xl shadow-black/50"
+          role={shutdownConfirmed ? "dialog" : "alertdialog"}
         >
           <div className="relative flex items-start gap-3.5 border-b border-border/70 px-6 py-5">
             <div className={`grid size-10 shrink-0 place-items-center rounded-xl transition-all ${iconContainerClass}`}>
@@ -1266,20 +1371,26 @@ function AutomaticCompletionDialog({
           </div>
 
           <div className="space-y-3.5 px-6 py-5">
+            <div className="rounded-lg border border-border/60 bg-muted/20 px-3.5 py-2.5">
+              <span className="text-[11px] font-medium text-muted-foreground">产品 SN</span>
+              <p className="mt-1 font-mono text-sm font-semibold text-foreground">{sn || "--"}</p>
+            </div>
             <div className="grid grid-cols-2 gap-2.5">
               <div className="rounded-lg border border-border/60 bg-muted/30 px-3.5 py-2.5">
-                <span className="text-[11px] font-medium text-muted-foreground">测试点进度</span>
+                <span className="text-[11px] font-medium text-muted-foreground">已保存测试点</span>
                 <p className="mt-1 font-mono text-sm font-semibold text-foreground">
-                  {typeof totalPoints === "number" && totalPoints > 0
-                    ? `${completedPoints ?? totalPoints} / ${totalPoints} 点`
-                    : "全流程已执行"}
+                  {typeof completedPoints === "number"
+                    ? typeof totalPoints === "number" && totalPoints > 0
+                      ? `${completedPoints} / ${totalPoints} 点`
+                      : `${completedPoints} 点`
+                    : "保存点数未确认"}
                 </p>
               </div>
               <div className="rounded-lg border border-border/60 bg-muted/30 px-3.5 py-2.5">
                 <span className="text-[11px] font-medium text-muted-foreground">下电保护状态</span>
-                <p className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                  <span className="size-1.5 rounded-full bg-emerald-500" />
-                  已安全归档 (0.00 A)
+                <p className={`mt-1 flex items-center gap-1.5 text-xs font-semibold ${shutdownConfirmed ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}`}>
+                  <span className={`size-1.5 rounded-full ${shutdownConfirmed ? "bg-emerald-500" : "bg-destructive"}`} />
+                  {shutdownStatus}
                 </p>
               </div>
             </div>
@@ -1292,16 +1403,34 @@ function AutomaticCompletionDialog({
                 </p>
               </div>
             )}
+            {!shutdownConfirmed && shutdown?.reason && (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/10 px-3.5 py-2.5">
+                <span className="text-[11px] font-medium text-destructive">必须检查电源实体面板</span>
+                <p className="mt-0.5 whitespace-pre-line text-xs leading-relaxed text-foreground">{shutdown.reason}</p>
+              </div>
+            )}
+            <div className={`rounded-lg border px-3.5 py-2.5 ${exportStatus === "failed" ? "border-destructive/40 bg-destructive/10" : "border-border/60 bg-muted/20"}`}>
+              <span className="text-[11px] font-medium text-muted-foreground">数据与结果文件</span>
+              <p className={`mt-1 text-xs font-semibold ${exportStatus === "failed" ? "text-destructive" : "text-foreground"}`}>本地 JSONL 已保存 · {exportLabel}</p>
+              {exportPath && <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground" title={exportPath}>{exportPath}</p>}
+              {exportError && <p className="mt-1 text-xs leading-5 text-destructive">{exportError}</p>}
+              {journalPath && exportStatus === "failed" && <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground" title={journalPath}>原始记录：{journalPath}</p>}
+            </div>
           </div>
 
-          <div className="flex justify-end border-t border-border/70 bg-muted/20 px-6 py-3.5">
+          <div className="flex flex-wrap justify-end gap-2 border-t border-border/70 bg-muted/20 px-6 py-3.5">
+            {exportPath && exportStatus === "completed" && <Button onClick={() => void openPath(exportPath)} size="sm" variant="outline"><FileText className="size-4" />打开结果</Button>}
+            {canRetryExport && <Button onClick={onRetryExport} size="sm" variant="outline"><RefreshCw className="size-4" />重新生成 Excel</Button>}
+            {canRetryExport && <Button onClick={onChooseExportDirectory} size="sm" variant="outline"><FolderOpen className="size-4" />更换目录</Button>}
+            {canNextDevice && <Button onClick={onNextDevice} size="sm"><QrCode className="size-4" />测试下一台</Button>}
             <Button
               className="px-5 font-medium shadow-xs"
               onClick={onClose}
               ref={acknowledgeButtonRef}
               size="sm"
+              variant={canNextDevice ? "outline" : "default"}
             >
-              确定
+              关闭
             </Button>
           </div>
         </div>
@@ -1312,12 +1441,14 @@ function AutomaticCompletionDialog({
 
 function ShutdownFailureDialog({
   message,
+  shutdownConfirmed,
   pending,
   onCancel,
   onRetry,
   onForceExit,
 }: {
   message: string
+  shutdownConfirmed: boolean
   pending: boolean
   onCancel: () => void
   onRetry: () => void
@@ -1360,22 +1491,28 @@ function ShutdownFailureDialog({
         <div aria-describedby="shutdown-failure-description" aria-labelledby="shutdown-failure-title" aria-modal="true" className="status-dialog motion-dialog-enter w-[min(600px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--app-danger)_55%,transparent)] bg-popover shadow-2xl shadow-black/50" role="alertdialog">
         <div className="flex items-start gap-4 border-b border-border px-5 py-5">
           <div className="grid size-11 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,var(--app-danger)_16%,transparent)] text-[var(--app-danger)]"><OctagonAlert className="size-6" /></div>
-          <div><h2 className="text-lg font-semibold" id="shutdown-failure-title">无法确认安全下电</h2><p className="mt-1 text-sm text-muted-foreground">电源通信异常，程序无法自动确认输出已经关闭</p></div>
+          <div><h2 className="text-lg font-semibold" id="shutdown-failure-title">{shutdownConfirmed ? "设备已安全下电，但退出收尾未完成" : "无法确认安全下电"}</h2><p className="mt-1 text-sm text-muted-foreground">{shutdownConfirmed ? "可以重试完成导出与配置保存，或直接退出程序" : "电源通信异常，程序无法自动确认输出已经关闭"}</p></div>
         </div>
         <div className="space-y-4 px-5 py-5">
           <p className="whitespace-pre-line text-sm leading-6 text-foreground" id="shutdown-failure-description">{message}</p>
-          <div className="rounded-lg border border-[color-mix(in_srgb,var(--app-warning)_35%,transparent)] bg-[var(--app-warning-soft)] px-4 py-3 text-sm leading-6 text-foreground">
-            请检查电源实体面板。若能够恢复通信，请重试安全下电；若已人工确认输出关闭，可强制退出程序。
-          </div>
-          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-background/35 px-4 py-3 text-sm leading-5">
-            <input checked={physicalShutdownConfirmed} className="mt-0.5 size-4 accent-[var(--app-danger)]" disabled={pending} onChange={(event) => setPhysicalShutdownConfirmed(event.target.checked)} type="checkbox" />
-            <span>我已检查电源实体面板，并确认输出已关闭或电流已归零。</span>
-          </label>
+          {shutdownConfirmed ? (
+            <div className="rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-4 py-3 text-sm leading-6 text-foreground">后端已经确认全部工位安全下电。导出或配置保存失败不会撤销该安全结果。</div>
+          ) : (
+            <>
+              <div className="rounded-lg border border-[color-mix(in_srgb,var(--app-warning)_35%,transparent)] bg-[var(--app-warning-soft)] px-4 py-3 text-sm leading-6 text-foreground">
+                请检查电源实体面板。若能够恢复通信，请重试安全下电；若已人工确认输出关闭，可强制退出程序。
+              </div>
+              <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-background/35 px-4 py-3 text-sm leading-5">
+                <input checked={physicalShutdownConfirmed} className="mt-0.5 size-4 accent-[var(--app-danger)]" disabled={pending} onChange={(event) => setPhysicalShutdownConfirmed(event.target.checked)} type="checkbox" />
+                <span>我已检查电源实体面板，并确认输出已关闭或电流已归零。</span>
+              </label>
+            </>
+          )}
         </div>
           <div className="flex flex-wrap items-center justify-end gap-6 border-t border-border bg-background/35 px-5 py-3">
             <Button disabled={pending} onClick={onCancel} variant="outline">取消退出</Button>
-            <Button disabled={pending} onClick={onRetry} ref={retryButtonRef} variant="outline">{pending ? "正在重试…" : "重试安全下电"}</Button>
-            <Button disabled={pending || !physicalShutdownConfirmed} onClick={onForceExit} variant="destructive">{pending ? "正在退出…" : "确认并强制退出"}</Button>
+            <Button disabled={pending} onClick={onRetry} ref={retryButtonRef} variant="outline">{pending ? "正在重试…" : shutdownConfirmed ? "重试收尾并退出" : "重试安全下电"}</Button>
+            <Button disabled={pending || (!shutdownConfirmed && !physicalShutdownConfirmed)} onClick={onForceExit} variant="destructive">{pending ? "正在退出…" : shutdownConfirmed ? "直接退出" : "确认并强制退出"}</Button>
           </div>
         </div>
       </div>
@@ -1468,12 +1605,29 @@ function sameDeviceSnapshot(left: DeviceSnapshot | undefined, right: DeviceSnaps
     && left.temperatureC === right.temperatureC
     && left.powerW === right.powerW
     && left.stable === right.stable
+    && left.sampledAt === right.sampledAt
+    && left.ageMs === right.ageMs
+    && left.quality === right.quality
     && left.peakWavelengthNm === right.peakWavelengthNm
     && left.centroidNm === right.centroidNm
     && left.fwhmNm === right.fwhmNm
     && left.smsrDb === right.smsrDb
+    && left.pib === right.pib
+    && left.pibPercent === right.pibPercent
     && left.saturated === right.saturated
     && sameSpectrumWindow(left.spectrumWindow, right.spectrumWindow)
+}
+
+function sameAutomaticReadiness(
+  left: BackendSnapshot["automaticTest"]["readiness"],
+  right: BackendSnapshot["automaticTest"]["readiness"],
+): boolean {
+  if (left === right) return true
+  if (!left || !right || left.ready !== right.ready || left.blockers.length !== right.blockers.length) return false
+  return left.blockers.every((blocker, index) => (
+    blocker.code === right.blockers[index]?.code
+    && blocker.message === right.blockers[index]?.message
+  ))
 }
 
 function sameMeasurements(left: BackendSnapshot["measurements"], right: BackendSnapshot["measurements"]): boolean {
@@ -1502,12 +1656,21 @@ function sameAutomaticTestState(
     && left.pauseReason === right.pauseReason
     && left.terminalOutcome === right.terminalOutcome
     && left.terminalReason === right.terminalReason
+    && left.savedPointCount === right.savedPointCount
     && left.exportStatus === right.exportStatus
     && left.exportPath === right.exportPath
     && left.exportError === right.exportError
     && left.settingsError === right.settingsError
+    && sameAutomaticReadiness(left.readiness, right.readiness)
     && left.canStart === right.canStart
-    && left.canRetry === right.canRetry
+    && left.exportedPointCount === right.exportedPointCount
+    && left.journalPath === right.journalPath
+    && left.canNextDevice === right.canNextDevice
+    && left.canRetryExport === right.canRetryExport
+    && left.pauseKind === right.pauseKind
+    && left.pauseStartedAtUtc === right.pauseStartedAtUtc
+    && left.pauseDeadlineAtUtc === right.pauseDeadlineAtUtc
+    && sameStringArray(left.pauseActions, right.pauseActions)
     && left.canEnd === right.canEnd
     && sameNumberArray(left.currents, right.currents)
 }
@@ -1953,21 +2116,23 @@ function RealtimeMetricCards({
   config,
   currentA,
   onOpenSpecifications,
-  powerW,
+  powerMeter,
   spectrometer,
 }: {
   config: AppConfiguration
   currentA?: number | null
   onOpenSpecifications?: () => void
-  powerW?: number | null
+  powerMeter?: DeviceSnapshot
   spectrometer?: DeviceSnapshot
 }) {
-  const pibValue = spectrometer?.pib ?? spectrometer?.pibPercent
+  const livePowerW = powerMeter?.quality === "live" ? powerMeter.powerW : null
+  const liveSpectrometer = spectrometer?.quality === "live" ? spectrometer : undefined
+  const pibValue = liveSpectrometer?.pib ?? liveSpectrometer?.pibPercent
   const pibPercent = typeof pibValue === "number" && Number.isFinite(pibValue) ? (pibValue <= 1 ? pibValue * 100 : pibValue) : null
-  const centroidValue = spectrometer?.centroidNm ?? spectrometer?.peakWavelengthNm
+  const centroidValue = liveSpectrometer?.centroidNm ?? liveSpectrometer?.peakWavelengthNm
   const hasSpectrumMetrics = typeof centroidValue === "number"
   const centerWavelengthPass = hasSpectrumMetrics && Math.abs((centroidValue ?? 0) - config.centerWavelengthSpecNm) <= config.centerWavelengthToleranceNm
-  const fwhmPass = typeof spectrometer?.fwhmNm === "number" && spectrometer.fwhmNm <= config.fwhmMaximumNm
+  const fwhmPass = typeof liveSpectrometer?.fwhmNm === "number" && liveSpectrometer.fwhmNm <= config.fwhmMaximumNm
   const pibPass = pibPercent !== null && pibPercent >= config.pibMinimumPercent
 
   return (
@@ -1975,7 +2140,7 @@ function RealtimeMetricCards({
       <AutomaticMetricCard
         className="automatic-metric-card--power automatic-metric-card--title-below"
         title="Live Power"
-        value={formatFixedNumber(powerW, 3)}
+        value={formatFixedNumber(livePowerW, 3)}
         unit={<>W @ <span className="automatic-metric-card__current">{formatTrimmedNumber(currentA, 2)} A</span></>}
         valueTone="warning"
       />
@@ -1990,9 +2155,9 @@ function RealtimeMetricCards({
       <AutomaticMetricCard
         className="automatic-metric-card--title-below"
         title="FWHM"
-        value={formatFixedNumber(spectrometer?.fwhmNm, 3)}
+        value={formatFixedNumber(liveSpectrometer?.fwhmNm, 3)}
         unit="nm"
-        valueTone={typeof spectrometer?.fwhmNm === "number" ? (fwhmPass ? "success" : "danger") : "muted"}
+        valueTone={typeof liveSpectrometer?.fwhmNm === "number" ? (fwhmPass ? "success" : "danger") : "muted"}
         onClick={onOpenSpecifications}
       />
       <AutomaticMetricCard
@@ -2058,7 +2223,7 @@ function AppTitlebar({
           size="sm"
           variant="outline"
         >
-          <OctagonAlert className="size-4" />紧急停止
+          <OctagonAlert className="size-4" />全部工位急停
         </Button>
       </div>
     </header>
@@ -2088,7 +2253,7 @@ function App() {
   const configRevisionRef = useRef(0)
   const automaticSaveFlightRef = useRef<Promise<void>>(Promise.resolve())
   const pendingPersistedConfigRef = useRef<AppConfiguration | null>(null)
-  const [closeFailure, setCloseFailure] = useState<string | null>(null)
+  const [closeFailure, setCloseFailure] = useState<{ message: string; shutdownConfirmed: boolean } | null>(null)
   const [automaticCompletion, setAutomaticCompletion] = useState<{ title: string; message: string } | null>(null)
   const [closeRequestPending, setCloseRequestPending] = useState(false)
   const closeRequestInFlightRef = useRef(false)
@@ -2112,20 +2277,38 @@ function App() {
     closeRequestInFlightRef.current = true
     setCloseRequestPending(true)
     setCloseFailure(null)
+    let shutdownConfirmed = false
     try {
+      const result = await sendBackendRequest<AppShutdownResult>("app.shutdown")
+      shutdownConfirmed = result.shutdownConfirmed
+      if (!shutdownConfirmed) {
+        throw new Error(result.shutdown.reason || "后端未确认安全下电")
+      }
+      if (!result.exportsDrained) {
+        throw new Error("安全下电已确认，但后台 Excel 导出尚未排空；请稍后重试退出")
+      }
       await automaticSaveFlightRef.current.catch(() => undefined)
       if (configHydratedRef.current) {
-        await sendBackendRequest(
-          "app.configure",
-          { stationId, ...configRef.current } as unknown as Record<string, unknown>,
-        )
+        try {
+          await sendBackendRequest(
+            "app.configure",
+            { stationId, ...configRef.current } as unknown as Record<string, unknown>,
+          )
+        } catch (reason) {
+          setCloseFailure({
+            message: reason instanceof Error ? reason.message : String(reason),
+            shutdownConfirmed: true,
+          })
+          return
+        }
       }
-      const result = await sendBackendRequest<{ shutdownConfirmed: boolean }>("app.shutdown")
-      if (!result.shutdownConfirmed) throw new Error("后端未确认安全下电")
       await invoke("bridge_disconnect")
       await getCurrentWindow().destroy()
     } catch (reason) {
-      setCloseFailure(reason instanceof Error ? reason.message : String(reason))
+      setCloseFailure({
+        message: reason instanceof Error ? reason.message : String(reason),
+        shutdownConfirmed,
+      })
     } finally {
       closeRequestInFlightRef.current = false
       setCloseRequestPending(false)
@@ -2134,8 +2317,8 @@ function App() {
 
   const forceClose = useCallback(async () => {
     try {
-      await invoke("force_exit")
-    } catch {
+      await invoke("bridge_force_disconnect")
+    } finally {
       await getCurrentWindow().destroy().catch(() => undefined)
     }
   }, [])
@@ -2317,13 +2500,42 @@ function App() {
     ) return
 
     automaticRunSeenRef.current = false
-    const title = auto.terminalOutcome === "succeeded"
-      ? "测试完成"
-      : auto.terminalOutcome === "stopped_by_operator"
-        ? "测试已提前结束"
-        : "测试异常中止"
+    const title = automaticTerminalTitle(auto.terminalOutcome)
     setAutomaticCompletion({ title, message: auto.detail || title })
   }, [snapshot?.automaticTest])
+
+  const prepareNextDevice = useCallback(async () => {
+    await run("automatic.nextDevice")
+    const nextConfig = { ...configRef.current, sn: "" }
+    configRef.current = nextConfig
+    setConfig(nextConfig)
+    setDirty(false)
+    setAutomaticCompletion(null)
+    window.requestAnimationFrame(() => document.getElementById("automatic-sn")?.focus())
+  }, [run])
+
+  const retryAutomaticExport = useCallback(async () => {
+    await run("automatic.retryExport")
+  }, [run])
+
+  const chooseAutomaticExportDirectory = useCallback(async () => {
+    const selected = await openDialog({
+      multiple: false,
+      directory: true,
+      title: "选择 Excel 输出目录",
+      defaultPath: configRef.current.outputDir.trim() || undefined,
+    })
+    if (typeof selected !== "string" || !selected) return
+    await run("automatic.retryExport", { outputDir: selected })
+    const nextConfig = { ...configRef.current, outputDir: selected }
+    configRef.current = nextConfig
+    setConfig(nextConfig)
+    setDirty(false)
+  }, [run])
+
+  const runAutomaticPauseAction = useCallback((action: AutomaticPauseAction, params: Record<string, unknown> = {}) => {
+    void run(automaticPauseCommand(action), params)
+  }, [run])
 
   const visibleNotifications = notifications.filter((notification) => !dismissedNotifications.has(notification.key))
   const powerProtectionNotification = visibleNotifications.find(
@@ -2332,7 +2544,7 @@ function App() {
   const spectrumSaturationNotification = visibleNotifications.find(
     (notification) => notification.code === "spectrum_saturation" || notification.title.endsWith("光谱饱和"),
   )
-  const activeAlertNotification = powerProtectionNotification ?? spectrumSaturationNotification
+  const activeAlertNotification = powerProtectionNotification
   const toastNotifications = visibleNotifications.filter((notification) => notification !== powerProtectionNotification && notification !== spectrumSaturationNotification)
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
@@ -2391,24 +2603,30 @@ function App() {
           )}
 
           {activeAlertNotification === powerProtectionNotification && powerProtectionNotification && <PowerProtectionDialog message={powerProtectionNotification.message} onClose={() => setDismissedNotifications((current) => new Set(current).add(powerProtectionNotification.key))} />}
-          {activeAlertNotification === spectrumSaturationNotification && spectrumSaturationNotification && <SpectrumSaturationDialog message={spectrumSaturationNotification.message} onClose={() => {
-            setDismissedNotifications((current) => new Set(current).add(spectrumSaturationNotification.key))
-            const targetStationId = spectrumSaturationNotification.stationId === "2" ? "2" : "1"
-            const targetStation = snapshot?.stations?.[targetStationId]
-            if (targetStation?.state === "paused") void run("automatic.retry", { stationId: targetStationId })
-          }} />}
+          {snapshot?.automaticTest.state === "paused" && !activeAlertNotification && !closeFailure && <AutomaticPauseDialog auto={snapshot.automaticTest} integrationTimeUs={config.integrationTimeUs} onAction={runAutomaticPauseAction} pending={commandPending} />}
           {automaticCompletion && !activeAlertNotification && !closeFailure && (
             <AutomaticCompletionDialog
-              completedPoints={snapshot?.automaticTest.currentIndex !== undefined ? Math.min((snapshot.automaticTest.currentIndex + 1), (snapshot.automaticTest.currents?.length ?? 0)) : undefined}
+              canNextDevice={snapshot?.automaticTest.canNextDevice === true}
+              canRetryExport={snapshot?.automaticTest.canRetryExport === true}
+              completedPoints={snapshot?.automaticTest.savedPointCount}
+              exportError={snapshot?.automaticTest.exportError}
+              exportPath={snapshot?.automaticTest.exportPath}
+              exportStatus={snapshot?.automaticTest.exportStatus}
+              journalPath={snapshot?.automaticTest.journalPath}
               message={automaticCompletion.message}
+              onChooseExportDirectory={() => void chooseAutomaticExportDirectory()}
               onClose={() => setAutomaticCompletion(null)}
+              onNextDevice={() => void prepareNextDevice()}
+              onRetryExport={() => void retryAutomaticExport()}
               outcome={snapshot?.automaticTest.terminalOutcome}
+              sn={config.sn}
               stationId={stationId}
+              shutdown={snapshot?.safety.shutdown}
               title={automaticCompletion.title}
               totalPoints={snapshot?.automaticTest.currents?.length}
             />
           )}
-          {closeFailure && <ShutdownFailureDialog message={closeFailure} onCancel={cancelClose} onForceExit={() => void forceClose()} onRetry={() => void attemptGracefulClose()} pending={closeRequestPending} />}
+          {closeFailure && <ShutdownFailureDialog message={closeFailure.message} shutdownConfirmed={closeFailure.shutdownConfirmed} onCancel={cancelClose} onForceExit={() => void forceClose()} onRetry={() => void attemptGracefulClose()} pending={closeRequestPending} />}
 
           <div
             className={`page-enter flex flex-1 min-h-0 flex-col overflow-y-auto ${page === "automatic" ? "gap-2 px-3 py-0" : page === "manual" ? "gap-3 p-4" : "space-y-4 p-4"}`}
@@ -3617,7 +3835,6 @@ const AutomaticPage = memo(function AutomaticPage({
           active={active}
           auto={auto}
           controlsLocked={controlsLocked}
-          onRetry={() => void run("automatic.retry")}
           onStart={startAutomaticTest}
           onStop={() => void run("automatic.end")}
           pending={pending}
@@ -3636,7 +3853,7 @@ const AutomaticPage = memo(function AutomaticPage({
             config={config}
             currentA={auto?.currentA}
             onOpenSpecifications={() => setSpecificationsOpen(true)}
-            powerW={snapshot?.devices.powerMeter?.powerW}
+            powerMeter={snapshot?.devices.powerMeter}
             spectrometer={spectrometer}
           />
         )}
@@ -3834,9 +4051,10 @@ const ManualPage = memo(function ManualPage({
   const displayedSpectrometerResource = selectedSpectrometerResourceAvailable ? config.spectrometerResource : ""
   const otherStationId = stationId === "1" ? "2" : "1"
   const otherConfig = snapshot?.configurations?.[otherStationId]
+  const manualControlsAllowed = snapshot?.safety.manualControlsAllowed === true
   const commandLockRef = useRef(false)
   const runManualCommand: RunCommand = async (method, params, sync) => {
-    if (commandLockRef.current || pending) return
+    if (!manualControlsAllowed || commandLockRef.current || pending) return
     commandLockRef.current = true
     try {
       await run(method, params, sync)
@@ -3869,6 +4087,13 @@ const ManualPage = memo(function ManualPage({
           )
         })()
       )}
+      {!manualControlsAllowed && (
+        <div className="rounded-lg border border-[color-mix(in_srgb,var(--app-warning)_40%,transparent)] bg-[var(--app-warning-soft)] px-4 py-3 text-sm text-foreground" role="status">
+          <p className="font-semibold text-[var(--app-warning)]">手动控制已锁定</p>
+          <p className="mt-1 text-xs text-muted-foreground">硬件控制权由自动测试工位持有。请返回自动测试，执行“结束并安全下电”后再操作设备。</p>
+        </div>
+      )}
+      <fieldset aria-disabled={!manualControlsAllowed} className="contents" disabled={!manualControlsAllowed}>
       <section className="manual-device-grid shrink-0">
         <Card size="sm" className="manual-device-card shadow-none"><CardHeader className="manual-device-card__header flex flex-row items-center justify-between"><CardTitle className="text-base">电源控制</CardTitle><Power className={`size-4 transition-colors ${isPsuActive ? "text-amber-500" : "text-muted-foreground"}`} /></CardHeader><CardContent className="manual-control-content manual-device-card__content">
           <ManualSectionHeading>资源设置</ManualSectionHeading>
@@ -4020,17 +4245,19 @@ const ManualPage = memo(function ManualPage({
         <RealtimeMetricCards
           config={config}
           currentA={psu?.activeCurrentA ?? config.setCurrentA}
-          powerW={meter?.powerW}
+          powerMeter={meter}
           spectrometer={spectrum}
         />
         <SpectrumRealtimeChart snapshot={snapshot} stretch />
       </section>
+      </fieldset>
     </div>
   )
 }, (previous, next) => (
   previous.active === next.active
   && previous.stationId === next.stationId
   && previous.pending === next.pending
+  && previous.snapshot?.safety.manualControlsAllowed === next.snapshot?.safety.manualControlsAllowed
   && configurationsEqual(previous.config, next.config)
   && sameDeviceSnapshot(previous.snapshot?.devices.powerSupply, next.snapshot?.devices.powerSupply)
   && sameDeviceSnapshot(previous.snapshot?.devices.powerMeter, next.snapshot?.devices.powerMeter)

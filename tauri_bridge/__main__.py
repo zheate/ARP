@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from combined_test.runtime_logging import configure_runtime_logging, get_runtime_logger
 
-from .service import BACKGROUND_FILE_TASK_METHODS, BridgeService
+from .service import BACKGROUND_FILE_TASK_METHODS, SAFETY_TASK_METHODS, BridgeService
 
 
 _protocol_stdout: object | None = None
@@ -95,30 +95,45 @@ def _run_headless_backend() -> int:
         daemon=True,
     )
     writer_thread.start()
-    file_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="excel-scan")
+    regular_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="bridge-command")
+    safety_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="safety-command")
+    file_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="report-task")
+
+    def submit_request(
+        executor: ThreadPoolExecutor,
+        request_line: str,
+        queued_at: float,
+        *,
+        file_task: bool = False,
+    ) -> None:
+        executor.submit(
+            lambda: writer_queue.put(
+                service.handle_line(
+                    request_line,
+                    queued_at_monotonic=queued_at,
+                    file_task=file_task,
+                )
+            )
+        )
+
     _LOGGER.info("Tauri headless Python hardware backend is ready")
     try:
         for line in _read_request_lines():
             if not line.strip():
                 continue
             queued_at = time.perf_counter()
-            if _request_method(line) in BACKGROUND_FILE_TASK_METHODS:
-                file_executor.submit(
-                    lambda request_line=line, queued=queued_at: writer_queue.put(
-                        service.handle_line(
-                            request_line,
-                            queued_at_monotonic=queued,
-                            file_task=True,
-                        )
-                    )
-                )
+            method = _request_method(line)
+            if method in SAFETY_TASK_METHODS:
+                submit_request(safety_executor, line, queued_at)
+            elif method in BACKGROUND_FILE_TASK_METHODS:
+                submit_request(file_executor, line, queued_at, file_task=True)
             else:
-                writer_queue.put(
-                    service.handle_line(line, queued_at_monotonic=queued_at)
-                )
+                submit_request(regular_executor, line, queued_at)
     except KeyboardInterrupt:
         pass
     finally:
+        safety_executor.shutdown(wait=True, cancel_futures=False)
+        regular_executor.shutdown(wait=True, cancel_futures=False)
         file_executor.shutdown(wait=False, cancel_futures=True)
         writer_queue.put(None)
         writer_thread.join(timeout=2.0)

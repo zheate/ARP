@@ -4,6 +4,11 @@ import { decodeColumnarSpectrum, mergeSpectrumColumns, type SpectrumColumns, typ
 
 export type BackendMode = "read_only" | "active"
 export type DeviceConnectionState = "disconnected" | "connecting" | "connected" | "error"
+export type MeasurementQuality = "live" | "stale" | "invalid" | "saturated"
+export type AutomaticTerminalOutcome = "succeeded" | "stopped_shutdown_confirmed" | "aborted_shutdown_confirmed" | "shutdown_unconfirmed"
+export type ControlOwner = "automatic" | "manual" | "none"
+export type AutomaticPauseKind = "operator" | "spectrum_saturated" | "power_meter_disconnected" | "spectrometer_disconnected" | "record_persistence_failed" | "measurement_timeout" | "device_error"
+export type AutomaticPauseAction = "resume" | "adjust_spectrum" | "recover_power_meter" | "recover_spectrometer" | "retry_persist" | "retry_point" | "safe_end"
 export type SnapshotView = "automatic" | "automatic_1" | "automatic_2" | "manual" | "manual_1" | "manual_2" | "pd" | "pd_1" | "pd_2" | "shipping"
 export type SeriesRevisions = { power: number; stable: number; aging: number; spectrum: number; pd: number }
 export type SeriesCursors = { power?: number; pd?: number }
@@ -66,7 +71,20 @@ export interface DeviceSnapshot {
   pibPercent?: number | null
   smsrDb?: number | null
   saturated?: boolean
+  sampledAt?: string | null
+  ageMs?: number | null
+  quality?: MeasurementQuality
   spectrumWindow?: { centerNm: number; halfRangeNm: number } | null
+}
+
+export interface AutomaticReadinessBlocker {
+  code: string
+  message: string
+}
+
+export interface AutomaticReadiness {
+  ready: boolean
+  blockers: AutomaticReadinessBlocker[]
 }
 
 export interface AppConfiguration {
@@ -125,14 +143,41 @@ export interface StationSummary {
   powerMeterRunning: boolean
   spectrometerRunning: boolean
   canStart?: boolean
+  readiness?: AutomaticReadiness
   canPause?: boolean
-  canRetry?: boolean
   canEnd?: boolean
-  terminalOutcome?: string | null
+  terminalOutcome?: AutomaticTerminalOutcome | null
   terminalReason?: string
+  savedPointCount?: number
+  exportedPointCount?: number
+  journalPath?: string
+  canNextDevice?: boolean
+  canRetryExport?: boolean
+  pauseKind?: AutomaticPauseKind | null
+  pauseStartedAtUtc?: string | null
+  pauseDeadlineAtUtc?: string | null
+  pauseActions?: AutomaticPauseAction[]
+  controlOwner?: ControlOwner
+  manualControlsAllowed?: boolean
+  shutdown?: SafetyShutdownResult
   exportStatus?: string
   exportPath?: string
   exportError?: string
+}
+
+export interface SafetyShutdownResult {
+  requested: boolean
+  confirmed: boolean
+  measuredCurrentA: number | null
+  outputOffConfirmed: boolean
+  reason: string
+}
+
+export interface AppShutdownResult {
+  shutdownConfirmed: boolean
+  exportsDrained: boolean
+  shutdown: SafetyShutdownResult
+  stations: Record<string, SafetyShutdownResult>
 }
 
 export interface TestHistoryCandidate {
@@ -183,7 +228,7 @@ export interface BackendSnapshot {
     detail: string
     controlsEnabled: boolean
     canStart?: boolean
-    canRetry?: boolean
+    readiness?: AutomaticReadiness
     canPause?: boolean
     canEnd?: boolean
     settingsError?: string
@@ -196,8 +241,17 @@ export interface BackendSnapshot {
     samplePath?: string
     progress?: number
     pauseReason?: string
-    terminalOutcome?: string | null
+    pauseKind?: AutomaticPauseKind | null
+    pauseStartedAtUtc?: string | null
+    pauseDeadlineAtUtc?: string | null
+    pauseActions?: AutomaticPauseAction[]
+    terminalOutcome?: AutomaticTerminalOutcome | null
     terminalReason?: string
+    savedPointCount?: number
+    exportedPointCount?: number
+    journalPath?: string
+    canNextDevice?: boolean
+    canRetryExport?: boolean
     exportStatus?: string
     exportPath?: string
     exportError?: string
@@ -248,7 +302,9 @@ export interface BackendSnapshot {
     hardwareAccess: boolean
     commandMode: "read_only" | "controller_owned"
     detail: string
-    outputShutdownUnconfirmed?: boolean
+    controlOwner: ControlOwner
+    manualControlsAllowed: boolean
+    shutdown: SafetyShutdownResult
   }
   status?: { message: string }
 }
