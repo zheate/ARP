@@ -155,6 +155,24 @@ class OceanDirectControl:
             self._raise_if_error(err[0], "get_device_ids")
             return [int(ids[index]) for index in range(max(0, min(copied, count)))]
 
+    def get_serial_number(self, device_id: int) -> str:
+        """Return the stable device serial exposed by OceanDirect."""
+        buffer = create_string_buffer(256)
+        err = (c_long * 1)(0)
+        _invoke_native(
+            f"get_serial_number({int(device_id)})",
+            self._api.odapi_get_serial_number,
+            int(device_id),
+            err,
+            buffer,
+            len(buffer),
+        )
+        self._raise_if_error(err[0], f"get_serial_number({int(device_id)})")
+        serial_number = buffer.value.decode("utf-8", errors="replace").strip()
+        if not serial_number:
+            raise OceanDirectError(f"OceanDirect 未返回光谱仪设备 {int(device_id)} 的 SN")
+        return serial_number
+
     def open_device(self, device_id: int) -> int:
         dev_id = int(device_id)
         dev_lock = self._session.get_device_lock(dev_id)

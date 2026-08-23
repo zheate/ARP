@@ -79,7 +79,9 @@ def _run_headless_backend() -> int:
     """Serve requests without a GUI event loop or Qt dependency."""
 
     from .headless_backend import HeadlessBackend
-    service = BridgeService(HeadlessBackend())
+    backend = HeadlessBackend()
+    service = BridgeService(backend)
+    backend.start_remembered_device_discovery()
     writer_queue: queue.Queue[dict[str, object] | None] = queue.Queue()
 
     def write_responses() -> None:

@@ -167,11 +167,13 @@ DEFAULT_CONFIGURATION: dict[str, Any] = {
     "tdkVoltageV": 12.0,
     "powerMeterResource": "",
     "powerMeterDriverKind": "caihuang",
+    "powerMeterSerialNumber": "",
     "powerMeterWavelengthNm": 976.0,
     "softwareGain": 1.0,
     "powerMeterIntervalMs": 100,
     "spectrometerResource": "",
     "spectrometerDeviceId": None,
+    "spectrometerSerialNumber": "",
     "integrationTimeUs": 10_000,
     "autoIntegration": False,
     "spectrometerIntervalMs": 100,
@@ -394,6 +396,20 @@ def _normalize_power_meter_configuration(
     return after != before
 
 
+def _normalize_device_serial(value: Any) -> str:
+    return str(value or "").strip().upper()
+
+
+def _power_meter_serial_number(option: PowerMeterOption) -> str:
+    return _normalize_device_serial(option.serial_number)
+
+
+def _spectrometer_label(device_id: int, serial_number: str) -> str:
+    serial = _normalize_device_serial(serial_number)
+    suffix = f" | SN {serial}" if serial else ""
+    return f"Ocean Insight | 设备 ID {int(device_id)}{suffix}"
+
+
 class StationRuntime:
     """Isolated hardware, automation, and measurement state for one test station."""
 
@@ -411,8 +427,10 @@ class StationRuntime:
                     "ch341PortBindings": [],
                     "tdkResource": "",
                     "powerMeterResource": "",
+                    "powerMeterSerialNumber": "",
                     "spectrometerResource": "",
                     "spectrometerDeviceId": None,
+                    "spectrometerSerialNumber": "",
                 }
             )
         if initial_config:
@@ -1480,6 +1498,7 @@ class StationRuntime:
                 stable_window_s=float(self.configuration["stableWindowS"]),
                 stable_tolerance_w=float(self.configuration["stableToleranceW"]),
                 driver_kind=str(self.configuration.get("powerMeterDriverKind", "caihuang")),
+                serial_number=str(self.configuration.get("powerMeterSerialNumber", "")),
             )
             reader = PowerMeterReaderThread(settings)
             if self.automatic.state in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED}:
@@ -1788,7 +1807,21 @@ class StationRuntime:
             device_id_val = None if device_id in {None, ""} else int(device_id)
             if device_id_val is None:
                 raise ValueError("请先选择光谱仪设备")
-            self.backend.check_device_conflicts(self.station_id, "spectrometer", device_id_val)
+            spectrometer_serial = _normalize_device_serial(
+                self.configuration.get("spectrometerSerialNumber")
+            )
+            if spectrometer_serial:
+                self.backend.check_device_conflicts(
+                    self.station_id,
+                    "spectrometerSerial",
+                    spectrometer_serial,
+                )
+            else:
+                self.backend.check_device_conflicts(
+                    self.station_id,
+                    "spectrometer",
+                    device_id_val,
+                )
 
             settings = SpectrometerSettings(
                 integration_time_us=int(self.configuration["integrationTimeUs"]),
@@ -1798,6 +1831,7 @@ class StationRuntime:
                 average_frames=int(self.configuration["spectrumAverageFrames"]),
                 pib_center_wavelength_nm=float(self.configuration.get("pibCenterWavelengthNm", 976.0)),
                 pib_half_range_nm=float(self.configuration.get("pibHalfRangeNm", 1.5)),
+                serial_number=str(self.configuration.get("spectrometerSerialNumber", "")),
             )
             reader = SpectrometerReaderThread(settings, headless=True)
             self.spectrometer_reader = reader
@@ -1974,6 +2008,17 @@ class StationRuntime:
 
     def _on_spectrometer_device_opened(self, device_id: int) -> None:
         actual_device_id = int(device_id)
+        resource = next(
+            (
+                item
+                for item in self.backend.spectrometer_resources
+                if int(item.get("deviceId", -1)) == actual_device_id
+            ),
+            None,
+        )
+        serial_number = _normalize_device_serial(
+            None if resource is None else resource.get("serialNumber")
+        ) or _normalize_device_serial(self.configuration.get("spectrometerSerialNumber"))
         with self._lock:
             previous_value = self.configuration.get("spectrometerDeviceId")
             previous_device_id = (
@@ -1985,9 +2030,10 @@ class StationRuntime:
                     "spectrometer",
                     actual_device_id,
                 )
-            label = f"Ocean Insight | 设备 ID {actual_device_id}"
+            label = _spectrometer_label(actual_device_id, serial_number)
             self.configuration["spectrometerDeviceId"] = actual_device_id
             self.configuration["spectrometerResource"] = label
+            self.configuration["spectrometerSerialNumber"] = serial_number
 
         with self.backend._lock:
             self.backend.spectrometer_resources = [
@@ -1999,8 +2045,13 @@ class StationRuntime:
                 }
             ]
             self.backend.spectrometer_resources.append(
-                {"label": label, "deviceId": actual_device_id}
+                {
+                    "label": label,
+                    "deviceId": actual_device_id,
+                    "serialNumber": serial_number,
+                }
             )
+        self.backend._persist_configuration()
 
         if previous_device_id is not None and previous_device_id != actual_device_id:
             self.notify(
@@ -3095,6 +3146,16 @@ class HeadlessBackend:
         self.settings = settings or JsonSettings()
         stored = self.settings.get("runtime/configuration", {})
         stored_dict = stored if isinstance(stored, dict) else {}
+        raw_profiles = self.settings.get("runtime/deviceProfiles", {})
+        self.device_profiles: dict[str, dict[str, dict[str, Any]]] = {
+            "powerMeters": {},
+        }
+        if isinstance(raw_profiles, dict) and isinstance(raw_profiles.get("powerMeters"), dict):
+            self.device_profiles["powerMeters"] = {
+                str(key): dict(value)
+                for key, value in raw_profiles["powerMeters"].items()
+                if isinstance(value, dict)
+            }
 
         # Shared export queue worker
         self.export_worker = ExportQueueWorker()
@@ -3125,36 +3186,25 @@ class HeadlessBackend:
         st1_config = dict(raw_st1_config) if isinstance(raw_st1_config, dict) else {}
         st2_config = dict(raw_st2_config) if isinstance(raw_st2_config, dict) else {}
 
-        discarded_device_persistence = any(
-            config.get("ch341SelectedLocationPath")
-            or config.get("ch341PortBindings")
-            or config.get("powerMeterResource")
-            or config.get("powerMeterDriverKind", "caihuang") != "caihuang"
-            or config.get("spectrometerResource")
-            or config.get("spectrometerDeviceId") not in {None, ""}
-            for config in (st1_config, st2_config)
-        )
         for config in (st1_config, st2_config):
             config["ch341SelectedLocationPath"] = ""
             config["ch341PortBindings"] = []
-            config["powerMeterResource"] = ""
-            config["powerMeterDriverKind"] = "caihuang"
-            config["spectrometerResource"] = ""
-            config["spectrometerDeviceId"] = None
 
-        for key in ("tdkResource",):
+        for key in (
+            "tdkResource",
+            "powerMeterResource",
+            "powerMeterSerialNumber",
+            "spectrometerSerialNumber",
+        ):
             station_one_resource = st1_config.get(key)
             if station_one_resource not in {None, ""} and st2_config.get(key) == station_one_resource:
-                st2_config[key] = None if key == "spectrometerDeviceId" else ""
+                st2_config[key] = ""
 
         self.stations: dict[str, StationRuntime] = {
             "1": StationRuntime("1", self, st1_config),
             "2": StationRuntime("2", self, st2_config),
         }
-        if discarded_device_persistence or any(
-            station.power_meter_configuration_migrated
-            for station in self.stations.values()
-        ):
+        if any(station.power_meter_configuration_migrated for station in self.stations.values()):
             self._persist_configuration()
 
         self.notices: deque[dict[str, Any]] = deque(maxlen=8)
@@ -3321,6 +3371,12 @@ class HeadlessBackend:
                 other_dev = other_st.configuration.get("spectrometerDeviceId")
                 if other_st.spectrometer_reader is not None and other_dev == resource_identifier:
                     raise RuntimeError(f"光谱仪设备 ID {resource_identifier} 正在被工位 {other_id} 使用")
+            elif device_type == "spectrometerSerial":
+                other_serial = _normalize_device_serial(
+                    other_st.configuration.get("spectrometerSerialNumber")
+                )
+                if other_st.spectrometer_reader is not None and other_serial == resource_identifier:
+                    raise RuntimeError(f"光谱仪 SN {resource_identifier} 正在被工位 {other_id} 使用")
 
     def check_workbook_path_available(self, target_station_id: str, workbook_path: Path) -> None:
         """Prevent two live station sessions from exporting to the same workbook."""
@@ -3381,15 +3437,271 @@ class HeadlessBackend:
                 maxlen=8,
             )
 
+    @staticmethod
+    def _power_meter_profile_key(driver_kind: str, serial_number: str) -> str:
+        return f"{str(driver_kind).strip().lower()}:{_normalize_device_serial(serial_number)}"
+
+    def _remember_power_meter_profile(self, station: StationRuntime) -> None:
+        serial_number = _normalize_device_serial(
+            station.configuration.get("powerMeterSerialNumber")
+        )
+        if not serial_number:
+            return
+        driver_kind = str(station.configuration.get("powerMeterDriverKind", "caihuang")).lower()
+        key = self._power_meter_profile_key(driver_kind, serial_number)
+        self.device_profiles["powerMeters"][key] = {
+            "serialNumber": serial_number,
+            "driverKind": driver_kind,
+            "softwareGain": float(station.configuration.get("softwareGain", 1.0)),
+        }
+
+    def _restore_power_meter_gain(
+        self,
+        station: StationRuntime,
+        option: PowerMeterOption,
+        serial_number: str,
+    ) -> bool:
+        key = self._power_meter_profile_key(option.driver_kind, serial_number)
+        profile = self.device_profiles["powerMeters"].get(key)
+        if profile is not None:
+            gain = _finite(profile.get("softwareGain"))
+            if gain is not None and gain > 0.0:
+                station.configuration["softwareGain"] = gain
+                return True
+        return False
+
+    def _bind_power_meter_option(
+        self,
+        station: StationRuntime,
+        option: PowerMeterOption,
+        *,
+        restore_gain: bool = True,
+    ) -> None:
+        serial_number = _power_meter_serial_number(option)
+        station.configuration["powerMeterResource"] = option.resource
+        station.configuration["powerMeterDriverKind"] = option.driver_kind
+        station.configuration["powerMeterSerialNumber"] = serial_number
+        if serial_number and restore_gain:
+            if not self._restore_power_meter_gain(station, option, serial_number):
+                station.configuration["softwareGain"] = 1.0
+        if serial_number:
+            self._remember_power_meter_profile(station)
+
+    def _rebind_remembered_power_meters(self, options: Sequence[PowerMeterOption]) -> None:
+        for station in self.stations.values():
+            remembered_serial = _normalize_device_serial(
+                station.configuration.get("powerMeterSerialNumber")
+            )
+            remembered_driver = str(
+                station.configuration.get("powerMeterDriverKind", "caihuang")
+            ).lower()
+            matches = [
+                option
+                for option in options
+                if _power_meter_serial_number(option) == remembered_serial
+                and option.driver_kind.lower() == remembered_driver
+            ] if remembered_serial else []
+            if len(matches) == 1:
+                self._bind_power_meter_option(station, matches[0])
+                continue
+
+            resource = str(station.configuration.get("powerMeterResource", "")).strip()
+            resource_match = next((option for option in options if option.resource == resource), None)
+            if not remembered_serial and resource_match is not None:
+                self._bind_power_meter_option(station, resource_match)
+
+    def _select_power_meter_after_scan(
+        self,
+        station: StationRuntime,
+        options: Sequence[PowerMeterOption],
+    ) -> None:
+        """Keep the remembered meter when found, otherwise select the first free result."""
+        selected_resource = str(
+            station.configuration.get("powerMeterResource", "")
+        ).strip()
+        selected_option = next(
+            (option for option in options if option.resource == selected_resource),
+            None,
+        )
+        if selected_option is not None:
+            current_serial = _normalize_device_serial(
+                station.configuration.get("powerMeterSerialNumber")
+            )
+            if (
+                _power_meter_serial_number(selected_option) != current_serial
+                or selected_option.driver_kind.lower()
+                != str(station.configuration.get("powerMeterDriverKind", "")).lower()
+            ):
+                self._bind_power_meter_option(station, selected_option)
+            return
+        occupied_resources = {
+            str(other.configuration.get("powerMeterResource", "")).strip()
+            for other_id, other in self.stations.items()
+            if other_id != station.station_id and other.power_meter_reader is not None
+        }
+        choice = next(
+            (option for option in options if option.resource not in occupied_resources),
+            None,
+        )
+        if choice is not None:
+            self._bind_power_meter_option(station, choice)
+
+    def _rebind_remembered_spectrometers(self, resources: Sequence[dict[str, Any]]) -> None:
+        for station in self.stations.values():
+            remembered_serial = _normalize_device_serial(
+                station.configuration.get("spectrometerSerialNumber")
+            )
+            matches = [
+                resource
+                for resource in resources
+                if _normalize_device_serial(resource.get("serialNumber")) == remembered_serial
+            ] if remembered_serial else []
+            if len(matches) == 1:
+                resource = matches[0]
+                station.configuration["spectrometerDeviceId"] = int(resource["deviceId"])
+                station.configuration["spectrometerSerialNumber"] = remembered_serial
+                station.configuration["spectrometerResource"] = str(resource["label"])
+
+    def _select_spectrometer_after_scan(
+        self,
+        station: StationRuntime,
+        resources: Sequence[dict[str, Any]],
+    ) -> None:
+        """Keep the remembered spectrometer when found, otherwise select the first free result."""
+        selected_serial = _normalize_device_serial(
+            station.configuration.get("spectrometerSerialNumber")
+        )
+        selected_id = station.configuration.get("spectrometerDeviceId")
+        if any(
+            (
+                selected_serial
+                and _normalize_device_serial(resource.get("serialNumber")) == selected_serial
+            )
+            or (
+                not selected_serial
+                and selected_id not in {None, ""}
+                and int(resource["deviceId"]) == int(selected_id)
+            )
+            for resource in resources
+        ):
+            return
+        occupied_serials = {
+            _normalize_device_serial(other.configuration.get("spectrometerSerialNumber"))
+            for other_id, other in self.stations.items()
+            if other_id != station.station_id and other.spectrometer_reader is not None
+        }
+        occupied_ids = {
+            int(other.configuration["spectrometerDeviceId"])
+            for other_id, other in self.stations.items()
+            if other_id != station.station_id
+            and other.spectrometer_reader is not None
+            and other.configuration.get("spectrometerDeviceId") not in {None, ""}
+        }
+        choice = next(
+            (
+                resource
+                for resource in resources
+                if _normalize_device_serial(resource.get("serialNumber")) not in occupied_serials
+                and int(resource["deviceId"]) not in occupied_ids
+            ),
+            None,
+        )
+        if choice is not None:
+            station.configuration["spectrometerDeviceId"] = int(choice["deviceId"])
+            station.configuration["spectrometerSerialNumber"] = _normalize_device_serial(
+                choice.get("serialNumber")
+            )
+            station.configuration["spectrometerResource"] = str(choice["label"])
+
+    def _select_ch341_after_scan(
+        self,
+        station: StationRuntime,
+        descriptors: Sequence[Ch341DeviceDescriptor],
+    ) -> None:
+        """Select the first available physical CH341 port after discovery."""
+        selected_location = str(
+            station.configuration.get("ch341SelectedLocationPath", "")
+        ).strip()
+        if any(descriptor.location_path == selected_location for descriptor in descriptors):
+            return
+        occupied_locations = {
+            str(other.configuration.get("ch341SelectedLocationPath", "")).strip()
+            for other_id, other in self.stations.items()
+            if other_id != station.station_id and other.power_supply_controller is not None
+        }
+        choice = next(
+            (
+                descriptor
+                for descriptor in descriptors
+                if descriptor.location_path not in occupied_locations
+            ),
+            None,
+        )
+        if choice is not None:
+            station.configuration["ch341SelectedLocationPath"] = choice.location_path
+
+    def start_remembered_device_discovery(self) -> None:
+        """Restore persisted device choices without touching hardware at startup."""
+        power_meter_types = {
+            "caihuang": "Caihuang CHLP-P",
+            "coherent": "Coherent PowerMax",
+            "laserpoint": "LaserPoint",
+            "ophir": "Ophir USB",
+        }
+        power_meter_options: list[PowerMeterOption] = []
+        spectrometer_resources: list[dict[str, Any]] = []
+        for station in self.stations.values():
+            power_serial = _normalize_device_serial(
+                station.configuration.get("powerMeterSerialNumber")
+            )
+            power_resource = str(
+                station.configuration.get("powerMeterResource", "")
+            ).strip()
+            driver_kind = str(
+                station.configuration.get("powerMeterDriverKind", "caihuang")
+            ).lower()
+            if power_serial and power_resource:
+                option = PowerMeterOption(
+                    resource=power_resource,
+                    device_type=power_meter_types.get(driver_kind, driver_kind),
+                    detail=f"已记住 | 探头 SN {power_serial} | 连接时校验",
+                    driver_kind=driver_kind,
+                    serial_number=power_serial,
+                )
+                if option not in power_meter_options:
+                    power_meter_options.append(option)
+
+            spectrum_serial = _normalize_device_serial(
+                station.configuration.get("spectrometerSerialNumber")
+            )
+            raw_device_id = station.configuration.get("spectrometerDeviceId")
+            if spectrum_serial and raw_device_id not in {None, ""}:
+                device_id = int(raw_device_id)
+                resource = {
+                    "label": _spectrometer_label(device_id, spectrum_serial),
+                    "deviceId": device_id,
+                    "serialNumber": spectrum_serial,
+                }
+                if resource not in spectrometer_resources:
+                    spectrometer_resources.append(resource)
+
+        with self._lock:
+            self.power_meter_options = power_meter_options
+            self.spectrometer_resources = spectrometer_resources
+            if power_meter_options:
+                self.power_meter_detection_detail = (
+                    f"识别完成：已恢复 {len(power_meter_options)} 台功率计，连接时校验探头 SN"
+                )
+            if spectrometer_resources:
+                self.spectrometer_detection_detail = (
+                    f"识别完成：已恢复 {len(spectrometer_resources)} 台光谱仪，连接时校验 SN"
+                )
+
     def _persist_configuration(self) -> None:
         def persistent_configuration(station: StationRuntime) -> dict[str, Any]:
             configuration = dict(station.configuration)
             configuration["ch341SelectedLocationPath"] = ""
             configuration["ch341PortBindings"] = []
-            configuration["powerMeterResource"] = ""
-            configuration["powerMeterDriverKind"] = "caihuang"
-            configuration["spectrometerResource"] = ""
-            configuration["spectrometerDeviceId"] = None
             return configuration
 
         self.settings.set("runtime/configuration", persistent_configuration(self.stations["1"]))
@@ -3397,6 +3709,7 @@ class HeadlessBackend:
             "runtime/stations",
             {sid: persistent_configuration(st) for sid, st in self.stations.items()},
         )
+        self.settings.set("runtime/deviceProfiles", self.device_profiles)
 
     def ping(self) -> dict[str, Any]:
         return {"status": "ok", "mode": self.mode}
@@ -3481,6 +3794,37 @@ class HeadlessBackend:
         target_station = self.stations[target_station_id]
         previous_kind = target_station.power_supply_kind
         target_station.configure(params)
+        if "powerMeterResource" in params:
+            selected_resource = str(target_station.configuration.get("powerMeterResource", "")).strip()
+            option = next(
+                (item for item in self.power_meter_options if item.resource == selected_resource),
+                None,
+            )
+            if option is not None:
+                self._bind_power_meter_option(
+                    target_station,
+                    option,
+                    restore_gain="softwareGain" not in params,
+                )
+            elif not selected_resource:
+                target_station.configuration["powerMeterSerialNumber"] = ""
+        if "softwareGain" in params:
+            self._remember_power_meter_profile(target_station)
+
+        if "spectrometerResource" in params:
+            selected_resource = str(target_station.configuration.get("spectrometerResource", ""))
+            resource = next(
+                (item for item in self.spectrometer_resources if item.get("label") == selected_resource),
+                None,
+            )
+            if resource is not None:
+                target_station.configuration["spectrometerDeviceId"] = int(resource["deviceId"])
+                target_station.configuration["spectrometerSerialNumber"] = _normalize_device_serial(
+                    resource.get("serialNumber")
+                )
+            elif not selected_resource:
+                target_station.configuration["spectrometerDeviceId"] = None
+                target_station.configuration["spectrometerSerialNumber"] = ""
         current_kind = target_station.power_supply_kind
         if previous_kind == "ch341" and current_kind == "tdk" and not any(
             st.power_supply_kind == "ch341" and st.power_supply_controller is not None
@@ -3547,6 +3891,7 @@ class HeadlessBackend:
                     self.ch341_descriptors = list(devices)
                     self.ch341_discovery_state = "ready" if devices else "empty"
                     self.ch341_scan_error = ""
+                    self._select_ch341_after_scan(station, devices)
                     self.power_supply_detection_detail = f"识别完成：发现 {len(devices)} 个 CH341 设备"
             if kind == "ch341":
                 self.notify(
@@ -3595,11 +3940,17 @@ class HeadlessBackend:
         def on_detected(options: list[PowerMeterOption]) -> None:
             with self._lock:
                 self.power_meter_options = list(options)
+                self._rebind_remembered_power_meters(options)
+                self._select_power_meter_after_scan(
+                    self.stations[target_station_id],
+                    options,
+                )
                 self.power_meter_detection_detail = (
                     f"识别完成：发现 {len(options)} 台兼容功率计"
                     if options
                     else "识别完成：未找到兼容功率计，请检查 USB/串口连接与驱动"
                 )
+                self._persist_configuration()
         def on_finished() -> None:
             with self._lock:
                 self.power_meter_detect_thread = None
@@ -3628,24 +3979,37 @@ class HeadlessBackend:
             self.spectrometer_detection_detail = "正在准备光谱仪识别"
             self.spectrometer_detection_station_id = target_station_id
 
-        def discover(report: Callable[[str], None]) -> list[int]:
+        def discover(report: Callable[[str], None]) -> list[dict[str, Any]]:
             report("正在加载 Ocean Insight 驱动")
             spectrometer_class, _ = load_spectrometer_components(None)
             report("正在扫描 Ocean Insight USB 设备")
-            return [int(value) for value in spectrometer_class.detect()]
+            return [dict(value) for value in spectrometer_class.detect_devices()]
 
         thread = _DeviceDiscoveryThread(discover)
         with self._lock:
             self.spectrometer_detect_thread = thread
 
-        def on_completed(device_ids: list[int]) -> None:
+        def on_completed(devices: list[dict[str, Any]]) -> None:
             resources = [
-                {"label": f"Ocean Insight | 设备 ID {device_id}", "deviceId": device_id}
-                for device_id in device_ids
+                {
+                    "label": _spectrometer_label(
+                        int(device["deviceId"]),
+                        str(device.get("serialNumber", "")),
+                    ),
+                    "deviceId": int(device["deviceId"]),
+                    "serialNumber": _normalize_device_serial(device.get("serialNumber")),
+                }
+                for device in devices
             ]
             with self._lock:
                 self.spectrometer_resources = resources
-                self.spectrometer_detection_detail = f"识别完成：发现 {len(device_ids)} 台光谱仪"
+                self._rebind_remembered_spectrometers(resources)
+                self._select_spectrometer_after_scan(
+                    self.stations[target_station_id],
+                    resources,
+                )
+                self.spectrometer_detection_detail = f"识别完成：发现 {len(devices)} 台光谱仪"
+                self._persist_configuration()
 
         def on_status(message: str) -> None:
             with self._lock:

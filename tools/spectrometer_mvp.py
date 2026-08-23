@@ -57,12 +57,22 @@ class OceanSpectrometer:
 
     @staticmethod
     def detect() -> list[int]:
+        return [item["deviceId"] for item in OceanSpectrometer.detect_devices()]
+
+    @staticmethod
+    def detect_devices() -> list[dict[str, int | str]]:
         control = OceanDirectControl()
         try:
             state = control.find_usb_devices()
             if state == -1:
                 return []
-            return list(control.get_device_ids())
+            return [
+                {
+                    "deviceId": int(device_id),
+                    "serialNumber": control.get_serial_number(int(device_id)),
+                }
+                for device_id in control.get_device_ids()
+            ]
         finally:
             try:
                 control.close_device()

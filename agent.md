@@ -83,16 +83,33 @@ or `python -m tools.pd_daq_mvp --help`.
 - Ophir power meters are discovered independently through the StarLab
   `OphirLMMeasurement.CoLMMeasurement` USB/COM interface.
 - Supported power-meter probing tries Caihuang first (`$TES`, then optionally `$VER`),
-  then LaserPoint (`*SERNU:` at 38400 baud) on ports that did not match Caihuang,
-  and finally scans Ophir USB devices.
+  then Coherent PowerMax, then LaserPoint (`*SERNU:` at 38400 baud) on ports that
+  did not match an earlier driver, and finally scans Ophir USB devices.
 - Detected power meters are shown as either:
-  `Caihuang CHLP-P | ASRLx::INSTR | OK...` or
-  `LaserPoint | ASRLx::INSTR | SN ...` or
-  `Ophir USB | OPHIR::USB::<serial> | USB SN ...`.
+  `Caihuang CHLP-P | ASRLx::INSTR | OK... | HIN ... | 增益身份：探头 SN ...` or
+  `LaserPoint | ASRLx::INSTR | 探头 SN ...` or
+  `Coherent PowerMax | ASRLx::INSTR | ... | 表头 SN ... | 探头 SN ...` or
+  `Ophir USB | OPHIR::USB::<meter-serial> | USB 表头 SN ... | 探头 SN ...`.
 - If multiple power meters are detected, choose the target meter from the Power Meter device combo box before starting the test.
-- Spectrometers are discovered through OceanDirect `find_usb_devices()` and `get_device_ids()`.
-- The exposed OceanDirect wrapper does not provide model or serial-number methods, so spectrometers are shown as:
-  `Ocean Insight | device id <id>`
+- App startup restores the last power-meter and spectrometer selections from
+  their persisted SN identities without scanning hardware. Starting acquisition
+  validates the remembered power-meter probe SN and resolves the current
+  OceanDirect device ID from the remembered spectrometer SN. The explicit
+  `识别` action always performs a complete scan and lists every compatible power
+  meter currently found. After any explicit scan, keep the remembered SN match
+  selected when available; otherwise select the first free power meter, CH341
+  physical port, or spectrometer automatically.
+- Power-meter gain identities are persisted by probe/head SN. Caihuang uses
+  `$HIN`, Coherent uses `SYSTem:INFormation:PROBe:SNUMber?`, LaserPoint uses
+  `*SERNU`, and Ophir uses StarLab COM `GetSensorInfo()`. Meter SN and resource
+  names remain connection identities only. Software gain is restored only after
+  the same driver and probe/head SN are found again.
+- Spectrometers are discovered through OceanDirect `find_usb_devices()`,
+  `get_device_ids()`, and `get_serial_number()` and are shown as:
+  `Ocean Insight | 设备 ID <id> | SN <serial>`.
+- OceanDirect device IDs are process-local handles. Persist the spectrometer SN
+  and resolve its current device ID after discovery instead of treating the ID
+  as stable identity.
 - If multiple spectrometers are detected, choose the target device id from the Spectrometer device combo box before starting the test.
 
 ## Recording

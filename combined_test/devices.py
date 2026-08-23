@@ -249,9 +249,15 @@ def extract_power_resource_name(value: str) -> str:
     return serial_match.group(0) if serial_match is not None else normalized
 
 
-def open_spectrometer_device(spectrometer: Any, selected_device_id: int | None) -> int:
+def open_spectrometer_device(
+    spectrometer: Any,
+    selected_device_id: int | None,
+    selected_serial_number: str = "",
+) -> int:
+    expected_serial = str(selected_serial_number).strip().upper()
     if selected_device_id is None:
-        return int(spectrometer.open_first())
+        if not expected_serial:
+            return int(spectrometer.open_first())
 
     spectrometer.control.find_usb_devices()
     device_ids = [int(item) for item in spectrometer.control.get_device_ids()]
@@ -260,6 +266,23 @@ def open_spectrometer_device(spectrometer: Any, selected_device_id: int | None) 
             "OceanDirect 未检测到光谱仪。请确认设备已连接、未被其他程序占用，"
             "然后重新插拔 USB 后重试。"
         )
+
+    if expected_serial:
+        matching_ids = [
+            device_id
+            for device_id in device_ids
+            if str(spectrometer.control.get_serial_number(device_id)).strip().upper()
+            == expected_serial
+        ]
+        if len(matching_ids) != 1:
+            if not matching_ids:
+                raise RuntimeError(
+                    f"未找到已记住的光谱仪 SN {expected_serial}，请重新识别光谱仪"
+                )
+            raise RuntimeError(
+                f"光谱仪 SN {expected_serial} 对应多个设备，无法安全选择"
+            )
+        selected_device_id = matching_ids[0]
 
     if int(selected_device_id) not in device_ids:
         if len(device_ids) != 1:
@@ -358,12 +381,17 @@ class PowerMeterDetectThread(WorkerThread):
                     result = meter_class.probe(resource, timeout_ms=POWER_METER_PROBE_TIMEOUT_MS)
                     if result is None:
                         continue
+                    serial_number = str(getattr(result, "serial_number", "")).strip().upper()
+                    detail = result.detail
+                    if not serial_number:
+                        detail = f"{detail} | 未读取到硬件 SN（无法按设备记忆增益）"
                     options.append(
                         PowerMeterOption(
                             resource=result.resource,
                             device_type=result.device_type,
-                            detail=result.detail,
+                            detail=detail,
                             driver_kind=result.driver_kind,
+                            serial_number=serial_number,
                         )
                     )
                     break
@@ -382,6 +410,9 @@ class PowerMeterDetectThread(WorkerThread):
                                 device_type=result.device_type,
                                 detail=result.detail,
                                 driver_kind=result.driver_kind,
+                                serial_number=(
+                                    str(getattr(result, "serial_number", "")).strip().upper()
+                                ),
                             )
                         )
             if not self._stop_requested.is_set():
@@ -462,6 +493,19 @@ class PowerMeterReaderThread(WorkerThread):
             meter = meter_class(self.settings.resource)
             if meter.test() != "OK":
                 raise RuntimeError("功率计自检未返回 OK")
+            expected_serial = str(self.settings.serial_number).strip().upper()
+            actual_serial = str(
+                getattr(meter, "probe_serial_number", "")
+            ).strip().upper()
+            if expected_serial and actual_serial != expected_serial:
+                if not actual_serial:
+                    raise RuntimeError(
+                        "功率计未返回探头 SN，无法确认是否为已记住的探头；请重新识别功率计"
+                    )
+                raise RuntimeError(
+                    f"功率计探头已变化：已记住 {expected_serial}，当前 {actual_serial}；"
+                    "请重新识别功率计"
+                )
             if self.settings.driver_kind in {"laserpoint", "coherent"}:
                 meter.set_power_mode()
             if self.settings.driver_kind == "laserpoint":
@@ -835,7 +879,11 @@ class SpectrometerReaderThread(WorkerThread):
             for attempt in range(2):
                 try:
                     spectrometer = OceanSpectrometer()
-                    device_id = open_spectrometer_device(spectrometer, self.settings.device_id)
+                    device_id = open_spectrometer_device(
+                        spectrometer,
+                        self.settings.device_id,
+                        self.settings.serial_number,
+                    )
                     minimum_integration_us = int(
                         getattr(spectrometer, "get_minimum_integration_time", lambda: 1)()
                     )

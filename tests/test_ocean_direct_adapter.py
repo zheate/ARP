@@ -58,6 +58,12 @@ class FakeOceanDirectApi:
             ids[index] = device_id
         return len(self.device_ids)
 
+    def odapi_get_serial_number(self, device_id: int, err, buffer, _length: int) -> int:
+        value = f"OCEAN-{int(device_id)}".encode("utf-8")
+        buffer.value = value
+        err[0] = 0
+        return len(value)
+
     def odapi_open_device(self, device_id: int, err) -> None:
         err[0] = self.open_error
         self.opened_device_ids.append(int(device_id))
@@ -108,6 +114,14 @@ class FakeOceanDirectApi:
 
 
 class OceanDirectControlTests(unittest.TestCase):
+    def test_reads_stable_device_serial_number(self) -> None:
+        api = FakeOceanDirectApi()
+        control = OceanDirectControl(api=api)
+        try:
+            self.assertEqual(control.get_serial_number(101), "OCEAN-101")
+        finally:
+            control.shutdown()
+
     def tearDown(self) -> None:
         with _GLOBAL_SESSIONS_LOCK:
             _GLOBAL_SESSIONS.clear()

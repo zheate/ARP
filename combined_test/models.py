@@ -33,6 +33,7 @@ class PowerMeterOption:
     device_type: str
     detail: str
     driver_kind: str = "caihuang"
+    serial_number: str = ""
 
     def label(self) -> str:
         parts = (self.device_type, self.resource, self.detail)
@@ -69,6 +70,7 @@ class PowerMeterSettings:
     stable_window_s: float
     stable_tolerance_w: float
     driver_kind: str = "caihuang"
+    serial_number: str = ""
 
 
 @dataclass(frozen=True)
@@ -80,6 +82,7 @@ class SpectrometerSettings:
     average_frames: int = 1
     pib_center_wavelength_nm: float = 976.0
     pib_half_range_nm: float = 1.5
+    serial_number: str = ""
 
 
 @dataclass(frozen=True)

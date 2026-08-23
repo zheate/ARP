@@ -278,7 +278,7 @@ class DualStationRuntimeTests(unittest.TestCase):
 
         self.assertEqual(station.series_revisions["pd"], 7)
 
-    def test_persisted_runtime_device_identities_are_discarded_for_both_stations(self) -> None:
+    def test_persisted_runtime_device_identities_are_restored_for_both_stations(self) -> None:
         settings_path = Path(self.temp_dir.name) / "duplicate-settings.json"
         settings = JsonSettings(settings_path)
         settings.set(
@@ -301,22 +301,23 @@ class DualStationRuntimeTests(unittest.TestCase):
         )
         backend = HeadlessBackend(settings)
         try:
-            for station in backend.stations.values():
-                self.assertEqual(station.configuration["powerMeterResource"], "")
-                self.assertEqual(station.configuration["powerMeterDriverKind"], "caihuang")
-                self.assertEqual(station.configuration["spectrometerResource"], "")
-                self.assertIsNone(station.configuration["spectrometerDeviceId"])
+            station_one = backend.stations["1"].configuration
+            station_two = backend.stations["2"].configuration
+            self.assertEqual(station_one["powerMeterResource"], "ASRL3::INSTR")
+            self.assertEqual(station_one["powerMeterDriverKind"], "coherent")
+            self.assertEqual(station_one["spectrometerDeviceId"], 5)
+            self.assertEqual(station_two["powerMeterResource"], "OPHIR::USB::3103403")
+            self.assertEqual(station_two["powerMeterDriverKind"], "ophir")
+            self.assertEqual(station_two["spectrometerDeviceId"], 7)
             self.assertEqual(backend.stations["1"].configuration["integrationTimeUs"], 12345)
 
             persisted = settings.get("runtime/stations")
-            for config in persisted.values():
-                self.assertEqual(config["powerMeterResource"], "")
-                self.assertEqual(config["spectrometerResource"], "")
-                self.assertIsNone(config["spectrometerDeviceId"])
+            self.assertEqual(persisted["1"]["powerMeterResource"], "ASRL3::INSTR")
+            self.assertEqual(persisted["2"]["spectrometerDeviceId"], 7)
         finally:
             backend.export_worker.graceful_stop(timeout_s=5.0)
 
-    def test_loaded_power_meter_identity_is_not_restored(self) -> None:
+    def test_loaded_power_meter_identity_is_normalized_and_restored(self) -> None:
         settings = JsonSettings(Path(self.temp_dir.name) / "ophir-settings.json")
         settings.set(
             "runtime/stations",
@@ -330,26 +331,188 @@ class DualStationRuntimeTests(unittest.TestCase):
         backend = HeadlessBackend(settings)
         try:
             config = backend.stations["1"].configuration
-            self.assertEqual(config["powerMeterResource"], "")
-            self.assertEqual(config["powerMeterDriverKind"], "caihuang")
+            self.assertEqual(config["powerMeterResource"], "OPHIR::USB::3103403")
+            self.assertEqual(config["powerMeterDriverKind"], "ophir")
             persisted = settings.get("runtime/stations")["1"]
-            self.assertEqual(persisted["powerMeterResource"], "")
-            self.assertEqual(persisted["powerMeterDriverKind"], "caihuang")
+            self.assertEqual(persisted["powerMeterResource"], "OPHIR::USB::3103403")
+            self.assertEqual(persisted["powerMeterDriverKind"], "ophir")
         finally:
             backend.export_worker.graceful_stop(timeout_s=5.0)
 
     def test_configuring_ophir_resource_synchronizes_driver_kind(self) -> None:
+        self.backend.power_meter_options = [
+            PowerMeterOption(
+                resource="OPHIR::USB::METER123",
+                device_type="Ophir USB",
+                detail="USB 表头 SN METER123 | 探头 SN PROBE456",
+                driver_kind="ophir",
+                serial_number="PROBE456",
+            )
+        ]
         self.backend.dispatch(
             "app.configure",
             {
                 "stationId": "1",
-                "powerMeterResource": "Ophir USB | OPHIR::USB::ABC123 | USB SN ABC123",
+                "powerMeterResource": (
+                    "Ophir USB | OPHIR::USB::METER123 | "
+                    "USB 表头 SN METER123 | 探头 SN PROBE456"
+                ),
             },
         )
 
         config = self.backend.stations["1"].configuration
-        self.assertEqual(config["powerMeterResource"], "OPHIR::USB::ABC123")
+        self.assertEqual(config["powerMeterResource"], "OPHIR::USB::METER123")
         self.assertEqual(config["powerMeterDriverKind"], "ophir")
+        self.assertEqual(config["powerMeterSerialNumber"], "PROBE456")
+
+    def test_power_meter_gain_is_restored_only_for_the_same_serial_number(self) -> None:
+        meter_a = PowerMeterOption(
+            resource="ASRL3::INSTR",
+            device_type="Caihuang CHLP-P",
+            detail="OK | 增益身份：探头 SN PROBE-A",
+            serial_number="PROBE-A",
+        )
+        meter_b = PowerMeterOption(
+            resource="ASRL7::INSTR",
+            device_type="Caihuang CHLP-P",
+            detail="OK | 增益身份：探头 SN PROBE-B",
+            serial_number="PROBE-B",
+        )
+        self.backend.power_meter_options = [meter_a, meter_b]
+
+        self.backend.dispatch(
+            "app.configure",
+            {"stationId": "1", "powerMeterResource": meter_a.resource, "softwareGain": 1.23},
+        )
+        self.backend.dispatch(
+            "app.configure",
+            {"stationId": "1", "powerMeterResource": meter_b.resource},
+        )
+        self.assertEqual(self.backend.stations["1"].configuration["softwareGain"], 1.0)
+
+        self.backend.dispatch(
+            "app.configure",
+            {"stationId": "1", "powerMeterResource": meter_b.resource, "softwareGain": 0.98},
+        )
+        self.backend.dispatch(
+            "app.configure",
+            {"stationId": "1", "powerMeterResource": meter_a.resource},
+        )
+        config = self.backend.stations["1"].configuration
+        self.assertEqual(config["powerMeterSerialNumber"], "PROBE-A")
+        self.assertEqual(config["softwareGain"], 1.23)
+
+    def test_remembered_serial_rebinds_power_meter_to_its_current_port(self) -> None:
+        station = self.backend.stations["1"]
+        station.configuration.update(
+            {
+                "powerMeterResource": "ASRL3::INSTR",
+                "powerMeterDriverKind": "caihuang",
+                "powerMeterSerialNumber": "PROBE-A",
+                "softwareGain": 1.0,
+            }
+        )
+        self.backend.device_profiles["powerMeters"]["caihuang:PROBE-A"] = {
+            "serialNumber": "PROBE-A",
+            "driverKind": "caihuang",
+            "softwareGain": 1.37,
+        }
+        moved_meter = PowerMeterOption(
+            resource="ASRL11::INSTR",
+            device_type="Caihuang CHLP-P",
+            detail="OK | 增益身份：探头 SN PROBE-A",
+            serial_number="PROBE-A",
+        )
+
+        self.backend._rebind_remembered_power_meters([moved_meter])
+
+        self.assertEqual(station.configuration["powerMeterResource"], "ASRL11::INSTR")
+        self.assertEqual(station.configuration["softwareGain"], 1.37)
+
+    def test_ophir_probe_gain_survives_a_meter_head_change(self) -> None:
+        station = self.backend.stations["1"]
+        station.configuration.update(
+            {
+                "powerMeterResource": "OPHIR::USB::OLD-METER",
+                "powerMeterDriverKind": "ophir",
+                "powerMeterSerialNumber": "PROBE-009",
+                "softwareGain": 1.0,
+            }
+        )
+        self.backend.device_profiles["powerMeters"]["ophir:PROBE-009"] = {
+            "serialNumber": "PROBE-009",
+            "driverKind": "ophir",
+            "softwareGain": 0.87,
+        }
+        same_probe_on_new_meter = PowerMeterOption(
+            resource="OPHIR::USB::NEW-METER",
+            device_type="Ophir USB",
+            detail="USB 表头 SN NEW-METER | 探头 SN PROBE-009",
+            driver_kind="ophir",
+            serial_number="PROBE-009",
+        )
+
+        self.backend._rebind_remembered_power_meters([same_probe_on_new_meter])
+
+        self.assertEqual(station.configuration["powerMeterResource"], "OPHIR::USB::NEW-METER")
+        self.assertEqual(station.configuration["powerMeterSerialNumber"], "PROBE-009")
+        self.assertEqual(station.configuration["softwareGain"], 0.87)
+
+    def test_remembered_spectrometer_serial_rebinds_new_oceandirect_id(self) -> None:
+        station = self.backend.stations["1"]
+        station.configuration.update(
+            {
+                "spectrometerResource": "Ocean Insight | 设备 ID 5 | SN OCEAN-A",
+                "spectrometerDeviceId": 5,
+                "spectrometerSerialNumber": "OCEAN-A",
+            }
+        )
+        resources = [
+            {
+                "label": "Ocean Insight | 设备 ID 19 | SN OCEAN-A",
+                "deviceId": 19,
+                "serialNumber": "OCEAN-A",
+            }
+        ]
+
+        self.backend._rebind_remembered_spectrometers(resources)
+
+        self.assertEqual(station.configuration["spectrometerDeviceId"], 19)
+        self.assertEqual(station.configuration["spectrometerResource"], resources[0]["label"])
+
+    def test_startup_restores_remembered_devices_without_scanning_hardware(self) -> None:
+        station_two = self.backend.stations["2"]
+        station_two.configuration.update(
+            {
+                "powerMeterResource": "ASRL8::INSTR",
+                "powerMeterDriverKind": "coherent",
+                "powerMeterSerialNumber": "PROBE-B",
+                "spectrometerResource": "Ocean Insight | 设备 ID 5 | SN OCEAN-B",
+                "spectrometerDeviceId": 5,
+                "spectrometerSerialNumber": "OCEAN-B",
+            }
+        )
+
+        with (
+            patch.object(self.backend, "_refresh_power_meter") as refresh_power_meter,
+            patch.object(self.backend, "_refresh_spectrometer") as refresh_spectrometer,
+        ):
+            self.backend.start_remembered_device_discovery()
+
+        refresh_power_meter.assert_not_called()
+        refresh_spectrometer.assert_not_called()
+        self.assertEqual(len(self.backend.power_meter_options), 1)
+        self.assertEqual(self.backend.power_meter_options[0].serial_number, "PROBE-B")
+        self.assertEqual(
+            self.backend.spectrometer_resources,
+            [
+                {
+                    "label": "Ocean Insight | 设备 ID 5 | SN OCEAN-B",
+                    "deviceId": 5,
+                    "serialNumber": "OCEAN-B",
+                }
+            ],
+        )
 
     def test_hardware_commands_target_specific_station(self) -> None:
         ctrl1 = _FakeController()
@@ -661,7 +824,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         }
         self.assertIn(occupied_location, station_one_paths)
 
-    def test_spectrometer_open_updates_runtime_but_not_persisted_identity(self) -> None:
+    def test_spectrometer_open_updates_and_persists_identity(self) -> None:
         station = self.backend.stations["1"]
         station.configuration["spectrometerDeviceId"] = 5
         station.configuration["spectrometerResource"] = "Ocean Insight | 设备 ID 5"
@@ -678,20 +841,28 @@ class DualStationRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(
             self.backend.spectrometer_resources,
-            [{"label": "Ocean Insight | 设备 ID 7", "deviceId": 7}],
+            [{"label": "Ocean Insight | 设备 ID 7", "deviceId": 7, "serialNumber": ""}],
         )
         self.backend._persist_configuration()
         persisted = self.backend.settings.get("runtime/stations")
-        self.assertEqual(persisted["1"]["spectrometerResource"], "")
-        self.assertIsNone(persisted["1"]["spectrometerDeviceId"])
+        self.assertEqual(persisted["1"]["spectrometerResource"], "Ocean Insight | 设备 ID 7")
+        self.assertEqual(persisted["1"]["spectrometerDeviceId"], 7)
         self.assertIn("原设备 ID 5 已失效", self.backend.notices[-1]["message"])
 
-    def test_power_meter_detection_lists_devices_without_selecting_or_persisting(self) -> None:
+    def test_power_meter_detection_selects_first_device_and_persists_it(self) -> None:
         option = PowerMeterOption(
             resource="OPHIR::USB::3103403",
             device_type="Ophir USB",
-            detail="USB SN 3103403",
+            detail="USB 表头 SN 3103403 | 探头 SN PROBE-001",
             driver_kind="ophir",
+            serial_number="PROBE-001",
+        )
+        second_option = PowerMeterOption(
+            resource="ASRL9::INSTR",
+            device_type="LaserPoint",
+            detail="探头 SN 654321",
+            driver_kind="laserpoint",
+            serial_number="654321",
         )
         instances = []
 
@@ -724,22 +895,24 @@ class DualStationRuntimeTests(unittest.TestCase):
         other_station_snapshot = self.backend.snapshot({"stationId": "2"})
         self.assertFalse(other_station_snapshot["devices"]["powerMeter"]["detecting"])
         self.assertEqual(other_station_snapshot["devices"]["powerMeter"]["detail"], "已停止")
-        instances[0].detected.emit([option])
+        instances[0].detected.emit([option, second_option])
         instances[0].finished.emit()
 
         runtime = self.backend.stations["1"].configuration
-        self.assertEqual(runtime["powerMeterResource"], "")
-        self.assertEqual(runtime["powerMeterDriverKind"], "caihuang")
+        self.assertEqual(runtime["powerMeterResource"], option.resource)
+        self.assertEqual(runtime["powerMeterDriverKind"], "ophir")
+        self.assertEqual(runtime["powerMeterSerialNumber"], "PROBE-001")
         persisted = self.backend.settings.get("runtime/stations")["1"]
-        self.assertEqual(persisted["powerMeterResource"], "")
-        self.assertEqual(persisted["powerMeterDriverKind"], "caihuang")
+        self.assertEqual(persisted["powerMeterResource"], option.resource)
+        self.assertEqual(persisted["powerMeterDriverKind"], "ophir")
+        self.assertEqual(persisted["powerMeterSerialNumber"], "PROBE-001")
         self.assertEqual(
             self.backend.snapshot({"stationId": "1"})["devices"]["powerMeter"]["resources"],
-            [option.label()],
+            [option.label(), second_option.label()],
         )
         self.assertEqual(
             self.backend.snapshot({"stationId": "1"})["devices"]["powerMeter"]["detail"],
-            "识别完成：发现 1 台兼容功率计",
+            "识别完成：发现 2 台兼容功率计",
         )
 
     def test_open_devices_are_removed_from_other_station_options(self) -> None:
@@ -828,6 +1001,79 @@ class DualStationRuntimeTests(unittest.TestCase):
         tdk_snapshot = self.backend.snapshot({"stationId": "2"})["devices"]["powerSupply"]
         self.assertFalse(tdk_snapshot["detecting"])
         self.assertEqual(tdk_snapshot["detail"], "未连接")
+
+    def test_ch341_detection_selects_device_zero_automatically(self) -> None:
+        instances = []
+
+        class FakeDiscoveryThread:
+            completed = Signal(object)
+            status = Signal(str)
+            failed = Signal(str)
+            finished = Signal()
+
+            def __init__(self, discover) -> None:
+                self.discover = discover
+                instances.append(self)
+
+            def start(self) -> None:
+                return None
+
+        descriptors = [
+            Ch341DeviceDescriptor(0, "iface-0", "PCIROOT(0)#USB(1)"),
+            Ch341DeviceDescriptor(1, "iface-1", "PCIROOT(0)#USB(2)"),
+        ]
+        with patch("tauri_bridge.headless_backend._DeviceDiscoveryThread", FakeDiscoveryThread):
+            self.backend.dispatch(
+                "device.refresh",
+                {"stationId": "1", "device": "powerSupply"},
+            )
+
+        instances[0].completed.emit(("ch341", descriptors))
+        instances[0].finished.emit()
+
+        self.assertEqual(
+            self.backend.stations["1"].configuration["ch341SelectedLocationPath"],
+            "PCIROOT(0)#USB(1)",
+        )
+
+    def test_spectrometer_detection_selects_first_device_automatically(self) -> None:
+        instances = []
+
+        class FakeDiscoveryThread:
+            completed = Signal(object)
+            status = Signal(str)
+            failed = Signal(str)
+            finished = Signal()
+
+            def __init__(self, discover) -> None:
+                self.discover = discover
+                instances.append(self)
+
+            def start(self) -> None:
+                return None
+
+        with patch("tauri_bridge.headless_backend._DeviceDiscoveryThread", FakeDiscoveryThread):
+            self.backend.dispatch(
+                "device.refresh",
+                {"stationId": "1", "device": "spectrometer"},
+            )
+
+        instances[0].completed.emit(
+            [
+                {"deviceId": 11, "serialNumber": "OCEAN-A"},
+                {"deviceId": 12, "serialNumber": "OCEAN-B"},
+            ]
+        )
+        instances[0].finished.emit()
+
+        config = self.backend.stations["1"].configuration
+        self.assertEqual(config["spectrometerDeviceId"], 11)
+        self.assertEqual(config["spectrometerSerialNumber"], "OCEAN-A")
+        self.assertEqual(
+            config["spectrometerResource"],
+            "Ocean Insight | 设备 ID 11 | SN OCEAN-A",
+        )
+        self.assertEqual(len(self.backend.spectrometer_resources), 2)
 
     def test_ch341_connection_opens_selected_index_at_20_khz(self) -> None:
         location = "PCIROOT(0)#USB(2)"

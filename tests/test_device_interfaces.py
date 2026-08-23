@@ -88,6 +88,31 @@ class DeviceInterfaceTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, r"设备 ID 5.*\[7, 9\]"):
             open_spectrometer_device(spectrometer, 5)
 
+    def test_remembered_spectrometer_serial_resolves_the_current_device_id(self) -> None:
+        class Control:
+            def __init__(self) -> None:
+                self.opened: list[int] = []
+
+            def find_usb_devices(self) -> None:
+                return None
+
+            def get_device_ids(self) -> list[int]:
+                return [7, 9]
+
+            def get_serial_number(self, device_id: int) -> str:
+                return {7: "OCEAN-A", 9: "OCEAN-B"}[device_id]
+
+            def open_device(self, device_id: int) -> None:
+                self.opened.append(device_id)
+
+        spectrometer = SimpleNamespace(control=Control(), device_id=None)
+
+        opened_id = open_spectrometer_device(spectrometer, 5, "OCEAN-B")
+
+        self.assertEqual(opened_id, 9)
+        self.assertEqual(spectrometer.device_id, 9)
+        self.assertEqual(spectrometer.control.opened, [9])
+
     def test_spectrum_frame_averager_emits_rolling_native_point_mean(self) -> None:
         averager = SpectrumFrameAverager(3)
         wavelength = [975.0, 976.0]

@@ -27,7 +27,8 @@ class FakeVisaInstrument:
         replies = {
             "*IDN?": "Coherent, Inc - PowerMax USB - V1.1",
             "SYSTem:INFormation:MODel?": '"PM150-50C"',
-            "SYSTem:INFormation:SNUMber?": '"123456"',
+            "SYSTem:INFormation:INSTrument:SNUMber?": '"METER123"',
+            "SYSTem:INFormation:PROBe:SNUMber?": '"PROBE456"',
             "CONFigure:MEASure?": "W",
             "CONFigure:WAVElength?": "976.5",
             "READ?": "1.23450E+01,0,1234",
@@ -52,6 +53,30 @@ class FakeVisaManager:
 
 
 class CoherentPowerMeterTests(unittest.TestCase):
+    def test_caihuang_probe_reads_head_and_probe_identity_with_hin(self) -> None:
+        class CaihuangInstrument(FakeVisaInstrument):
+            def query(self, command: str) -> str:
+                return {
+                    "$TES": "OK",
+                    "$VER": "V2.1",
+                    "$HIN": "$HIN=SN:HEAD001,PN:PROBE002",
+                }[command]
+
+        instrument = CaihuangInstrument()
+        manager = FakeVisaManager(instrument)
+        with (
+            patch.object(power_meter_mvp, "acquire_visa_resource_manager", return_value=manager),
+            patch.object(power_meter_mvp, "release_visa_resource_manager"),
+        ):
+            result = power_meter_mvp.CaihuangPowerMeter.probe("COM3", timeout_ms=250)
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.serial_number, "PROBE002")
+        self.assertIn("HIN SN:HEAD001,PN:PROBE002", result.detail)
+        self.assertIn("增益身份：探头 SN PROBE002", result.detail)
+        self.assertTrue(instrument.closed)
+
     def test_toolkit_free_reader_preserves_the_standalone_thread_contract(self) -> None:
         actions: list[object] = []
 
@@ -108,12 +133,36 @@ class CoherentPowerMeterTests(unittest.TestCase):
         self.assertEqual(result.device_type, "Coherent PowerMax")
         self.assertEqual(result.driver_kind, "coherent")
         self.assertIn("PM150-50C", result.detail)
-        self.assertIn("SN 123456", result.detail)
+        self.assertIn("表头 SN METER123", result.detail)
+        self.assertIn("探头 SN PROBE456", result.detail)
+        self.assertEqual(result.serial_number, "PROBE456")
         self.assertEqual(instrument.timeout, 250)
         self.assertEqual(instrument.baud_rate, 9600)
         self.assertEqual(instrument.data_bits, 8)
         self.assertEqual(instrument.write_termination, "\r")
         self.assertEqual(instrument.read_termination, "\r\n")
+        self.assertTrue(instrument.closed)
+
+    def test_laserpoint_probe_uses_head_serial_for_gain_identity(self) -> None:
+        class LaserPointInstrument(FakeVisaInstrument):
+            def query(self, command: str) -> str:
+                self.asserted_command = command
+                return "#SERNU 654321;"
+
+        instrument = LaserPointInstrument()
+        manager = FakeVisaManager(instrument)
+        with (
+            patch.object(power_meter_mvp, "acquire_visa_resource_manager", return_value=manager),
+            patch.object(power_meter_mvp, "release_visa_resource_manager"),
+        ):
+            result = power_meter_mvp.LaserPointPowerMeter.probe("COM9", timeout_ms=250)
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertEqual(result.serial_number, "654321")
+        self.assertEqual(result.detail, "探头 SN 654321")
+        self.assertEqual(instrument.asserted_command, "*SERNU")
+        self.assertEqual(instrument.baud_rate, 38400)
         self.assertTrue(instrument.closed)
 
     def test_adapter_sets_watts_and_wavelength_reads_power_and_controls_zero(self) -> None:

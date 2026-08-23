@@ -35,6 +35,7 @@ class ProbeResult:
     device_type: str
     detail: str
     driver_kind: str = "caihuang"
+    serial_number: str = ""
 
 
 def normalize_resource(name: str) -> str:
@@ -42,6 +43,27 @@ def normalize_resource(name: str) -> str:
     if value.startswith("COM") and value[3:].isdigit():
         return f"ASRL{value[3:]}::INSTR"
     return value
+
+
+def parse_caihuang_hin(raw: str) -> tuple[str, str]:
+    """Return the normalized $HIN response and its probe SN when identifiable."""
+    value = " ".join(str(raw).replace("\x00", " ").strip().split())
+    value = re.sub(r"^\$?HIN\s*[:=]?\s*", "", value, flags=re.IGNORECASE)
+    normalized = value.strip().upper()
+    if normalized in {"", "OK", "ERROR", "ERR", "FAIL", "UNSUPPORTED", "SNPN"}:
+        return "", ""
+    probe_patterns = (
+        r"(?:探头|PROBE|SENSOR)\s*(?:SN)?\s*[:=]\s*([^|,;\s]+)",
+        r"(?:PSN|PN|SNPN)\s*[:=]\s*([^|,;\s]+)",
+    )
+    for pattern in probe_patterns:
+        match = re.search(pattern, normalized, re.IGNORECASE)
+        if match is not None:
+            return normalized, match.group(1).strip().upper()
+    # Unknown vendor formats remain safe by using the full response. This may
+    # miss reuse across a head swap, but it cannot apply one probe's gain to a
+    # different head/probe combination.
+    return normalized, normalized
 
 
 def normalize_ophir_resource(name: str) -> str:
@@ -257,6 +279,7 @@ class CaihuangPowerMeter:
 
     def __init__(self, resource: str) -> None:
         self.resource = normalize_resource(resource)
+        self.probe_serial_number = ""
         self.rm = acquire_visa_resource_manager()
         self.inst = None
         try:
@@ -289,11 +312,19 @@ class CaihuangPowerMeter:
                         detail = f"OK, version {version}"
                 except Exception:
                     pass
+                hardware_identity = ""
+                try:
+                    hin_response, hardware_identity = parse_caihuang_hin(inst.query("$HIN"))
+                    if hardware_identity:
+                        detail = f"{detail} | HIN {hin_response} | 增益身份：探头 SN {hardware_identity}"
+                except Exception:
+                    pass
                 return ProbeResult(
                     normalize_resource(resource),
                     CaihuangPowerMeter.device_type,
                     detail,
                     CaihuangPowerMeter.driver_kind,
+                    hardware_identity,
                 )
         except Exception:
             return None
@@ -307,7 +338,15 @@ class CaihuangPowerMeter:
         return None
 
     def test(self) -> str:
-        return self.inst.query("$TES").strip()
+        reply = self.inst.query("$TES").strip()
+        if reply == "OK":
+            try:
+                _hin_response, self.probe_serial_number = parse_caihuang_hin(
+                    self.inst.query("$HIN")
+                )
+            except Exception:
+                self.probe_serial_number = ""
+        return reply
 
     def set_wavelength(self, wavelength_nm: float) -> None:
         reply = self.inst.query(f"$WAV={format_wavelength_nm(wavelength_nm)}").strip()
@@ -345,7 +384,8 @@ class CoherentPowerMeter:
         self.rm = acquire_visa_resource_manager()
         self.inst = None
         self.model_name = ""
-        self.serial_number = ""
+        self.instrument_serial_number = ""
+        self.probe_serial_number = ""
         try:
             self.inst = self.rm.open_resource(self.resource)
             configure_coherent(self.inst)
@@ -378,26 +418,40 @@ class CoherentPowerMeter:
                 return None
 
             model_name = ""
-            serial_number = ""
+            instrument_serial_number = ""
+            probe_serial_number = ""
             try:
                 model_name = _unquote_scpi_text(inst.query("SYSTem:INFormation:MODel?"))
             except Exception:
                 pass
             try:
-                serial_number = _unquote_scpi_text(inst.query("SYSTem:INFormation:SNUMber?"))
+                instrument_serial_number = _unquote_scpi_text(
+                    inst.query("SYSTem:INFormation:INSTrument:SNUMber?")
+                )
+            except Exception:
+                pass
+            try:
+                probe_serial_number = _unquote_scpi_text(
+                    inst.query("SYSTem:INFormation:PROBe:SNUMber?")
+                )
             except Exception:
                 pass
 
             detail_parts = []
             if model_name:
                 detail_parts.append(model_name)
-            if serial_number:
-                detail_parts.append(f"SN {serial_number}")
+            if instrument_serial_number:
+                detail_parts.append(f"表头 SN {instrument_serial_number}")
+            if probe_serial_number:
+                detail_parts.append(f"探头 SN {probe_serial_number}")
+            else:
+                detail_parts.append("未读取到探头 SN（无法按探头记忆增益）")
             return ProbeResult(
                 normalized_resource,
                 CoherentPowerMeter.device_type,
                 " | ".join(detail_parts) or identity,
                 CoherentPowerMeter.driver_kind,
+                probe_serial_number,
             )
         except Exception:
             return None
@@ -422,11 +476,17 @@ class CoherentPowerMeter:
         except Exception:
             self.model_name = ""
         try:
-            self.serial_number = _unquote_scpi_text(
-                self.inst.query("SYSTem:INFormation:SNUMber?")
+            self.instrument_serial_number = _unquote_scpi_text(
+                self.inst.query("SYSTem:INFormation:INSTrument:SNUMber?")
             )
         except Exception:
-            self.serial_number = ""
+            self.instrument_serial_number = ""
+        try:
+            self.probe_serial_number = _unquote_scpi_text(
+                self.inst.query("SYSTem:INFormation:PROBe:SNUMber?")
+            )
+        except Exception:
+            self.probe_serial_number = ""
         return "OK"
 
     def set_power_mode(self) -> None:
@@ -477,7 +537,7 @@ class LaserPointPowerMeter:
         self.resource = normalize_resource(resource)
         self.rm = acquire_visa_resource_manager()
         self.inst = None
-        self.serial_number = ""
+        self.probe_serial_number = ""
         try:
             self.inst = self.rm.open_resource(self.resource)
             configure_laserpoint(self.inst)
@@ -504,8 +564,9 @@ class LaserPointPowerMeter:
             return ProbeResult(
                 normalized_resource,
                 LaserPointPowerMeter.device_type,
-                f"SN {serial_number}",
+                f"探头 SN {serial_number}",
                 LaserPointPowerMeter.driver_kind,
+                serial_number,
             )
         except Exception:
             return None
@@ -518,7 +579,7 @@ class LaserPointPowerMeter:
             release_visa_resource_manager(rm)
 
     def test(self) -> str:
-        self.serial_number = query_laserpoint_serial(self.inst)
+        self.probe_serial_number = query_laserpoint_serial(self.inst)
         return "OK"
 
     def _setting_command(self, command: str) -> None:
@@ -593,7 +654,8 @@ class OphirPowerMeter:
 
     def __init__(self, resource: str = "") -> None:
         self.resource = normalize_ophir_resource(resource)
-        self.serial_number = ophir_serial_from_resource(self.resource)
+        self.meter_serial_number = ophir_serial_from_resource(self.resource)
+        self.probe_serial_number = ""
         self.channel = OPHIR_CHANNEL
         self.controller: Any | None = None
         self._pythoncom: Any | None = None
@@ -603,26 +665,42 @@ class OphirPowerMeter:
         try:
             self.controller, self._pythoncom = _create_ophir_controller()
             serial_numbers = self._scan_serial_numbers(self.controller)
-            if self.serial_number:
+            if self.meter_serial_number:
                 if not serial_numbers:
-                    raise RuntimeError(f"未检测到指定的 Ophir USB 设备：{self.serial_number}")
+                    raise RuntimeError(
+                        f"未检测到指定的 Ophir USB 设备：{self.meter_serial_number}"
+                    )
                 matching = next(
-                    (item for item in serial_numbers if item.upper() == self.serial_number.upper()),
-                    self.serial_number,
+                    (
+                        item
+                        for item in serial_numbers
+                        if item.upper() == self.meter_serial_number.upper()
+                    ),
+                    self.meter_serial_number,
                 )
-                if all(item.upper() != self.serial_number.upper() for item in serial_numbers):
-                    raise RuntimeError(f"未检测到指定的 Ophir USB 设备：{self.serial_number}")
-                self.serial_number = matching
+                if all(
+                    item.upper() != self.meter_serial_number.upper()
+                    for item in serial_numbers
+                ):
+                    raise RuntimeError(
+                        f"未检测到指定的 Ophir USB 设备：{self.meter_serial_number}"
+                    )
+                self.meter_serial_number = matching
             elif serial_numbers:
-                self.serial_number = serial_numbers[0]
-                self.resource = normalize_ophir_resource(self.serial_number)
+                self.meter_serial_number = serial_numbers[0]
+                self.resource = normalize_ophir_resource(self.meter_serial_number)
             else:
                 raise RuntimeError("未检测到 Ophir USB 功率计，请先连接设备并在 StarLab 中确认可见")
 
-            opened = self.controller.OpenUSBDevice(self.serial_number)
+            opened = self.controller.OpenUSBDevice(self.meter_serial_number)
             self.handle = int(_com_first_value(opened))
             if self.handle <= 0:
                 raise RuntimeError(f"Ophir USB 设备打开失败：句柄 {self.handle}")
+            self.probe_serial_number, _sensor_type, _sensor_name = self._sensor_info(
+                self.controller,
+                self.handle,
+                self.channel,
+            )
         except Exception:
             self.close()
             raise
@@ -638,6 +716,19 @@ class OphirPowerMeter:
         return serial_numbers
 
     @staticmethod
+    def _sensor_info(controller: Any, handle: int, channel: int) -> tuple[str, str, str]:
+        """Return probe serial, sensor type, and sensor name for one Ophir channel."""
+        serial_number, sensor_type, sensor_name = _com_outputs(
+            controller.GetSensorInfo(handle, channel),
+            3,
+        )
+        return (
+            str(serial_number or "").strip().upper(),
+            str(sensor_type or "").strip(),
+            str(sensor_name or "").strip(),
+        )
+
+    @staticmethod
     def probe_all(resource: str = "", timeout_ms: int = 1000) -> list[ProbeResult]:
         """Return all visible Ophir USB devices without opening a measurement stream."""
         del timeout_ms  # The StarLab COM API does not expose a probe timeout.
@@ -651,15 +742,52 @@ class OphirPowerMeter:
                 serial_numbers = [
                     item for item in serial_numbers if item.upper() == requested_serial.upper()
                 ]
-            return [
-                ProbeResult(
-                    normalize_ophir_resource(serial_number),
-                    OphirPowerMeter.device_type,
-                    f"USB SN {serial_number}",
-                    OphirPowerMeter.driver_kind,
+            results: list[ProbeResult] = []
+            for meter_serial_number in serial_numbers:
+                handle: int | None = None
+                probe_serial_number = ""
+                sensor_type = ""
+                sensor_name = ""
+                try:
+                    handle = int(
+                        _com_first_value(controller.OpenUSBDevice(meter_serial_number))
+                    )
+                    if handle <= 0:
+                        raise RuntimeError(f"Ophir USB 设备打开失败：句柄 {handle}")
+                    probe_serial_number, sensor_type, sensor_name = OphirPowerMeter._sensor_info(
+                        controller,
+                        handle,
+                        OPHIR_CHANNEL,
+                    )
+                except Exception:
+                    probe_serial_number = ""
+                finally:
+                    if handle is not None and handle > 0:
+                        try:
+                            controller.Close(handle)
+                        except Exception:
+                            pass
+
+                detail_parts = [f"USB 表头 SN {meter_serial_number}"]
+                if probe_serial_number:
+                    detail_parts.append(f"探头 SN {probe_serial_number}")
+                    sensor_description = " ".join(
+                        value for value in (sensor_name, sensor_type) if value
+                    )
+                    if sensor_description:
+                        detail_parts.append(sensor_description)
+                else:
+                    detail_parts.append("未读取到探头 SN（无法按探头记忆增益）")
+                results.append(
+                    ProbeResult(
+                        normalize_ophir_resource(meter_serial_number),
+                        OphirPowerMeter.device_type,
+                        " | ".join(detail_parts),
+                        OphirPowerMeter.driver_kind,
+                        probe_serial_number,
+                    )
                 )
-                for serial_number in serial_numbers
-            ]
+            return results
         except Exception:
             # Ophir is an optional USB device. A missing StarLab/COM install or
             # an unplugged meter must not prevent VISA meters from being found.

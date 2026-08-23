@@ -100,10 +100,12 @@ export interface AppConfiguration {
   setCurrentA: number
   tdkVoltageV: number
   powerMeterResource: string
+  powerMeterSerialNumber: string
   powerMeterWavelengthNm: number
   softwareGain: number
   powerMeterIntervalMs: number
   spectrometerResource: string
+  spectrometerSerialNumber: string
   integrationTimeUs: number
   autoIntegration: boolean
   spectrometerIntervalMs: number
