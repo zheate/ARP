@@ -792,7 +792,6 @@ class SpectrometerReaderThread(WorkerThread):
         annotations = (
             find_spectrum_peak_annotations(
                 zip(wavelength, intensity),
-                stats=stats,
                 smsr_result=smsr,
             )
             if smsr is not None

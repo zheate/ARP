@@ -8,7 +8,7 @@ export type CanvasChartLine = {
   yAxisId?: "left" | "right"
   showPoints?: boolean
   showLatestPoint?: boolean
-  latestPointStyle?: "point" | "paper-plane"
+  latestPointStyle?: "point" | "paper-plane" | "paw"
   pointShape?: "circle" | "triangle"
   pointStyle?: "solid" | "hollow"
   pointSize?: number
@@ -22,6 +22,21 @@ export type CanvasChartAnnotation = {
   label: string
   x: number
   y: number
+  color?: string
+}
+
+export type CanvasChartAnnotationLegendItem = {
+  label: string
+  color: string
+  value: string
+}
+
+export type CanvasChartWidthAnnotation = {
+  label: string
+  startX: number
+  endX: number
+  y: number
+  color: string
 }
 
 type NumericRow = Record<string, number | null>
@@ -44,6 +59,8 @@ type CanvasLineChartProps = {
   yMinimumLimit?: number
   rightYDomain?: [number, number]
   annotations?: CanvasChartAnnotation[]
+  annotationLegend?: CanvasChartAnnotationLegendItem[]
+  widthAnnotations?: CanvasChartWidthAnnotation[]
   ariaLabel: string
   preserveAllPoints?: boolean
   tightInsets?: boolean
@@ -391,6 +408,48 @@ function drawPaperPlane(
   context.restore()
 }
 
+function drawPawPrint(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  color: string,
+  size: number,
+): void {
+  const scale = size / 18
+  context.save()
+  context.translate(x, y)
+  context.scale(scale, scale)
+  context.fillStyle = color
+  context.strokeStyle = "hsl(42 7% 25%)"
+  context.lineWidth = 1.1
+  context.shadowColor = color
+  context.shadowBlur = 4
+
+  const toes = [
+    { x: -5.3, y: -3.2, radius: 1.8 },
+    { x: -1.8, y: -5.2, radius: 1.9 },
+    { x: 1.8, y: -5.2, radius: 1.9 },
+    { x: 5.3, y: -3.2, radius: 1.8 },
+  ]
+  for (const toe of toes) {
+    context.beginPath()
+    context.arc(toe.x, toe.y, toe.radius, 0, Math.PI * 2)
+    context.fill()
+    context.stroke()
+  }
+
+  context.beginPath()
+  context.moveTo(0, -0.7)
+  context.bezierCurveTo(2.5, -0.7, 4.8, 1.4, 4.4, 3.5)
+  context.bezierCurveTo(4, 5.5, 1.8, 5.5, 0, 4.4)
+  context.bezierCurveTo(-1.8, 5.5, -4, 5.5, -4.4, 3.5)
+  context.bezierCurveTo(-4.8, 1.4, -2.5, -0.7, 0, -0.7)
+  context.closePath()
+  context.fill()
+  context.stroke()
+  context.restore()
+}
+
 function drawBaseChart(
   canvas: HTMLCanvasElement,
   container: HTMLDivElement,
@@ -401,6 +460,7 @@ function drawBaseChart(
   xKey: string,
   lines: CanvasChartLine[],
   annotations: CanvasChartAnnotation[],
+  widthAnnotations: CanvasChartWidthAnnotation[],
   xLabel?: string,
   xTickSuffix?: string,
   yLabel?: string,
@@ -516,10 +576,55 @@ function drawBaseChart(
     }
   }
 
+  widthAnnotations.forEach((annotation) => {
+    if (
+      !Number.isFinite(annotation.startX)
+      || !Number.isFinite(annotation.endX)
+      || !Number.isFinite(annotation.y)
+      || annotation.endX <= layout.x.min
+      || annotation.startX >= layout.x.max
+    ) return
+    const startX = mapX(Math.max(layout.x.min, annotation.startX), layout)
+    const endX = mapX(Math.min(layout.x.max, annotation.endX), layout)
+    const y = mapY(annotation.y, layout.leftY, layout)
+    if (y < layout.top || y > layout.top + layout.plotHeight) return
+
+    context.save()
+    context.strokeStyle = annotation.color
+    context.lineWidth = 1.5
+    context.setLineDash([5, 3])
+    context.beginPath()
+    context.moveTo(startX, y)
+    context.lineTo(endX, y)
+    context.stroke()
+    context.setLineDash([])
+    context.beginPath()
+    context.moveTo(startX, y - 5)
+    context.lineTo(startX, y + 5)
+    context.moveTo(endX, y - 5)
+    context.lineTo(endX, y + 5)
+    context.stroke()
+
+    context.font = "600 11px 'ARP Interface', 'DIN', 'MiSans', sans-serif"
+    context.textAlign = "center"
+    context.textBaseline = "bottom"
+    const textWidth = context.measureText(annotation.label).width
+    const labelX = Math.min(
+      Math.max((startX + endX) / 2, layout.left + textWidth / 2 + 6),
+      layout.left + layout.plotWidth - textWidth / 2 - 6,
+    )
+    const labelY = Math.max(layout.top + 14, y - 6)
+    context.fillStyle = chartBackground
+    context.fillRect(labelX - textWidth / 2 - 5, labelY - 13, textWidth + 10, 15)
+    context.fillStyle = annotation.color
+    context.fillText(annotation.label, labelX, labelY)
+    context.restore()
+  })
+
   annotations.forEach((annotation) => {
     if (!Number.isFinite(annotation.x) || !Number.isFinite(annotation.y) || annotation.x < layout.x.min || annotation.x > layout.x.max) return
     const label = annotation.label.replace(/^PEAK\s*(\d+)$/i, "P$1").toUpperCase()
-    const color = label === "P1" ? "#ef4444" : label === "P2" ? "#f97316" : "#9ca3af"
+    const color = annotation.color ?? (label === "P1" ? "#3b82f6" : label === "P2" ? "#f97316" : "#9ca3af")
     const x = mapX(annotation.x, layout)
     const peakY = mapY(annotation.y, layout.leftY, layout)
     const triangleTipY = Math.max(layout.top + 10, peakY - 3)
@@ -564,6 +669,8 @@ function drawBaseChart(
         ? Math.atan2(latestPoint.y - previousPoint.y, latestPoint.x - previousPoint.x)
         : 0
       drawPaperPlane(context, latestPoint.x, latestPoint.y, line.color, line.pointSize ?? 15, angle)
+    } else if (line.latestPointStyle === "paw") {
+      drawPawPrint(context, latestPoint.x, latestPoint.y, line.color, line.pointSize ?? 18)
     } else {
       drawPoint(
         context,
@@ -647,7 +754,7 @@ function tooltipNumber(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }
 
-export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, annotations = [], ariaLabel, preserveAllPoints = false, tightInsets = false, xLabel, xTickSuffix, yLabel }: CanvasLineChartProps) {
+export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, annotations = [], annotationLegend = [], widthAnnotations = [], ariaLabel, preserveAllPoints = false, tightInsets = false, xLabel, xTickSuffix, yLabel }: CanvasLineChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const baseCanvasRef = useRef<HTMLCanvasElement>(null)
   const hoverCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -708,6 +815,7 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     xKey: string
     lines: CanvasChartLine[]
     annotations: CanvasChartAnnotation[]
+    widthAnnotations: CanvasChartWidthAnnotation[]
     xLabel?: string
     xTickSuffix?: string
     yLabel?: string
@@ -719,11 +827,11 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     const canvas = baseCanvasRef.current
     const container = containerRef.current
     if (!args || !canvas || !container || args.size.width <= 0 || args.size.height <= 0) return
-    drawBaseChart(canvas, container, args.size, args.layout, args.chartData, args.displayIndexes, args.xKey, args.lines, args.annotations, args.xLabel, args.xTickSuffix, args.yLabel)
+    drawBaseChart(canvas, container, args.size, args.layout, args.chartData, args.displayIndexes, args.xKey, args.lines, args.annotations, args.widthAnnotations, args.xLabel, args.xTickSuffix, args.yLabel)
   }, [])
 
   useEffect(() => {
-    baseDrawArgsRef.current = { size, layout, chartData, displayIndexes, xKey, lines, annotations, xLabel, xTickSuffix, yLabel }
+    baseDrawArgsRef.current = { size, layout, chartData, displayIndexes, xKey, lines, annotations, widthAnnotations, xLabel, xTickSuffix, yLabel }
     if (document.visibilityState === "hidden") {
       if (baseFrameRef.current !== null) {
         window.cancelAnimationFrame(baseFrameRef.current)
@@ -733,7 +841,7 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     } else if (baseFrameRef.current === null) {
       baseFrameRef.current = window.requestAnimationFrame(flushBaseDraw)
     }
-  }, [annotations, chartData, displayIndexes, layout, lines, size, xKey, xLabel, xTickSuffix, yLabel, flushBaseDraw])
+  }, [annotations, chartData, displayIndexes, layout, lines, size, widthAnnotations, xKey, xLabel, xTickSuffix, yLabel, flushBaseDraw])
 
   useEffect(() => () => {
     if (baseFrameRef.current !== null) window.cancelAnimationFrame(baseFrameRef.current)
@@ -809,6 +917,19 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     >
       <canvas aria-label={ariaLabel} className="absolute inset-0 size-full" ref={baseCanvasRef} role="img" />
       <canvas aria-hidden="true" className="pointer-events-none absolute inset-0 size-full" ref={hoverCanvasRef} />
+      {annotationLegend.length > 0 && (
+        <div aria-label="峰值图例" className="pointer-events-none absolute right-3 top-2 z-[1] flex min-w-[10.5rem] flex-col gap-1 rounded-md border border-border/55 bg-card/90 px-3 py-2 text-[11px] font-medium text-foreground/80 shadow-sm backdrop-blur-sm">
+          {annotationLegend.map((item) => (
+            <span className="grid grid-cols-[0.625rem_1fr_auto] items-center gap-1.5 whitespace-nowrap" key={item.label}>
+              <svg aria-hidden="true" className="size-2.5 overflow-visible" viewBox="0 0 10 10">
+                <path d="M0.5 1.5h9L5 9Z" fill={item.color} />
+              </svg>
+              <span>{item.label}</span>
+              <span className="text-right font-semibold tabular-nums text-foreground">{item.value}</span>
+            </span>
+          ))}
+        </div>
+      )}
       {hover && hoverRow && (
         <div
           className="chart-tooltip-enter pointer-events-none absolute z-10 min-w-40 rounded-lg border border-[var(--plm-flat-border-strong)] bg-popover/95 px-3 py-2 text-xs text-popover-foreground shadow-md shadow-black/20 backdrop-blur-sm"

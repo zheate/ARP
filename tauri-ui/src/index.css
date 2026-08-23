@@ -219,6 +219,11 @@ body {
   opacity: 1;
 }
 
+.automatic-setup-field--large-type [role="combobox"] {
+  font-size: 18px;
+  line-height: 1;
+}
+
 .automatic-workstation-card {
   display: grid;
   height: 2.25rem;

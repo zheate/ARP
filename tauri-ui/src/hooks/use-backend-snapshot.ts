@@ -8,7 +8,7 @@ const DEMO_PREVIEW_ENABLED = typeof window !== "undefined" && new URLSearchParam
 
 const DEMO_SPECTRUM = {
   wavelengthNm: [972, 973, 974, 975, 975.5, 975.8, 976, 976.2, 976.4, 976.7, 977, 977.5, 978, 979, 980],
-  intensity: [180, 240, 320, 560, 1200, 4200, 9800, 12400, 10400, 5300, 1700, 650, 360, 220, 160],
+  intensity: [180, 900, 320, 560, 1200, 4200, 9800, 12400, 10400, 5300, 1700, 650, 1000, 220, 160],
 }
 
 const DEMO_SNAPSHOT: BackendSnapshot = {
@@ -82,7 +82,7 @@ const DEMO_SNAPSHOT: BackendSnapshot = {
       },
     },
     powerMeter: { state: "connected", label: "功率计", detail: "彩煌功率计 (ASRL3::INSTR)", connected: true, running: true, ready: true, stable: true, powerW: 0.86, resources: ["彩煌功率计 | ASRL3::INSTR | 通道 1", "Coherent功率计 | ASRL4::INSTR"] },
-    spectrometer: { state: "connected", label: "光谱仪", detail: "Ocean Insight · 示例", connected: true, running: true, ready: true, resources: ["自动选择第一台 Ocean Insight"], peakWavelengthNm: 976.2, centroidNm: 976.2, fwhmNm: 0.42, pib: 96.85, smsrDb: null, spectrumWindow: { centerNm: 976.2, halfRangeNm: 6.2 } },
+    spectrometer: { state: "connected", label: "光谱仪", detail: "Ocean Insight · 示例", connected: true, running: true, ready: true, resources: ["自动选择第一台 Ocean Insight"], peakWavelengthNm: 976.2, centroidNm: 976.2, fwhmNm: 0.776, pib: 96.85, smsrDb: null, spectrumWindow: { centerNm: 976.2, halfRangeNm: 6.2 } },
   },
   automaticTest: {
     state: "waiting_stable",
@@ -132,7 +132,11 @@ const DEMO_SNAPSHOT: BackendSnapshot = {
       powerW: Number((0.86 - index * 0.0007 + Math.sin(index * 0.8) * 0.0018).toFixed(4)),
     })),
     spectrum: DEMO_SPECTRUM,
-    spectrumPeaks: [{ label: "P1", centroidNm: 976.2, peakWavelengthNm: 976.2, peakIntensity: 12400 }],
+    spectrumPeaks: [
+      { label: "P1", peakWavelengthNm: 976.2, peakIntensity: 12400 },
+      { label: "P2", peakWavelengthNm: 978, peakIntensity: 1000 },
+      { label: "P3", peakWavelengthNm: 973, peakIntensity: 900 },
+    ],
   },
   safety: { hardwareAccess: false, commandMode: "controller_owned", detail: "示例数据模式" },
 }

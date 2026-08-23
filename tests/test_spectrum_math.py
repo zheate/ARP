@@ -92,8 +92,8 @@ DENSE_GOLDEN_RESULTS = {
         "pib": "0x1.d1745d1745fb3p-1",
         "smsr": "0x1.4000000000000p+3",
         "annotations": (
-            ("P1", "0x1.e800b3b2c92d8p+9", "0x1.e800b3b2c92d8p+9", "0x1.d4c0000000000p+13"),
-            ("P2", "0x1.e701317cbc671p+9", "0x1.e701317cbc671p+9", "0x1.7700000000000p+10"),
+            ("P1", "0x1.e800b3b2c92d9p+9", "0x1.d4c0000000000p+13"),
+            ("P2", "0x1.e701317cbc671p+9", "0x1.7700000000000p+10"),
         ),
     },
     8000: {
@@ -107,8 +107,8 @@ DENSE_GOLDEN_RESULTS = {
         "pib": "0x1.d1745d17465fdp-1",
         "smsr": "0x1.4000000000000p+3",
         "annotations": (
-            ("P1", "0x1.e80051ee244aep+9", "0x1.e80051ee244aep+9", "0x1.d4c0000000000p+13"),
-            ("P2", "0x1.e70049bcba436p+9", "0x1.e70049bcba436p+9", "0x1.7700000000000p+10"),
+            ("P1", "0x1.e80051ee244aep+9", "0x1.d4c0000000000p+13"),
+            ("P2", "0x1.e70049bcba436p+9", "0x1.7700000000000p+10"),
         ),
     },
 }
@@ -132,7 +132,6 @@ class SpectrumMathTests(unittest.TestCase):
                 saturation = detect_spectrum_saturation(intensity, 64_000.0)
                 annotations = find_spectrum_peak_annotations(
                     zip(wavelength, intensity),
-                    stats=stats,
                     smsr_result=smsr,
                 )
 
@@ -156,7 +155,6 @@ class SpectrumMathTests(unittest.TestCase):
                     tuple(
                         (
                             annotation.label,
-                            _float_hex(annotation.centroid_nm),
                             _float_hex(annotation.peak_wavelength_nm),
                             _float_hex(annotation.peak_intensity),
                         )
@@ -193,7 +191,6 @@ class SpectrumMathTests(unittest.TestCase):
         saturated_smsr = calculate_smsr(flat_wavelength, saturated_intensity)
         saturated_annotations = find_spectrum_peak_annotations(
             zip(flat_wavelength, saturated_intensity),
-            stats=saturated_stats,
             smsr_result=saturated_smsr,
         )
         self.assertEqual(
@@ -230,7 +227,6 @@ class SpectrumMathTests(unittest.TestCase):
             [
                 (
                     annotation.label,
-                    _float_hex(annotation.centroid_nm),
                     _float_hex(annotation.peak_wavelength_nm),
                     _float_hex(annotation.peak_intensity),
                 )
@@ -239,7 +235,6 @@ class SpectrumMathTests(unittest.TestCase):
             [
                 (
                     "P1",
-                    "0x1.e800000000000p+9",
                     "0x1.e800000000000p+9",
                     "0x1.f400000000000p+15",
                 )

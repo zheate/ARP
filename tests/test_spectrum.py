@@ -7,7 +7,7 @@ from combined_test.spectrum import (
     find_spectrum_peak_annotations,
     stabilize_spectrum_y_axis_upper_limit,
 )
-from combined_test.spectrum_math import calculate_smsr, calculate_stats
+from combined_test.spectrum_math import calculate_smsr
 
 
 class SpectrumAnalysisTests(unittest.TestCase):
@@ -23,7 +23,7 @@ class SpectrumAnalysisTests(unittest.TestCase):
 
         self.assertEqual(minimums, expected)
 
-    def test_peak_annotations_keep_height_order_and_centroids(self) -> None:
+    def test_peak_annotations_keep_height_order_and_peak_wavelengths(self) -> None:
         wavelength = [956.0 + index * 0.1 for index in range(401)]
         intensity = [float((index % 5) - 2) for index in range(401)]
         intensity[59:62] = [48.0, 80.0, 48.0]
@@ -31,14 +31,12 @@ class SpectrumAnalysisTests(unittest.TestCase):
         intensity[269:272] = [120.0, 200.0, 120.0]
         intensity[198] = intensity[202] = 0.0
         points = list(zip(wavelength, intensity))
-        stats = calculate_stats(wavelength, intensity)
-
-        annotations = find_spectrum_peak_annotations(points, stats=stats)
+        annotations = find_spectrum_peak_annotations(points)
 
         self.assertEqual(
-            [(item.label, round(item.centroid_nm, 3)) for item in annotations],
+            [(item.label, round(item.peak_wavelength_nm, 3)) for item in annotations],
             [
-                ("P1", round(stats.peak_wavelength_nm, 3)),
+                ("P1", 976.0),
                 ("P2", 983.0),
                 ("P3", 962.0),
             ],
@@ -49,18 +47,26 @@ class SpectrumAnalysisTests(unittest.TestCase):
         intensity = [float((index % 5) - 2) for index in range(401)]
         intensity[199:202] = [600.0, 1000.0, 600.0]
         intensity[269:272] = [60.0, 100.0, 60.0]
-        stats = calculate_stats(wavelength, intensity)
         smsr = calculate_smsr(wavelength, intensity)
 
         annotations = find_spectrum_peak_annotations(
             zip(wavelength, intensity),
-            stats=stats,
             smsr_result=smsr,
         )
 
-        self.assertEqual(annotations[0].centroid_nm, stats.peak_wavelength_nm)
-        self.assertEqual(annotations[1].centroid_nm, smsr.side_wavelength_nm)
+        self.assertEqual(annotations[0].peak_wavelength_nm, smsr.main_wavelength_nm)
+        self.assertEqual(annotations[1].peak_wavelength_nm, smsr.side_wavelength_nm)
         self.assertEqual(annotations[1].peak_intensity, smsr.side_intensity)
+
+    def test_primary_peak_marker_uses_maximum_level_not_half_max_center(self) -> None:
+        wavelength = [956.0 + index * 0.1 for index in range(401)]
+        intensity = [0.0] * 401
+        intensity[198:203] = [0.0, 25.0, 100.0, 60.0, 0.0]
+
+        annotations = find_spectrum_peak_annotations(zip(wavelength, intensity))
+
+        self.assertEqual(annotations[0].peak_wavelength_nm, 976.0)
+        self.assertEqual(annotations[0].peak_intensity, 100.0)
 
     def test_signed_noise_ripple_only_keeps_p1(self) -> None:
         wavelength = [956.0 + index * 0.1 for index in range(401)]

@@ -32,7 +32,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { CanvasLineChart, type CanvasChartAnnotation, type CanvasChartLine, type CanvasColumnarData } from "@/components/canvas-line-chart"
+import { CanvasLineChart, type CanvasChartAnnotation, type CanvasChartAnnotationLegendItem, type CanvasChartLine, type CanvasChartWidthAnnotation, type CanvasColumnarData } from "@/components/canvas-line-chart"
 import { AnimatedToastStack, type ToastStatus } from "@/components/motion/animated-toast-stack"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -42,11 +42,12 @@ import { Separator } from "@/components/ui/separator"
 import { useBackendSnapshot } from "@/hooks/use-backend-snapshot"
 import { sendBackendRequest, type AppConfiguration, type BackendSnapshot, type DeviceSnapshot, type ShippingReportBatchGenerationResult, type ShippingReportBatchInspection, type ShippingReportBatchItem, type ShippingReportFieldDefinition, type ShippingReportGenerationResult, type ShippingReportPointSuggestion, type ShippingReportPreviewResult, type ShippingReportType, type ShippingWorkbookInspection, type SnapshotView, type SpectrumAxisMode, type TestScript } from "@/lib/backend"
 import { powerMeterResourceValue } from "@/lib/power-meter-resource"
-import { spectrumPeakAnnotations } from "@/lib/spectrum-annotations"
+import { spectrumFwhmAnnotation, spectrumPeakAnnotations, spectrumPeakLegend } from "@/lib/spectrum-annotations"
 
 type Page = "automatic" | "manual" | "pd" | "shipping" | "settings"
 type Theme = "dark" | "light"
-type LatestPointMarkerStyle = "point" | "paper-plane"
+type CurveLineStyle = "solid" | "dashed" | "dotted"
+type LatestPointMarkerStyle = "point" | "paper-plane" | "paw"
 
 function DialogPortal({ children }: { children: ReactNode }) {
   return createPortal(children, document.body)
@@ -65,6 +66,7 @@ const SHIPPING_PRODUCT_NAME_STORAGE_KEY = "power-test.shipping-report.product-na
 const SHIPPING_REPORT_SPLIT_LAYOUT = "grid min-w-0 gap-6 xl:grid-cols-[minmax(380px,0.72fr)_minmax(560px,1.28fr)]"
 const DEFAULT_ENCIRCLED_ENERGY_NA = "0.17"
 const THEME_STORAGE_KEY = "power-test.theme"
+const CURVE_LINE_STYLE_STORAGE_KEY = "power-test.automatic-curve-line-style"
 const LATEST_POINT_MARKER_STORAGE_KEY = "power-test.latest-point-marker"
 const PLM_CHART_SERIES = {
   clay: "#ff7a1a",
@@ -105,11 +107,28 @@ function getStoredLatestPointMarkerStyle(): LatestPointMarkerStyle {
   if (typeof window === "undefined") return "point"
   try {
     const storedStyle = window.localStorage.getItem(LATEST_POINT_MARKER_STORAGE_KEY)
-    if (storedStyle === "point" || storedStyle === "paper-plane") return storedStyle
+    if (storedStyle === "point" || storedStyle === "paper-plane" || storedStyle === "paw") return storedStyle
   } catch {
     // Use the original point marker if storage is unavailable.
   }
   return "point"
+}
+
+function getStoredCurveLineStyle(): CurveLineStyle {
+  if (typeof window === "undefined") return "solid"
+  try {
+    const storedStyle = window.localStorage.getItem(CURVE_LINE_STYLE_STORAGE_KEY)
+    if (storedStyle === "solid" || storedStyle === "dashed" || storedStyle === "dotted") return storedStyle
+  } catch {
+    // Use the original solid line if storage is unavailable.
+  }
+  return "solid"
+}
+
+function curveLineDash(style: CurveLineStyle): number[] {
+  if (style === "dashed") return [10, 6]
+  if (style === "dotted") return [1, 5]
+  return []
 }
 
 function applyTheme(theme: Theme): void {
@@ -1547,7 +1566,7 @@ function ChartLegend({ lines }: { lines: CanvasChartLine[] }) {
   )
 }
 
-const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, lines, empty = "暂无实时数据", heightClassName, annotations, stretch = false, compactHeader = false, hideHeader = false, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, preserveAllPoints = false, xLabel, xTickSuffix, yLabel }: {
+const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, lines, empty = "暂无实时数据", heightClassName, annotations, annotationLegend, widthAnnotations, stretch = false, compactHeader = false, hideHeader = false, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, preserveAllPoints = false, xLabel, xTickSuffix, yLabel }: {
   title: string
   data?: Array<Record<string, number | null>>
   columns?: CanvasColumnarData
@@ -1556,6 +1575,8 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
   empty?: string
   heightClassName?: string
   annotations?: CanvasChartAnnotation[]
+  annotationLegend?: CanvasChartAnnotationLegendItem[]
+  widthAnnotations?: CanvasChartWidthAnnotation[]
   stretch?: boolean
   compactHeader?: boolean
   hideHeader?: boolean
@@ -1583,7 +1604,7 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
         {dataLength === 0 ? (
           <div className="grid h-full min-h-[120px] place-items-center rounded-lg bg-background/30 text-xs text-muted-foreground/70">{empty}</div>
         ) : (
-          <CanvasLineChart annotations={annotations} ariaLabel={`${title}曲线`} columns={columns} data={data} lines={lines} preserveAllPoints={preserveAllPoints} rightYDomain={rightYDomain} tightInsets={hideHeader} xDomain={xDomain} xKey={xKey} xLabel={xLabel} xTickSuffix={xTickSuffix} xTicks={xTicks} yDomain={yDomain} yLabel={yLabel} yMinimumLimit={yMinimumLimit} />
+          <CanvasLineChart annotationLegend={annotationLegend} annotations={annotations} ariaLabel={`${title}曲线`} columns={columns} data={data} lines={lines} preserveAllPoints={preserveAllPoints} rightYDomain={rightYDomain} tightInsets={hideHeader} widthAnnotations={widthAnnotations} xDomain={xDomain} xKey={xKey} xLabel={xLabel} xTickSuffix={xTickSuffix} xTicks={xTicks} yDomain={yDomain} yLabel={yLabel} yMinimumLimit={yMinimumLimit} />
         )}
       </CardContent>
     </Card>
@@ -1641,10 +1662,12 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
     && sameNumbers(previous.yDomain, next.yDomain)
     && previous.yMinimumLimit === next.yMinimumLimit
     && sameNumbers(previous.rightYDomain, next.rightYDomain)
-    && sameRows(previous.annotations, next.annotations, ["label", "x", "y"])
+    && sameRows(previous.annotations, next.annotations, ["label", "x", "y", "color"])
+    && sameRows(previous.annotationLegend, next.annotationLegend, ["label", "color", "value"])
+    && sameRows(previous.widthAnnotations, next.widthAnnotations, ["label", "startX", "endX", "y", "color"])
 })
 
-const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, latestPointMarkerStyle = "point", stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; latestPointMarkerStyle?: LatestPointMarkerStyle; stretch?: boolean; heightClassName?: string }) {
+const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, curveLineStyle = "solid", latestPointMarkerStyle = "point", stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; curveLineStyle?: CurveLineStyle; latestPointMarkerStyle?: LatestPointMarkerStyle; stretch?: boolean; heightClassName?: string }) {
   const powerData = (snapshot?.measurements?.power ?? []) as Array<Record<string, number | null>>
   const latestElapsedS = powerData[powerData.length - 1]?.elapsedS
   const powerTimeDomain: [number, number] = typeof latestElapsedS === "number"
@@ -1661,7 +1684,7 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, latestPo
       ? [row.powerW]
       : []
   )))
-  const lines: CanvasChartLine[] = [{ key: "powerW", label: "实时功率", color: powerStabilityColor, showLatestPoint: true, latestPointStyle: latestPointMarkerStyle }]
+  const lines: CanvasChartLine[] = [{ key: "powerW", label: "实时功率", color: powerStabilityColor, dash: curveLineDash(curveLineStyle), showLatestPoint: true, latestPointStyle: latestPointMarkerStyle }]
 
   return (
     <ChartPanel
@@ -1807,6 +1830,11 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
     : { wavelengthNm: [], intensity: [] }
   const spectrum = snapshot?.devices.spectrometer
   const spectrumPeaks = snapshot?.measurements?.spectrumPeaks ?? []
+  const peakAnnotations = spectrumPeakAnnotations(spectrumPeaks)
+  const fwhmAnnotations = spectrumFwhmAnnotation(
+    spectrumData.wavelengthNm,
+    spectrumData.intensity,
+  )
   const spectrumYAxisStateRef = useRef<SpectrumYAxisState | null>(null)
   useEffect(() => {
     const root = document.documentElement
@@ -1871,7 +1899,9 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
       lines={[{ key: "intensity", label: "光谱（实时）", color: lightTheme ? "#000000" : "#f5f5f5" }]}
       stretch={stretch}
       heightClassName={heightClassName}
-      annotations={spectrumPeakAnnotations(spectrumPeaks)}
+      annotations={peakAnnotations}
+      annotationLegend={spectrumPeakLegend(spectrumPeaks)}
+      widthAnnotations={fwhmAnnotations}
     />
   )
 }, (previous, next) => {
@@ -1883,7 +1913,7 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
     && previous.heightClassName === next.heightClassName
     && sameNumberArray(previousMeasurements?.spectrum.wavelengthNm, nextMeasurements?.spectrum.wavelengthNm)
     && sameNumberArray(previousMeasurements?.spectrum.intensity, nextMeasurements?.spectrum.intensity)
-    && sameRows(previousMeasurements?.spectrumPeaks, nextMeasurements?.spectrumPeaks, ["label", "centroidNm", "peakWavelengthNm", "peakIntensity"])
+    && sameRows(previousMeasurements?.spectrumPeaks, nextMeasurements?.spectrumPeaks, ["label", "peakWavelengthNm", "peakIntensity"])
     && previousSpectrum?.spectrumWindow?.centerNm === nextSpectrum?.spectrumWindow?.centerNm
     && previousSpectrum?.spectrumWindow?.halfRangeNm === nextSpectrum?.spectrumWindow?.halfRangeNm
 })
@@ -2039,6 +2069,7 @@ function App() {
   const [page, setPage] = useState<Page>(() => (typeof window !== "undefined" && (new URLSearchParams(window.location.search).get("page") as Page)) || "automatic")
   const [stationId, setStationId] = useState<"1" | "2">("1")
   const [theme, setTheme] = useState<Theme>(getStoredTheme)
+  const [curveLineStyle, setCurveLineStyle] = useState<CurveLineStyle>(getStoredCurveLineStyle)
   const [latestPointMarkerStyle, setLatestPointMarkerStyle] = useState<LatestPointMarkerStyle>(getStoredLatestPointMarkerStyle)
   const currentView: SnapshotView = page === "automatic"
     ? (stationId === "1" ? "automatic_1" : "automatic_2")
@@ -2188,6 +2219,14 @@ function App() {
       // The theme remains active for this session if storage is unavailable.
     }
   }, [theme])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(CURVE_LINE_STYLE_STORAGE_KEY, curveLineStyle)
+    } catch {
+      // The curve preference remains active for this session if storage is unavailable.
+    }
+  }, [curveLineStyle])
 
   useEffect(() => {
     try {
@@ -2376,11 +2415,11 @@ function App() {
             data-page={page}
             key={page}
           >
-            {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={active} controlsLocked={automaticInteractionLocked} latestPointMarkerStyle={latestPointMarkerStyle} stationSwitchDisabled={commandPending || dirty} pending={commandPending} run={run} saveConfiguration={saveConfiguration} testScripts={snapshot?.testScripts ?? BUILTIN_TEST_SCRIPT_OPTIONS} onScriptSelect={selectTestScript} stationId={stationId} onStationChange={setStationId} />}
+            {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={active} controlsLocked={automaticInteractionLocked} curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} stationSwitchDisabled={commandPending || dirty} pending={commandPending} run={run} saveConfiguration={saveConfiguration} testScripts={snapshot?.testScripts ?? BUILTIN_TEST_SCRIPT_OPTIONS} onScriptSelect={selectTestScript} stationId={stationId} onStationChange={setStationId} />}
             {page === "manual" && <ManualPage snapshot={snapshot} config={config} update={update} active={active} pending={commandPending} run={run} stationId={stationId} />}
             {page === "pd" && <PdPage snapshot={snapshot} active={active} pending={commandPending} run={run} />}
             {page === "shipping" && <ShippingReportPage active={active} controlsLocked={automaticInteractionLocked} pending={commandPending} />}
-            {page === "settings" && <SystemSettingsPage latestPointMarkerStyle={latestPointMarkerStyle} onLatestPointMarkerStyleChange={setLatestPointMarkerStyle} theme={theme} onThemeChange={setTheme} />}
+            {page === "settings" && <SystemSettingsPage curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} onCurveLineStyleChange={setCurveLineStyle} onLatestPointMarkerStyleChange={setLatestPointMarkerStyle} theme={theme} onThemeChange={setTheme} />}
           </div>
         </main>
       </div>
@@ -2391,7 +2430,7 @@ function App() {
 type UpdateConfig = <K extends keyof AppConfiguration>(key: K, value: AppConfiguration[K]) => void
 type RunCommand = (method: string, params?: Record<string, unknown>, sync?: boolean) => Promise<void>
 
-function SystemSettingsPage({ theme, latestPointMarkerStyle, onThemeChange, onLatestPointMarkerStyleChange }: { theme: Theme; latestPointMarkerStyle: LatestPointMarkerStyle; onThemeChange: (theme: Theme) => void; onLatestPointMarkerStyleChange: (style: LatestPointMarkerStyle) => void }) {
+function SystemSettingsPage({ theme, curveLineStyle, latestPointMarkerStyle, onThemeChange, onCurveLineStyleChange, onLatestPointMarkerStyleChange }: { theme: Theme; curveLineStyle: CurveLineStyle; latestPointMarkerStyle: LatestPointMarkerStyle; onThemeChange: (theme: Theme) => void; onCurveLineStyleChange: (style: CurveLineStyle) => void; onLatestPointMarkerStyleChange: (style: LatestPointMarkerStyle) => void }) {
   const lightMode = theme === "light"
   return (
     <section className="system-settings-page">
@@ -2432,17 +2471,35 @@ function SystemSettingsPage({ theme, latestPointMarkerStyle, onThemeChange, onLa
           </div>
           <div className="system-settings-option">
             <div className="system-settings-option__copy">
-              <p className="text-sm font-medium">自动测试实时曲线最新点</p>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">纸飞机沿最后一段曲线旋转，上升时朝右上、下降时朝右下，设置会自动保存。</p>
+              <p className="text-sm font-medium">曲线线型</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">设置自动测试功率实时曲线的实线、虚线或点线显示，数据连接方式保持不变。</p>
             </div>
             <div className="system-settings-option__control">
               <NativeSelect
-                ariaLabel="自动测试实时曲线最新点样式"
+                ariaLabel="自动测试功率实时曲线线型"
+                value={curveLineStyle}
+                onChange={(value) => onCurveLineStyleChange(value as CurveLineStyle)}
+              >
+                <option value="solid">实线</option>
+                <option value="dashed">虚线</option>
+                <option value="dotted">点线</option>
+              </NativeSelect>
+            </div>
+          </div>
+          <div className="system-settings-option">
+            <div className="system-settings-option__copy">
+              <p className="text-sm font-medium">末端样式</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">标识自动测试功率实时曲线的最新采样点；纸飞机沿曲线旋转，爪印保持正立。</p>
+            </div>
+            <div className="system-settings-option__control">
+              <NativeSelect
+                ariaLabel="自动测试功率实时曲线末端样式"
                 value={latestPointMarkerStyle}
                 onChange={(value) => onLatestPointMarkerStyleChange(value as LatestPointMarkerStyle)}
               >
-                <option value="point">原来的点</option>
+                <option value="point">圆点</option>
                 <option value="paper-plane">纸飞机</option>
+                <option value="paw">爪印</option>
               </NativeSelect>
             </div>
           </div>
@@ -3403,6 +3460,7 @@ const AutomaticPage = memo(function AutomaticPage({
   update,
   active,
   controlsLocked,
+  curveLineStyle,
   latestPointMarkerStyle,
   stationSwitchDisabled,
   pending,
@@ -3418,6 +3476,7 @@ const AutomaticPage = memo(function AutomaticPage({
   update: UpdateConfig
   active: boolean
   controlsLocked: boolean
+  curveLineStyle: CurveLineStyle
   latestPointMarkerStyle: LatestPointMarkerStyle
   stationSwitchDisabled: boolean
   pending: boolean
@@ -3514,7 +3573,7 @@ const AutomaticPage = memo(function AutomaticPage({
             value={config.station}
           />
         </div>
-        <div className="space-y-1 min-w-0">
+        <div className="automatic-setup-field--large-type space-y-1 min-w-0">
           <Label className="text-xs text-muted-foreground">
             <FileText className="mr-1 inline size-3.5" />脚本选择
           </Label>
@@ -3528,7 +3587,7 @@ const AutomaticPage = memo(function AutomaticPage({
           </Label>
           <div className="flex items-center gap-1.5">
             <Input
-              className="h-9 min-w-0 flex-1 text-xs rounded-lg"
+              className="h-9 min-w-0 flex-1 text-[18px] md:text-[18px] leading-none rounded-lg"
               disabled={controlsLocked}
               id="automatic-output-directory"
               onChange={(event) => update("outputDir", event.target.value)}
@@ -3567,7 +3626,7 @@ const AutomaticPage = memo(function AutomaticPage({
 
       <section className={`automatic-chart-grid ${useSpectrometer ? "" : "without-spectrum"}`}>
         <div className="automatic-chart-grid__power-row">
-          <PowerRealtimeChart latestPointMarkerStyle={latestPointMarkerStyle} snapshot={snapshot} stretch />
+          <PowerRealtimeChart curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} snapshot={snapshot} stretch />
           {config.selectedScriptId === "aging"
             ? <AgingPowerChart snapshot={snapshot} stretch />
             : <PowerEfficiencyChart snapshot={snapshot} stretch />}

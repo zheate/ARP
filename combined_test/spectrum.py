@@ -7,7 +7,7 @@ from collections import deque
 from typing import Any, Iterable
 
 from .models import SpectrumPeakAnnotation, SpectrumSaturationResult
-from .spectrum_math import SmsrResult, SpectrumStats, calculate_smsr, calculate_stats
+from .spectrum_math import SmsrResult, calculate_smsr
 
 
 SPECTRUM_CENTER_LOCK_REQUIRED_SAMPLES = 5
@@ -169,7 +169,6 @@ def find_spectrum_peak_annotations(
     points: Iterable[tuple[Any, Any]],
     limit: int = 3,
     *,
-    stats: SpectrumStats | None = None,
     smsr_result: SmsrResult | None = None,
 ) -> list[SpectrumPeakAnnotation]:
     clean_points: list[tuple[float, float]] = []
@@ -183,7 +182,6 @@ def find_spectrum_peak_annotations(
         return []
     wavelength = [item[0] for item in clean_points]
     intensity = [item[1] for item in clean_points]
-    frame_stats = stats or calculate_stats(wavelength, intensity)
     mode_result = smsr_result or calculate_smsr(wavelength, intensity)
     annotation_limit = min(
         limit,
@@ -192,14 +190,10 @@ def find_spectrum_peak_annotations(
     )
     annotations: list[SpectrumPeakAnnotation] = []
     for rank, peak in enumerate(mode_result.peaks[:annotation_limit]):
-        wavelength_nm = peak.wavelength_nm
-        if rank == 0 and math.isfinite(frame_stats.peak_wavelength_nm):
-            wavelength_nm = frame_stats.peak_wavelength_nm
         annotations.append(
             SpectrumPeakAnnotation(
                 label=SPECTRUM_PEAK_ORDINAL_LABELS[rank],
-                centroid_nm=wavelength_nm,
-                peak_wavelength_nm=wavelength_nm,
+                peak_wavelength_nm=peak.wavelength_nm,
                 peak_intensity=peak.intensity,
             )
         )

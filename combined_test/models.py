@@ -159,7 +159,6 @@ class SpectrumFrame:
 @dataclass(frozen=True)
 class SpectrumPeakAnnotation:
     label: str
-    centroid_nm: float
     peak_wavelength_nm: float
     peak_intensity: float
 

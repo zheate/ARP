@@ -214,7 +214,7 @@ export interface BackendSnapshot {
     stable: Array<{ currentA: number; powerW: number | null; efficiencyPercent: number | null }>
     agingPower: Array<{ elapsedMinutes: number; powerW: number }>
     spectrum: SpectrumColumns
-    spectrumPeaks: Array<{ label: string; centroidNm: number; peakWavelengthNm: number; peakIntensity: number }>
+    spectrumPeaks: Array<{ label: string; peakWavelengthNm: number; peakIntensity: number }>
   }
   pd?: {
     state: "idle" | "running"

@@ -2648,7 +2648,6 @@ class StationRuntime:
             peaks = [
                 {
                     "label": item.label,
-                    "centroidNm": _finite(item.centroid_nm),
                     "peakWavelengthNm": _finite(item.peak_wavelength_nm),
                     "peakIntensity": _finite(item.peak_intensity),
                 }
