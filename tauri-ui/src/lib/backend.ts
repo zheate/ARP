@@ -55,6 +55,7 @@ export interface DeviceSnapshot {
   detecting?: boolean
   ready?: boolean
   resources?: string[]
+  resourceProfiles?: PowerMeterResourceProfile[]
   ch341?: Ch341State
   outputEnabled?: boolean
   activeCurrentA?: number | null
@@ -77,6 +78,13 @@ export interface DeviceSnapshot {
   ageMs?: number | null
   quality?: MeasurementQuality
   spectrumWindow?: { centerNm: number; halfRangeNm: number } | null
+}
+
+export interface PowerMeterResourceProfile {
+  resource: string
+  driverKind: string
+  serialNumber: string
+  softwareGain: number
 }
 
 export interface AutomaticReadinessBlocker {

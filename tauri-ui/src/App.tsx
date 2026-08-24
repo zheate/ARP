@@ -41,7 +41,7 @@ import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { useBackendSnapshot } from "@/hooks/use-backend-snapshot"
 import { sendBackendRequest, type AppConfiguration, type AppShutdownResult, type AutomaticPauseAction, type AutomaticTerminalOutcome, type BackendSnapshot, type DeviceSnapshot, type SafetyShutdownResult, type ShippingReportBatchGenerationResult, type ShippingReportBatchInspection, type ShippingReportBatchItem, type ShippingReportFieldDefinition, type ShippingReportGenerationResult, type ShippingReportPointSuggestion, type ShippingReportPreviewResult, type ShippingReportType, type ShippingWorkbookInspection, type SnapshotView, type SpectrumAxisMode, type TestScript } from "@/lib/backend"
-import { powerMeterResourceValue } from "@/lib/power-meter-resource"
+import { powerMeterProfileForResource, powerMeterResourceValue } from "@/lib/power-meter-resource"
 import { automaticPauseCommand, automaticPauseCopy, pauseRemainingSeconds } from "@/lib/automatic-pause"
 import { automaticTerminalTitle, shutdownPresentation } from "@/lib/safety-state"
 import { spectrumPeakAnnotations, spectrumPeakLegend } from "@/lib/spectrum-annotations"
@@ -840,6 +840,17 @@ function PowerMeterSettingsForm({ snapshot, config, update, active, pending, run
   const selectedResource = config.powerMeterResource.trim()
   const selectedResourceAvailable = resources.some((item) => powerMeterResourceValue(item) === selectedResource)
   const displayedResource = selectedResourceAvailable ? selectedResource : ""
+  const selectResource = (resource: string) => {
+    update("powerMeterResource", resource)
+    const profile = powerMeterProfileForResource(meter?.resourceProfiles, resource)
+    if (profile) {
+      update("powerMeterSerialNumber", profile.serialNumber)
+      update("softwareGain", profile.softwareGain)
+    } else if (!resource) {
+      update("powerMeterSerialNumber", "")
+      update("softwareGain", 1)
+    }
+  }
   const measurementSummary = meter?.quality === "live"
     ? `实时功率 ${formatNumber(meter.powerW, " W")} · ${meter.stable ? "已稳定" : "稳定中"}`
     : meter?.quality === "stale"
@@ -851,7 +862,7 @@ function PowerMeterSettingsForm({ snapshot, config, update, active, pending, run
     <div className="device-settings-form">
       <Field label="串口资源">
         <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-          <NativeSelect disabled={!active || pending || meter?.detecting || meter?.running} value={displayedResource} onChange={(v) => update("powerMeterResource", v)}>
+          <NativeSelect disabled={!active || pending || meter?.detecting || meter?.running} value={displayedResource} onChange={selectResource}>
             <option value="">请选择串口资源</option>
             {resources.map((item) => <option key={item} value={powerMeterResourceValue(item)}>{item}</option>)}
           </NativeSelect>
@@ -1587,6 +1598,21 @@ function sameSpectrumWindow(
 // the page renders is unchanged. Small transport arrays compare by value
 // because JSON IPC recreates their object references on every snapshot.
 
+function samePowerMeterResourceProfiles(
+  left: DeviceSnapshot["resourceProfiles"],
+  right: DeviceSnapshot["resourceProfiles"],
+): boolean {
+  if (left === right) return true
+  if (!left || !right || left.length !== right.length) return false
+  return left.every((profile, index) => {
+    const other = right[index]
+    return profile.resource === other?.resource
+      && profile.driverKind === other.driverKind
+      && profile.serialNumber === other.serialNumber
+      && profile.softwareGain === other.softwareGain
+  })
+}
+
 function sameDeviceSnapshot(left: DeviceSnapshot | undefined, right: DeviceSnapshot | undefined): boolean {
   if (left === right) return true
   if (!left || !right) return false
@@ -1598,6 +1624,7 @@ function sameDeviceSnapshot(left: DeviceSnapshot | undefined, right: DeviceSnaps
     && left.detecting === right.detecting
     && left.ready === right.ready
     && sameStringArray(left.resources, right.resources)
+    && samePowerMeterResourceProfiles(left.resourceProfiles, right.resourceProfiles)
     && sameCh341State(left.ch341, right.ch341)
     && left.outputEnabled === right.outputEnabled
     && left.activeCurrentA === right.activeCurrentA
@@ -4041,6 +4068,17 @@ const ManualPage = memo(function ManualPage({
   const selectedPowerMeterResource = config.powerMeterResource.trim()
   const selectedPowerMeterResourceAvailable = powerMeterResources.some((item) => powerMeterResourceValue(item) === selectedPowerMeterResource)
   const displayedPowerMeterResource = selectedPowerMeterResourceAvailable ? selectedPowerMeterResource : ""
+  const selectPowerMeterResource = (resource: string) => {
+    update("powerMeterResource", resource)
+    const profile = powerMeterProfileForResource(meter?.resourceProfiles, resource)
+    if (profile) {
+      update("powerMeterSerialNumber", profile.serialNumber)
+      update("softwareGain", profile.softwareGain)
+    } else if (!resource) {
+      update("powerMeterSerialNumber", "")
+      update("softwareGain", 1)
+    }
+  }
   const spectrometerResources = spectrum?.resources ?? []
   const selectedSpectrometerResourceAvailable = spectrometerResources.includes(config.spectrometerResource)
   const displayedSpectrometerResource = selectedSpectrometerResourceAvailable ? config.spectrometerResource : ""
@@ -4188,7 +4226,7 @@ const ManualPage = memo(function ManualPage({
           <ManualSectionHeading>资源设置</ManualSectionHeading>
           <Field label="串口资源">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-              <NativeSelect disabled={!active || meter?.detecting || meter?.running} value={displayedPowerMeterResource} onChange={(v) => update("powerMeterResource", v)}>
+              <NativeSelect disabled={!active || meter?.detecting || meter?.running} value={displayedPowerMeterResource} onChange={selectPowerMeterResource}>
                 <option value="">请选择串口资源</option>
                 {powerMeterResources.map((item) => <option key={item} value={powerMeterResourceValue(item)}>{item}</option>)}
               </NativeSelect>

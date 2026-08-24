@@ -2057,10 +2057,13 @@ class StationRuntime:
         self.backend._persist_configuration()
 
         if previous_device_id is not None and previous_device_id != actual_device_id:
-            self.notify(
-                "warning",
-                "光谱仪设备已重绑定",
-                f"原设备 ID {previous_device_id} 已失效，已自动切换并打开当前唯一在线设备 ID {actual_device_id}。",
+            # OceanDirect IDs are process-local enumeration handles and may
+            # normally change after restarting the SDK or reconnecting USB.
+            # A successful automatic rebind needs no operator action, so keep
+            # it in the status stream instead of raising a warning toast.
+            self.backend.set_status(
+                f"[工位 {self.station_id}] 光谱仪设备 ID 已从 {previous_device_id} 自动更新为 {actual_device_id}",
+                station_id=self.station_id,
             )
 
     def _on_integration_changed(self, value: int) -> None:
@@ -3477,6 +3480,15 @@ class HeadlessBackend:
                 return True
         return False
 
+    def _power_meter_profile_gain(self, option: PowerMeterOption) -> float:
+        serial_number = _power_meter_serial_number(option)
+        if not serial_number:
+            return 1.0
+        key = self._power_meter_profile_key(option.driver_kind, serial_number)
+        profile = self.device_profiles["powerMeters"].get(key)
+        gain = _finite(None if profile is None else profile.get("softwareGain"))
+        return gain if gain is not None and gain > 0.0 else 1.0
+
     def _bind_power_meter_option(
         self,
         station: StationRuntime,
@@ -3800,6 +3812,12 @@ class HeadlessBackend:
         target_station_id = self._station_id_from_params(params)
         target_station = self.stations[target_station_id]
         previous_kind = target_station.power_supply_kind
+        previous_power_meter_resource = str(
+            target_station.configuration.get("powerMeterResource", "")
+        ).strip()
+        previous_software_gain = _finite(
+            target_station.configuration.get("softwareGain")
+        )
         target_station.configure(params)
         if "powerMeterResource" in params:
             selected_resource = str(target_station.configuration.get("powerMeterResource", "")).strip()
@@ -3808,10 +3826,36 @@ class HeadlessBackend:
                 None,
             )
             if option is not None:
+                submitted_software_gain = (
+                    _finite(params.get("softwareGain"))
+                    if "softwareGain" in params
+                    else None
+                )
+                software_gain_was_edited = (
+                    "softwareGain" in params
+                    and (
+                        previous_software_gain is None
+                        or submitted_software_gain is None
+                        or not math.isclose(
+                            submitted_software_gain,
+                            previous_software_gain,
+                            rel_tol=1e-12,
+                            abs_tol=1e-12,
+                        )
+                    )
+                )
+                # The React settings UI submits the complete configuration.
+                # When only the resource changed, its softwareGain field still
+                # contains the previous meter's value and must not suppress the
+                # new meter's serial-bound profile restoration.
+                restore_gain = "softwareGain" not in params or (
+                    selected_resource != previous_power_meter_resource
+                    and not software_gain_was_edited
+                )
                 self._bind_power_meter_option(
                     target_station,
                     option,
-                    restore_gain="softwareGain" not in params,
+                    restore_gain=restore_gain,
                 )
             elif not selected_resource:
                 target_station.configuration["powerMeterSerialNumber"] = ""
@@ -4655,6 +4699,15 @@ class HeadlessBackend:
                     ),
                     **power_freshness,
                     "resources": [item.label() for item in available_power_meter_options],
+                    "resourceProfiles": [
+                        {
+                            "resource": item.resource,
+                            "driverKind": item.driver_kind,
+                            "serialNumber": _power_meter_serial_number(item),
+                            "softwareGain": self._power_meter_profile_gain(item),
+                        }
+                        for item in available_power_meter_options
+                    ],
                 },
                 "spectrometer": {
                     "state": "connecting" if spectrometer_detecting else _device_state(False, active_st.spectrometer_reader is not None, active_st.spectrometer_error),
