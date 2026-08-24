@@ -402,6 +402,100 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertEqual(config["powerMeterSerialNumber"], "PROBE-A")
         self.assertEqual(config["softwareGain"], 1.23)
 
+    def test_full_frontend_config_restores_gain_when_only_meter_changes(self) -> None:
+        meter_a = PowerMeterOption(
+            resource="ASRL7::INSTR",
+            device_type="Caihuang CHLP-P",
+            detail="OK | 增益身份：探头 SN W500-CB-40",
+            driver_kind="caihuang",
+            serial_number="W500-CB-40",
+        )
+        meter_b = PowerMeterOption(
+            resource="ASRL6::INSTR",
+            device_type="LaserPoint",
+            detail="探头 SN 222483",
+            driver_kind="laserpoint",
+            serial_number="222483",
+        )
+        self.backend.power_meter_options = [meter_a, meter_b]
+
+        self.backend.dispatch(
+            "app.configure",
+            {"stationId": "1", "powerMeterResource": meter_a.resource, "softwareGain": 1.04},
+        )
+        self.backend.dispatch(
+            "app.configure",
+            {"stationId": "1", "powerMeterResource": meter_b.resource, "softwareGain": 0.97},
+        )
+        self.backend.dispatch(
+            "app.configure",
+            {"stationId": "1", "powerMeterResource": meter_a.resource},
+        )
+
+        profiles = {
+            item["resource"]: item
+            for item in self.backend.snapshot({"stationId": "1"})["devices"]["powerMeter"]["resourceProfiles"]
+        }
+        self.assertEqual(profiles[meter_a.resource]["softwareGain"], 1.04)
+        self.assertEqual(profiles[meter_b.resource]["softwareGain"], 0.97)
+        self.assertEqual(profiles[meter_b.resource]["serialNumber"], "222483")
+
+        frontend_payload = dict(self.backend.stations["1"].configuration)
+        frontend_payload.update(
+            {"stationId": "1", "powerMeterResource": meter_b.resource}
+        )
+        self.assertEqual(frontend_payload["softwareGain"], 1.04)
+
+        self.backend.dispatch("app.configure", frontend_payload)
+
+        config = self.backend.stations["1"].configuration
+        self.assertEqual(config["powerMeterDriverKind"], "laserpoint")
+        self.assertEqual(config["powerMeterSerialNumber"], "222483")
+        self.assertEqual(config["softwareGain"], 0.97)
+        self.assertEqual(
+            self.backend.device_profiles["powerMeters"]["laserpoint:222483"]["softwareGain"],
+            0.97,
+        )
+
+    def test_full_frontend_config_keeps_gain_edited_while_switching_meter(self) -> None:
+        meter_a = PowerMeterOption(
+            resource="ASRL7::INSTR",
+            device_type="Caihuang CHLP-P",
+            detail="OK | 增益身份：探头 SN W500-CB-40",
+            driver_kind="caihuang",
+            serial_number="W500-CB-40",
+        )
+        meter_b = PowerMeterOption(
+            resource="ASRL6::INSTR",
+            device_type="LaserPoint",
+            detail="探头 SN 222483",
+            driver_kind="laserpoint",
+            serial_number="222483",
+        )
+        self.backend.power_meter_options = [meter_a, meter_b]
+        self.backend.dispatch(
+            "app.configure",
+            {"stationId": "1", "powerMeterResource": meter_a.resource, "softwareGain": 1.04},
+        )
+
+        frontend_payload = dict(self.backend.stations["1"].configuration)
+        frontend_payload.update(
+            {
+                "stationId": "1",
+                "powerMeterResource": meter_b.resource,
+                "softwareGain": 1.08,
+            }
+        )
+        self.backend.dispatch("app.configure", frontend_payload)
+
+        config = self.backend.stations["1"].configuration
+        self.assertEqual(config["powerMeterSerialNumber"], "222483")
+        self.assertEqual(config["softwareGain"], 1.08)
+        self.assertEqual(
+            self.backend.device_profiles["powerMeters"]["laserpoint:222483"]["softwareGain"],
+            1.08,
+        )
+
     def test_remembered_serial_rebinds_power_meter_to_its_current_port(self) -> None:
         station = self.backend.stations["1"]
         station.configuration.update(
@@ -847,7 +941,14 @@ class DualStationRuntimeTests(unittest.TestCase):
         persisted = self.backend.settings.get("runtime/stations")
         self.assertEqual(persisted["1"]["spectrometerResource"], "Ocean Insight | 设备 ID 7")
         self.assertEqual(persisted["1"]["spectrometerDeviceId"], 7)
-        self.assertIn("原设备 ID 5 已失效", self.backend.notices[-1]["message"])
+        self.assertIn("光谱仪设备 ID 已从 5 自动更新为 7", self.backend.status_message)
+        self.assertFalse(
+            any(notice["title"].endswith("光谱仪设备已重绑定") for notice in self.backend.notices)
+        )
+
+        notice_count = len(self.backend.notices)
+        station._on_spectrometer_device_opened(7)
+        self.assertEqual(len(self.backend.notices), notice_count)
 
     def test_power_meter_detection_selects_first_device_and_persists_it(self) -> None:
         option = PowerMeterOption(
