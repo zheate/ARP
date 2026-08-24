@@ -11,6 +11,7 @@ from numpy.typing import NDArray
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OCEAN_DIRECT_DLL = PROJECT_ROOT / "assets" / "libs" / "ocean_direct" / "OceanDirect.dll"
+OCEAN_DIRECT_NO_SUCH_FEATURE = 5
 
 
 class OceanDirectError(RuntimeError):
@@ -156,7 +157,7 @@ class OceanDirectControl:
             return [int(ids[index]) for index in range(max(0, min(copied, count)))]
 
     def get_serial_number(self, device_id: int) -> str:
-        """Return the stable device serial exposed by OceanDirect."""
+        """Return the stable device serial, or empty when the device has no SN feature."""
         buffer = create_string_buffer(256)
         err = (c_long * 1)(0)
         _invoke_native(
@@ -167,6 +168,11 @@ class OceanDirectControl:
             buffer,
             len(buffer),
         )
+        # Some OceanDirect devices can acquire spectra but do not expose the
+        # serial-number feature. Keep those devices usable and let callers fall
+        # back to their process-local device ID. Other SDK errors remain fatal.
+        if int(err[0]) == OCEAN_DIRECT_NO_SUCH_FEATURE:
+            return ""
         self._raise_if_error(err[0], f"get_serial_number({int(device_id)})")
         serial_number = buffer.value.decode("utf-8", errors="replace").strip()
         if not serial_number:

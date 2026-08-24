@@ -25,6 +25,7 @@ class FakeOceanDirectApi:
         self.closed_device_ids: list[int] = []
         self.open_error = 0
         self.integration_error = 0
+        self.serial_errors: dict[int, int] = {}
         self.integration_times = {101: 10000, 202: 20000}
         self.device_ids = [101, 202]
         self.wavelength = [975.0, 976.0, 977.0]
@@ -59,9 +60,11 @@ class FakeOceanDirectApi:
         return len(self.device_ids)
 
     def odapi_get_serial_number(self, device_id: int, err, buffer, _length: int) -> int:
+        err[0] = self.serial_errors.get(int(device_id), 0)
+        if err[0] != 0:
+            return 0
         value = f"OCEAN-{int(device_id)}".encode("utf-8")
         buffer.value = value
-        err[0] = 0
         return len(value)
 
     def odapi_open_device(self, device_id: int, err) -> None:
@@ -121,6 +124,40 @@ class OceanDirectControlTests(unittest.TestCase):
             self.assertEqual(control.get_serial_number(101), "OCEAN-101")
         finally:
             control.shutdown()
+
+    def test_missing_serial_feature_returns_empty_serial_number(self) -> None:
+        api = FakeOceanDirectApi()
+        api.serial_errors[3] = 5
+        control = OceanDirectControl(api=api)
+        try:
+            self.assertEqual(control.get_serial_number(3), "")
+        finally:
+            control.shutdown()
+
+    def test_other_serial_errors_remain_fatal(self) -> None:
+        api = FakeOceanDirectApi()
+        api.serial_errors[3] = 7
+        control = OceanDirectControl(api=api)
+        try:
+            with self.assertRaisesRegex(
+                OceanDirectError,
+                r"OceanDirect get_serial_number\(3\) 失败，错误码 7：fake error",
+            ):
+                control.get_serial_number(3)
+        finally:
+            control.shutdown()
+
+    def test_detection_keeps_device_without_serial_feature(self) -> None:
+        api = FakeOceanDirectApi()
+        api.device_ids = [3]
+        api.serial_errors[3] = 5
+        control = OceanDirectControl(api=api)
+
+        with patch.object(spectrometer_mvp, "OceanDirectControl", return_value=control):
+            self.assertEqual(
+                spectrometer_mvp.OceanSpectrometer.detect_devices(),
+                [{"deviceId": 3, "serialNumber": ""}],
+            )
 
     def tearDown(self) -> None:
         with _GLOBAL_SESSIONS_LOCK:
