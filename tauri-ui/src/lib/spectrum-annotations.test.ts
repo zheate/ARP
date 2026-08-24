@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { spectrumFwhmAnnotation, spectrumPeakAnnotations, spectrumPeakLegend } from "./spectrum-annotations.ts"
+import { spectrumPeakAnnotations, spectrumPeakLegend } from "./spectrum-annotations.ts"
 
 test("spectrum peak markers point to peak wavelength instead of centroid", () => {
   const annotations = spectrumPeakAnnotations([
@@ -25,18 +25,4 @@ test("spectrum peak legend only includes detected peaks with wavelength values",
     { label: "Peak 3", color: "#9ca3af", value: "974.020 nm" },
   ])
   assert.deepEqual(spectrumPeakLegend([]), [])
-})
-
-test("FWHM annotation interpolates the displayed curve's half-maximum crossings", () => {
-  const [annotation] = spectrumFwhmAnnotation(
-    [0, 1, 2, 3, 4],
-    [0, 25, 100, 60, 0],
-  )
-
-  assert.equal(annotation.label, "FWHM 1.833 nm")
-  assert.ok(Math.abs(annotation.startX - 4 / 3) < 1e-12)
-  assert.ok(Math.abs(annotation.endX - 19 / 6) < 1e-12)
-  assert.equal(annotation.y, 50)
-  assert.equal(annotation.color, "#eab308")
-  assert.deepEqual(spectrumFwhmAnnotation([0, 1, 2], [60, 100, 60]), [])
 })

@@ -24,7 +24,7 @@ from .concurrency import Signal, WorkerThread
 
 from tools.visa_session import visa_resource_manager
 
-from .core import PowerStabilityDetector, decode_i2c_value, stability_tolerance_for_power
+from .core import PowerStabilityDetector, decode_i2c_value
 from .models import (
     PowerMeterOption,
     PowerMeterReading,
@@ -440,7 +440,7 @@ class PowerMeterReaderThread(WorkerThread):
         self._stability_state_lock = threading.Lock()
         self._stability_generation = 0
         self._stable_window_s = float(settings.stable_window_s)
-        self._stable_tolerance_w = float(settings.stable_tolerance_w)
+        self._stability_limit_percent = float(settings.stability_limit_percent)
         self.is_ready = False
 
     def stop(self) -> None:
@@ -454,15 +454,15 @@ class PowerMeterReaderThread(WorkerThread):
             self._stability_reset_requested.set()
         return generation
 
-    def update_stability_settings(self, window_s: float, tolerance_w: float) -> None:
+    def update_stability_settings(self, window_s: float, limit_percent: float) -> None:
         """Apply stability settings to the active acquisition loop."""
         if window_s <= 0:
             raise ValueError("稳定窗口必须大于 0 秒")
-        if tolerance_w < 0:
-            raise ValueError("允许波动必须大于或等于 0 W")
+        if limit_percent < 0:
+            raise ValueError("稳定度限值必须大于或等于 0%")
         with self._stability_state_lock:
             self._stable_window_s = float(window_s)
-            self._stable_tolerance_w = float(tolerance_w)
+            self._stability_limit_percent = float(limit_percent)
 
     def run(self) -> None:
         meter = None
@@ -522,8 +522,8 @@ class PowerMeterReaderThread(WorkerThread):
 
             with self._stability_state_lock:
                 stable_window_s = self._stable_window_s
-                stable_tolerance_w = self._stable_tolerance_w
-            detector = PowerStabilityDetector(stable_window_s, stable_tolerance_w)
+                stability_limit_percent = self._stability_limit_percent
+            detector = PowerStabilityDetector(stable_window_s, stability_limit_percent)
             start = time.monotonic()
             poll_interval_s = self.settings.interval_ms / 1000.0
             next_poll_at = start
@@ -534,20 +534,17 @@ class PowerMeterReaderThread(WorkerThread):
                         self._stability_reset_requested.clear()
                     generation = self._stability_generation
                     stable_window_s = self._stable_window_s
-                    stable_tolerance_w = self._stable_tolerance_w
+                    stability_limit_percent = self._stability_limit_percent
                 if reset_requested:
-                    detector = PowerStabilityDetector(stable_window_s, stable_tolerance_w)
+                    detector = PowerStabilityDetector(stable_window_s, stability_limit_percent)
                 else:
                     detector.window_s = stable_window_s
-                    detector.tolerance_w = stable_tolerance_w
+                    detector.stability_limit_percent = stability_limit_percent
                 elapsed = time.monotonic() - start
                 power_w = meter.read_power_w() * self.settings.software_gain
                 if self._stop_requested.is_set():
                     break
-                stable_tolerance_w = stability_tolerance_for_power(power_w)
-                detector.tolerance_w = stable_tolerance_w
                 stability = detector.add_sample(elapsed, power_w)
-                active_tolerance_w = detector.active_tolerance_w
                 self.reading.emit(
                     PowerMeterReading(
                         elapsed_s=elapsed,
@@ -557,7 +554,8 @@ class PowerMeterReaderThread(WorkerThread):
                         stable_window_s=stability.window_s,
                         stable_median_w=stability.median_w,
                         stability_generation=generation,
-                        stable_tolerance_w=active_tolerance_w,
+                        stability_percent=stability.stability_percent,
+                        stability_limit_percent=stability_limit_percent,
                     )
                 )
                 next_poll_at += poll_interval_s

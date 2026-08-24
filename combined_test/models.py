@@ -22,7 +22,7 @@ class CombinedTestSettings:
     integration_time_us: int
     interval_ms: int
     stable_window_s: float
-    stable_tolerance_w: float
+    stability_limit_percent: float
     output_dir: Path
     spectrometer_device_id: int | None = None
 
@@ -68,7 +68,7 @@ class PowerMeterSettings:
     software_gain: float
     interval_ms: int
     stable_window_s: float
-    stable_tolerance_w: float
+    stability_limit_percent: float
     driver_kind: str = "caihuang"
     serial_number: str = ""
 
@@ -94,7 +94,8 @@ class PowerMeterReading:
     stable_window_s: float
     stable_median_w: float
     stability_generation: int = 0
-    stable_tolerance_w: float = math.nan
+    stability_percent: float = math.nan
+    stability_limit_percent: float = math.nan
 
 
 @dataclass(frozen=True)

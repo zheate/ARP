@@ -7,8 +7,9 @@ from combined_test.automation import (
     AutomaticTestSettings,
     AutomaticTestState,
     PowerDropProtectionDetector,
-    build_ramp_down_currents,
+    automatic_post_stable_delay_s,
     build_custom_hold_ramp_currents,
+    build_ramp_down_currents,
     build_test_currents,
     build_test_dwells,
     validate_automatic_test_settings,
@@ -93,6 +94,11 @@ class PowerDropProtectionDetectorTests(unittest.TestCase):
 
 
 class AutomaticCurrentSequenceTests(unittest.TestCase):
+    def test_post_stable_delay_is_two_seconds_except_for_final_point(self) -> None:
+        self.assertEqual(automatic_post_stable_delay_s(0, 3), 2.0)
+        self.assertEqual(automatic_post_stable_delay_s(1, 3), 2.0)
+        self.assertEqual(automatic_post_stable_delay_s(2, 3), 10.0)
+
     def test_custom_points_preserve_currents_and_individual_dwell_times(self) -> None:
         settings = AutomaticTestSettings(
             initial_current_a=1.0,

@@ -90,8 +90,9 @@ class MeasurementAttempt:
     pib: float
     smsr_db: float
     stable_span_w: float
+    stability_percent: float
+    stability_limit_percent: float
     stable_window_s: float
-    stable_tolerance_w: float
     integration_time_us: int | None
     spectrum_path: str = ""
 
@@ -266,8 +267,9 @@ class SessionRecordStore:
         actual_current_a: float = math.nan,
         voltage_raw_v: float = math.nan,
         stable_span_w: float = math.nan,
+        stability_percent: float = math.nan,
+        stability_limit_percent: float = math.nan,
         stable_window_s: float = math.nan,
-        stable_tolerance_w: float = math.nan,
         integration_time_us: int | None = None,
     ) -> None:
         session = self.current_session
@@ -299,8 +301,9 @@ class SessionRecordStore:
             pib=record.pib,
             smsr_db=record.smsr_db,
             stable_span_w=stable_span_w,
+            stability_percent=stability_percent,
+            stability_limit_percent=stability_limit_percent,
             stable_window_s=stable_window_s,
-            stable_tolerance_w=stable_tolerance_w,
             integration_time_us=integration_time_us,
         )
         if self._journal is not None:
@@ -353,8 +356,9 @@ class SessionRecordStore:
             pib=math.nan,
             smsr_db=math.nan,
             stable_span_w=math.nan,
+            stability_percent=math.nan,
+            stability_limit_percent=math.nan,
             stable_window_s=math.nan,
-            stable_tolerance_w=math.nan,
             integration_time_us=_spectrum.get("integration_time_us"),
         )
         if self._journal is not None:

@@ -441,7 +441,9 @@ def _write_xlsx_measurement_attempts(
         "FWHM(nm)",
         "PIB",
         "SMSR(dB)",
-        "判稳波动(W)",
+        "功率峰峰值(W)",
+        "稳定度2σ/μ(%)",
+        "稳定度限值(%)",
         "判稳窗口(s)",
         "积分时间(us)",
         "光谱文件",
@@ -450,7 +452,7 @@ def _write_xlsx_measurement_attempts(
     sheet.set_column(0, len(headers) - 1, 16)
     sheet.set_column(3, 3, 28)
     sheet.set_column(5, 5, 42)
-    sheet.set_column(17, 17, 42)
+    sheet.set_column(19, 19, 42)
     sheet.write_row(0, 0, headers, formats["result_header"])
     for row, attempt in enumerate(attempts, start=1):
         validity = getattr(attempt, "validity", "")
@@ -471,6 +473,8 @@ def _write_xlsx_measurement_attempts(
             _finite_or_none(getattr(attempt, "pib", math.nan)),
             _finite_or_none(getattr(attempt, "smsr_db", math.nan)),
             _finite_or_none(getattr(attempt, "stable_span_w", math.nan)),
+            _finite_or_none(getattr(attempt, "stability_percent", math.nan)),
+            _finite_or_none(getattr(attempt, "stability_limit_percent", math.nan)),
             _finite_or_none(getattr(attempt, "stable_window_s", math.nan)),
             None if integration_time_us is None else int(integration_time_us),
             getattr(attempt, "spectrum_path", ""),

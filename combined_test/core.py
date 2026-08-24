@@ -24,10 +24,6 @@ CSV_HEADER = [
     "spectrum_csv_path",
 ]
 
-POWER_STABILITY_ABSOLUTE_FLOOR_W = 0.10
-POWER_STABILITY_RELATIVE_FRACTION = 0.002
-
-
 @dataclass(frozen=True)
 class StabilityResult:
     stable: bool
@@ -35,6 +31,7 @@ class StabilityResult:
     window_s: float
     sample_count: int
     median_w: float
+    stability_percent: float = math.nan
 
 
 @dataclass(frozen=True)
@@ -52,8 +49,8 @@ class CombinedMeasurement:
     spectrum_csv_path: str = ""
 
 
-class PowerStabilityDetector:
-    """Conservative time-window detector with noise and drift protection.
+class _AbsoluteWindowStabilityDetector:
+    """Conservative absolute-window detector for wavelength stability.
 
     A stable result requires enough continuously sampled data, an acceptable
     robust peak-to-peak span, and no meaningful fitted drift or shift between
@@ -68,21 +65,21 @@ class PowerStabilityDetector:
     MAX_FITTED_DRIFT_FRACTION = 0.25
     EXIT_TOLERANCE_MULTIPLIER = 1.5
 
-    def __init__(self, window_s: float, tolerance_w: float) -> None:
+    def __init__(self, window_s: float, tolerance: float) -> None:
         if window_s <= 0:
             raise ValueError("稳定窗口必须大于 0 秒")
-        if tolerance_w < 0:
-            raise ValueError("允许波动必须大于或等于 0 W")
+        if tolerance < 0:
+            raise ValueError("允许波动必须大于或等于 0")
         self.window_s = float(window_s)
-        self.tolerance_w = float(tolerance_w)
+        self.tolerance = float(tolerance)
         self._samples: Deque[tuple[float, float]] = deque()
         self._stable_latched = False
 
     @property
-    def active_tolerance_w(self) -> float:
+    def active_tolerance(self) -> float:
         """Return the entry or wider exit threshold used for the next sample."""
         multiplier = self.EXIT_TOLERANCE_MULTIPLIER if self._stable_latched else 1.0
-        return self.tolerance_w * multiplier
+        return self.tolerance * multiplier
 
     def reset(self) -> None:
         self._samples.clear()
@@ -91,21 +88,21 @@ class PowerStabilityDetector:
     def _remove_isolated_spike(
         self,
         samples: list[tuple[float, float]],
-        tolerance_w: float,
+        tolerance: float,
     ) -> list[tuple[float, float]]:
         """Remove at most one clear, single-sample interior impulse."""
-        if len(samples) < self.MIN_SAMPLE_COUNT or tolerance_w <= 0.0:
+        if len(samples) < self.MIN_SAMPLE_COUNT or tolerance <= 0.0:
             return samples
 
         candidates: list[tuple[float, int]] = []
-        neighbor_limit = tolerance_w * self.MAX_CENTER_SHIFT_FRACTION
+        neighbor_limit = tolerance * self.MAX_CENTER_SHIFT_FRACTION
         for index in range(1, len(samples) - 1):
             previous_power = samples[index - 1][1]
             power = samples[index][1]
             next_power = samples[index + 1][1]
             neighbor_center = (previous_power + next_power) / 2.0
             deviation = abs(power - neighbor_center)
-            if abs(previous_power - next_power) <= neighbor_limit and deviation > tolerance_w:
+            if abs(previous_power - next_power) <= neighbor_limit and deviation > tolerance:
                 candidates.append((deviation, index))
 
         if not candidates:
@@ -149,8 +146,8 @@ class PowerStabilityDetector:
             self._samples.popleft()
 
         samples = list(self._samples)
-        active_tolerance_w = self.active_tolerance_w
-        filtered_samples = self._remove_isolated_spike(samples, active_tolerance_w)
+        active_tolerance = self.active_tolerance
+        filtered_samples = self._remove_isolated_spike(samples, active_tolerance)
         powers = [sample[1] for sample in filtered_samples]
         span = max(powers) - min(powers) if powers else math.inf
         median_w = median(powers) if powers else math.nan
@@ -183,13 +180,13 @@ class PowerStabilityDetector:
             if elapsed_variance > 0.0
             else math.inf
         )
-        comparison_margin = max(1e-12, active_tolerance_w * 1e-12)
+        comparison_margin = max(1e-12, active_tolerance * 1e-12)
         candidate_stable = (
-            span <= active_tolerance_w + comparison_margin
+            span <= active_tolerance + comparison_margin
             and center_shift
-            <= active_tolerance_w * self.MAX_CENTER_SHIFT_FRACTION + comparison_margin
+            <= active_tolerance * self.MAX_CENTER_SHIFT_FRACTION + comparison_margin
             and abs(fitted_slope) * self.window_s
-            <= self.tolerance_w * self.MAX_FITTED_DRIFT_FRACTION + comparison_margin
+            <= self.tolerance * self.MAX_FITTED_DRIFT_FRACTION + comparison_margin
         )
         if not candidate_stable:
             return self._unstable_result(span, covered_s, median_w)
@@ -198,20 +195,105 @@ class PowerStabilityDetector:
         return StabilityResult(True, span, covered_s, len(self._samples), median_w)
 
 
-class WavelengthStabilityDetector(PowerStabilityDetector):
+class WavelengthStabilityDetector(_AbsoluteWindowStabilityDetector):
     """Time-window stability detector for spectral centroid wavelength."""
 
 
-def stability_tolerance_for_power(power_w: float) -> float:
-    """Return a continuous absolute-plus-relative entry span for power."""
-    power = float(power_w)
-    if not math.isfinite(power):
-        return POWER_STABILITY_ABSOLUTE_FLOOR_W
-    power = max(0.0, power)
-    return max(
-        POWER_STABILITY_ABSOLUTE_FLOOR_W,
-        power * POWER_STABILITY_RELATIVE_FRACTION,
-    )
+class PowerStabilityDetector:
+    """Coherent-style power stability detector: ``2σ / μ × 100%``.
+
+    ``σ`` is the sample standard deviation and ``μ`` is the arithmetic mean
+    over a complete, continuously sampled time window.
+    """
+
+    MIN_SAMPLE_COUNT = 5
+    MAX_SAMPLE_GAP_FRACTION = 0.5
+
+    def __init__(self, window_s: float, stability_limit_percent: float) -> None:
+        if window_s <= 0:
+            raise ValueError("稳定窗口必须大于 0 秒")
+        if stability_limit_percent < 0:
+            raise ValueError("稳定度限值必须大于或等于 0%")
+        self.window_s = float(window_s)
+        self.stability_limit_percent = float(stability_limit_percent)
+        self._samples: Deque[tuple[float, float]] = deque()
+
+    def reset(self) -> None:
+        self._samples.clear()
+
+    def _result(
+        self,
+        *,
+        stable: bool,
+        span_w: float,
+        covered_s: float,
+        median_w: float = math.nan,
+        stability_percent: float = math.nan,
+    ) -> StabilityResult:
+        return StabilityResult(
+            stable=stable,
+            span_w=span_w,
+            window_s=covered_s,
+            sample_count=len(self._samples),
+            median_w=median_w,
+            stability_percent=stability_percent,
+        )
+
+    def add_sample(self, elapsed_s: float, power_w: float) -> StabilityResult:
+        elapsed = float(elapsed_s)
+        power = float(power_w)
+        if not math.isfinite(elapsed) or not math.isfinite(power):
+            self.reset()
+            return self._result(stable=False, span_w=math.inf, covered_s=0.0)
+
+        if self._samples and elapsed < self._samples[-1][0]:
+            self.reset()
+        elif self._samples and elapsed == self._samples[-1][0]:
+            self._samples.pop()
+
+        self._samples.append((elapsed, power))
+        cutoff = elapsed - self.window_s
+        while len(self._samples) > 1 and self._samples[1][0] <= cutoff:
+            self._samples.popleft()
+
+        samples = list(self._samples)
+        powers = [sample[1] for sample in samples]
+        span_w = max(powers) - min(powers) if powers else math.inf
+        median_w = median(powers) if powers else math.nan
+        covered_s = samples[-1][0] - samples[0][0] if len(samples) >= 2 else 0.0
+        if covered_s < self.window_s or len(samples) < self.MIN_SAMPLE_COUNT:
+            return self._result(
+                stable=False,
+                span_w=span_w,
+                covered_s=covered_s,
+                median_w=median_w,
+            )
+
+        gaps = [samples[index][0] - samples[index - 1][0] for index in range(1, len(samples))]
+        if gaps and max(gaps) > self.window_s * self.MAX_SAMPLE_GAP_FRACTION:
+            return self._result(
+                stable=False,
+                span_w=span_w,
+                covered_s=covered_s,
+                median_w=median_w,
+            )
+
+        mean_w = math.fsum(powers) / len(powers)
+        if mean_w <= 0.0:
+            stability_percent = math.inf
+        else:
+            sample_variance = math.fsum((value - mean_w) ** 2 for value in powers) / (
+                len(powers) - 1
+            )
+            stability_percent = 2.0 * math.sqrt(sample_variance) / mean_w * 100.0
+        margin = max(1e-12, self.stability_limit_percent * 1e-12)
+        return self._result(
+            stable=stability_percent <= self.stability_limit_percent + margin,
+            span_w=span_w,
+            covered_s=covered_s,
+            median_w=median_w,
+            stability_percent=stability_percent,
+        )
 
 
 def build_set_current_command(current_a: float) -> list[int]:

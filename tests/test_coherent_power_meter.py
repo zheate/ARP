@@ -6,7 +6,7 @@ from contextlib import contextmanager
 from unittest.mock import patch
 
 from combined_test.devices import PowerMeterDetectThread, PowerMeterReaderThread
-from combined_test.models import PowerMeterSettings
+from combined_test.models import PowerMeterReading, PowerMeterSettings
 from tools import power_meter_mvp
 
 
@@ -297,7 +297,7 @@ class CoherentPowerMeterTests(unittest.TestCase):
                 software_gain=1.0,
                 interval_ms=300,
                 stable_window_s=1.0,
-                stable_tolerance_w=0.1,
+                stability_limit_percent=0.2,
                 driver_kind="coherent",
             )
         )
@@ -315,6 +315,86 @@ class CoherentPowerMeterTests(unittest.TestCase):
                 "close",
             ],
         )
+
+    def test_combined_reader_rejects_a_different_probe_before_acquisition(self) -> None:
+        class FakeCoherentPowerMeter:
+            device_type = "Coherent PM150-50C"
+
+            def __init__(self, _resource: str) -> None:
+                self.probe_serial_number = "PROBE-NEW"
+
+            def test(self) -> str:
+                return "OK"
+
+            def close(self) -> None:
+                return None
+
+        reader = PowerMeterReaderThread(
+            PowerMeterSettings(
+                resource="ASRL8::INSTR",
+                wavelength_nm=976.5,
+                software_gain=1.0,
+                interval_ms=300,
+                stable_window_s=1.0,
+                stability_limit_percent=0.2,
+                driver_kind="coherent",
+                serial_number="PROBE-SAVED",
+            )
+        )
+        failures: list[str] = []
+        reader.failed.connect(failures.append)
+
+        with patch.object(power_meter_mvp, "CoherentPowerMeter", FakeCoherentPowerMeter):
+            reader.run()
+
+        self.assertEqual(len(failures), 1)
+        self.assertIn("已记住 PROBE-SAVED，当前 PROBE-NEW", failures[0])
+
+    def test_combined_reader_uses_configured_stability_limit(self) -> None:
+        class FakeCoherentPowerMeter:
+            device_type = "Coherent PM150-50C"
+
+            def __init__(self, _resource: str) -> None:
+                pass
+
+            def test(self) -> str:
+                return "OK"
+
+            def set_power_mode(self) -> None:
+                pass
+
+            def set_wavelength(self, _wavelength_nm: float) -> None:
+                pass
+
+            def read_power_w(self) -> float:
+                return 100.0
+
+            def close(self) -> None:
+                pass
+
+        reader = PowerMeterReaderThread(
+            PowerMeterSettings(
+                resource="ASRL8::INSTR",
+                wavelength_nm=976.5,
+                software_gain=1.0,
+                interval_ms=300,
+                stable_window_s=3.0,
+                stability_limit_percent=0.2,
+                driver_kind="coherent",
+            )
+        )
+        readings: list[PowerMeterReading] = []
+
+        def on_reading(reading: PowerMeterReading) -> None:
+            readings.append(reading)
+            reader.stop()
+
+        reader.reading.connect(on_reading)
+        with patch.object(power_meter_mvp, "CoherentPowerMeter", FakeCoherentPowerMeter):
+            reader.run()
+
+        self.assertEqual(len(readings), 1)
+        self.assertEqual(readings[0].stability_limit_percent, 0.2)
 
 
 if __name__ == "__main__":

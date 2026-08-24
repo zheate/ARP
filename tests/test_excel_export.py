@@ -205,6 +205,8 @@ class ExcelExportTests(unittest.TestCase):
                 pib=0.995,
                 smsr_db=32.5,
                 stable_span_w=0.01,
+                stability_percent=0.18,
+                stability_limit_percent=0.2,
                 stable_window_s=3.0,
                 integration_time_us=3_800,
                 spectrum_path="spectra/point.csv",
@@ -216,8 +218,8 @@ class ExcelExportTests(unittest.TestCase):
             sheet = workbook["测量尝试"]
             self.assertEqual(sheet.sheet_state, "hidden")
             self.assertEqual(
-                [sheet.cell(2, column).value for column in (1, 2, 3, 7, 17, 18)],
-                [5, 3.0, 2, "是", 3_800, "spectra/point.csv"],
+                [sheet.cell(2, column).value for column in (1, 2, 3, 7, 16, 17, 19, 20)],
+                [5, 3.0, 2, "是", 0.18, 0.2, 3_800, "spectra/point.csv"],
             )
             workbook.close()
 

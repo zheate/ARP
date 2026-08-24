@@ -64,6 +64,8 @@ export interface DeviceSnapshot {
   temperatureC?: number | null
   powerW?: number | null
   stable?: boolean
+  stabilityPercent?: number | null
+  stabilityLimitPercent?: number | null
   peakWavelengthNm?: number | null
   centroidNm?: number | null
   fwhmNm?: number | null
@@ -117,7 +119,7 @@ export interface AppConfiguration {
   fwhmMaximumNm: number
   pibMinimumPercent: number
   stableWindowS: number
-  stableToleranceW: number
+  stabilityLimitPercent: number
   initialCurrentA: number
   targetCurrentA: number
   currentStepA: number

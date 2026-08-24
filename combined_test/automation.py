@@ -11,6 +11,8 @@ from enum import Enum
 
 MAX_CURRENT_CENTIAMPS = 2000
 MIN_POWER_SUPPLY_COMMAND_INTERVAL_S = 1.1
+ORDINARY_AUTO_POST_STABLE_DELAY_S = 2.0
+FINAL_AUTO_POST_STABLE_DELAY_S = 10.0
 CUSTOM_HOLD_RAMP_STEP_A = 0.5
 CUSTOM_HOLD_RAMP_INTERVAL_S = 0.5
 MAX_AUTOMATIC_SEQUENCE_POINTS = 10_000
@@ -345,6 +347,17 @@ def build_test_dwells(settings: AutomaticTestSettings) -> tuple[float, ...]:
         for point in settings.custom_current_points
     }
     return tuple(holds.get(round(current, 2), 0.0) for current in currents)
+
+
+def automatic_post_stable_delay_s(index: int, point_count: int) -> float:
+    """Return the confirmation delay after a point first reaches stability."""
+    if point_count <= 0 or index < 0 or index >= point_count:
+        raise ValueError("测试点索引超出范围")
+    return (
+        FINAL_AUTO_POST_STABLE_DELAY_S
+        if index == point_count - 1
+        else ORDINARY_AUTO_POST_STABLE_DELAY_S
+    )
 
 
 def build_custom_hold_ramp_currents(

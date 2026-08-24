@@ -25,8 +25,10 @@ from combined_test.automation import (
     AutomaticTestOrchestrator,
     AutomaticTestSettings,
     AutomaticTestState,
+    FINAL_AUTO_POST_STABLE_DELAY_S,
     MIN_POWER_SUPPLY_COMMAND_INTERVAL_S,
     PowerDropProtectionDetector,
+    automatic_post_stable_delay_s,
     build_custom_hold_ramp_currents,
     build_ramp_down_currents,
     validate_automatic_test_settings,
@@ -185,7 +187,7 @@ DEFAULT_CONFIGURATION: dict[str, Any] = {
     "fwhmMaximumNm": 0.6,
     "pibMinimumPercent": 95.0,
     "stableWindowS": 3.0,
-    "stableToleranceW": 0.15,
+    "stabilityLimitPercent": 0.2,
     "initialCurrentA": 1.0,
     "targetCurrentA": 20.0,
     "currentStepA": 3.0,
@@ -1211,7 +1213,7 @@ class StationRuntime:
             if self.power_meter_reader is not None:
                 self.power_meter_reader.update_stability_settings(
                     float(self.configuration["stableWindowS"]),
-                    float(self.configuration["stableToleranceW"]),
+                    float(self.configuration["stabilityLimitPercent"]),
                 )
 
             if "spectrometerResource" in params:
@@ -1496,7 +1498,7 @@ class StationRuntime:
                 interval_ms=int(self.configuration["powerMeterIntervalMs"]),
                 software_gain=float(self.configuration["softwareGain"]),
                 stable_window_s=float(self.configuration["stableWindowS"]),
-                stable_tolerance_w=float(self.configuration["stableToleranceW"]),
+                stability_limit_percent=float(self.configuration["stabilityLimitPercent"]),
                 driver_kind=str(self.configuration.get("powerMeterDriverKind", "caihuang")),
                 serial_number=str(self.configuration.get("powerMeterSerialNumber", "")),
             )
@@ -1710,7 +1712,8 @@ class StationRuntime:
             voltage_raw_v=raw_voltage_v,
             stable_span_w=reading.stable_span_w,
             stable_window_s=reading.stable_window_s,
-            stable_tolerance_w=float(self.configuration["stableToleranceW"]),
+            stability_percent=reading.stability_percent,
+            stability_limit_percent=float(self.configuration["stabilityLimitPercent"]),
             integration_time_us=int(self.configuration["integrationTimeUs"]),
         )
         with self._lock:
@@ -2104,7 +2107,7 @@ class StationRuntime:
         return validate_automatic_test_settings(
             settings,
             stable_window_s=float(self.configuration["stableWindowS"]),
-            post_stable_delay_s=10.0,
+            post_stable_delay_s=FINAL_AUTO_POST_STABLE_DELAY_S,
         )
 
     def automatic_readiness(self) -> dict[str, Any]:
@@ -2224,7 +2227,7 @@ class StationRuntime:
             else:
                 self.power_meter_reader.update_stability_settings(
                     float(self.configuration["stableWindowS"]),
-                    float(self.configuration["stableToleranceW"]),
+                    float(self.configuration["stabilityLimitPercent"]),
                 )
             if not aging_test and settings.use_spectrometer:
                 self.configuration["autoIntegration"] = False
@@ -2491,7 +2494,10 @@ class StationRuntime:
             on_tick=refresh_stable_point,
         ):
             raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
-        post_stable_delay_s = 10.0 if index == len(self.automatic.currents) - 1 else 5.0
+        post_stable_delay_s = automatic_post_stable_delay_s(
+            index,
+            len(self.automatic.currents),
+        )
         remaining_post_stable_s = max(0.0, post_stable_delay_s - dwell_s)
         if remaining_post_stable_s > 0.0 and not self._wait_automatic_duration(
             remaining_post_stable_s,
@@ -2610,7 +2616,8 @@ class StationRuntime:
                     voltage_raw_v=raw_voltage_v,
                     stable_span_w=stable_reading.stable_span_w,
                     stable_window_s=stable_reading.stable_window_s,
-                    stable_tolerance_w=float(self.configuration["stableToleranceW"]),
+                    stability_percent=stable_reading.stability_percent,
+                    stability_limit_percent=float(self.configuration["stabilityLimitPercent"]),
                     integration_time_us=int(self.configuration["integrationTimeUs"]),
                 )
                 break
@@ -4638,6 +4645,14 @@ class HeadlessBackend:
                     "ready": bool(active_st.power_meter_reader and active_st.power_meter_reader.is_ready),
                     "powerW": power_value,
                     "stable": bool(active_st.latest_power and active_st.latest_power.stable),
+                    "stabilityPercent": _finite(
+                        getattr(active_st.latest_power, "stability_percent", None)
+                        if active_st.latest_power
+                        else None
+                    ),
+                    "stabilityLimitPercent": float(
+                        active_st.configuration["stabilityLimitPercent"]
+                    ),
                     **power_freshness,
                     "resources": [item.label() for item in available_power_meter_options],
                 },

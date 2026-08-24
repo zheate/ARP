@@ -51,7 +51,7 @@ const DEMO_SNAPSHOT: BackendSnapshot = {
     fwhmMaximumNm: 0.6,
     pibMinimumPercent: 95,
     stableWindowS: 3,
-    stableToleranceW: 0.15,
+    stabilityLimitPercent: 0.2,
     initialCurrentA: 2,
     targetCurrentA: 12,
     currentStepA: 2,

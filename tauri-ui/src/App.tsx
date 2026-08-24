@@ -32,7 +32,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { CanvasLineChart, type CanvasChartAnnotation, type CanvasChartAnnotationLegendItem, type CanvasChartLine, type CanvasChartWidthAnnotation, type CanvasColumnarData } from "@/components/canvas-line-chart"
+import { CanvasLineChart, type CanvasChartAnnotation, type CanvasChartAnnotationLegendItem, type CanvasChartLine, type CanvasColumnarData } from "@/components/canvas-line-chart"
 import { AnimatedToastStack, type ToastStatus } from "@/components/motion/animated-toast-stack"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -44,7 +44,7 @@ import { sendBackendRequest, type AppConfiguration, type AppShutdownResult, type
 import { powerMeterResourceValue } from "@/lib/power-meter-resource"
 import { automaticPauseCommand, automaticPauseCopy, pauseRemainingSeconds } from "@/lib/automatic-pause"
 import { automaticTerminalTitle, shutdownPresentation } from "@/lib/safety-state"
-import { spectrumFwhmAnnotation, spectrumPeakAnnotations, spectrumPeakLegend } from "@/lib/spectrum-annotations"
+import { spectrumPeakAnnotations, spectrumPeakLegend } from "@/lib/spectrum-annotations"
 
 type Page = "automatic" | "manual" | "pd" | "shipping" | "settings"
 type Theme = "dark" | "light"
@@ -222,7 +222,7 @@ const emptyConfig: AppConfiguration = {
   fwhmMaximumNm: 0.6,
   pibMinimumPercent: 95,
   stableWindowS: 3,
-  stableToleranceW: 0.15,
+  stabilityLimitPercent: 0.2,
   initialCurrentA: 1,
   targetCurrentA: 20,
   currentStepA: 3,
@@ -1731,7 +1731,7 @@ function ChartLegend({ lines }: { lines: CanvasChartLine[] }) {
   )
 }
 
-const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, lines, empty = "暂无实时数据", heightClassName, annotations, annotationLegend, widthAnnotations, stretch = false, compactHeader = false, hideHeader = false, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, preserveAllPoints = false, xLabel, xTickSuffix, yLabel }: {
+const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, lines, empty = "暂无实时数据", heightClassName, annotations, annotationLegend, stretch = false, compactHeader = false, hideHeader = false, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, preserveAllPoints = false, xLabel, xTickSuffix, yLabel }: {
   title: string
   data?: Array<Record<string, number | null>>
   columns?: CanvasColumnarData
@@ -1741,7 +1741,6 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
   heightClassName?: string
   annotations?: CanvasChartAnnotation[]
   annotationLegend?: CanvasChartAnnotationLegendItem[]
-  widthAnnotations?: CanvasChartWidthAnnotation[]
   stretch?: boolean
   compactHeader?: boolean
   hideHeader?: boolean
@@ -1769,7 +1768,7 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
         {dataLength === 0 ? (
           <div className="grid h-full min-h-[120px] place-items-center rounded-lg bg-background/30 text-xs text-muted-foreground/70">{empty}</div>
         ) : (
-          <CanvasLineChart annotationLegend={annotationLegend} annotations={annotations} ariaLabel={`${title}曲线`} columns={columns} data={data} lines={lines} preserveAllPoints={preserveAllPoints} rightYDomain={rightYDomain} tightInsets={hideHeader} widthAnnotations={widthAnnotations} xDomain={xDomain} xKey={xKey} xLabel={xLabel} xTickSuffix={xTickSuffix} xTicks={xTicks} yDomain={yDomain} yLabel={yLabel} yMinimumLimit={yMinimumLimit} />
+          <CanvasLineChart annotationLegend={annotationLegend} annotations={annotations} ariaLabel={`${title}曲线`} columns={columns} data={data} lines={lines} preserveAllPoints={preserveAllPoints} rightYDomain={rightYDomain} tightInsets={hideHeader} xDomain={xDomain} xKey={xKey} xLabel={xLabel} xTickSuffix={xTickSuffix} xTicks={xTicks} yDomain={yDomain} yLabel={yLabel} yMinimumLimit={yMinimumLimit} />
         )}
       </CardContent>
     </Card>
@@ -1829,7 +1828,6 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
     && sameNumbers(previous.rightYDomain, next.rightYDomain)
     && sameRows(previous.annotations, next.annotations, ["label", "x", "y", "color"])
     && sameRows(previous.annotationLegend, next.annotationLegend, ["label", "color", "value"])
-    && sameRows(previous.widthAnnotations, next.widthAnnotations, ["label", "startX", "endX", "y", "color"])
 })
 
 const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, curveLineStyle = "solid", latestPointMarkerStyle = "point", stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; curveLineStyle?: CurveLineStyle; latestPointMarkerStyle?: LatestPointMarkerStyle; stretch?: boolean; heightClassName?: string }) {
@@ -1996,10 +1994,6 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
   const spectrum = snapshot?.devices.spectrometer
   const spectrumPeaks = snapshot?.measurements?.spectrumPeaks ?? []
   const peakAnnotations = spectrumPeakAnnotations(spectrumPeaks)
-  const fwhmAnnotations = spectrumFwhmAnnotation(
-    spectrumData.wavelengthNm,
-    spectrumData.intensity,
-  )
   const spectrumYAxisStateRef = useRef<SpectrumYAxisState | null>(null)
   useEffect(() => {
     const root = document.documentElement
@@ -2066,7 +2060,6 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
       heightClassName={heightClassName}
       annotations={peakAnnotations}
       annotationLegend={spectrumPeakLegend(spectrumPeaks)}
-      widthAnnotations={fwhmAnnotations}
     />
   )
 }, (previous, next) => {

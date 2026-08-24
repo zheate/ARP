@@ -31,14 +31,6 @@ export type CanvasChartAnnotationLegendItem = {
   value: string
 }
 
-export type CanvasChartWidthAnnotation = {
-  label: string
-  startX: number
-  endX: number
-  y: number
-  color: string
-}
-
 type NumericRow = Record<string, number | null>
 export type CanvasColumnarData = Record<string, readonly number[]>
 
@@ -60,7 +52,6 @@ type CanvasLineChartProps = {
   rightYDomain?: [number, number]
   annotations?: CanvasChartAnnotation[]
   annotationLegend?: CanvasChartAnnotationLegendItem[]
-  widthAnnotations?: CanvasChartWidthAnnotation[]
   ariaLabel: string
   preserveAllPoints?: boolean
   tightInsets?: boolean
@@ -89,6 +80,8 @@ type ChartLayout = {
 const EMPTY_SIZE: ChartSize = { width: 0, height: 0 }
 const EMPTY_ROWS: NumericRow[] = []
 const NUMERIC_ZERO_EPSILON = 1e-12
+const TOOLTIP_ESTIMATED_WIDTH = 208
+const TOOLTIP_ESTIMATED_HEIGHT = 120
 
 function finiteValue(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null
@@ -460,7 +453,6 @@ function drawBaseChart(
   xKey: string,
   lines: CanvasChartLine[],
   annotations: CanvasChartAnnotation[],
-  widthAnnotations: CanvasChartWidthAnnotation[],
   xLabel?: string,
   xTickSuffix?: string,
   yLabel?: string,
@@ -575,51 +567,6 @@ function drawBaseChart(
       }
     }
   }
-
-  widthAnnotations.forEach((annotation) => {
-    if (
-      !Number.isFinite(annotation.startX)
-      || !Number.isFinite(annotation.endX)
-      || !Number.isFinite(annotation.y)
-      || annotation.endX <= layout.x.min
-      || annotation.startX >= layout.x.max
-    ) return
-    const startX = mapX(Math.max(layout.x.min, annotation.startX), layout)
-    const endX = mapX(Math.min(layout.x.max, annotation.endX), layout)
-    const y = mapY(annotation.y, layout.leftY, layout)
-    if (y < layout.top || y > layout.top + layout.plotHeight) return
-
-    context.save()
-    context.strokeStyle = annotation.color
-    context.lineWidth = 1.5
-    context.setLineDash([5, 3])
-    context.beginPath()
-    context.moveTo(startX, y)
-    context.lineTo(endX, y)
-    context.stroke()
-    context.setLineDash([])
-    context.beginPath()
-    context.moveTo(startX, y - 5)
-    context.lineTo(startX, y + 5)
-    context.moveTo(endX, y - 5)
-    context.lineTo(endX, y + 5)
-    context.stroke()
-
-    context.font = "600 11px 'ARP Interface', 'DIN', 'MiSans', sans-serif"
-    context.textAlign = "center"
-    context.textBaseline = "bottom"
-    const textWidth = context.measureText(annotation.label).width
-    const labelX = Math.min(
-      Math.max((startX + endX) / 2, layout.left + textWidth / 2 + 6),
-      layout.left + layout.plotWidth - textWidth / 2 - 6,
-    )
-    const labelY = Math.max(layout.top + 14, y - 6)
-    context.fillStyle = chartBackground
-    context.fillRect(labelX - textWidth / 2 - 5, labelY - 13, textWidth + 10, 15)
-    context.fillStyle = annotation.color
-    context.fillText(annotation.label, labelX, labelY)
-    context.restore()
-  })
 
   annotations.forEach((annotation) => {
     if (!Number.isFinite(annotation.x) || !Number.isFinite(annotation.y) || annotation.x < layout.x.min || annotation.x > layout.x.max) return
@@ -754,7 +701,7 @@ function tooltipNumber(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }
 
-export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, annotations = [], annotationLegend = [], widthAnnotations = [], ariaLabel, preserveAllPoints = false, tightInsets = false, xLabel, xTickSuffix, yLabel }: CanvasLineChartProps) {
+export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, annotations = [], annotationLegend = [], ariaLabel, preserveAllPoints = false, tightInsets = false, xLabel, xTickSuffix, yLabel }: CanvasLineChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const baseCanvasRef = useRef<HTMLCanvasElement>(null)
   const hoverCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -815,7 +762,6 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     xKey: string
     lines: CanvasChartLine[]
     annotations: CanvasChartAnnotation[]
-    widthAnnotations: CanvasChartWidthAnnotation[]
     xLabel?: string
     xTickSuffix?: string
     yLabel?: string
@@ -827,11 +773,11 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     const canvas = baseCanvasRef.current
     const container = containerRef.current
     if (!args || !canvas || !container || args.size.width <= 0 || args.size.height <= 0) return
-    drawBaseChart(canvas, container, args.size, args.layout, args.chartData, args.displayIndexes, args.xKey, args.lines, args.annotations, args.widthAnnotations, args.xLabel, args.xTickSuffix, args.yLabel)
+    drawBaseChart(canvas, container, args.size, args.layout, args.chartData, args.displayIndexes, args.xKey, args.lines, args.annotations, args.xLabel, args.xTickSuffix, args.yLabel)
   }, [])
 
   useEffect(() => {
-    baseDrawArgsRef.current = { size, layout, chartData, displayIndexes, xKey, lines, annotations, widthAnnotations, xLabel, xTickSuffix, yLabel }
+    baseDrawArgsRef.current = { size, layout, chartData, displayIndexes, xKey, lines, annotations, xLabel, xTickSuffix, yLabel }
     if (document.visibilityState === "hidden") {
       if (baseFrameRef.current !== null) {
         window.cancelAnimationFrame(baseFrameRef.current)
@@ -841,7 +787,7 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     } else if (baseFrameRef.current === null) {
       baseFrameRef.current = window.requestAnimationFrame(flushBaseDraw)
     }
-  }, [annotations, chartData, displayIndexes, layout, lines, size, widthAnnotations, xKey, xLabel, xTickSuffix, yLabel, flushBaseDraw])
+  }, [annotations, chartData, displayIndexes, layout, lines, size, xKey, xLabel, xTickSuffix, yLabel, flushBaseDraw])
 
   useEffect(() => () => {
     if (baseFrameRef.current !== null) window.cancelAnimationFrame(baseFrameRef.current)
@@ -861,8 +807,8 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
   const positionTooltip = useCallback((pointerX: number, pointerY: number) => {
     const tooltip = tooltipRef.current
     if (!tooltip) return
-    tooltip.style.left = `${Math.min(Math.max(8, pointerX + 12), Math.max(8, size.width - 172))}px`
-    tooltip.style.top = `${Math.min(Math.max(8, pointerY - 18), Math.max(8, size.height - 96))}px`
+    tooltip.style.left = `${Math.min(Math.max(8, pointerX + 14), Math.max(8, size.width - tooltip.offsetWidth - 8))}px`
+    tooltip.style.top = `${Math.min(Math.max(8, pointerY - 22), Math.max(8, size.height - tooltip.offsetHeight - 8))}px`
   }, [size.height, size.width])
 
   const flushHover = useCallback(() => {
@@ -905,8 +851,8 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     scheduleHover({ index: nearestRowIndex(chartData, xKey, target), pointerX, pointerY })
   }
 
-  const tooltipLeft = Math.min(Math.max(8, pointerRef.current.x + 12), Math.max(8, size.width - 172))
-  const tooltipTop = Math.min(Math.max(8, pointerRef.current.y - 18), Math.max(8, size.height - 96))
+  const tooltipLeft = Math.min(Math.max(8, pointerRef.current.x + 14), Math.max(8, size.width - TOOLTIP_ESTIMATED_WIDTH))
+  const tooltipTop = Math.min(Math.max(8, pointerRef.current.y - 22), Math.max(8, size.height - TOOLTIP_ESTIMATED_HEIGHT))
 
   return (
     <div
@@ -918,10 +864,10 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
       <canvas aria-label={ariaLabel} className="absolute inset-0 size-full" ref={baseCanvasRef} role="img" />
       <canvas aria-hidden="true" className="pointer-events-none absolute inset-0 size-full" ref={hoverCanvasRef} />
       {annotationLegend.length > 0 && (
-        <div aria-label="峰值图例" className="pointer-events-none absolute right-3 top-2 z-[1] flex min-w-[10.5rem] flex-col gap-1 rounded-md border border-border/55 bg-card/90 px-3 py-2 text-[11px] font-medium text-foreground/80 shadow-sm backdrop-blur-sm">
+        <div aria-label="峰值图例" className="pointer-events-none absolute right-3 top-2 z-[1] flex min-w-48 flex-col gap-1.5 rounded-lg border border-border/55 bg-card/90 px-3.5 py-2.5 text-[13px] font-medium leading-5 text-foreground/80 shadow-sm backdrop-blur-sm">
           {annotationLegend.map((item) => (
-            <span className="grid grid-cols-[0.625rem_1fr_auto] items-center gap-1.5 whitespace-nowrap" key={item.label}>
-              <svg aria-hidden="true" className="size-2.5 overflow-visible" viewBox="0 0 10 10">
+            <span className="grid grid-cols-[0.75rem_1fr_auto] items-center gap-2 whitespace-nowrap" key={item.label}>
+              <svg aria-hidden="true" className="size-3 overflow-visible" viewBox="0 0 10 10">
                 <path d="M0.5 1.5h9L5 9Z" fill={item.color} />
               </svg>
               <span>{item.label}</span>
@@ -932,15 +878,15 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
       )}
       {hover && hoverRow && (
         <div
-          className="chart-tooltip-enter pointer-events-none absolute z-10 min-w-40 rounded-lg border border-[var(--plm-flat-border-strong)] bg-popover/95 px-3 py-2 text-xs text-popover-foreground shadow-md shadow-black/20 backdrop-blur-sm"
+          className="chart-tooltip-enter pointer-events-none absolute z-10 min-w-48 rounded-lg border border-[var(--plm-flat-border-strong)] bg-popover/95 px-4 py-3 text-sm leading-5 text-popover-foreground shadow-md shadow-black/20 backdrop-blur-sm"
           ref={tooltipRef}
           role="tooltip"
           style={{ left: tooltipLeft, top: tooltipTop }}
         >
-          <p className="mb-1 font-medium">{xKey}: {tooltipNumber(finiteValue(hoverRow[xKey]) ?? 0)}</p>
+          <p className="mb-1.5 font-semibold">{xKey}: {tooltipNumber(finiteValue(hoverRow[xKey]) ?? 0)}</p>
           {lines.map((line) => {
             const value = finiteValue(hoverRow[line.key])
-            return value === null ? null : <div className="flex items-center justify-between gap-4" key={line.key}><span className="flex items-center gap-1.5"><span className="size-2 rounded-full" style={{ backgroundColor: line.color }} />{line.label}</span><span className="font-medium tabular-nums">{tooltipNumber(value)}</span></div>
+            return value === null ? null : <div className="flex items-center justify-between gap-5" key={line.key}><span className="flex items-center gap-2"><span className="size-2.5 rounded-full" style={{ backgroundColor: line.color }} />{line.label}</span><span className="font-semibold tabular-nums">{tooltipNumber(value)}</span></div>
           })}
         </div>
       )}
