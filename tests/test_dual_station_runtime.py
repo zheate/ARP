@@ -574,7 +574,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertEqual(station.configuration["spectrometerDeviceId"], 19)
         self.assertEqual(station.configuration["spectrometerResource"], resources[0]["label"])
 
-    def test_startup_restores_remembered_devices_without_scanning_hardware(self) -> None:
+    def test_startup_restores_remembered_devices_and_scans_spectrometer(self) -> None:
         station_two = self.backend.stations["2"]
         station_two.configuration.update(
             {
@@ -594,7 +594,7 @@ class DualStationRuntimeTests(unittest.TestCase):
             self.backend.start_remembered_device_discovery()
 
         refresh_power_meter.assert_not_called()
-        refresh_spectrometer.assert_not_called()
+        refresh_spectrometer.assert_called_once_with(self.backend.stations["1"])
         self.assertEqual(len(self.backend.power_meter_options), 1)
         self.assertEqual(self.backend.power_meter_options[0].serial_number, "PROBE-B")
         self.assertEqual(

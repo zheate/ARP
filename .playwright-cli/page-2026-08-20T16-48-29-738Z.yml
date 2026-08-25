@@ -1,0 +1,46 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]: Power Test
+    - generic [ref=e7]:
+      - button "保存设置" [disabled]
+      - button "紧急停止" [disabled]
+  - generic [ref=e8]:
+    - complementary [ref=e9]:
+      - navigation [ref=e10]:
+        - button "自动测试" [ref=e11] [cursor=pointer]
+        - button "手动配置" [ref=e17] [cursor=pointer]
+        - button "PD 采集" [ref=e24] [cursor=pointer]
+        - button "数据浏览" [disabled] [ref=e28]
+        - button "出货报告" [ref=e33] [cursor=pointer]
+        - button "系统设置" [active] [ref=e38] [cursor=pointer]
+      - generic [ref=e43]: 授权信息
+    - main [ref=e44]:
+      - list:
+        - listitem [ref=e45]:
+          - alert [ref=e46]:
+            - generic [ref=e50]:
+              - paragraph [ref=e51]: 系统错误
+              - paragraph [ref=e52]: 浏览器预览模式不会启动 Python 后端
+            - button "关闭提示" [ref=e53] [cursor=pointer]
+      - generic [ref=e145]:
+        - generic [ref=e147]:
+          - heading "系统设置" [level=1] [ref=e148]
+          - paragraph [ref=e149]: 管理软件的界面显示偏好。
+        - generic [ref=e150]:
+          - generic [ref=e159]:
+            - generic [ref=e160]: 外观
+            - generic [ref=e161]: 选择适合当前环境的界面主题。
+          - generic [ref=e162]:
+            - generic [ref=e163]:
+              - generic [ref=e164]:
+                - paragraph [ref=e165]: 浅色模式
+                - paragraph [ref=e166]: 开启后使用明亮背景与深色文字，设置会自动保存。
+              - generic [ref=e167]:
+                - generic [ref=e168]: 已关闭
+                - switch "切换浅色模式" [ref=e169] [cursor=pointer]
+            - generic [ref=e171]:
+              - generic [ref=e172]:
+                - paragraph [ref=e173]: 自动测试实时曲线最新点
+                - paragraph [ref=e174]: 纸飞机沿最后一段曲线旋转，上升时朝右上、下降时朝右下，设置会自动保存。
+              - combobox "自动测试实时曲线最新点样式" [ref=e177] [cursor=pointer]:
+                - generic [ref=e178]: 原来的点

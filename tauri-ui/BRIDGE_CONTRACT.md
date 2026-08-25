@@ -66,6 +66,7 @@ Backend notices are retained as a bounded queue of the most recent eight entries
 ## Safety invariants
 
 - Python is the single owner of physical device commands and automatic-test state.
+- Tauri/Rust is the license authority. A valid, machine-bound `arp-power-test` license is required before the Python bridge may be created. If a license becomes invalid while a bridge is already active, only snapshots, global stop, safe automatic end, acquisition stop, shutdown, and current persistence/export retries remain available; license failure must never remove the operator's safe-shutdown path.
 - UI actions call existing controller methods; JavaScript never generates current sequences or decides that shutdown succeeded.
 - `automaticTest.readiness` and `automatic.start` call the same backend validation path. It gates SN, output directory, script/controller compatibility, zero-current/output state, selected measurement resources, and validated timing/current settings; the UI only presents the returned blockers. The CH341-only aging script does not require a spectrometer, but still requires its configured power meter because aging power is recorded.
 - TDK output enable still requires a programmed and measured zero-current state.

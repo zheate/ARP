@@ -1,0 +1,54 @@
+- generic [ref=f1e3]:
+  - banner [ref=f1e4]:
+    - generic [ref=f1e5]: Power Test
+    - generic [ref=f1e7]:
+      - button "保存设置" [disabled]
+      - button "紧急停止" [ref=f1e8] [cursor=pointer]
+  - generic [ref=f1e9]:
+    - complementary [ref=f1e10]:
+      - navigation [ref=f1e11]:
+        - button "自动测试" [ref=f1e12] [cursor=pointer]
+        - button "手动配置" [disabled] [ref=f1e18]
+        - button "PD 采集" [ref=f1e25] [cursor=pointer]
+        - button "数据浏览" [disabled] [ref=f1e29]
+        - button "出货报告" [disabled] [ref=f1e34]
+        - button "系统设置" [ref=f1e39] [cursor=pointer]
+      - generic [ref=f1e44]:
+        - paragraph [ref=f1e45]: 授权状态
+        - paragraph [ref=f1e46]: 已授权
+    - main [ref=f1e47]:
+      - list:
+        - listitem [ref=f1e48]:
+          - status [ref=f1e49]:
+            - generic [ref=f1e53]:
+              - paragraph [ref=f1e54]: 示例数据
+              - paragraph [ref=f1e55]: 当前显示的是图表预览数据，不会连接真实仪器。
+            - button "关闭提示" [disabled] [ref=f1e56]
+      - generic [ref=f1e61]:
+        - generic [ref=f1e63]:
+          - heading "系统设置" [level=1] [ref=f1e64]
+          - paragraph [ref=f1e65]: 管理软件的界面显示偏好。
+        - generic [ref=f1e66]:
+          - generic [ref=f1e75]:
+            - generic [ref=f1e76]: 外观
+            - generic [ref=f1e77]: 选择适合当前环境的界面主题。
+          - generic [ref=f1e78]:
+            - generic [ref=f1e79]:
+              - generic [ref=f1e80]:
+                - paragraph [ref=f1e81]: 浅色模式
+                - paragraph [ref=f1e82]: 开启后使用明亮背景与深色文字，设置会自动保存。
+              - generic [ref=f1e83]:
+                - generic [ref=f1e84]: 已关闭
+                - switch "切换浅色模式" [ref=f1e85] [cursor=pointer]
+            - generic [ref=f1e87]:
+              - generic [ref=f1e88]:
+                - paragraph [ref=f1e89]: 曲线线型
+                - paragraph [ref=f1e90]: 设置自动测试功率实时曲线的实线、虚线或点线显示，数据连接方式保持不变。
+              - combobox "自动测试功率实时曲线线型" [ref=f1e93] [cursor=pointer]:
+                - generic [ref=f1e94]: 点线
+            - generic [ref=f1e97]:
+              - generic [ref=f1e98]:
+                - paragraph [ref=f1e99]: 末端样式
+                - paragraph [ref=f1e100]: 标识自动测试功率实时曲线的最新采样点；纸飞机会沿最后一段曲线方向旋转。
+              - combobox "自动测试功率实时曲线末端样式" [ref=f1e103] [cursor=pointer]:
+                - generic [ref=f1e104]: 圆点

@@ -3660,7 +3660,7 @@ class HeadlessBackend:
             station.configuration["ch341SelectedLocationPath"] = choice.location_path
 
     def start_remembered_device_discovery(self) -> None:
-        """Restore persisted device choices without touching hardware at startup."""
+        """Restore persisted choices and enumerate spectrometers at startup."""
         power_meter_types = {
             "caihuang": "Caihuang CHLP-P",
             "coherent": "Coherent PowerMax",
@@ -3715,6 +3715,11 @@ class HeadlessBackend:
                 self.spectrometer_detection_detail = (
                     f"识别完成：已恢复 {len(spectrometer_resources)} 台光谱仪，连接时校验 SN"
                 )
+
+        # USB spectrometers are safe to enumerate without starting acquisition.
+        # Do this once at launch so the normal single-device setup is ready to
+        # use without requiring an initial click on the Identify button.
+        self._refresh_spectrometer(self.stations["1"])
 
     def _persist_configuration(self) -> None:
         def persistent_configuration(station: StationRuntime) -> dict[str, Any]:

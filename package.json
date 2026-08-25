@@ -7,6 +7,7 @@
     "test:frontend": "npm --prefix tauri-ui test",
     "test:tauri": "cargo test --manifest-path tauri-ui/src-tauri/Cargo.toml",
     "test:realtime": "cargo test --manifest-path rust-realtime-core/Cargo.toml",
+    "license:generate": "node scripts/generate-license.mjs",
     "test": "npm run test:python && npm run test:frontend && npm run test:tauri && npm run test:realtime",
     "build": "npm --prefix tauri-ui run build",
     "check": "npm run test && npm run build",
