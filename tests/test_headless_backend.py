@@ -204,7 +204,7 @@ class HeadlessBackendTests(unittest.TestCase):
             with (
                 patch.object(station, "_await_automatic_resume", return_value=0.0),
                 patch.object(station._automatic_stop, "wait", side_effect=advance_clock),
-                patch("tauri_bridge.headless_backend.time.monotonic", side_effect=lambda: clock[0]),
+                patch("tauri_bridge.station_runtime.time.monotonic", side_effect=lambda: clock[0]),
             ):
                 completed = station._wait_automatic_duration(
                     15.0,
@@ -236,7 +236,7 @@ class HeadlessBackendTests(unittest.TestCase):
             station.power_supply_controller = _FakeController()
 
             with (
-                patch("tauri_bridge.headless_backend.threading.Thread") as thread_class,
+                patch("tauri_bridge.station_automatic.threading.Thread") as thread_class,
                 patch.object(station, "start_power_meter") as start_power_meter,
                 patch.object(station, "start_spectrometer") as start_spectrometer,
             ):
@@ -262,7 +262,7 @@ class HeadlessBackendTests(unittest.TestCase):
             station.efficiency_points = {2.0: 4.2, 6.0: 10.2}
             station.series_revisions["stable"] = 7
 
-            with patch("tauri_bridge.headless_backend.PowerMeterReaderThread"):
+            with patch("tauri_bridge.station_runtime.PowerMeterReaderThread"):
                 station.start_power_meter()
 
             self.assertEqual(station.stable_power_points, {})

@@ -1,0 +1,457 @@
+"""Build immutable frontend snapshots from backend runtime state."""
+
+from __future__ import annotations
+
+import math
+import platform
+import time
+from datetime import datetime, timezone
+from typing import Any
+
+from combined_test.automation import AutomaticTestState
+from combined_test.runtime_logging import runtime_log_path
+from combined_test.spectrum import SPECTRUM_CENTER_LOCK_HALF_RANGE_NM
+
+from .station_support import (
+    BUILTIN_TEST_SCRIPTS,
+    device_state,
+    finite,
+    power_meter_serial_number,
+)
+
+
+class SnapshotBuilder:
+    def __init__(self, backend: Any) -> None:
+        self._backend = backend
+
+    def build(self, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        backend = self._backend
+        # Keep lock ordering one-way: backend state, then station state.
+        with backend._snapshot_lock:
+            view_params = params or {}
+            view = str(view_params.get("view", "full"))
+            active_station_id = (
+                "2"
+                if view in {"automatic_2", "manual_2", "pd_2"}
+                else backend._station_id_from_params(view_params)
+            )
+            active_st = backend._station(active_station_id)
+            with backend._lock:
+                shared = {
+                    "notices": list(backend.notices),
+                    "status_message": backend.status_message,
+                    "power_supply_resources": list(backend.power_supply_resources),
+                    "ch341_discovery_state": backend.ch341_discovery_state,
+                    "ch341_scan_error": backend.ch341_scan_error,
+                    "ch341_descriptors": list(backend.ch341_descriptors),
+                    "power_meter_options": list(backend.power_meter_options),
+                    "power_meter_detecting": backend.power_meter_detect_thread is not None,
+                    "power_meter_detection_detail": backend.power_meter_detection_detail,
+                    "power_meter_detection_station_id": backend.power_meter_detection_station_id,
+                    "power_supply_detecting": backend.power_supply_detect_thread is not None,
+                    "power_supply_detection_detail": backend.power_supply_detection_detail,
+                    "power_supply_detection_kind": backend.power_supply_detection_kind,
+                    "power_supply_detection_station_id": backend.power_supply_detection_station_id,
+                    "spectrometer_detecting": backend.spectrometer_detect_thread is not None,
+                    "spectrometer_detection_detail": backend.spectrometer_detection_detail,
+                    "spectrometer_detection_station_id": backend.spectrometer_detection_station_id,
+                    "spectrometer_resources": [dict(item) for item in backend.spectrometer_resources],
+                }
+            with active_st._lock:
+                return self._build_with_station_lock(backend, view_params, shared)
+
+    def _build_with_station_lock(
+        self,
+        backend: Any,
+        params: dict[str, Any],
+        shared: dict[str, Any],
+    ) -> dict[str, Any]:
+        view = str(params.get("view", "full"))
+        active_station_id = (
+            "2"
+            if view in {"automatic_2", "manual_2", "pd_2"}
+            else backend._station_id_from_params(params)
+        )
+        active_st = backend._station(active_station_id)
+
+        notices = shared["notices"]
+        status_message = shared["status_message"]
+        power_supply_resources = shared["power_supply_resources"]
+        ch341_discovery_state = shared["ch341_discovery_state"]
+        ch341_scan_error = shared["ch341_scan_error"]
+        ch341_descriptors = shared["ch341_descriptors"]
+        power_meter_options = shared["power_meter_options"]
+        power_meter_detection_matches = (
+            shared["power_meter_detection_station_id"] == active_station_id
+        )
+        power_meter_detecting = shared["power_meter_detecting"] and power_meter_detection_matches
+        power_meter_detection_detail = (
+            shared["power_meter_detection_detail"]
+            if power_meter_detection_matches
+            else ""
+        )
+        power_supply_detection_matches = (
+            shared["power_supply_detection_kind"] == active_st.power_supply_kind
+            and shared["power_supply_detection_station_id"] == active_station_id
+        )
+        power_supply_detecting = shared["power_supply_detecting"] and power_supply_detection_matches
+        power_supply_detection_detail = (
+            shared["power_supply_detection_detail"]
+            if power_supply_detection_matches
+            else ""
+        )
+        spectrometer_detection_matches = (
+            shared["spectrometer_detection_station_id"] == active_station_id
+        )
+        spectrometer_detecting = shared["spectrometer_detecting"] and spectrometer_detection_matches
+        spectrometer_detection_detail = (
+            shared["spectrometer_detection_detail"]
+            if spectrometer_detection_matches
+            else ""
+        )
+        spectrometer_resources = shared["spectrometer_resources"]
+
+        with active_st._pd_lock:
+            pd_state = {
+                key: (list(value) if key == "points" else dict(value) if key == "settings" else list(value) if isinstance(value, list) else value)
+                for key, value in active_st.pd_state.items()
+            }
+            pd_revision = active_st.series_revisions["pd"]
+        status_message = active_st.status_message or status_message
+
+        include_live = view in {"automatic", "automatic_1", "automatic_2", "manual", "manual_1", "manual_2", "full"}
+        include_pd = view in {"pd", "pd_1", "pd_2", "full"}
+
+        supply = active_st._power_supply()
+        frame = active_st.latest_spectrum
+        spectrum_saturated = bool(frame and frame.saturation and frame.saturation.saturated)
+        spectrum_stats = None if frame is None else frame.stats
+        power_value = finite(
+            None if active_st.latest_power is None else active_st.latest_power.power_w
+        )
+        power_freshness = active_st.measurement_freshness(
+            received_at_monotonic_s=active_st.latest_power_received_monotonic_s,
+            sampled_at_utc=active_st.latest_power_sampled_at_utc,
+            running=bool(
+                active_st.power_meter_reader and active_st.power_meter_reader.is_ready
+            ),
+            interval_ms=float(active_st.configuration["powerMeterIntervalMs"]),
+            valid=power_value is not None,
+        )
+        spectrum_freshness = active_st.measurement_freshness(
+            received_at_monotonic_s=active_st.latest_spectrum_received_monotonic_s,
+            sampled_at_utc=active_st.latest_spectrum_sampled_at_utc,
+            running=bool(
+                active_st.spectrometer_reader and active_st.spectrometer_reader.is_ready
+            ),
+            interval_ms=float(active_st.configuration["spectrometerIntervalMs"]),
+            valid=frame is not None,
+            saturated=spectrum_saturated,
+        )
+        automatic_readiness = active_st.automatic_readiness()
+
+        raw_since = params.get("since")
+        since_revisions = raw_since if isinstance(raw_since, dict) else None
+        raw_cursors = params.get("cursors")
+        series_cursors = raw_cursors if isinstance(raw_cursors, dict) else {}
+        merged_revisions = {
+            "power": active_st.series_revisions["power"],
+            "stable": active_st.series_revisions["stable"],
+            "aging": active_st.series_revisions["aging"],
+            "spectrum": active_st.series_revisions["spectrum"],
+            "pd": pd_revision,
+        }
+
+        def include_series(name: str, active_for_view: bool) -> bool:
+            if not active_for_view:
+                return False
+            if since_revisions is None:
+                return True
+            previous = since_revisions.get(name)
+            return not isinstance(previous, (int, float)) or int(previous) != merged_revisions[name]
+
+        def append_patch(
+            name: str,
+            points: list[dict[str, Any]],
+            x_key: str,
+        ) -> dict[str, Any] | None:
+            cursor = finite(series_cursors.get(name))
+            if since_revisions is None or cursor is None or not points:
+                return None
+            cursor_index = next(
+                (
+                    index
+                    for index, point in enumerate(points)
+                    if math.isclose(float(point[x_key]), cursor, rel_tol=0.0, abs_tol=1e-9)
+                ),
+                None,
+            )
+            if cursor_index is None or cursor_index >= len(points) - 1:
+                return None
+            return {
+                "startX": float(points[0][x_key]),
+                "points": points[cursor_index + 1 :],
+            }
+
+        measurements: dict[str, Any] = {}
+        series_patches: dict[str, Any] = {}
+        if include_series("power", include_live):
+            power_points = list(active_st.power_points)
+            power_patch = append_patch("power", power_points, "elapsedS")
+            if power_patch is None:
+                measurements["power"] = power_points
+            else:
+                series_patches["power"] = power_patch
+        if include_series("stable", include_live):
+            measurements["stable"] = active_st.build_stable_snapshot()
+        if include_series("aging", include_live):
+            measurements["agingPower"] = active_st.build_aging_power_snapshot()
+        if include_series("spectrum", include_live):
+            spectrum, spectrum_peaks = active_st.build_spectrum_snapshot(
+                allow_cached_grid=since_revisions is not None,
+            )
+            measurements["spectrum"] = spectrum
+            measurements["spectrumPeaks"] = spectrum_peaks
+
+        pd_snapshot = {key: value for key, value in pd_state.items() if key != "points"}
+        if include_series("pd", include_pd):
+            pd_points = list(pd_state["points"])
+            pd_patch = append_patch("pd", pd_points, "elapsedS")
+            if pd_patch is None:
+                pd_snapshot["points"] = pd_points
+            else:
+                series_patches["pd"] = pd_patch
+
+        # CH341 device ports map
+        online_map = {d.location_path: d.device_index for d in ch341_descriptors}
+        occupied_paths = {
+            str(other_st.configuration.get("ch341SelectedLocationPath", "")).strip()
+            for other_id, other_st in backend.stations.items()
+            if other_id != active_st.station_id
+            and other_st.power_supply_kind == "ch341"
+            and other_st.power_supply_controller is not None
+            and str(other_st.configuration.get("ch341SelectedLocationPath", "")).strip()
+        }
+        all_paths = [
+            loc
+            for loc in online_map
+            if loc not in occupied_paths
+        ]
+        ports = [
+            {
+                "locationPath": loc,
+                "name": None,
+                "online": True,
+                "deviceIndex": online_map[loc],
+            }
+            for loc in all_paths
+        ]
+        occupied_power_meter_resources = {
+            str(other_st.configuration.get("powerMeterResource", "")).strip()
+            for other_id, other_st in backend.stations.items()
+            if other_id != active_st.station_id
+            and other_st.power_meter_reader is not None
+            and str(other_st.configuration.get("powerMeterResource", "")).strip()
+        }
+        available_power_meter_options = [
+            option
+            for option in power_meter_options
+            if option.resource not in occupied_power_meter_resources
+        ]
+        occupied_spectrometer_ids = {
+            int(other_st.configuration["spectrometerDeviceId"])
+            for other_id, other_st in backend.stations.items()
+            if other_id != active_st.station_id
+            and other_st.spectrometer_reader is not None
+            and other_st.configuration.get("spectrometerDeviceId") not in {None, ""}
+        }
+        available_spectrometer_resources = [
+            resource
+            for resource in spectrometer_resources
+            if int(resource["deviceId"]) not in occupied_spectrometer_ids
+        ]
+        ch341_snapshot = {
+            "discoveryState": ch341_discovery_state,
+            "error": ch341_scan_error,
+            "ports": ports,
+            "connectedPort": active_st.connected_ch341_port,
+        }
+
+        if active_st.power_supply_identity_error:
+            power_supply_detail = active_st.power_supply_identity_error
+        elif supply is not None and active_st.power_supply_kind == "ch341" and active_st.connected_ch341_port:
+            power_supply_detail = f"Device {active_st.connected_ch341_port['deviceIndex']} · 已连接"
+        else:
+            power_supply_detail = "已连接" if supply is not None else "未连接"
+
+        currents = list(active_st.automatic.currents)
+        current_index = int(active_st.automatic.current_index)
+        progress = max(0.0, min(1.0, (current_index + 1) / len(currents))) if currents else 0.0
+        dwell_elapsed = None
+        if active_st.automatic_hold_started_at is not None and active_st.automatic.current_dwell_s > 0.0:
+            elapsed_s = min(
+                active_st.automatic.current_dwell_s,
+                max(0.0, time.monotonic() - active_st.automatic_hold_started_at),
+            )
+            # The UI displays whole seconds. Quantizing this transport field
+            # prevents the 200 ms live snapshot loop from becoming a timer
+            # stream while the device data itself is unchanged.
+            dwell_elapsed = (
+                active_st.automatic.current_dwell_s
+                if elapsed_s >= active_st.automatic.current_dwell_s
+                else float(math.floor(elapsed_s))
+            )
+
+        stations_summary = {sid: st.summary_snapshot() for sid, st in backend.stations.items()}
+
+        return {
+            "capturedAt": datetime.now(timezone.utc).isoformat(),
+            "seriesRevisions": merged_revisions,
+            **({"seriesPatches": series_patches} if series_patches else {}),
+            "activeStation": active_station_id,
+            "stations": stations_summary,
+            "backend": {
+                "connected": True,
+                "mode": backend.mode,
+                "pythonVersion": platform.python_version(),
+                "runtimeLogPath": str(runtime_log_path() or ""),
+                "notices": notices,
+            },
+            "configuration": dict(active_st.configuration),
+            "configurations": {sid: dict(st.configuration) for sid, st in backend.stations.items()},
+            "testScripts": [dict(item) for item in BUILTIN_TEST_SCRIPTS],
+            "devices": {
+                "powerSupply": {
+                    "state": "connecting" if power_supply_detecting else device_state(supply is not None, False, active_st.power_supply_identity_error),
+                    "label": "TDK RS232" if active_st.power_supply_kind == "tdk" else "CH341 I²C",
+                    "detail": power_supply_detection_detail if power_supply_detecting or (supply is None and power_supply_detection_detail) else power_supply_detail,
+                    "connected": supply is not None,
+                    "detecting": power_supply_detecting,
+                    "outputEnabled": bool(supply and supply.output_enabled),
+                    "activeCurrentA": finite(active_st.active_current_a),
+                    "inputVoltageV": finite(active_st.latest_power_supply_input_voltage_v),
+                    "outputVoltageV": finite(active_st.latest_power_supply_output_voltage_v),
+                    "outputCurrentA": finite(active_st.latest_power_supply_output_current_a),
+                    "temperatureC": finite(active_st.latest_power_supply_temperature_c),
+                    "resources": power_supply_resources,
+                    "ch341": ch341_snapshot,
+                },
+                "powerMeter": {
+                    "state": "connecting" if power_meter_detecting else device_state(False, active_st.power_meter_reader is not None, active_st.power_meter_error),
+                    "label": "功率计",
+                    "detail": active_st.power_meter_error or ("采集中" if active_st.power_meter_reader else power_meter_detection_detail or "已停止"),
+                    "running": active_st.power_meter_reader is not None,
+                    "detecting": power_meter_detecting,
+                    "ready": bool(active_st.power_meter_reader and active_st.power_meter_reader.is_ready),
+                    "powerW": power_value,
+                    "stable": bool(active_st.latest_power and active_st.latest_power.stable),
+                    "stabilityPercent": finite(
+                        getattr(active_st.latest_power, "stability_percent", None)
+                        if active_st.latest_power
+                        else None
+                    ),
+                    "stabilityLimitPercent": float(
+                        active_st.configuration["stabilityLimitPercent"]
+                    ),
+                    **power_freshness,
+                    "resources": [item.label() for item in available_power_meter_options],
+                    "resourceProfiles": [
+                        {
+                            "resource": item.resource,
+                            "driverKind": item.driver_kind,
+                            "serialNumber": power_meter_serial_number(item),
+                            "softwareGain": backend.discovery._power_meter_profile_gain(item),
+                        }
+                        for item in available_power_meter_options
+                    ],
+                },
+                "spectrometer": {
+                    "state": "connecting" if spectrometer_detecting else device_state(False, active_st.spectrometer_reader is not None, active_st.spectrometer_error),
+                    "label": "Ocean Insight",
+                    "detail": active_st.spectrometer_error or ("采集中" if active_st.spectrometer_reader else spectrometer_detection_detail or "已停止"),
+                    "running": active_st.spectrometer_reader is not None,
+                    "detecting": spectrometer_detecting,
+                    "ready": bool(active_st.spectrometer_reader and active_st.spectrometer_reader.is_ready),
+                    "peakWavelengthNm": None if spectrum_saturated else finite(getattr(spectrum_stats, "peak_wavelength_nm", None)),
+                    "centroidNm": None if spectrum_saturated else finite(getattr(spectrum_stats, "centroid_nm", None)),
+                    "fwhmNm": None if spectrum_saturated else finite(getattr(spectrum_stats, "fwhm_nm", None)),
+                    "pib": None if frame is None or not math.isfinite(getattr(frame, "pib", math.nan)) else finite(frame.pib * 100.0 if frame.pib <= 1.0 else frame.pib),
+                    "smsrDb": None if frame is None or frame.smsr is None else finite(frame.smsr.smsr_db),
+                    "saturated": spectrum_saturated,
+                    **spectrum_freshness,
+                    "spectrumWindow": (
+                        {
+                            "centerNm": active_st.spectrum_center_locked_nm,
+                            "halfRangeNm": SPECTRUM_CENTER_LOCK_HALF_RANGE_NM,
+                        }
+                        if active_st.spectrum_center_locked_nm is not None
+                        else None
+                    ),
+                    "resources": [item["label"] for item in available_spectrometer_resources],
+                },
+            },
+            "automaticTest": {
+                "state": active_st.automatic.state.value,
+                "detail": active_st.automatic_detail,
+                "controlsEnabled": True,
+                "canStart": automatic_readiness["ready"],
+                "readiness": automatic_readiness,
+                "canPause": active_st.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED, AutomaticTestState.PAUSED, AutomaticTestState.RAMPING_DOWN},
+                "canEnd": active_st.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED, AutomaticTestState.RAMPING_DOWN},
+                "settingsError": (
+                    ""
+                    if automatic_readiness["ready"]
+                    else str(automatic_readiness["blockers"][0]["message"])
+                ),
+                "currents": currents,
+                "dwellTimesS": list(active_st.automatic.dwell_times_s),
+                "currentIndex": current_index,
+                "currentA": finite(active_st.automatic.current_a),
+                "currentDwellS": active_st.automatic.current_dwell_s,
+                "currentDwellElapsedS": dwell_elapsed,
+                "samplePath": active_st.automatic_sample_path,
+                "progress": progress,
+                "pauseReason": active_st.automatic.pause_reason,
+                "pauseKind": active_st.automatic_pause_kind,
+                "pauseStartedAtUtc": active_st.automatic_pause_started_at_utc,
+                "pauseDeadlineAtUtc": active_st.automatic_pause_deadline_at_utc,
+                "pauseActions": list(active_st.automatic_pause_actions),
+                "terminalOutcome": active_st.automatic_terminal_outcome,
+                "terminalReason": active_st.automatic_terminal_reason,
+                "savedPointCount": len(active_st.record_store.recorded_currents),
+                "exportedPointCount": len(active_st.record_store.exported_currents),
+                "journalPath": "" if active_st.record_store.journal_path is None else str(active_st.record_store.journal_path),
+                "canNextDevice": active_st.automatic.state == AutomaticTestState.COMPLETED and active_st.shutdown_confirmed,
+                "canRetryExport": active_st.automatic.state == AutomaticTestState.COMPLETED and active_st.export_status == "failed",
+                "exportStatus": active_st.export_status,
+                "exportPath": active_st.export_path,
+                "exportError": active_st.export_error,
+                "reference": (
+                    active_st._test_reference.reference_payload()
+                    if active_st._test_reference is not None
+                    else None
+                ),
+            },
+            "manualTest": {
+                "pendingCount": (
+                    len(active_st.record_store.unsaved_records())
+                    if active_st.record_store.current_session is not None
+                    and active_st.record_store.current_session.mode == "manual"
+                    else 0
+                ),
+                "exportStatus": active_st.export_status,
+                "exportPath": active_st.export_path,
+                "exportError": active_st.export_error,
+            },
+            "measurements": measurements,
+            "pd": pd_snapshot,
+            "safety": {
+                "hardwareAccess": True,
+                "commandMode": "controller_owned",
+                "detail": "设备命令、自动流程和安全下电由无界面 Python 后台执行",
+                "controlOwner": "manual" if active_st.manual_controls_allowed() else "automatic",
+                "manualControlsAllowed": active_st.manual_controls_allowed(),
+                "shutdown": active_st.shutdown_snapshot(),
+            },
+            "status": {"message": status_message},
+        }

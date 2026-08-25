@@ -234,7 +234,7 @@ class MultiCH341Test(unittest.TestCase):
         loc2 = "PCIROOT(0)#USB(2)"
 
         # Selection is runtime-only; the physical path resolves the live DLL index.
-        backend._configure({
+        backend.dispatcher.configure({
             "ch341SelectedLocationPath": loc1,
             "powerSupplyKind": "ch341",
         })
@@ -245,8 +245,8 @@ class MultiCH341Test(unittest.TestCase):
             Ch341DeviceDescriptor(device_index=1, interface_path="iface1", location_path=loc2),
         ]
 
-        with patch("tauri_bridge.headless_backend.scan_ch341_devices", return_value=desc_scan_a):
-            backend._refresh_device({"device": "powerSupply"})
+        with patch("tauri_bridge.device_discovery.scan_ch341_devices", return_value=desc_scan_a):
+            backend.discovery.refresh_device({"device": "powerSupply"})
             snap = backend.snapshot()
             ports = snap["devices"]["powerSupply"]["ch341"]["ports"]
             self.assertEqual(len(ports), 2)
@@ -267,9 +267,9 @@ class MultiCH341Test(unittest.TestCase):
         mock_ctrl.connect_device.return_value = (True, "CH341 Device 1 Connected")
         mock_ctrl.get_device_interface_path.return_value = "iface0"
 
-        with patch("tauri_bridge.headless_backend.scan_ch341_devices", return_value=desc_scan_b):
-            with patch("tauri_bridge.headless_backend.create_ch341_controller", return_value=mock_ctrl) as mock_factory:
-                with patch("tauri_bridge.headless_backend.get_location_path_from_interface_path", return_value=loc1):
+        with patch("tauri_bridge.device_discovery.scan_ch341_devices", return_value=desc_scan_b):
+            with patch("tauri_bridge.station_runtime.create_ch341_controller", return_value=mock_ctrl) as mock_factory:
+                with patch("tauri_bridge.station_runtime.get_location_path_from_interface_path", return_value=loc1):
                     backend._connect_power_supply()
                     mock_factory.assert_called_once_with(device_index=1)
                     mock_ctrl.connect_device.assert_called_once_with(1)
@@ -277,7 +277,7 @@ class MultiCH341Test(unittest.TestCase):
 
     def test_offline_port_does_not_call_connect(self):
         backend = HeadlessBackend()
-        backend._configure({
+        backend.dispatcher.configure({
             "ch341PortBindings": [{"locationPath": "PCIROOT(0)#USB(1)", "name": "1号工位"}],
             "ch341SelectedLocationPath": "PCIROOT(0)#USB(1)",
             "powerSupplyKind": "ch341",
@@ -286,8 +286,8 @@ class MultiCH341Test(unittest.TestCase):
         # Scan only returns USB(2), USB(1) is offline
         desc_list = [Ch341DeviceDescriptor(device_index=0, interface_path="iface2", location_path="PCIROOT(0)#USB(2)")]
 
-        with patch("tauri_bridge.headless_backend.scan_ch341_devices", return_value=desc_list):
-            with patch("tauri_bridge.headless_backend.create_ch341_controller") as mock_factory:
+        with patch("tauri_bridge.device_discovery.scan_ch341_devices", return_value=desc_list):
+            with patch("tauri_bridge.station_runtime.create_ch341_controller") as mock_factory:
                 with self.assertRaises(RuntimeError) as ctx:
                     backend._connect_power_supply()
                 self.assertIn("离线", str(ctx.exception))
@@ -295,27 +295,27 @@ class MultiCH341Test(unittest.TestCase):
 
     def test_unscanned_empty_or_error_cannot_connect(self):
         backend = HeadlessBackend()
-        backend._configure({
+        backend.dispatcher.configure({
             "ch341PortBindings": [{"locationPath": "LOC1", "name": "工位1"}],
             "ch341SelectedLocationPath": "LOC1",
             "powerSupplyKind": "ch341",
         })
 
         # 1. Empty scan
-        with patch("tauri_bridge.headless_backend.scan_ch341_devices", return_value=[]):
+        with patch("tauri_bridge.device_discovery.scan_ch341_devices", return_value=[]):
             with self.assertRaises(RuntimeError):
                 backend._connect_power_supply()
 
         # 2. Error scan
-        with patch("tauri_bridge.headless_backend.scan_ch341_devices", side_effect=RuntimeError("DLL error")):
+        with patch("tauri_bridge.device_discovery.scan_ch341_devices", side_effect=RuntimeError("DLL error")):
             with self.assertRaises(RuntimeError) as ctx:
                 backend._connect_power_supply()
             self.assertIn("DLL error", str(ctx.exception))
 
     def test_scan_failure_pushes_notice(self):
         backend = HeadlessBackend()
-        with patch("tauri_bridge.headless_backend.scan_ch341_devices", side_effect=RuntimeError("驱动缺失")):
-            backend._refresh_device({"device": "powerSupply"})
+        with patch("tauri_bridge.device_discovery.scan_ch341_devices", side_effect=RuntimeError("驱动缺失")):
+            backend.discovery.refresh_device({"device": "powerSupply"})
             self.assertEqual(backend.ch341_discovery_state, "error")
             self.assertIn("驱动缺失", backend.ch341_scan_error)
             self.assertTrue(any(n["title"] == "CH341 扫描失败" for n in backend.notices))
@@ -338,7 +338,7 @@ class MultiCH341Test(unittest.TestCase):
 
     def test_selected_port_connects_without_name_binding(self):
         backend = HeadlessBackend()
-        backend._configure({
+        backend.dispatcher.configure({
             "ch341PortBindings": [],  # No bindings!
             "ch341SelectedLocationPath": "LOC_UNNAMED",
             "powerSupplyKind": "ch341",
@@ -352,9 +352,9 @@ class MultiCH341Test(unittest.TestCase):
         controller.connect_device.return_value = (True, "connected")
         controller.get_device_interface_path.return_value = "iface0"
 
-        with patch("tauri_bridge.headless_backend.scan_ch341_devices", return_value=[descriptor]):
-            with patch("tauri_bridge.headless_backend.create_ch341_controller", return_value=controller):
-                with patch("tauri_bridge.headless_backend.get_location_path_from_interface_path", return_value="LOC_UNNAMED"):
+        with patch("tauri_bridge.device_discovery.scan_ch341_devices", return_value=[descriptor]):
+            with patch("tauri_bridge.station_runtime.create_ch341_controller", return_value=controller):
+                with patch("tauri_bridge.station_runtime.get_location_path_from_interface_path", return_value="LOC_UNNAMED"):
                     backend._connect_power_supply()
 
         self.assertEqual(backend.connected_ch341_port["name"], "Device 0")
@@ -364,7 +364,7 @@ class MultiCH341Test(unittest.TestCase):
         backend = HeadlessBackend()
         # Duplicate path
         with self.assertRaises(ValueError) as ctx:
-            backend._configure({
+            backend.dispatcher.configure({
                 "ch341PortBindings": [
                     {"locationPath": "LOC1", "name": "工位1"},
                     {"locationPath": "LOC1", "name": "工位2"},
@@ -374,7 +374,7 @@ class MultiCH341Test(unittest.TestCase):
 
         # Duplicate name
         with self.assertRaises(ValueError) as ctx:
-            backend._configure({
+            backend.dispatcher.configure({
                 "ch341PortBindings": [
                     {"locationPath": "LOC1", "name": "工位1"},
                     {"locationPath": "LOC2", "name": "工位1"},
@@ -393,20 +393,20 @@ class MultiCH341Test(unittest.TestCase):
 
         # Mutating bindings while connected
         with self.assertRaises(ValueError) as ctx:
-            backend._configure({
+            backend.dispatcher.configure({
                 "ch341PortBindings": [{"locationPath": "LOC1", "name": "工位1新名称"}]
             })
         self.assertIn("请先断开电源", str(ctx.exception))
 
         # Changing selected location path while connected
         with self.assertRaises(ValueError) as ctx:
-            backend._configure({"ch341SelectedLocationPath": "LOC2"})
+            backend.dispatcher.configure({"ch341SelectedLocationPath": "LOC2"})
         self.assertIn("请先断开电源", str(ctx.exception))
 
     def test_post_open_verification_mismatch_disconnects(self):
         backend = HeadlessBackend()
         loc_target = "LOC_TARGET"
-        backend._configure({
+        backend.dispatcher.configure({
             "ch341PortBindings": [{"locationPath": loc_target, "name": "1号工位"}],
             "ch341SelectedLocationPath": loc_target,
             "powerSupplyKind": "ch341",
@@ -419,9 +419,9 @@ class MultiCH341Test(unittest.TestCase):
         mock_ctrl.get_device_interface_path.return_value = "iface_OTHER"
         mock_ctrl.disconnect_device.return_value = True
 
-        with patch("tauri_bridge.headless_backend.scan_ch341_devices", return_value=desc_list):
-            with patch("tauri_bridge.headless_backend.create_ch341_controller", return_value=mock_ctrl):
-                with patch("tauri_bridge.headless_backend.get_location_path_from_interface_path", return_value="LOC_WRONG"):
+        with patch("tauri_bridge.device_discovery.scan_ch341_devices", return_value=desc_list):
+            with patch("tauri_bridge.station_runtime.create_ch341_controller", return_value=mock_ctrl):
+                with patch("tauri_bridge.station_runtime.get_location_path_from_interface_path", return_value="LOC_WRONG"):
                     with self.assertRaises(RuntimeError) as ctx:
                         backend._connect_power_supply()
                     self.assertIn("端口复核不一致", str(ctx.exception))
@@ -430,7 +430,7 @@ class MultiCH341Test(unittest.TestCase):
 
     def test_post_open_verification_close_failure_retains_controller(self):
         backend = HeadlessBackend()
-        backend._configure({
+        backend.dispatcher.configure({
             "ch341PortBindings": [{"locationPath": "LOC_TARGET", "name": "1号工位"}],
             "ch341SelectedLocationPath": "LOC_TARGET",
             "powerSupplyKind": "ch341",
@@ -441,9 +441,9 @@ class MultiCH341Test(unittest.TestCase):
         mock_ctrl.get_device_interface_path.return_value = "iface_wrong"
         mock_ctrl.disconnect_device.return_value = False
 
-        with patch("tauri_bridge.headless_backend.scan_ch341_devices", return_value=descriptors):
-            with patch("tauri_bridge.headless_backend.create_ch341_controller", return_value=mock_ctrl):
-                with patch("tauri_bridge.headless_backend.get_location_path_from_interface_path", return_value="LOC_WRONG"):
+        with patch("tauri_bridge.device_discovery.scan_ch341_devices", return_value=descriptors):
+            with patch("tauri_bridge.station_runtime.create_ch341_controller", return_value=mock_ctrl):
+                with patch("tauri_bridge.station_runtime.get_location_path_from_interface_path", return_value="LOC_WRONG"):
                     with self.assertRaisesRegex(RuntimeError, "设备关闭失败"):
                         backend._connect_power_supply()
 
@@ -526,7 +526,7 @@ class MultiCH341Test(unittest.TestCase):
         backend.ch341_descriptors = [Ch341DeviceDescriptor(0, "iface", "loc")]
 
         # Switch to TDK
-        backend._configure(
+        backend.dispatcher.configure(
             {"powerSupplyKind": "tdk", "selectedScriptId": "standard"}
         )
         self.assertEqual(backend.power_supply_kind, "tdk")
