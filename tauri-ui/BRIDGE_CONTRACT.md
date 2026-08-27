@@ -23,6 +23,7 @@ Requests are dispatched by ownership. `app.stopAll`, `app.shutdown`, and `automa
 
 - Application: `system.ping`, `app.snapshot`, `app.configure`, `app.stopAll`, `app.shutdown`
 - Discovery: `device.refresh`
+- TDK discovery removes serial resources already identified as power meters, then keeps only ports that acknowledge `ADR 6` and return a valid numeric `MV?` readback. The probe uses a short timeout, never sends remote/output/setpoint commands, and always closes its temporary VISA session.
 - Power supply: `powerSupply.connect`, `powerSupply.disconnect`, `powerSupply.setCurrent`, `powerSupply.setVoltage`, `powerSupply.setOutput`, `powerSupply.read`
 - Power meter: `powerMeter.start`, `powerMeter.stop`, `powerMeter.setRelativeZero`
 - Spectrometer: `spectrometer.start`, `spectrometer.stop`, `spectrometer.saveCsv`
@@ -67,7 +68,7 @@ Backend notices are retained as a bounded queue of the most recent eight entries
 
 - Python is the single owner of physical device commands and automatic-test state.
 - UI actions call existing controller methods; JavaScript never generates current sequences or decides that shutdown succeeded.
-- `automaticTest.readiness` and `automatic.start` call the same backend validation path. It gates SN, output directory, script/controller compatibility, zero-current/output state, selected measurement resources, and validated timing/current settings; the UI only presents the returned blockers. The CH341-only aging script does not require a spectrometer, but still requires its configured power meter because aging power is recorded.
+- `automaticTest.readiness` and `automatic.start` call the same backend validation path. It gates SN, output directory, script/controller compatibility, zero-current/output state, the power-meter resource, and validated timing/current settings; the UI only presents the returned blockers. A normal automatic test includes spectrum only when the spectrometer is already connected and ready at start; otherwise it follows the power-only path without starting or waiting for a spectrometer, even if a spectrometer resource was selected earlier. The CH341-only aging script never uses a spectrometer, but still requires its configured power meter because aging power is recorded.
 - TDK output enable still requires a programmed and measured zero-current state.
 - A global emergency stop broadcasts both station stop events before waiting for either station, then performs station cleanup concurrently. A blocked station must not delay the other station from starting its ramp-down.
 - End, emergency stop, disconnect, bridge shutdown, and process disposal use the same zero-current/output-off boundary. Configuration persistence is never a prerequisite for this safety path.

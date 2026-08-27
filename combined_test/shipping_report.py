@@ -20,6 +20,7 @@ REPORT_WORKBOOK_SCHEMA_VERSION = EXPORT_WORKBOOK_SCHEMA_VERSION
 REPORT_DATA_SHEET = "测试数据"
 REPORT_SESSION_SHEET = "会话信息"
 DEFAULT_ENCIRCLED_ENERGY_NA = "0.17"
+UNAVAILABLE_MEASURED_VALUE = "N/A"
 
 
 _RESULT_COLUMN_ALIASES = {
@@ -179,6 +180,14 @@ class WorkbookInspection:
     compatibility: WorkbookCompatibility
 
     @property
+    def test_mode(self) -> str:
+        return str(self.session.get("测试模式", "")).strip().lower()
+
+    @property
+    def single_point(self) -> bool:
+        return len(self.points) == 1
+
+    @property
     def spectrum_complete(self) -> bool:
         return bool(self.points) and all(point.has_complete_spectrum for point in self.points)
 
@@ -242,6 +251,8 @@ class WorkbookInspection:
             "schemaVersion": self.schema_version,
             "sn": self.sn,
             "productName": self.product_name,
+            "testMode": self.test_mode,
+            "singlePoint": self.single_point,
             "currents": [point.current_a for point in self.points],
             "points": [
                 {
@@ -598,7 +609,12 @@ def _find_workbook_data_layout(workbook: Any) -> _WorkbookDataLayout:
     )
 
 
-def _compatibility(session: Mapping[str, str], schema_version: str) -> WorkbookCompatibility:
+def _compatibility(
+    session: Mapping[str, str],
+    schema_version: str,
+    *,
+    point_count: int,
+) -> WorkbookCompatibility:
     status = str(session.get("流程状态", "")).strip().lower()
     explicit_failures = {"stopped_by_operator", "aborted_safely", "failed", "error"}
     if status in explicit_failures:
@@ -617,6 +633,13 @@ def _compatibility(session: Mapping[str, str], schema_version: str) -> WorkbookC
         )
     if schema_version == REPORT_WORKBOOK_SCHEMA_VERSION:
         if status == "completed":
+            if str(session.get("测试模式", "")).strip().lower() == "manual" and point_count == 1:
+                return WorkbookCompatibility(
+                    kind="verified_manual_single_point",
+                    status=status,
+                    message="已验证为手动单点测试，可生成出货报告。",
+                    requires_legacy_confirmation=False,
+                )
             return WorkbookCompatibility(
                 kind="verified_success",
                 status=status,
@@ -745,7 +768,11 @@ def inspect_shipping_workbook(path: Path | str) -> WorkbookInspection:
             product_name=session.get("产品型号", "").strip(),
             session=session,
             points=tuple(points),
-            compatibility=_compatibility(session, schema_version),
+            compatibility=_compatibility(
+                session,
+                schema_version,
+                point_count=len(points),
+            ),
         )
     finally:
         workbook.close()
@@ -876,6 +903,11 @@ def validate_shipping_report_request(inspection: WorkbookInspection, request: Sh
     allowed_keys = {field.key for field in definitions}
     custom_key_set = set(custom_keys)
     included = []
+    measured_suggestions = suggested_field_values(
+        inspection,
+        request.report_type,
+        request.operating_current_a,
+    )
     for key, selected in request.fields.items():
         if key not in allowed_keys:
             raise ValueError(f"未知报告参数：{key}")
@@ -885,7 +917,14 @@ def validate_shipping_report_request(inspection: WorkbookInspection, request: Sh
                 definition = next(item for item in definitions if item.key == key)
                 raise ValueError(f"请填写已勾选参数“{definition.label}”")
             if key not in custom_key_set:
-                _required_number(selected.value, next(item.label for item in definitions if item.key == key))
+                definition = next(item for item in definitions if item.key == key)
+                unavailable_measured_value = (
+                    definition.measured_key is not None
+                    and key not in measured_suggestions
+                    and selected.value.strip().upper() == UNAVAILABLE_MEASURED_VALUE
+                )
+                if not unavailable_measured_value:
+                    _required_number(selected.value, definition.label)
     if not included:
         raise ValueError("请至少勾选一个报告参数")
     if request.report_type is ShippingReportType.SPECTRUM:
@@ -967,7 +1006,7 @@ def build_batch_shipping_report_request(
         selected = fields[definition.key]
         fields[definition.key] = SelectedReportField(
             include=selected.include,
-            value=suggestions.get(definition.key, ""),
+            value=suggestions.get(definition.key, UNAVAILABLE_MEASURED_VALUE),
         )
     return replace(request, sn=inspection.sn, fields=fields)
 

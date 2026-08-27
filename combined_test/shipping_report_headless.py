@@ -545,8 +545,22 @@ class _HeadlessShippingReportRenderer:
         for spine in (*axes.spines.values(), *efficiency_axes.spines.values()):
             spine.set_linewidth(_line_width(0.42))
 
-        power_line, = axes.plot(currents, powers, color="#0072B2", linewidth=_line_width(0.60), marker="o", markersize=6.5, markeredgecolor="white", markeredgewidth=_line_width(0.24), label="Output power", clip_on=True)
-        efficiency_line, = efficiency_axes.plot(currents, efficiencies, color="#D55E00", linewidth=_line_width(0.60), marker="s", markersize=6.0, markeredgecolor="white", markeredgewidth=_line_width(0.24), label="E-O efficiency", clip_on=True)
+        single_point = len(points) == 1
+        power_line, = axes.plot(currents, powers, color="#0072B2", linewidth=_line_width(0.60), marker="o", markersize=6.5, markeredgecolor="white", markeredgewidth=_line_width(0.24), label="Output power", clip_on=True, zorder=3)
+        efficiency_line, = efficiency_axes.plot(
+            currents,
+            efficiencies,
+            color="#D55E00",
+            linewidth=_line_width(0.60),
+            marker="s",
+            markersize=7.4 if single_point else 6.0,
+            markerfacecolor="none" if single_point else "#D55E00",
+            markeredgecolor="#D55E00" if single_point else "white",
+            markeredgewidth=_line_width(0.52 if single_point else 0.24),
+            label="E-O efficiency",
+            clip_on=True,
+            zorder=4,
+        )
         axes.set_xlabel("Drive current (A)", color="#202020", fontproperties=_font(8.8, chart=True), labelpad=6)
         axes.set_ylabel("Output power (W)", color="#0072B2", fontproperties=_font(8.8, chart=True), labelpad=8)
         efficiency_axes.set_ylabel("E-O efficiency (%)", color="#D55E00", fontproperties=_font(8.8, chart=True), labelpad=8, rotation=270, va="bottom")

@@ -119,7 +119,6 @@ def _load_history_index(source: Path) -> TestHistoryInspection:
     try:
         session = _parse_session_information(workbook)
         schema_version = str(session.get("出货报告格式版本", "")).strip()
-        compatibility = _compatibility(session, schema_version)
         sn = session.get("SN", "").strip()
 
         sheet = (
@@ -169,6 +168,11 @@ def _load_history_index(source: Path) -> TestHistoryInspection:
             points.append(TestHistoryPoint(current, power))
         if not points:
             raise ValueError("Excel 中没有有效测试点")
+        compatibility = _compatibility(
+            session,
+            schema_version,
+            point_count=len(points),
+        )
         return TestHistoryInspection(
             source_path=source,
             sn=sn,

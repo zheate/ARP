@@ -80,6 +80,7 @@ from combined_test.tdk_power_supply import (
     TdkLambdaPowerSupply,
     compensate_tdk_output_voltage,
     list_tdk_serial_resources,
+    probe_tdk_serial_resource,
 )
 
 from .service import BACKGROUND_FILE_TASK_METHODS
@@ -1641,7 +1642,7 @@ class StationRuntime:
         session = self.record_store.current_session
         if session is not None and session.mode == "manual" and session.ended_at_utc is None:
             return
-        self.record_store.begin_session(
+        workbook_path = self.record_store.begin_session(
             Path(str(self.configuration["outputDir"])),
             str(self.configuration["sn"]),
             datetime.now(),
@@ -1652,6 +1653,7 @@ class StationRuntime:
             settings=dict(self.configuration),
             devices=self._device_snapshots(),
         )
+        self.backend.check_workbook_path_available(self.station_id, workbook_path)
 
     def _record_manual_voltage_point(self, raw_voltage_v: float) -> None:
         current_a = self.recorded_manual_stable_current_a
@@ -1727,6 +1729,27 @@ class StationRuntime:
         session = self.record_store.current_session
         if session is None or session.mode != "manual" or not self.record_store.unsaved_records():
             raise ValueError("没有尚未保存的手动测试点")
+        sn = str(self.configuration.get("sn", "")).strip()
+        test_station = str(self.configuration.get("station", "")).strip()
+        output_dir = str(self.configuration.get("outputDir", "")).strip()
+        if not sn:
+            raise ValueError("请填写产品 SN")
+        if not test_station:
+            raise ValueError("请填写测试站别")
+        if not output_dir:
+            raise ValueError("请选择测试数据输出目录")
+        workbook_path = self.record_store.retarget_manual_session(
+            Path(output_dir),
+            sn,
+            test_station,
+            settings=dict(self.configuration),
+        )
+        self.backend.check_workbook_path_available(self.station_id, workbook_path)
+        self.record_store.complete_session(
+            SessionStatus.COMPLETED,
+            "手动单点保存完成",
+            shutdown_confirmed=None,
+        )
         self.export_status = "exporting"
         try:
             saved_path = self._save_record_store()
@@ -1890,10 +1913,15 @@ class StationRuntime:
                 saturated = bool(frame.saturation and frame.saturation.saturated)
             else:
                 saturated = False
-        if saturated and not self._aging_test_selected() and self.automatic.state in {
-            AutomaticTestState.WAITING_STABLE,
-            AutomaticTestState.WAITING_VOLTAGE,
-        }:
+        if (
+            saturated
+            and self.automatic.settings is not None
+            and self.automatic.settings.use_spectrometer
+            and self.automatic.state in {
+                AutomaticTestState.WAITING_STABLE,
+                AutomaticTestState.WAITING_VOLTAGE,
+            }
+        ):
             reason = "光谱饱和；请缩短积分时间或调整光路后重试当前测试点"
             self._request_automatic_point_retry(
                 AttemptValidity.SATURATED,
@@ -1989,7 +2017,8 @@ class StationRuntime:
         self.spectrometer_error = str(message)
         self.notify("error", "光谱仪", message)
         if (
-            not self._aging_test_selected()
+            self.automatic.settings is not None
+            and self.automatic.settings.use_spectrometer
             and self.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED}
         ):
             self.automatic.spectrum_meter_ready = False
@@ -2096,7 +2125,7 @@ class StationRuntime:
             ramp_down_interval_s=float(self.configuration["rampDownIntervalS"]),
             pause_ramp_down_timeout_s=float(self.configuration["pauseRampDownTimeoutS"]),
             use_spectrometer=(
-                bool(str(self.configuration.get("spectrometerResource", "")).strip())
+                bool(self.spectrometer_reader and self.spectrometer_reader.is_ready)
                 and not self._aging_test_selected()
             ),
             maximum_current_a=None if self.power_supply_kind == "tdk" else 20.0,
@@ -2150,12 +2179,6 @@ class StationRuntime:
 
         if not str(self.configuration.get("powerMeterResource", "")).strip():
             block("power_meter_not_selected", "请选择功率计资源")
-        if not self._aging_test_selected():
-            if not str(self.configuration.get("spectrometerResource", "")).strip():
-                block("spectrometer_not_selected", "请选择光谱仪资源")
-            elif self.configuration.get("spectrometerDeviceId") in {None, ""}:
-                block("spectrometer_device_not_selected", "请识别并选择光谱仪设备")
-
         try:
             self._automatic_settings()
         except (TypeError, ValueError) as exc:
@@ -3924,7 +3947,30 @@ class HeadlessBackend:
         def discover(report: Callable[[str], None]) -> tuple[str, list[Any]]:
             if controller_kind == "tdk":
                 report("正在枚举 TDK RS232 串口")
-                return controller_kind, list_tdk_serial_resources()
+                candidates = list_tdk_serial_resources()
+                confirmed_power_meter_resources = {
+                    extract_power_resource_name(option.resource).upper()
+                    for option in self.power_meter_options
+                    if extract_power_resource_name(option.resource).upper().startswith("ASRL")
+                }
+                confirmed_power_meter_resources.update(
+                    extract_power_resource_name(
+                        str(runtime.configuration.get("powerMeterResource", ""))
+                    ).upper()
+                    for runtime in self.stations.values()
+                    if str(runtime.configuration.get("powerMeterResource", "")).strip()
+                )
+                remaining = [
+                    resource
+                    for resource in candidates
+                    if str(resource).strip().upper() not in confirmed_power_meter_resources
+                ]
+                verified: list[str] = []
+                for index, resource in enumerate(remaining, start=1):
+                    report(f"正在验证 TDK 串口 {index}/{len(remaining)}：{resource}")
+                    if probe_tdk_serial_resource(resource):
+                        verified.append(str(resource))
+                return controller_kind, verified
             report("正在扫描 CH341 设备")
             return controller_kind, scan_ch341_devices()
 

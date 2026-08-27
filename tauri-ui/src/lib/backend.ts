@@ -440,13 +440,15 @@ export interface ShippingWorkbookInspection {
   schemaVersion: string
   sn: string
   productName: string
+  testMode: string
+  singlePoint: boolean
   currents: number[]
   points: ShippingReportPointSuggestion[]
   spectrumComplete: boolean
   spectrumWavelengthRange?: { minimum: number; maximum: number } | null
   allowedReportTypes: ShippingReportType[]
   compatibility: {
-    kind: "verified_success" | "legacy_needs_confirmation" | "rejected"
+    kind: "verified_success" | "verified_manual_single_point" | "legacy_needs_confirmation" | "rejected"
     status: string
     message: string
     requiresLegacyConfirmation: boolean

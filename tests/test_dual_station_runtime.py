@@ -89,6 +89,9 @@ class DualStationRuntimeTests(unittest.TestCase):
                 "spectrometerDeviceId": 7,
             }
         )
+        self.assertFalse(station._automatic_settings().use_spectrometer)
+
+        station.spectrometer_reader = SimpleNamespace(is_ready=True)
         self.assertTrue(station._automatic_settings().use_spectrometer)
 
     def test_automatic_readiness_matches_start_requirements(self) -> None:
@@ -101,7 +104,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         blocker_codes = {item["code"] for item in readiness["blockers"]}
         self.assertIn("missing_sn", blocker_codes)
         self.assertIn("power_meter_not_selected", blocker_codes)
-        self.assertIn("spectrometer_not_selected", blocker_codes)
+        self.assertNotIn("spectrometer_not_selected", blocker_codes)
         with self.assertRaisesRegex(ValueError, "请填写产品 SN"):
             station.start_automatic({})
 
@@ -109,11 +112,33 @@ class DualStationRuntimeTests(unittest.TestCase):
             {
                 "sn": "SN-READY",
                 "powerMeterResource": "ASRL3::INSTR",
-                "spectrometerResource": "Ocean Insight | 设备 ID 7",
-                "spectrometerDeviceId": 7,
             }
         )
         self.assertTrue(station.automatic_readiness()["ready"])
+
+    def test_automatic_start_without_connected_spectrometer_uses_power_only(self) -> None:
+        station = self.backend.stations["1"]
+        station.power_supply_controller = _FakeController()
+        station.power_meter_reader = MagicMock(is_ready=True)
+
+        with (
+            patch("tauri_bridge.headless_backend.threading.Thread") as thread_class,
+            patch.object(station, "start_power_meter") as start_power_meter,
+            patch.object(station, "start_spectrometer") as start_spectrometer,
+        ):
+            station.start_automatic(
+                {
+                    "sn": "NO-SPECTRUM-001",
+                    "powerMeterResource": "ASRL3::INSTR",
+                    "spectrometerResource": "Ocean Insight | 设备 ID 7",
+                    "spectrometerDeviceId": 7,
+                }
+            )
+
+        self.assertFalse(station.automatic.settings.use_spectrometer)
+        start_power_meter.assert_not_called()
+        start_spectrometer.assert_not_called()
+        thread_class.return_value.start.assert_called_once_with()
 
     def test_snapshot_marks_old_measurements_stale_then_invalid(self) -> None:
         station = self.backend.stations["1"]
@@ -166,7 +191,10 @@ class DualStationRuntimeTests(unittest.TestCase):
             release.wait(timeout=2)
             return ["ASRL7::INSTR"]
 
-        with patch("tauri_bridge.headless_backend.list_tdk_serial_resources", side_effect=list_resources):
+        with (
+            patch("tauri_bridge.headless_backend.list_tdk_serial_resources", side_effect=list_resources),
+            patch("tauri_bridge.headless_backend.probe_tdk_serial_resource", return_value=True),
+        ):
             self.backend.dispatch("device.refresh", {"stationId": "1", "device": "powerSupply"})
             self.assertTrue(started.wait(timeout=1))
             scanning = self.backend.snapshot({"stationId": "1"})["devices"]["powerSupply"]
@@ -181,6 +209,45 @@ class DualStationRuntimeTests(unittest.TestCase):
         completed = self.backend.snapshot({"stationId": "1"})["devices"]["powerSupply"]
         self.assertFalse(completed["detecting"])
         self.assertEqual(completed["detail"], "识别完成：发现 1 个 TDK 串口")
+
+    def test_tdk_discovery_excludes_power_meter_and_keeps_only_verified_supply(self) -> None:
+        self.backend.dispatch("app.configure", {"stationId": "1", "powerSupplyKind": "tdk"})
+        self.backend.power_meter_options = [
+            PowerMeterOption(
+                resource="ASRL3::INSTR",
+                device_type="Caihuang CHLP-P",
+                detail="COM3",
+                driver_kind="caihuang",
+            )
+        ]
+
+        def probe(resource: str) -> bool:
+            return resource == "ASRL9::INSTR"
+
+        with (
+            patch(
+                "tauri_bridge.headless_backend.list_tdk_serial_resources",
+                return_value=["ASRL3::INSTR", "ASRL7::INSTR", "ASRL9::INSTR"],
+            ),
+            patch(
+                "tauri_bridge.headless_backend.probe_tdk_serial_resource",
+                side_effect=probe,
+            ) as probe_resource,
+        ):
+            self.backend.dispatch("device.refresh", {"stationId": "1", "device": "powerSupply"})
+            deadline = time.monotonic() + 1
+            while (
+                self.backend.snapshot({"stationId": "1"})["devices"]["powerSupply"]["detecting"]
+                and time.monotonic() < deadline
+            ):
+                time.sleep(0.01)
+
+        supply = self.backend.snapshot({"stationId": "1"})["devices"]["powerSupply"]
+        self.assertEqual(supply["resources"], ["ASRL9::INSTR"])
+        self.assertEqual(
+            [call.args[0] for call in probe_resource.call_args_list],
+            ["ASRL7::INSTR", "ASRL9::INSTR"],
+        )
 
     def test_human_station_label_does_not_broadcast_configuration_to_both_stations(self) -> None:
         self.backend.stations["1"].configuration["sn"] = "SN-001"
@@ -708,7 +775,13 @@ class DualStationRuntimeTests(unittest.TestCase):
 
     def test_manual_stable_point_can_be_saved_to_excel(self) -> None:
         station = self.backend.stations["1"]
-        station.configuration.update({"outputDir": self.temp_dir.name, "sn": "MANUAL-01"})
+        station.configuration.update(
+            {
+                "outputDir": self.temp_dir.name,
+                "sn": "MANUAL-DRAFT",
+                "station": "暂存站",
+            }
+        )
         station.active_current_a = 2.0
         station.recorded_manual_stable_current_a = 2.0
         station.recorded_manual_stability_generation = 3
@@ -727,8 +800,22 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertAlmostEqual(station.efficiency_points[2.0], 20.0)
         snapshot = self.backend.snapshot({"view": "manual_1"})
         self.assertEqual(snapshot["manualTest"]["pendingCount"], 1)
+        selected_output_dir = Path(self.temp_dir.name) / "selected"
+        station.configuration.update(
+            {
+                "outputDir": str(selected_output_dir),
+                "sn": "MANUAL-01",
+                "station": "老化站 1",
+            }
+        )
         result = self.backend.dispatch("manual.saveExcel", {"stationId": "1"})
-        self.assertTrue(Path(result["outputPath"]).exists())
+        output_path = Path(result["outputPath"])
+        self.assertTrue(output_path.exists())
+        self.assertEqual(output_path.parent, selected_output_dir / "MANUAL-01" / "老化站 1")
+        self.assertEqual(station.record_store.current_session.sn, "MANUAL-01")
+        self.assertEqual(station.record_store.current_session.station, "老化站 1")
+        self.assertIsNotNone(station.record_store.current_session.ended_at_utc)
+        self.assertEqual(station.record_store.snapshot()[0].test_station, "老化站 1")
         self.assertEqual(station.record_store.unsaved_records(), ())
 
     def test_power_supply_read_returns_snapshot_and_only_reads_requested_value(self) -> None:

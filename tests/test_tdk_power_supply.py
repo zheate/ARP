@@ -8,6 +8,7 @@ from combined_test.tdk_power_supply import (
     TdkLambdaPowerSupply,
     compensate_tdk_output_voltage,
     list_tdk_serial_resources,
+    probe_tdk_serial_resource,
 )
 
 
@@ -75,6 +76,37 @@ class TdkLambdaPowerSupplyTests(unittest.TestCase):
 
         self.assertEqual(resources, ["ASRL3::INSTR", "ASRL9::INSTR"])
         self.assertEqual(manager.list_query, "ASRL?*::INSTR")
+        self.assertTrue(manager.closed)
+
+    def test_probe_accepts_only_addressed_tdk_readback_without_remote_mode(self) -> None:
+        instrument = FakeInstrument({"ADR 6": "OK", "MV?": "MV 12.34"})
+        manager = FakeResourceManager(instrument)
+
+        detected = probe_tdk_serial_resource(
+            "ASRL9::INSTR",
+            resource_manager_factory=lambda: manager,
+        )
+
+        self.assertTrue(detected)
+        self.assertEqual(instrument.writes, ["ADR 6", "MV?"])
+        self.assertNotIn("RMT 1", instrument.writes)
+        self.assertEqual(instrument.timeout, 300)
+        self.assertEqual(instrument.baud_rate, 115200)
+        self.assertTrue(instrument.closed)
+        self.assertTrue(manager.closed)
+
+    def test_probe_rejects_non_tdk_response_and_closes_port(self) -> None:
+        instrument = FakeInstrument({"ADR 6": "POWER METER"})
+        manager = FakeResourceManager(instrument)
+
+        detected = probe_tdk_serial_resource(
+            "ASRL3::INSTR",
+            resource_manager_factory=lambda: manager,
+        )
+
+        self.assertFalse(detected)
+        self.assertEqual(instrument.writes, ["ADR 6"])
+        self.assertTrue(instrument.closed)
         self.assertTrue(manager.closed)
 
     def test_connect_uses_scripts_runner_serial_initialization_and_commands(self) -> None:

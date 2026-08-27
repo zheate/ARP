@@ -58,14 +58,19 @@ class ShippingReportTests(unittest.TestCase):
             test_station="出货站 1",
         )
 
-    def _session(self, status: SessionStatus = SessionStatus.COMPLETED) -> SimpleNamespace:
+    def _session(
+        self,
+        status: SessionStatus = SessionStatus.COMPLETED,
+        *,
+        mode: str = "automatic",
+    ) -> SimpleNamespace:
         return SimpleNamespace(
             session_id="session-1",
             sn="HEA000001",
             product_model="500W 976nm 光纤耦合模块",
             batch="B01",
             station="出货站 1",
-            mode="automatic",
+            mode=mode,
             started_at_utc="2026-07-24T01:00:00+00:00",
             ended_at_utc="2026-07-24T01:10:00+00:00",
             status=status,
@@ -193,6 +198,102 @@ class ShippingReportTests(unittest.TestCase):
             self.assertEqual(pole_suggestions["slopeEfficiency"], "20.000")
             zero_current = replace(inspection.point_for_current(1.0), current_a=0.0, power_w=0.0)
             self.assertIsNone(zero_current.suggestions()["slopeEfficiencyWPerA"])
+
+    def test_manual_single_point_workbook_generates_spectrum_report(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "manual-single-point.xlsx"
+            target = root / "manual-single-point.pdf"
+            record = self._record(20.0)
+            save_test_records(
+                source,
+                [record],
+                session=self._session(mode="manual"),
+            )
+
+            inspection = inspect_shipping_workbook(source)
+
+            self.assertTrue(inspection.single_point)
+            self.assertEqual(inspection.test_mode, "manual")
+            self.assertEqual(
+                inspection.compatibility.kind,
+                "verified_manual_single_point",
+            )
+            self.assertEqual(inspection.allowed_report_types, ("spectrum", "pole"))
+            self.assertIsNone(inspection.wavelength_current_coefficient_nm_per_a)
+            payload = inspection.to_payload()
+            self.assertTrue(payload["singlePoint"])
+            self.assertEqual(payload["testMode"], "manual")
+
+            fields = {
+                definition.key: SelectedReportField(
+                    include=definition.key
+                    in {
+                        "power",
+                        "operatingCurrent",
+                        "wavelengthCurrentCoefficient",
+                    },
+                    value=(
+                        "N/A"
+                        if definition.key == "wavelengthCurrentCoefficient"
+                        else "20"
+                        if definition.key == "operatingCurrent"
+                        else "400.0"
+                    ),
+                )
+                for definition in SPECTRUM_FIELD_DEFINITIONS
+            }
+            request = ShippingReportRequest(
+                report_type=ShippingReportType.SPECTRUM,
+                product_name="虚拟单点产品",
+                sn="HEA000001",
+                operating_current_a=20.0,
+                fields=fields,
+                legacy_completion_confirmed=False,
+                spectrum_axis=SpectrumAxisSettings(
+                    SpectrumAxisMode.COUNTS,
+                    0.0,
+                    2000.0,
+                    974.0,
+                    978.0,
+                ),
+            )
+
+            validate_shipping_report_request(inspection, request)
+            result = generate_shipping_report(source, target, request)
+            preview = render_shipping_report_preview(source, request)
+
+            self.assertTrue(result.read_bytes().startswith(b"%PDF"))
+            self.assertEqual(len(preview), 1)
+
+    def test_batch_request_keeps_unavailable_single_point_measurement_as_na(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "manual-single-point.xlsx"
+            save_test_records(
+                source,
+                [self._record(20.0)],
+                session=self._session(mode="manual"),
+            )
+            inspection = inspect_shipping_workbook(source)
+            template = self._request(ShippingReportType.SPECTRUM)
+            payload = self._request_payload(
+                replace(template, operating_current_a=20.0)
+            )
+            fields = payload["fields"]
+            assert isinstance(fields, dict)
+            fields["wavelengthCurrentCoefficient"] = {
+                "include": True,
+                "value": "0.01",
+            }
+
+            request = build_batch_shipping_report_request(inspection, payload)
+
+            self.assertTrue(request.fields["wavelengthCurrentCoefficient"].include)
+            self.assertEqual(
+                request.fields["wavelengthCurrentCoefficient"].value,
+                "N/A",
+            )
+            validate_shipping_report_request(inspection, request)
 
     def test_batch_scan_recurses_uses_excel_sn_and_selects_latest_duplicate(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

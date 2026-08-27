@@ -23,6 +23,7 @@ TDK_DEFAULT_TIMEOUT_MS = 1000
 TDK_DEFAULT_BAUD_RATE = 115200
 TDK_DEFAULT_ADDRESS = 6
 TDK_COMMAND_RESPONSE_DELAY_S = 0.05
+TDK_PROBE_TIMEOUT_MS = 300
 # Legacy scripts_runner calibration: actual load voltage minus the raw MV?
 # voltage was fitted against current with a first-order polynomial.
 TDK_LINE_VOLTAGE_SLOPE_V_PER_A = -0.022621428571428535
@@ -65,6 +66,72 @@ def list_tdk_serial_resources(resource_manager_factory: Callable[[], Any] | None
             release_visa_resource_manager(manager)
         else:
             manager.close()
+
+
+def _parse_numeric_response(command: str, response: str) -> float:
+    mnemonic = command.rstrip("?").strip()
+    match = re.fullmatch(
+        rf"(?:{re.escape(mnemonic)}\??\s*[:=]?\s*)?"
+        rf"({TDK_NUMERIC_RESPONSE_PATTERN.pattern})(?:\s*[A-Za-z]+)?",
+        str(response).strip(),
+        re.IGNORECASE,
+    )
+    if match is None:
+        raise RuntimeError(f"TDK 电源返回无效数据：{response!r}")
+    value = float(match.group(1))
+    if not math.isfinite(value):
+        raise RuntimeError(f"TDK 电源返回非有限数值：{response!r}")
+    return value
+
+
+def probe_tdk_serial_resource(
+    resource: str,
+    *,
+    timeout_ms: int = TDK_PROBE_TIMEOUT_MS,
+    address: int = TDK_DEFAULT_ADDRESS,
+    resource_manager_factory: Callable[[], Any] | None = None,
+) -> bool:
+    """Return true only when a serial resource answers the read-only TDK probe."""
+    shared_manager = resource_manager_factory is None
+    manager: Any | None = None
+    instrument: Any | None = None
+    try:
+        manager = (
+            acquire_visa_resource_manager()
+            if shared_manager
+            else resource_manager_factory()
+        )
+        instrument = manager.open_resource(str(resource).strip())
+        instrument.timeout = int(timeout_ms)
+        instrument.read_termination = "\r"
+        instrument.write_termination = "\r"
+        instrument.baud_rate = TDK_DEFAULT_BAUD_RATE
+
+        instrument.write(f"ADR {int(address)}")
+        time.sleep(TDK_COMMAND_RESPONSE_DELAY_S)
+        if str(instrument.read()).strip().upper() != "OK":
+            return False
+
+        instrument.write("MV?")
+        time.sleep(TDK_COMMAND_RESPONSE_DELAY_S)
+        _parse_numeric_response("MV?", str(instrument.read()))
+        return True
+    except Exception:
+        return False
+    finally:
+        if instrument is not None:
+            try:
+                instrument.close()
+            except Exception:
+                pass
+        if manager is not None:
+            try:
+                if shared_manager:
+                    release_visa_resource_manager(manager)
+                else:
+                    manager.close()
+            except Exception:
+                pass
 
 
 # Backwards-compatible import for callers from the first TDK implementation.
@@ -202,19 +269,7 @@ class TdkLambdaPowerSupply:
         # Some Genesys units return just the number, while others echo the
         # mnemonic (for example ``MV 12.34``). Match the whole response so an
         # error such as ``E01`` or ``ERROR 12`` cannot become a measurement.
-        mnemonic = command.rstrip("?").strip()
-        match = re.fullmatch(
-            rf"(?:{re.escape(mnemonic)}\??\s*[:=]?\s*)?"
-            rf"({TDK_NUMERIC_RESPONSE_PATTERN.pattern})(?:\s*[A-Za-z]+)?",
-            response,
-            re.IGNORECASE,
-        )
-        if match is None:
-            raise RuntimeError(f"TDK 电源返回无效数据：{response!r}")
-        value = float(match.group(1))
-        if not math.isfinite(value):
-            raise RuntimeError(f"TDK 电源返回非有限数值：{response!r}")
-        return value
+        return _parse_numeric_response(command, response)
 
     @staticmethod
     def _finite_nonnegative(value: float, name: str) -> float:

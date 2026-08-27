@@ -239,6 +239,51 @@ class SessionRecordStore:
         self.workbook_path = workbook_path
         return workbook_path
 
+    def retarget_manual_session(
+        self,
+        output_dir: Path,
+        sn: str,
+        test_station: str,
+        *,
+        settings: Mapping[str, Any] | None = None,
+    ) -> Path:
+        """Apply the operator's latest save metadata to a pending manual point."""
+
+        session = self.current_session
+        if session is None or session.mode != "manual":
+            raise RuntimeError("当前没有可保存的手动测试会话")
+        started_at = datetime.fromisoformat(session.started_at_utc).astimezone()
+        workbook_path = build_test_workbook_path(
+            Path(output_dir),
+            str(sn),
+            started_at,
+            str(test_station),
+        )
+        workbook_path.parent.mkdir(parents=True, exist_ok=True)
+        self.pending_records = {
+            current: replace(record, test_station=str(test_station))
+            for current, record in self.pending_records.items()
+        }
+        updated_session = replace(
+            session,
+            sn=str(sn),
+            station=str(test_station),
+            settings=dict(settings if settings is not None else session.settings),
+            workbook_path=workbook_path,
+        )
+        if self._journal is not None:
+            self._journal.append(
+                {
+                    "type": "manual_destination_updated",
+                    "sn": updated_session.sn,
+                    "station": updated_session.station,
+                    "workbookPath": workbook_path,
+                }
+            )
+        self.current_session = updated_session
+        self.workbook_path = workbook_path
+        return workbook_path
+
     def _sequence_index(self, current_a: float) -> int:
         current = float(current_a)
         for index, planned in enumerate(self.planned_currents):
