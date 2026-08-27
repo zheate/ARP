@@ -2663,10 +2663,14 @@ function LicensedApp({
               </button>
             ))}
           </nav>
-          <div className="mt-auto border-t border-border/60 px-3 pt-3 text-xs">
-            <p className="text-[var(--app-text-tertiary)]">授权状态</p>
-            <p className={`mt-1 font-medium ${licenseStatus.valid ? "text-[var(--app-success)]" : "text-[var(--app-danger)]"}`}>{licenseReasonLabels[licenseStatus.reason]}</p>
-            {licenseStatus.payload && <p className="mt-1 truncate text-[var(--app-text-tertiary)]">{licenseStatus.payload.customer} · {formatLicenseDate(licenseStatus.payload.expiresAt)}</p>}
+          <div className="mt-auto grid justify-items-center gap-2 px-3 pb-1 pt-3" aria-label="侧栏格言 Stay True">
+            <div className="h-px w-full bg-gradient-to-r from-transparent via-border/80 to-transparent" />
+            <p
+              className="whitespace-nowrap text-base font-normal leading-snug tracking-[0.01em] text-[var(--app-text-tertiary)] opacity-80"
+              style={{ fontFamily: "'Snell Roundhand', 'Segoe Print', 'Bradley Hand', cursive" }}
+            >
+              Stay True
+            </p>
           </div>
         </aside>
 

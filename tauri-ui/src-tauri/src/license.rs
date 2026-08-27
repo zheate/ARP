@@ -10,8 +10,10 @@ use tauri::{AppHandle, Manager, State};
 
 const LICENSE_PRODUCT_ID: &str = "arp-power-test";
 const LICENSE_FILE_NAME: &str = "license.json";
-const LICENSE_EXEMPT_MACHINE_HASHES: &[&str] =
-    &["23b84c1e0676071689d5e8d6da3b8911ece54018708f8ba4f66e8b63e6740e60"];
+const LICENSE_EXEMPT_MACHINE_HASHES: &[&str] = &[
+    "23b84c1e0676071689d5e8d6da3b8911ece54018708f8ba4f66e8b63e6740e60",
+    "8c4336e79c788f290fa6a12f7ac329735074711ea2a00665dd37169b61ebbcc4",
+];
 const PUBLIC_KEY_BYTES: [u8; 32] = [
     0x37, 0xd4, 0xe3, 0x81, 0xd2, 0xc4, 0xbd, 0xed, 0x94, 0x91, 0xf5, 0x88, 0xa5, 0x2c, 0xc5, 0x10,
     0x8b, 0x8b, 0x75, 0xef, 0x56, 0xf4, 0xf5, 0x02, 0x19, 0xbb, 0x30, 0x1c, 0xbf, 0x90, 0x3b, 0x72,
@@ -568,6 +570,9 @@ mod tests {
     fn exemption_is_limited_to_the_explicit_current_machine_hash() {
         assert!(is_machine_exempt(
             "23b84c1e0676071689d5e8d6da3b8911ece54018708f8ba4f66e8b63e6740e60"
+        ));
+        assert!(is_machine_exempt(
+            "8c4336e79c788f290fa6a12f7ac329735074711ea2a00665dd37169b61ebbcc4"
         ));
         assert!(!is_machine_exempt(&"ab".repeat(32)));
     }
