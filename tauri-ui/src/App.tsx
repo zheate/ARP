@@ -9,6 +9,7 @@ import {
   FolderOpen,
   Gauge,
   Hand,
+  KeyRound,
   LoaderCircle,
   Milestone,
   OctagonAlert,
@@ -22,8 +23,10 @@ import {
   RotateCcw,
   Save,
   Settings,
+  ShieldCheck,
   Square,
   Sun,
+  Upload,
   X,
 } from "lucide-react"
 import { open as openDialog } from "@tauri-apps/plugin-dialog"
@@ -45,6 +48,8 @@ import { powerMeterProfileForResource, powerMeterResourceValue } from "@/lib/pow
 import { automaticPauseCommand, automaticPauseCopy, pauseRemainingSeconds } from "@/lib/automatic-pause"
 import { automaticTerminalTitle, shutdownPresentation } from "@/lib/safety-state"
 import { spectrumPeakAnnotations, spectrumPeakLegend } from "@/lib/spectrum-annotations"
+import { ActivationView } from "@/components/license/ActivationView"
+import { formatLicenseDate, getLicenseStatus, installLicense, licenseReasonLabels, type LicenseStatus } from "@/lib/license"
 
 type Page = "automatic" | "manual" | "pd" | "shipping" | "settings"
 type Theme = "dark" | "light"
@@ -93,6 +98,40 @@ const navigation = [
 const pageShortcuts: Page[] = ["automatic", "manual", "pd", "shipping"]
 const INFO_TOAST_DURATION_MS = 3000
 const MAX_CUSTOM_CURRENT_POINTS = 50
+const TAURI_RUNTIME_AVAILABLE = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
+const DEMO_PREVIEW_ENABLED = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("demo") === "1"
+const SAFE_UNLICENSED_METHODS = new Set([
+  "app.stopAll",
+  "app.shutdown",
+  "automatic.end",
+  "automatic.retryPersist",
+  "automatic.retryExport",
+  "pd.stop",
+  "powerMeter.stop",
+  "spectrometer.stop",
+])
+const DEMO_LICENSE_STATUS: LicenseStatus = {
+  valid: true,
+  reason: "valid",
+  machineHash: "demo-preview",
+  machineCode: "ARP-DEMO-PREVIEW",
+  licensePath: "",
+  payload: {
+    product: "arp-power-test",
+    customer: "演示模式",
+    machineHash: "demo-preview",
+    issuedAt: "2026-08-24T00:00:00.000Z",
+    expiresAt: "2099-12-31T23:59:59.999Z",
+    features: ["standard"],
+  },
+}
+const BROWSER_LICENSE_STATUS: LicenseStatus = {
+  valid: false,
+  reason: "machine_id_unavailable",
+  machineHash: "",
+  machineCode: "请打开 Power Test 桌面应用",
+  licensePath: "",
+}
 
 function getStoredTheme(): Theme {
   if (typeof window === "undefined") return "dark"
@@ -2252,7 +2291,13 @@ function AppTitlebar({
   )
 }
 
-function App() {
+function LicensedApp({
+  licenseStatus,
+  onImportLicense,
+}: {
+  licenseStatus: LicenseStatus
+  onImportLicense: () => Promise<void>
+}) {
   const [page, setPage] = useState<Page>(() => (typeof window !== "undefined" && (new URLSearchParams(window.location.search).get("page") as Page)) || "automatic")
   const [stationId, setStationId] = useState<"1" | "2">("1")
   const [theme, setTheme] = useState<Theme>(getStoredTheme)
@@ -2282,6 +2327,7 @@ function App() {
   const automaticRunSeenRef = useRef(false)
   const pageScrollPositionsRef = useRef<Record<Page, number>>({ automatic: 0, manual: 0, pd: 0, shipping: 0, settings: 0 })
   const active = snapshot?.backend.mode === "active"
+  const operational = active && licenseStatus.valid
   const automaticWorkflowActive = Boolean(snapshot && !["idle", "completed"].includes(snapshot.automaticTest.state))
   const automaticPaused = snapshot?.automaticTest.state === "paused"
   const automaticInteractionLocked = automaticWorkflowActive || pendingCommand === "automatic.start"
@@ -2310,7 +2356,7 @@ function App() {
         throw new Error("安全下电已确认，但后台 Excel 导出尚未排空；请稍后重试退出")
       }
       await automaticSaveFlightRef.current.catch(() => undefined)
-      if (configHydratedRef.current) {
+      if (licenseStatus.valid && configHydratedRef.current) {
         try {
           await sendBackendRequest(
             "app.configure",
@@ -2335,7 +2381,7 @@ function App() {
       closeRequestInFlightRef.current = false
       setCloseRequestPending(false)
     }
-  }, [stationId])
+  }, [licenseStatus.valid, stationId])
 
   const forceClose = useCallback(async () => {
     try {
@@ -2375,7 +2421,7 @@ function App() {
   }, [snapshot?.configurations, snapshot?.configuration, stationId, dirty])
 
   const saveConfiguration = useCallback(async () => {
-    if (!active) return
+    if (!operational) return
     const revision = configRevisionRef.current
     await automaticSaveFlightRef.current.catch(() => undefined)
     const savedSnapshot = await command(
@@ -2389,14 +2435,17 @@ function App() {
       setConfig(persisted)
       setDirty(false)
     }
-  }, [active, command, stationId])
+  }, [command, operational, stationId])
 
   const run: RunCommand = useCallback(async (method, params, sync) => {
     if (!active) return
+    if (!licenseStatus.valid && !SAFE_UNLICENSED_METHODS.has(method)) {
+      throw new Error(`软件授权无效：${licenseReasonLabels[licenseStatus.reason]}`)
+    }
     if (sync && dirty) await saveConfiguration()
     await command(method, { stationId, ...params })
     if (method === "automatic.start") setDirty(false)
-  }, [active, command, dirty, saveConfiguration, stationId])
+  }, [active, command, dirty, licenseStatus.reason, licenseStatus.valid, saveConfiguration, stationId])
 
   const update: UpdateConfig = useCallback((key, value) => {
     configRevisionRef.current += 1
@@ -2443,11 +2492,12 @@ function App() {
 
   const pageIsBlocked = useCallback((targetPage: Page): boolean => {
     if (targetPage === "settings") return false
+    if (!licenseStatus.valid) return true
     if (targetPage === "pd") return false
     if (targetPage === "automatic") return manualPowerOutputActive
     if (targetPage === "manual") return automaticWorkflowActive && !automaticPaused
     return automaticInteractionLocked
-  }, [automaticInteractionLocked, automaticPaused, automaticWorkflowActive, manualPowerOutputActive])
+  }, [automaticInteractionLocked, automaticPaused, automaticWorkflowActive, licenseStatus.valid, manualPowerOutputActive])
 
   const changePage = useCallback((nextPage: Page) => {
     if (pageIsBlocked(nextPage)) return
@@ -2580,6 +2630,15 @@ function App() {
         run={run}
         saveConfiguration={saveConfiguration}
       />
+      {!licenseStatus.valid && (
+        <div className="license-runtime-warning" role="alert">
+          <div><strong>{licenseReasonLabels[licenseStatus.reason]}</strong><span>已禁止开始新测试和修改硬件输出；仍可安全结束当前任务或执行急停。</span></div>
+          <div>
+            {automaticWorkflowActive && <Button onClick={() => void run("automatic.end")} size="sm" variant="outline">安全结束测试</Button>}
+            <Button onClick={() => void run("app.stopAll")} size="sm" variant="destructive">全部工位急停</Button>
+          </div>
+        </div>
+      )}
       <div className="grid min-h-0 flex-1 grid-cols-[clamp(184px,12.7vw,212px)_minmax(0,1fr)] overflow-hidden">
         <aside className="shell-sidebar-enter flex h-full min-h-0 flex-col border-r border-border bg-[var(--app-sidebar)] px-3 py-4 text-[var(--app-text)]">
           <nav className="space-y-1.5">
@@ -2606,7 +2665,8 @@ function App() {
           </nav>
           <div className="mt-auto border-t border-border/60 px-3 pt-3 text-xs">
             <p className="text-[var(--app-text-tertiary)]">授权状态</p>
-            <p className="mt-1 font-medium text-[var(--app-success)]">已授权</p>
+            <p className={`mt-1 font-medium ${licenseStatus.valid ? "text-[var(--app-success)]" : "text-[var(--app-danger)]"}`}>{licenseReasonLabels[licenseStatus.reason]}</p>
+            {licenseStatus.payload && <p className="mt-1 truncate text-[var(--app-text-tertiary)]">{licenseStatus.payload.customer} · {formatLicenseDate(licenseStatus.payload.expiresAt)}</p>}
           </div>
         </aside>
 
@@ -2655,11 +2715,11 @@ function App() {
             data-page={page}
             key={page}
           >
-            {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={active} controlsLocked={automaticInteractionLocked} curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} stationSwitchDisabled={commandPending || dirty} pending={commandPending} run={run} saveConfiguration={saveConfiguration} testScripts={snapshot?.testScripts ?? BUILTIN_TEST_SCRIPT_OPTIONS} onScriptSelect={selectTestScript} stationId={stationId} onStationChange={setStationId} />}
-            {page === "manual" && <ManualPage snapshot={snapshot} config={config} update={update} active={active} pending={commandPending} run={run} stationId={stationId} />}
-            {page === "pd" && <PdPage snapshot={snapshot} active={active} pending={commandPending} run={run} />}
-            {page === "shipping" && <ShippingReportPage active={active} controlsLocked={automaticInteractionLocked} pending={commandPending} />}
-            {page === "settings" && <SystemSettingsPage curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} onCurveLineStyleChange={setCurveLineStyle} onLatestPointMarkerStyleChange={setLatestPointMarkerStyle} theme={theme} onThemeChange={setTheme} />}
+            {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={operational} controlsLocked={automaticInteractionLocked || !licenseStatus.valid} curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} stationSwitchDisabled={commandPending || dirty} pending={commandPending} run={run} saveConfiguration={saveConfiguration} testScripts={snapshot?.testScripts ?? BUILTIN_TEST_SCRIPT_OPTIONS} onScriptSelect={selectTestScript} stationId={stationId} onStationChange={setStationId} />}
+            {page === "manual" && <ManualPage snapshot={snapshot} config={config} update={update} active={operational} pending={commandPending} run={run} stationId={stationId} />}
+            {page === "pd" && <PdPage snapshot={snapshot} active={operational} pending={commandPending} run={run} />}
+            {page === "shipping" && <ShippingReportPage active={operational} controlsLocked={automaticInteractionLocked || !licenseStatus.valid} pending={commandPending} />}
+            {page === "settings" && <SystemSettingsPage curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} licenseStatus={licenseStatus} onCurveLineStyleChange={setCurveLineStyle} onImportLicense={onImportLicense} onLatestPointMarkerStyleChange={setLatestPointMarkerStyle} theme={theme} onThemeChange={setTheme} />}
           </div>
         </main>
       </div>
@@ -2670,8 +2730,21 @@ function App() {
 type UpdateConfig = <K extends keyof AppConfiguration>(key: K, value: AppConfiguration[K]) => void
 type RunCommand = (method: string, params?: Record<string, unknown>, sync?: boolean) => Promise<void>
 
-function SystemSettingsPage({ theme, curveLineStyle, latestPointMarkerStyle, onThemeChange, onCurveLineStyleChange, onLatestPointMarkerStyleChange }: { theme: Theme; curveLineStyle: CurveLineStyle; latestPointMarkerStyle: LatestPointMarkerStyle; onThemeChange: (theme: Theme) => void; onCurveLineStyleChange: (style: CurveLineStyle) => void; onLatestPointMarkerStyleChange: (style: LatestPointMarkerStyle) => void }) {
+function SystemSettingsPage({ theme, curveLineStyle, latestPointMarkerStyle, licenseStatus, onThemeChange, onCurveLineStyleChange, onLatestPointMarkerStyleChange, onImportLicense }: { theme: Theme; curveLineStyle: CurveLineStyle; latestPointMarkerStyle: LatestPointMarkerStyle; licenseStatus: LicenseStatus; onThemeChange: (theme: Theme) => void; onCurveLineStyleChange: (style: CurveLineStyle) => void; onLatestPointMarkerStyleChange: (style: LatestPointMarkerStyle) => void; onImportLicense: () => Promise<void> }) {
   const lightMode = theme === "light"
+  const [licenseBusy, setLicenseBusy] = useState(false)
+  const [licenseError, setLicenseError] = useState("")
+  const importLicenseFile = async () => {
+    setLicenseBusy(true)
+    setLicenseError("")
+    try {
+      await onImportLicense()
+    } catch (reason) {
+      setLicenseError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setLicenseBusy(false)
+    }
+  }
   return (
     <section className="system-settings-page">
       <div className="system-settings-page__heading">
@@ -2742,6 +2815,27 @@ function SystemSettingsPage({ theme, curveLineStyle, latestPointMarkerStyle, onT
                 <option value="paw">爪印</option>
               </NativeSelect>
             </div>
+          </div>
+        </CardContent>
+      </Card>
+      <Card className="system-settings-card mt-4 overflow-visible shadow-none">
+        <CardHeader className="system-settings-card__header">
+          <div className="system-settings-card__icon"><KeyRound className="size-5" /></div>
+          <div>
+            <CardTitle className="text-base">软件授权</CardTitle>
+            <CardDescription>查看当前设备许可证及有效期。</CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="license-settings-summary">
+            <div className="license-settings-status" data-valid={licenseStatus.valid ? "true" : "false"}><ShieldCheck /><span><strong>{licenseReasonLabels[licenseStatus.reason]}</strong><small>{licenseStatus.payload?.customer ?? "当前设备没有可用许可证"}</small></span></div>
+            <dl>
+              <div><dt>到期日期</dt><dd>{licenseStatus.payload ? formatLicenseDate(licenseStatus.payload.expiresAt) : "--"}</dd></div>
+              <div><dt>授权功能</dt><dd>{licenseStatus.payload?.features.join("、") ?? "--"}</dd></div>
+              <div><dt>机器码</dt><dd title={licenseStatus.machineCode}>{licenseStatus.machineCode}</dd></div>
+            </dl>
+            {licenseError && <p className="license-activation-error" role="alert">{licenseError}</p>}
+            <Button disabled={licenseBusy} onClick={() => void importLicenseFile()} size="sm" variant="outline"><Upload className="size-4" />{licenseBusy ? "正在验证..." : "重新导入许可证"}</Button>
           </div>
         </CardContent>
       </Card>
@@ -4500,5 +4594,53 @@ const PdPage = memo(function PdPage({ snapshot, active, pending, run }: { snapsh
   && previous.pending === next.pending
   && samePdSection(previous.snapshot?.pd, next.snapshot?.pd)
 ))
+
+function App() {
+  const [licenseStatus, setLicenseStatus] = useState<LicenseStatus | null>(() => DEMO_PREVIEW_ENABLED ? DEMO_LICENSE_STATUS : TAURI_RUNTIME_AVAILABLE ? null : BROWSER_LICENSE_STATUS)
+  const [sessionAuthorized, setSessionAuthorized] = useState(DEMO_PREVIEW_ENABLED)
+
+  useEffect(() => {
+    if (!TAURI_RUNTIME_AVAILABLE || DEMO_PREVIEW_ENABLED) return
+    let active = true
+    const refresh = async () => {
+      try {
+        const status = await getLicenseStatus()
+        if (!active) return
+        setLicenseStatus(status)
+        if (status.valid) setSessionAuthorized(true)
+      } catch {
+        if (active) setLicenseStatus(BROWSER_LICENSE_STATUS)
+      }
+    }
+    void refresh()
+    const timer = window.setInterval(() => void refresh(), 60_000)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [])
+
+  const importLicenseFile = useCallback(async () => {
+    const selected = await openDialog({
+      multiple: false,
+      directory: false,
+      title: "选择 ARP 许可证",
+      filters: [{ name: "ARP License", extensions: ["json"] }],
+    })
+    if (typeof selected !== "string" || !selected) return
+    const status = await installLicense(selected)
+    setLicenseStatus(status)
+    if (status.valid) setSessionAuthorized(true)
+    else throw new Error(licenseReasonLabels[status.reason])
+  }, [])
+
+  if (!licenseStatus) {
+    return <main className="license-loading-screen"><LoaderCircle className="size-6 animate-spin" /><span>正在检查软件授权...</span></main>
+  }
+  if (!sessionAuthorized && !licenseStatus.valid) {
+    return <ActivationView onStatusChange={(status) => { setLicenseStatus(status); if (status.valid) setSessionAuthorized(true) }} runtimeAvailable={TAURI_RUNTIME_AVAILABLE} status={licenseStatus} />
+  }
+  return <LicensedApp licenseStatus={licenseStatus} onImportLicense={importLicenseFile} />
+}
 
 export default App

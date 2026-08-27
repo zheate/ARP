@@ -1,0 +1,131 @@
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e5]: Power Test
+      - generic [ref=e7]:
+        - button "保存设置" [disabled]
+        - button "紧急停止" [ref=e8] [cursor=pointer]
+    - generic [ref=e9]:
+      - complementary [ref=e10]:
+        - navigation [ref=e11]:
+          - button "自动测试" [ref=e12] [cursor=pointer]
+          - button "手动配置" [disabled] [ref=e18]
+          - button "PD 采集" [ref=e25] [cursor=pointer]
+          - button "数据浏览" [disabled] [ref=e29]
+          - button "出货报告" [disabled] [ref=e34]
+          - button "系统设置" [disabled] [ref=e39]
+      - main [ref=e44]:
+        - generic [ref=e55]:
+          - generic [ref=e56]:
+            - generic [ref=e57]:
+              - generic [ref=e58]: 测试工位
+              - generic "测试工位" [ref=e61]:
+                - button "1" [pressed] [ref=e62] [cursor=pointer]
+                - button "2" [ref=e63] [cursor=pointer]
+            - generic [ref=e64]:
+              - generic [ref=e65]: 产品 SN
+              - textbox "产品 SN" [disabled]: DEMO-001
+            - generic [ref=e72]:
+              - generic [ref=e73]: 测试站别
+              - textbox "测试站别" [disabled]: 站别 1
+            - generic [ref=e76]:
+              - generic [ref=e77]: 历史参考
+              - combobox [disabled] [ref=e83]:
+                - generic [ref=e84]: 最新记录
+            - generic [ref=e87]:
+              - generic [ref=e88]: 输出目录
+              - generic [ref=e91]:
+                - textbox "输出目录" [disabled]:
+                  - /placeholder: 测试数据保存目录
+                  - text: /data/test/DEMO-001
+                - button "选择输出目录" [disabled]
+          - generic [ref=e92]:
+            - button "打开电源设置" [disabled] [ref=e93]:
+              - generic [ref=e98]:
+                - generic [ref=e99]: 电源
+                - paragraph [ref=e100]:
+                  - generic [ref=e102]: 在线
+                  - generic [ref=e103]: ·
+                  - generic [ref=e104]: 输出中
+            - button "打开功率计设置" [disabled] [ref=e105]:
+              - generic [ref=e111]:
+                - generic [ref=e112]: 功率计
+                - paragraph [ref=e113]:
+                  - generic [ref=e115]: 在线
+                  - generic [ref=e116]: ·
+                  - generic [ref=e117]: 测量中
+            - button "打开光谱仪设置" [disabled] [ref=e118]:
+              - generic [ref=e127]:
+                - generic [ref=e128]: 光谱仪
+                - paragraph [ref=e129]:
+                  - generic [ref=e131]: 在线
+                  - generic [ref=e132]: ·
+                  - generic [ref=e133]: 采集中
+            - generic [ref=e136]:
+              - button "开始" [disabled]
+              - button "停止" [ref=e137] [cursor=pointer]
+          - region "自动测试关键指标" [ref=e138]:
+            - generic [ref=e139]:
+              - generic [ref=e140]: 实时功率
+              - generic [ref=e141]:
+                - generic [ref=e142]: "0.860"
+                - generic [ref=e143]: W @ 8 A
+            - button "Centroid，点击设置规格" [ref=e144] [cursor=pointer]:
+              - generic [ref=e145]: Centroid
+              - generic [ref=e146]:
+                - generic [ref=e147]: "976.200"
+                - generic [ref=e148]: nm
+            - button "FWHM，点击设置规格" [ref=e149] [cursor=pointer]:
+              - generic [ref=e150]: FWHM
+              - generic [ref=e151]:
+                - generic [ref=e152]: "0.420"
+                - generic [ref=e153]: nm
+            - button "PIB，点击设置规格" [ref=e154] [cursor=pointer]:
+              - generic [ref=e155]: PIB
+              - generic [ref=e156]:
+                - generic [ref=e157]: "96.85"
+                - generic [ref=e158]: "%"
+          - generic [ref=e159]:
+            - generic [ref=e160]:
+              - generic "功率实时" [ref=e161]:
+                - generic [ref=e163]:
+                  - img "功率实时曲线" [ref=e164]
+                  - generic [ref=e165]: 实时功率
+              - generic "功率 / 效率" [ref=e166]:
+                - generic [ref=e168]:
+                  - img "功率 / 效率曲线" [ref=e169]
+                  - generic [ref=e170]: 功率 (W)、效率 (%)、历史参考
+            - generic "光谱" [ref=e171]:
+              - generic [ref=e173]:
+                - img "光谱曲线" [ref=e174]
+                - generic [ref=e175]: 光谱（实时）
+  - dialog [ref=e177]:
+    - generic [ref=e178]:
+      - generic [ref=e184]:
+        - heading "设置测试规格" [level=2] [ref=e185]
+        - paragraph [ref=e186]: 配置自动测试指标的判定范围，保存后应用于当前工位
+      - button "关闭规格设置弹窗" [active] [ref=e187] [cursor=pointer]
+    - generic [ref=e192]:
+      - generic [ref=e193]:
+        - generic [ref=e194]:
+          - paragraph [ref=e195]: 光谱指标
+          - paragraph [ref=e196]: 点击指标卡即可再次打开此设置。
+        - generic [ref=e197]: 当前工位
+      - generic [ref=e198]:
+        - generic [ref=e199]:
+          - generic [ref=e200]: 中心波长规格 (nm)
+          - spinbutton [ref=e201]: "976"
+        - generic [ref=e202]:
+          - generic [ref=e203]: 中心波长允许偏差 (± nm)
+          - spinbutton [ref=e204]: "1.5"
+        - generic [ref=e205]:
+          - generic [ref=e206]: FWHM 上限 (nm)
+          - spinbutton [ref=e207]: "0.6"
+        - generic [ref=e208]:
+          - generic [ref=e209]: PIB 下限 (%)
+          - spinbutton [ref=e210]: "95"
+    - generic [ref=e211]:
+      - paragraph [ref=e212]: 规格保存到当前工位配置
+      - generic [ref=e213]:
+        - button "取消" [ref=e214] [cursor=pointer]
+        - button "保存规格" [ref=e215] [cursor=pointer]

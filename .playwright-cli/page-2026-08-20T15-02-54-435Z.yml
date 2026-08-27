@@ -1,0 +1,46 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]: Power Test
+    - generic [ref=e7]:
+      - button "保存设置" [disabled]
+      - button "紧急停止" [ref=e8] [cursor=pointer]
+  - generic [ref=e9]:
+    - complementary [ref=e10]:
+      - navigation [ref=e11]:
+        - button "自动测试" [ref=e12] [cursor=pointer]
+        - button "手动配置" [disabled] [ref=e18]
+        - button "PD 采集" [ref=e25] [cursor=pointer]
+        - button "数据浏览" [disabled] [ref=e29]
+        - button "出货报告" [disabled] [ref=e34]
+        - button "系统设置" [ref=e39] [cursor=pointer]
+      - generic [ref=e44]: 授权信息
+    - main [ref=e45]:
+      - list:
+        - listitem [ref=e46]:
+          - status [ref=e47]:
+            - generic [ref=e51]:
+              - paragraph [ref=e52]: 示例数据
+              - paragraph [ref=e53]: 当前显示的是图表预览数据，不会连接真实仪器。
+            - button "关闭提示" [disabled] [ref=e54]
+      - generic [ref=e59]:
+        - generic [ref=e61]:
+          - heading "系统设置" [level=1] [ref=e62]
+          - paragraph [ref=e63]: 管理软件的界面显示偏好。
+        - generic [ref=e64]:
+          - generic [ref=e73]:
+            - generic [ref=e74]: 外观
+            - generic [ref=e75]: 选择适合当前环境的界面主题。
+          - generic [ref=e76]:
+            - generic [ref=e77]:
+              - generic [ref=e78]:
+                - paragraph [ref=e79]: 浅色模式
+                - paragraph [ref=e80]: 开启后使用明亮背景与深色文字，设置会自动保存。
+              - generic [ref=e81]:
+                - generic [ref=e82]: 已关闭
+                - switch "切换浅色模式" [ref=e83] [cursor=pointer]
+            - generic [ref=e85]:
+              - generic [ref=e86]:
+                - paragraph [ref=e87]: 自动测试实时曲线最新点
+                - paragraph [ref=e88]: 纸飞机沿最后一段曲线旋转，上升时朝右上、下降时朝右下，设置会自动保存。
+              - combobox [ref=e91] [cursor=pointer]:
+                - generic [ref=e92]: 原来的点

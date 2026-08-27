@@ -43,6 +43,24 @@ npm run build
 
 Python 测试统一使用标准库 `unittest`，不需要额外测试框架。`npm test` 依次执行全部测试，`npm run check` 再追加前端生产构建。运行完整测试、打包或长时间验证前，遵循 `agent.md` 的授权要求。
 
+## 软件授权
+
+Power Test 使用绑定当前电脑的离线 Ed25519 许可证。Tauri/Rust 主进程负责读取设备 UUID、验证产品、机器、有效期和签名；许可证有效前不会启动 Python sidecar，也不会开放仪器命令。公钥随应用发布，私钥只保存在授权电脑的 `.license/arp-private-key.pem`，该目录已排除在 Git 之外，必须单独安全备份。
+
+客户在激活页复制完整 `ARP-...` 机器码后，在授权电脑执行：
+
+```sh
+npm run license:generate -- \
+  --machine 'ARP-完整机器码' \
+  --customer '客户或公司名称' \
+  --expires '2027-08-24' \
+  --out 'tmp/customer-license.json'
+```
+
+将生成的 JSON 文件交给客户导入。许可证只接受产品 `arp-power-test`，不能与 PLM 或 LD Calculator 混用。运行中的许可证若失效，应用禁止开始新测试和修改硬件输出，但继续开放实时状态、急停、安全结束、停止采集以及当前记录重试，避免授权状态破坏安全下电和数据收尾。
+
+当前开发电脑按其 ARP 机器哈希精确列入“本机免授权”名单，不需要导入许可证；该豁免不会扩展到其他电脑。
+
 ## Windows 打包
 
 发布版本唯一取自 `tauri-ui/package.json`，Tauri 配置通过 `../package.json` 读取同一版本。

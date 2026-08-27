@@ -1,3 +1,6 @@
+mod license;
+
+use license::{license_get_status, license_install, LicenseState};
 use serde_json::{json, Value};
 
 const LIVE_SNAPSHOT_INTERVAL_MS: u64 = 200;
@@ -20,7 +23,7 @@ use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
-use tauri::{Manager, State, Webview};
+use tauri::{AppHandle, Manager, State, Webview};
 
 #[cfg(windows)]
 use windows_core::PCWSTR;
@@ -467,6 +470,48 @@ struct BridgeState {
     stream_generation: Arc<AtomicU64>,
 }
 
+fn bridge_is_active(state: &BridgeState) -> bool {
+    state
+        .bridge
+        .lock()
+        .map(|bridge| bridge.is_some())
+        .unwrap_or(false)
+}
+
+fn is_safe_unlicensed_method(method: &str) -> bool {
+    matches!(
+        method,
+        "app.snapshot"
+            | "app.stopAll"
+            | "app.shutdown"
+            | "automatic.end"
+            | "automatic.retryPersist"
+            | "automatic.retryExport"
+            | "pd.stop"
+            | "powerMeter.stop"
+            | "spectrometer.stop"
+    )
+}
+
+fn authorize_bridge_request(
+    app: &AppHandle,
+    license_state: &LicenseState,
+    bridge_state: &BridgeState,
+    method: &str,
+) -> Result<(), String> {
+    let status = license_state.status(app);
+    if status.valid {
+        return Ok(());
+    }
+    if bridge_is_active(bridge_state) && is_safe_unlicensed_method(method) {
+        return Ok(());
+    }
+    Err(format!(
+        "软件授权无效：{}。请导入当前设备的有效许可证。",
+        status.reason.message()
+    ))
+}
+
 fn request_shared_bridge(
     shared_bridge: &Arc<Mutex<Option<Arc<PythonBridge>>>>,
     method: &str,
@@ -693,16 +738,29 @@ impl StreamSender {
 }
 
 #[tauri::command]
-async fn bridge_snapshot(state: State<'_, BridgeState>) -> Result<Value, String> {
-    bridge_request("app.snapshot".to_string(), json!({}), state).await
+async fn bridge_snapshot(
+    app: AppHandle,
+    license_state: State<'_, LicenseState>,
+    state: State<'_, BridgeState>,
+) -> Result<Value, String> {
+    authorize_bridge_request(&app, &license_state, &state, "app.snapshot")?;
+    let shared_bridge = Arc::clone(&state.bridge);
+    tauri::async_runtime::spawn_blocking(move || {
+        request_shared_bridge(&shared_bridge, "app.snapshot", json!({}))
+    })
+    .await
+    .map_err(|error| format!("Python 后端任务异常结束：{error}"))?
 }
 
 #[tauri::command]
 async fn bridge_request(
     method: String,
     params: Value,
+    app: AppHandle,
+    license_state: State<'_, LicenseState>,
     state: State<'_, BridgeState>,
 ) -> Result<Value, String> {
+    authorize_bridge_request(&app, &license_state, &state, &method)?;
     let shared_bridge = Arc::clone(&state.bridge);
     tauri::async_runtime::spawn_blocking(move || {
         request_shared_bridge(&shared_bridge, &method, params)
@@ -766,8 +824,11 @@ async fn bridge_subscribe(
     view: String,
     subscription_id: String,
     webview: Webview,
+    app: AppHandle,
+    license_state: State<'_, LicenseState>,
     state: State<'_, BridgeState>,
 ) -> Result<u64, String> {
+    authorize_bridge_request(&app, &license_state, &state, "app.snapshot")?;
     Ok(start_bridge_stream(
         view,
         StreamSender {
@@ -785,8 +846,11 @@ async fn bridge_subscribe(
     subscription_id: String,
     on_event: Channel<Value>,
     webview: Webview,
+    app: AppHandle,
+    license_state: State<'_, LicenseState>,
     state: State<'_, BridgeState>,
 ) -> Result<u64, String> {
+    authorize_bridge_request(&app, &license_state, &state, "app.snapshot")?;
     Ok(start_bridge_stream(
         view,
         StreamSender {
@@ -879,6 +943,7 @@ pub fn run() {
             }
         }))
         .manage(BridgeState::default())
+        .manage(LicenseState::new())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -888,6 +953,8 @@ pub fn run() {
             bridge_unsubscribe,
             bridge_disconnect,
             bridge_force_disconnect,
+            license_get_status,
+            license_install,
             open_directory
         ])
         .run(tauri::generate_context!())
@@ -998,6 +1065,33 @@ mod tests {
         assert_eq!(snapshot_interval_ms("pd_1"), 500);
         assert_eq!(snapshot_interval_ms("pd_2"), 500);
         assert_eq!(snapshot_interval_ms("shipping"), 500);
+    }
+
+    #[test]
+    fn expired_license_policy_keeps_only_safe_runtime_methods() {
+        for method in [
+            "app.snapshot",
+            "app.stopAll",
+            "app.shutdown",
+            "automatic.end",
+            "automatic.retryPersist",
+            "automatic.retryExport",
+            "pd.stop",
+            "powerMeter.stop",
+            "spectrometer.stop",
+        ] {
+            assert!(super::is_safe_unlicensed_method(method), "{method}");
+        }
+        for method in [
+            "automatic.start",
+            "app.configure",
+            "powerSupply.setCurrent",
+            "powerSupply.setOutput",
+            "device.refresh",
+            "shippingReport.generate",
+        ] {
+            assert!(!super::is_safe_unlicensed_method(method), "{method}");
+        }
     }
 
     #[test]

@@ -291,7 +291,7 @@ class HeadlessBackendContractTests(unittest.TestCase):
         self.backend.power_supply_kind = "ch341"
 
         with self.assertRaisesRegex(ValueError, "CH341 最大电流不能超过 20 A"):
-            self.backend._set_current({"currentA": 20.1})
+            self.backend.dispatcher._set_current({"currentA": 20.1})
 
         self.assertEqual(controller.current_writes, [])
 
@@ -300,7 +300,7 @@ class HeadlessBackendContractTests(unittest.TestCase):
         self.backend.power_supply_controller = controller
         self.backend.power_supply_kind = "tdk"
 
-        self.backend._set_current({"currentA": 25.0})
+        self.backend.dispatcher._set_current({"currentA": 25.0})
 
         self.assertEqual(controller.current_writes, [25.0])
         self.assertEqual(self.backend.active_current_a, 25.0)

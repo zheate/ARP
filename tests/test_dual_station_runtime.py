@@ -15,12 +15,9 @@ from combined_test.excel_export import ExcelTestRecord
 from combined_test.ch341_ports import Ch341DeviceDescriptor
 from combined_test.models import PowerMeterOption, PowerMeterReading, SpectrometerReading
 from combined_test.record_store import AttemptValidity
-from tauri_bridge.headless_backend import (
-    ExportQueueWorker,
-    ExportTask,
-    HeadlessBackend,
-    _AutomaticPointRetry,
-)
+from tauri_bridge.headless_backend import HeadlessBackend
+from tauri_bridge.export_queue import ExportQueueWorker, ExportTask
+from tauri_bridge.station_support import AutomaticPointRetry
 from tauri_bridge.settings import JsonSettings
 
 
@@ -122,7 +119,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         station.power_meter_reader = MagicMock(is_ready=True)
 
         with (
-            patch("tauri_bridge.headless_backend.threading.Thread") as thread_class,
+            patch("tauri_bridge.station_automatic.threading.Thread") as thread_class,
             patch.object(station, "start_power_meter") as start_power_meter,
             patch.object(station, "start_spectrometer") as start_spectrometer,
         ):
@@ -154,22 +151,22 @@ class DualStationRuntimeTests(unittest.TestCase):
         station.latest_power_sampled_at_utc = "2026-08-23T01:00:00.000+00:00"
         station.power_meter_reader = MagicMock(is_ready=True)
 
-        with patch("tauri_bridge.headless_backend.time.monotonic", return_value=100.0):
+        with patch("tauri_bridge.station_runtime.time.monotonic", return_value=100.0):
             live = self.backend.snapshot({"view": "automatic_1"})["devices"]["powerMeter"]
         self.assertEqual(live["quality"], "live")
         self.assertEqual(live["ageMs"], 0)
 
         station.power_meter_reader = None
-        with patch("tauri_bridge.headless_backend.time.monotonic", return_value=100.0):
+        with patch("tauri_bridge.station_runtime.time.monotonic", return_value=100.0):
             stale = self.backend.snapshot({"view": "automatic_1"})["devices"]["powerMeter"]
         self.assertEqual(stale["quality"], "stale")
 
-        with patch("tauri_bridge.headless_backend.time.monotonic", return_value=110.0):
+        with patch("tauri_bridge.station_runtime.time.monotonic", return_value=110.0):
             invalid = self.backend.snapshot({"view": "automatic_1"})["devices"]["powerMeter"]
         self.assertEqual(invalid["quality"], "invalid")
 
     def test_saturated_measurement_is_not_reported_live(self) -> None:
-        with patch("tauri_bridge.headless_backend.time.monotonic", return_value=10.0):
+        with patch("tauri_bridge.station_runtime.time.monotonic", return_value=10.0):
             freshness = self.backend.stations["1"].measurement_freshness(
                 received_at_monotonic_s=9.9,
                 sampled_at_utc="2026-08-23T01:00:00.000+00:00",
@@ -192,8 +189,8 @@ class DualStationRuntimeTests(unittest.TestCase):
             return ["ASRL7::INSTR"]
 
         with (
-            patch("tauri_bridge.headless_backend.list_tdk_serial_resources", side_effect=list_resources),
-            patch("tauri_bridge.headless_backend.probe_tdk_serial_resource", return_value=True),
+            patch("tauri_bridge.device_discovery.list_tdk_serial_resources", side_effect=list_resources),
+            patch("tauri_bridge.device_discovery.probe_tdk_serial_resource", return_value=True),
         ):
             self.backend.dispatch("device.refresh", {"stationId": "1", "device": "powerSupply"})
             self.assertTrue(started.wait(timeout=1))
@@ -226,11 +223,11 @@ class DualStationRuntimeTests(unittest.TestCase):
 
         with (
             patch(
-                "tauri_bridge.headless_backend.list_tdk_serial_resources",
+                "tauri_bridge.device_discovery.list_tdk_serial_resources",
                 return_value=["ASRL3::INSTR", "ASRL7::INSTR", "ASRL9::INSTR"],
             ),
             patch(
-                "tauri_bridge.headless_backend.probe_tdk_serial_resource",
+                "tauri_bridge.device_discovery.probe_tdk_serial_resource",
                 side_effect=probe,
             ) as probe_resource,
         ):
@@ -297,7 +294,7 @@ class DualStationRuntimeTests(unittest.TestCase):
             spectrum_meter_ready=False,
         )
 
-        with patch("tauri_bridge.headless_backend.datetime") as mock_datetime:
+        with patch("tauri_bridge.station_automatic.datetime") as mock_datetime:
             mock_datetime.now.return_value = datetime(2026, 8, 18, 12, 34, 0)
             first_path = station_one._begin_recording_session(settings)
             with self.assertRaisesRegex(RuntimeError, "测试文件路径相同"):
@@ -585,7 +582,7 @@ class DualStationRuntimeTests(unittest.TestCase):
             serial_number="PROBE-A",
         )
 
-        self.backend._rebind_remembered_power_meters([moved_meter])
+        self.backend.discovery._rebind_remembered_power_meters([moved_meter])
 
         self.assertEqual(station.configuration["powerMeterResource"], "ASRL11::INSTR")
         self.assertEqual(station.configuration["softwareGain"], 1.37)
@@ -613,7 +610,7 @@ class DualStationRuntimeTests(unittest.TestCase):
             serial_number="PROBE-009",
         )
 
-        self.backend._rebind_remembered_power_meters([same_probe_on_new_meter])
+        self.backend.discovery._rebind_remembered_power_meters([same_probe_on_new_meter])
 
         self.assertEqual(station.configuration["powerMeterResource"], "OPHIR::USB::NEW-METER")
         self.assertEqual(station.configuration["powerMeterSerialNumber"], "PROBE-009")
@@ -636,12 +633,12 @@ class DualStationRuntimeTests(unittest.TestCase):
             }
         ]
 
-        self.backend._rebind_remembered_spectrometers(resources)
+        self.backend.discovery._rebind_remembered_spectrometers(resources)
 
         self.assertEqual(station.configuration["spectrometerDeviceId"], 19)
         self.assertEqual(station.configuration["spectrometerResource"], resources[0]["label"])
 
-    def test_startup_restores_remembered_devices_without_scanning_hardware(self) -> None:
+    def test_startup_restores_remembered_devices_and_scans_spectrometer(self) -> None:
         station_two = self.backend.stations["2"]
         station_two.configuration.update(
             {
@@ -655,13 +652,13 @@ class DualStationRuntimeTests(unittest.TestCase):
         )
 
         with (
-            patch.object(self.backend, "_refresh_power_meter") as refresh_power_meter,
-            patch.object(self.backend, "_refresh_spectrometer") as refresh_spectrometer,
+            patch.object(self.backend.discovery, "_refresh_power_meter") as refresh_power_meter,
+            patch.object(self.backend.discovery, "_refresh_spectrometer") as refresh_spectrometer,
         ):
             self.backend.start_remembered_device_discovery()
 
         refresh_power_meter.assert_not_called()
-        refresh_spectrometer.assert_not_called()
+        refresh_spectrometer.assert_called_once_with(self.backend.stations["1"])
         self.assertEqual(len(self.backend.power_meter_options), 1)
         self.assertEqual(self.backend.power_meter_options[0].serial_number, "PROBE-B")
         self.assertEqual(
@@ -770,7 +767,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertEqual(attempts[-1].validity, AttemptValidity.DEVICE_ERROR)
         station.power_meter_reader = MagicMock(is_ready=True)
         station.resume_automatic()
-        with self.assertRaises(_AutomaticPointRetry):
+        with self.assertRaises(AutomaticPointRetry):
             station._await_automatic_resume()
 
     def test_manual_stable_point_can_be_saved_to_excel(self) -> None:
@@ -1067,7 +1064,7 @@ class DualStationRuntimeTests(unittest.TestCase):
             def start(self) -> None:
                 return
 
-        with patch("tauri_bridge.headless_backend.PowerMeterDetectThread", FakeDetectThread):
+        with patch("tauri_bridge.device_discovery.PowerMeterDetectThread", FakeDetectThread):
             self.backend.dispatch(
                 "device.refresh",
                 {"stationId": "1", "device": "powerMeter"},
@@ -1168,7 +1165,7 @@ class DualStationRuntimeTests(unittest.TestCase):
             def start(self) -> None:
                 return
 
-        with patch("tauri_bridge.headless_backend._DeviceDiscoveryThread", FakeDiscoveryThread):
+        with patch("tauri_bridge.device_discovery._DeviceDiscoveryThread", FakeDiscoveryThread):
             self.backend.dispatch(
                 "device.refresh",
                 {"stationId": "2", "device": "powerSupply"},
@@ -1210,7 +1207,7 @@ class DualStationRuntimeTests(unittest.TestCase):
             Ch341DeviceDescriptor(0, "iface-0", "PCIROOT(0)#USB(1)"),
             Ch341DeviceDescriptor(1, "iface-1", "PCIROOT(0)#USB(2)"),
         ]
-        with patch("tauri_bridge.headless_backend._DeviceDiscoveryThread", FakeDiscoveryThread):
+        with patch("tauri_bridge.device_discovery._DeviceDiscoveryThread", FakeDiscoveryThread):
             self.backend.dispatch(
                 "device.refresh",
                 {"stationId": "1", "device": "powerSupply"},
@@ -1240,7 +1237,7 @@ class DualStationRuntimeTests(unittest.TestCase):
             def start(self) -> None:
                 return None
 
-        with patch("tauri_bridge.headless_backend._DeviceDiscoveryThread", FakeDiscoveryThread):
+        with patch("tauri_bridge.device_discovery._DeviceDiscoveryThread", FakeDiscoveryThread):
             self.backend.dispatch(
                 "device.refresh",
                 {"stationId": "1", "device": "spectrometer"},
@@ -1282,12 +1279,12 @@ class DualStationRuntimeTests(unittest.TestCase):
         controller.get_device_interface_path.return_value = "iface-1"
 
         with patch(
-            "tauri_bridge.headless_backend.create_ch341_controller",
+            "tauri_bridge.station_runtime.create_ch341_controller",
             return_value=controller,
         ) as create_controller:
             with patch.object(self.backend, "scan_ch341", return_value=None):
                 with patch(
-                    "tauri_bridge.headless_backend.get_location_path_from_interface_path",
+                    "tauri_bridge.station_runtime.get_location_path_from_interface_path",
                     return_value=location,
                 ):
                     station.connect_power_supply()
@@ -1314,7 +1311,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         controller.connect_device.return_value = (False, "无法打开设备")
 
         with patch(
-            "tauri_bridge.headless_backend.create_ch341_controller",
+            "tauri_bridge.station_runtime.create_ch341_controller",
             return_value=controller,
         ):
             with patch.object(self.backend, "scan_ch341", return_value=None):
@@ -1342,12 +1339,12 @@ class DualStationRuntimeTests(unittest.TestCase):
         controller.disconnect_device.return_value = True
 
         with patch(
-            "tauri_bridge.headless_backend.create_ch341_controller",
+            "tauri_bridge.station_runtime.create_ch341_controller",
             return_value=controller,
         ):
             with patch.object(self.backend, "scan_ch341", return_value=None):
                 with patch(
-                    "tauri_bridge.headless_backend.get_location_path_from_interface_path",
+                    "tauri_bridge.station_runtime.get_location_path_from_interface_path",
                     return_value="PCIROOT(0)#USB(2)",
                 ):
                     with self.assertRaisesRegex(RuntimeError, "端口复核不一致"):
@@ -1676,7 +1673,7 @@ class DualStationRuntimeTests(unittest.TestCase):
             release.wait(2.0)
             return task.target_path
 
-        with patch("tauri_bridge.headless_backend.save_test_records", side_effect=slow_save):
+        with patch("tauri_bridge.export_queue.save_test_records", side_effect=slow_save):
             worker.start()
             self.assertTrue(worker.submit(task))
             self.assertTrue(started.wait(1.0))

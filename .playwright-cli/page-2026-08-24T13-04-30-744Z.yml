@@ -1,0 +1,15 @@
+- main [ref=e3]:
+  - region [ref=e4]:
+    - generic [ref=e10]:
+      - text: 软件授权
+      - heading "Power Test 需要许可证" [level=1] [ref=e11]
+      - paragraph [ref=e12]: 复制当前设备机器码并交给授权方，收到 license.json 后在这里导入。
+    - generic [ref=e16]:
+      - strong [ref=e17]: 请在 Power Test 桌面应用中完成授权
+      - generic [ref=e18]: 当前设备尚无可用许可证
+    - generic [ref=e19]:
+      - generic [ref=e20]: 当前设备机器码
+      - code [ref=e21]: 请打开 Power Test 桌面应用
+      - button "复制机器码" [disabled]
+    - button "导入许可证" [disabled]
+    - paragraph [ref=e22]: 许可证仅适用于当前设备。更换主板或设备后需要重新签发。
