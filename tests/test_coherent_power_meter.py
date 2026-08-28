@@ -165,6 +165,78 @@ class CoherentPowerMeterTests(unittest.TestCase):
         self.assertEqual(instrument.baud_rate, 38400)
         self.assertTrue(instrument.closed)
 
+    def test_laserpoint_normalizes_active_milliwatt_scale_to_watts(self) -> None:
+        class LaserPointInstrument(FakeVisaInstrument):
+            def __init__(self) -> None:
+                super().__init__()
+                self.queries: list[str] = []
+
+            def query(self, command: str) -> str:
+                self.queries.append(command)
+                return {
+                    "*OUTPM": "860.0;",
+                    "*X1D": "#5;",
+                    "*FSWX1 2": "#1000.00_mW;",
+                }[command]
+
+        instrument = LaserPointInstrument()
+        manager = FakeVisaManager(instrument)
+        with (
+            patch.object(power_meter_mvp, "acquire_visa_resource_manager", return_value=manager),
+            patch.object(power_meter_mvp, "release_visa_resource_manager"),
+        ):
+            meter = power_meter_mvp.LaserPointPowerMeter("COM9")
+            self.assertTrue(math.isclose(meter.read_power_w(), 0.86))
+            self.assertTrue(math.isclose(meter.read_power_w(), 0.86))
+            meter.close()
+
+        self.assertEqual(
+            instrument.queries,
+            ["*OUTPM", "*X1D", "*FSWX1 2", "*OUTPM", "*X1D"],
+        )
+
+    def test_laserpoint_preserves_active_watt_scale_readings(self) -> None:
+        class LaserPointInstrument(FakeVisaInstrument):
+            def query(self, command: str) -> str:
+                return {
+                    "*OUTPM": "860.0;",
+                    "*X1D": "#4;",
+                    "*FSWX1 1": "#1000.0_W;",
+                }[command]
+
+        instrument = LaserPointInstrument()
+        manager = FakeVisaManager(instrument)
+        with (
+            patch.object(power_meter_mvp, "acquire_visa_resource_manager", return_value=manager),
+            patch.object(power_meter_mvp, "release_visa_resource_manager"),
+        ):
+            meter = power_meter_mvp.LaserPointPowerMeter("COM9")
+            self.assertTrue(math.isclose(meter.read_power_w(), 860.0))
+            meter.close()
+
+    def test_laserpoint_normalizes_active_kilowatt_scale_to_watts(self) -> None:
+        class LaserPointInstrument(FakeVisaInstrument):
+            def query(self, command: str) -> str:
+                return {
+                    "*OUTPM": "0.5;",
+                    "*X1D": "#3;",
+                    "*FSWX1 0": "#4.5000_kW;",
+                }[command]
+
+        instrument = LaserPointInstrument()
+        manager = FakeVisaManager(instrument)
+        with (
+            patch.object(power_meter_mvp, "acquire_visa_resource_manager", return_value=manager),
+            patch.object(power_meter_mvp, "release_visa_resource_manager"),
+        ):
+            meter = power_meter_mvp.LaserPointPowerMeter("COM9")
+            self.assertTrue(math.isclose(meter.read_power_w(), 500.0))
+            meter.close()
+
+    def test_laserpoint_rejects_unknown_full_scale_unit(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "功率量程单位不受支持"):
+            power_meter_mvp.parse_laserpoint_full_scale_power_to_w("#4.5_MW;")
+
     def test_adapter_sets_watts_and_wavelength_reads_power_and_controls_zero(self) -> None:
         instrument = FakeVisaInstrument()
         manager = FakeVisaManager(instrument)

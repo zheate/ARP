@@ -273,6 +273,50 @@ def parse_laserpoint_power_w(raw: str) -> float:
     return value
 
 
+def parse_laserpoint_gain_index(raw: str) -> int:
+    """Map LaserPoint's fixed/automatic X1D mode to its active gain index."""
+    text = raw.strip().rstrip(";").strip()
+    match = re.search(r"(?<!\d)([0-5])(?!\d)", text)
+    if match is None:
+        raise RuntimeError(f"LaserPoint 当前量程响应无效：{text or '<empty>'}")
+    mode = int(match.group(1))
+    # X1D 0-2 are fixed x1/x10/x100; 3-5 are the same active gains while
+    # automatic gain selection is enabled.
+    return mode if mode <= 2 else mode - 3
+
+
+def parse_laserpoint_full_scale_power_to_w(raw: str) -> tuple[float, float]:
+    """Parse an FSWX1 response and return (full scale W, unit scale to W)."""
+    text = raw.strip().rstrip(";").strip().lstrip("#").strip()
+    match = re.fullmatch(
+        r"([-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?)\s*_\s*([A-Za-z\u00b5\u03bc]+)",
+        text,
+    )
+    if match is None:
+        raise RuntimeError(f"LaserPoint 功率量程响应无效：{text or '<empty>'}")
+    value = float(match.group(1))
+    if not math.isfinite(value) or value <= 0.0:
+        raise RuntimeError(f"LaserPoint 功率量程响应无效：{text}")
+    unit = match.group(2)
+    normalized_unit = unit.replace("\u00b5", "u").replace("\u03bc", "u")
+    scales_to_w = {
+        "nW": 1e-9,
+        "nw": 1e-9,
+        "uW": 1e-6,
+        "uw": 1e-6,
+        "mW": 1e-3,
+        "mw": 1e-3,
+        "W": 1.0,
+        "w": 1.0,
+        "kW": 1e3,
+        "kw": 1e3,
+    }
+    scale_to_w = scales_to_w.get(normalized_unit)
+    if scale_to_w is None:
+        raise RuntimeError(f"LaserPoint 功率量程单位不受支持：{unit}")
+    return value * scale_to_w, scale_to_w
+
+
 class CaihuangPowerMeter:
     device_type = "Caihuang CHLP-P"
     driver_kind = "caihuang"
@@ -538,6 +582,7 @@ class LaserPointPowerMeter:
         self.rm = acquire_visa_resource_manager()
         self.inst = None
         self.probe_serial_number = ""
+        self._power_scales_to_w: dict[int, float] = {}
         try:
             self.inst = self.rm.open_resource(self.resource)
             configure_laserpoint(self.inst)
@@ -603,18 +648,29 @@ class LaserPointPowerMeter:
 
     def set_power_mode(self) -> None:
         self._setting_command("*POWER")
+        self._power_scales_to_w.clear()
 
     def set_gain_mode(self, mode: int) -> None:
         value = int(mode)
         if value < 0 or value > 3:
             raise ValueError("LaserPoint 增益模式必须在 0 至 3 之间")
         self._setting_command(f"*SETX1 {value}")
+        self._power_scales_to_w.clear()
 
     def set_wavelength(self, wavelength_nm: float) -> None:
         self._setting_command(f"*SETLAM{format_laserpoint_wavelength_nm(wavelength_nm)}")
+        self._power_scales_to_w.clear()
 
     def read_power_w(self) -> float:
-        return parse_laserpoint_power_w(self.inst.query("*OUTPM"))
+        power = parse_laserpoint_power_w(self.inst.query("*OUTPM"))
+        gain_index = parse_laserpoint_gain_index(self.inst.query("*X1D"))
+        scale_to_w = self._power_scales_to_w.get(gain_index)
+        if scale_to_w is None:
+            _full_scale_w, scale_to_w = parse_laserpoint_full_scale_power_to_w(
+                self.inst.query(f"*FSWX1 {gain_index}")
+            )
+            self._power_scales_to_w[gain_index] = scale_to_w
+        return power * scale_to_w
 
     def close(self) -> None:
         inst, rm = self.inst, self.rm
