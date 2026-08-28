@@ -200,22 +200,35 @@ class WavelengthStabilityDetector(_AbsoluteWindowStabilityDetector):
 
 
 class PowerStabilityDetector:
-    """Coherent-style power stability detector: ``2σ / μ × 100%``.
+    """Time-window power detector using relative or absolute stability.
 
-    ``σ`` is the sample standard deviation and ``μ`` is the arithmetic mean
-    over a complete, continuously sampled time window.
+    Relative mode uses ``2σ / μ × 100%``. Absolute mode uses the peak-to-peak
+    span over the same complete, continuously sampled time window.
     """
 
     MIN_SAMPLE_COUNT = 5
     MAX_SAMPLE_GAP_FRACTION = 0.5
 
-    def __init__(self, window_s: float, stability_limit_percent: float) -> None:
+    def __init__(
+        self,
+        window_s: float,
+        stability_limit_percent: float,
+        absolute_span_limit_w: float | None = None,
+    ) -> None:
         if window_s <= 0:
             raise ValueError("稳定窗口必须大于 0 秒")
         if stability_limit_percent < 0:
             raise ValueError("稳定度限值必须大于或等于 0%")
+        if absolute_span_limit_w is not None and (
+            not math.isfinite(float(absolute_span_limit_w))
+            or float(absolute_span_limit_w) < 0.0
+        ):
+            raise ValueError("功率峰峰值限值必须大于或等于 0 W")
         self.window_s = float(window_s)
         self.stability_limit_percent = float(stability_limit_percent)
+        self.absolute_span_limit_w = (
+            None if absolute_span_limit_w is None else float(absolute_span_limit_w)
+        )
         self._samples: Deque[tuple[float, float]] = deque()
 
     def reset(self) -> None:
@@ -286,9 +299,14 @@ class PowerStabilityDetector:
                 len(powers) - 1
             )
             stability_percent = 2.0 * math.sqrt(sample_variance) / mean_w * 100.0
-        margin = max(1e-12, self.stability_limit_percent * 1e-12)
+        if self.absolute_span_limit_w is None:
+            margin = max(1e-12, self.stability_limit_percent * 1e-12)
+            stable = stability_percent <= self.stability_limit_percent + margin
+        else:
+            margin = max(1e-12, self.absolute_span_limit_w * 1e-12)
+            stable = span_w <= self.absolute_span_limit_w + margin
         return self._result(
-            stable=stability_percent <= self.stability_limit_percent + margin,
+            stable=stable,
             span_w=span_w,
             covered_s=covered_s,
             median_w=median_w,

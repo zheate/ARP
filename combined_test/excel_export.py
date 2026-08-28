@@ -98,6 +98,15 @@ def _finite_or_none(value: float) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def _session_test_temperature(session: Any | None) -> str:
+    if session is None:
+        return ""
+    settings = getattr(session, "settings", {}) or {}
+    if not isinstance(settings, dict):
+        return ""
+    return str(settings.get("testTemperatureC", "") or "").strip()
+
+
 def _replace_file_with_retry(source: Path, target: Path) -> None:
     """Atomically replace a workbook despite short-lived Windows file locks."""
     for attempt in range(len(WINDOWS_REPLACE_RETRY_DELAYS_S) + 1):
@@ -285,6 +294,7 @@ def _write_xlsx_test_data_sheet(
     formats: dict[str, XlsxWriterFormat],
     records_by_current: dict[float, tuple[ExcelTestRecord, list[float], list[float]]],
     test_station: str,
+    test_temperature: str,
 ) -> None:
     sheet = workbook.add_worksheet("测试数据")
     sheet.freeze_panes(2, 0)
@@ -297,6 +307,9 @@ def _write_xlsx_test_data_sheet(
         sheet.write(0, 1, "测试站别", formats["bold"])
         sheet.write(0, 2, test_station)
         sheet.set_column(2, 2, 16)
+    if test_temperature:
+        sheet.write(0, 3, "测试温度", formats["bold"])
+        sheet.write(0, 4, test_temperature)
     sheet.write_row(1, 0, RESULT_HEADERS, formats["result_header"])
 
     record_items = sorted(records_by_current.items())
@@ -367,6 +380,7 @@ def _write_xlsx_session_information(
     sheet = workbook.add_worksheet("会话信息")
     sheet.set_column(0, 0, 24)
     sheet.set_column(1, 1, 72)
+    test_temperature = _session_test_temperature(session)
     rows = (
         ("出货报告格式版本", EXPORT_WORKBOOK_SCHEMA_VERSION),
         ("会话编号", getattr(session, "session_id", "")),
@@ -374,6 +388,7 @@ def _write_xlsx_session_information(
         ("产品型号", getattr(session, "product_model", "")),
         ("批次", getattr(session, "batch", "")),
         ("测试站别", getattr(session, "station", "")),
+        ("测试温度", test_temperature),
         ("测试模式", getattr(session, "mode", "")),
         ("开始时间 UTC", getattr(session, "started_at_utc", "")),
         ("结束时间 UTC", getattr(session, "ended_at_utc", "") or ""),
@@ -398,6 +413,8 @@ def _write_xlsx_session_information(
     row += 1
     sheet.write(row, 0, "测试参数", formats["bold"])
     for key, value in sorted(dict(getattr(session, "settings", {}) or {}).items()):
+        if key == "testTemperatureC":
+            continue
         row += 1
         sheet.write(row, 0, str(key))
         sheet.write(row, 1, str(value))
@@ -626,6 +643,7 @@ def save_test_records(
             formats,
             records_by_current,
             next(iter(test_stations)) if test_stations else "",
+            _session_test_temperature(session),
         )
         if session is not None:
             _write_xlsx_session_information(workbook, formats, session)

@@ -26,6 +26,7 @@ const DEMO_SNAPSHOT: BackendSnapshot = {
     productModel: "Power Test Demo",
     batch: "DEMO",
     station: "站别 1",
+    testTemperatureC: "水冷25°C",
     outputDir: "/data/test/DEMO-001",
     powerSupplyKind: "tdk",
     ch341SelectedLocationPath: "",

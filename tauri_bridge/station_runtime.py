@@ -96,6 +96,9 @@ class StationRuntime(StationAutomaticMixin):
             )
         if initial_config:
             self.configuration.update({k: v for k, v in initial_config.items() if k in DEFAULT_CONFIGURATION})
+            self.configuration["testTemperatureC"] = str(
+                self.configuration.get("testTemperatureC", "") or ""
+            ).strip()
             # Preserve the old combined PIB/center-wavelength settings when
             # loading a configuration saved before editable result specs.
             if "centerWavelengthSpecNm" not in initial_config and "pibCenterWavelengthNm" in initial_config:
@@ -415,6 +418,9 @@ class StationRuntime(StationAutomaticMixin):
             if self.power_supply_controller is not None and kind != self.power_supply_kind:
                 raise ValueError("请先断开电源，再切换控制器类型")
 
+            if "testTemperatureC" in params:
+                params["testTemperatureC"] = str(params["testTemperatureC"] or "").strip()
+
             for key in DEFAULT_CONFIGURATION:
                 if key in params:
                     self.configuration[key] = params[key]
@@ -700,7 +706,7 @@ class StationRuntime(StationAutomaticMixin):
         }:
             self._record_manual_voltage_point(measured)
 
-    def start_power_meter(self) -> None:
+    def start_power_meter(self, *, stable_window_s: float | None = None) -> None:
         with self._lock:
             if self.power_meter_reader is not None:
                 return
@@ -714,7 +720,11 @@ class StationRuntime(StationAutomaticMixin):
                 wavelength_nm=float(self.configuration["powerMeterWavelengthNm"]),
                 interval_ms=int(self.configuration["powerMeterIntervalMs"]),
                 software_gain=float(self.configuration["softwareGain"]),
-                stable_window_s=float(self.configuration["stableWindowS"]),
+                stable_window_s=(
+                    float(self.configuration["stableWindowS"])
+                    if stable_window_s is None
+                    else float(stable_window_s)
+                ),
                 stability_limit_percent=float(self.configuration["stabilityLimitPercent"]),
                 driver_kind=str(self.configuration.get("powerMeterDriverKind", "caihuang")),
                 serial_number=str(self.configuration.get("powerMeterSerialNumber", "")),

@@ -26,6 +26,7 @@ import {
   ShieldCheck,
   Square,
   Sun,
+  Thermometer,
   Upload,
   X,
 } from "lucide-react"
@@ -236,6 +237,7 @@ const emptyConfig: AppConfiguration = {
   productModel: "",
   batch: "",
   station: "",
+  testTemperatureC: "",
   outputDir: "",
   powerSupplyKind: "ch341",
   ch341SelectedLocationPath: "",
@@ -2190,9 +2192,9 @@ function RealtimeMetricCards({
   const liveSpectrometer = spectrometer?.quality === "live" ? spectrometer : undefined
   const pibValue = liveSpectrometer?.pib ?? liveSpectrometer?.pibPercent
   const pibPercent = typeof pibValue === "number" && Number.isFinite(pibValue) ? (pibValue <= 1 ? pibValue * 100 : pibValue) : null
-  const centroidValue = liveSpectrometer?.centroidNm ?? liveSpectrometer?.peakWavelengthNm
-  const hasSpectrumMetrics = typeof centroidValue === "number"
-  const centerWavelengthPass = hasSpectrumMetrics && Math.abs((centroidValue ?? 0) - config.centerWavelengthSpecNm) <= config.centerWavelengthToleranceNm
+  const centerWavelengthValue = liveSpectrometer?.peakWavelengthNm
+  const hasSpectrumMetrics = typeof centerWavelengthValue === "number"
+  const centerWavelengthPass = hasSpectrumMetrics && Math.abs((centerWavelengthValue ?? 0) - config.centerWavelengthSpecNm) <= config.centerWavelengthToleranceNm
   const fwhmPass = typeof liveSpectrometer?.fwhmNm === "number" && liveSpectrometer.fwhmNm <= config.fwhmMaximumNm
   const pibPass = pibPercent !== null && pibPercent >= config.pibMinimumPercent
 
@@ -2207,8 +2209,8 @@ function RealtimeMetricCards({
       />
       <AutomaticMetricCard
         className="automatic-metric-card--title-below"
-        title="Centroid"
-        value={formatFixedNumber(centroidValue, 3)}
+        title="Center Wavelength"
+        value={formatFixedNumber(centerWavelengthValue, 3)}
         unit="nm"
         valueTone={hasSpectrumMetrics ? (centerWavelengthPass ? "success" : "danger") : "muted"}
         onClick={onOpenSpecifications}
@@ -3872,7 +3874,7 @@ const AutomaticPage = memo(function AutomaticPage({
 
   return (
     <>
-      <div className="automatic-setup-panel relative z-20 shrink-0 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[minmax(110px,0.5fr)_minmax(160px,0.82fr)_minmax(160px,0.82fr)_minmax(190px,1fr)_minmax(280px,1.3fr)] items-end gap-3 rounded-lg border border-border/70 bg-card/40 p-3 shadow-none">
+      <div className="automatic-setup-panel relative z-20 shrink-0 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[minmax(110px,0.5fr)_minmax(160px,0.82fr)_minmax(160px,0.82fr)_minmax(120px,0.55fr)_minmax(190px,1fr)_minmax(280px,1.3fr)] items-end gap-3 rounded-lg border border-border/70 bg-card/40 p-3 shadow-none">
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">
             <Milestone className="mr-1 inline size-3.5" />测试工位
@@ -3914,6 +3916,19 @@ const AutomaticPage = memo(function AutomaticPage({
             id="automatic-station"
             onChange={(event) => update("station", event.target.value)}
             value={config.station}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground" htmlFor="automatic-test-temperature">
+            <Thermometer className="mr-1 inline size-3.5" />测试温度
+          </Label>
+          <Input
+            className="h-9 text-[18px] md:text-[18px] leading-none rounded-lg"
+            disabled={controlsLocked}
+            id="automatic-test-temperature"
+            onChange={(event) => update("testTemperatureC", event.target.value)}
+            placeholder="例如：水冷25°C"
+            value={config.testTemperatureC}
           />
         </div>
         <div className="automatic-setup-field--large-type space-y-1 min-w-0">

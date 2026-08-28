@@ -177,13 +177,26 @@ class ExcelExportTests(unittest.TestCase):
     def test_batch_save_writes_test_station_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "station.xlsx"
+            session = SimpleNamespace(settings={"testTemperatureC": "水冷25°C"})
 
-            save_test_records(path, [self._record(2.0, "老化站 1"), self._record(4.0, "老化站 1")])
+            save_test_records(
+                path,
+                [self._record(2.0, "老化站 1"), self._record(4.0, "老化站 1")],
+                session=session,
+            )
 
             workbook = load_workbook(path, data_only=False)
             sheet = workbook[workbook.sheetnames[0]]
             self.assertEqual(sheet["B1"].value, "测试站别")
             self.assertEqual(sheet["C1"].value, "老化站 1")
+            self.assertEqual(sheet["D1"].value, "测试温度")
+            self.assertEqual(sheet["E1"].value, "水冷25°C")
+            session_values = {
+                str(row[0].value): row[1].value
+                for row in workbook["会话信息"].iter_rows(min_col=1, max_col=2)
+            }
+            self.assertEqual(session_values["测试温度"], "水冷25°C")
+            self.assertNotIn("testTemperatureC", session_values)
             workbook.close()
 
     def test_batch_save_writes_hidden_measurement_attempts_sheet(self) -> None:

@@ -54,7 +54,12 @@ class PowerMeter(Protocol):
 
     def reset_stability_window(self) -> int: ...
 
-    def update_stability_settings(self, window_s: float, limit_percent: float) -> None: ...
+    def update_stability_settings(
+        self,
+        window_s: float,
+        limit_percent: float,
+        absolute_span_limit_w: float | None = None,
+    ) -> None: ...
 
     def stop(self) -> None: ...
 

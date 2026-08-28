@@ -441,6 +441,7 @@ class PowerMeterReaderThread(WorkerThread):
         self._stability_generation = 0
         self._stable_window_s = float(settings.stable_window_s)
         self._stability_limit_percent = float(settings.stability_limit_percent)
+        self._absolute_span_limit_w: float | None = None
         self.is_ready = False
 
     def stop(self) -> None:
@@ -454,15 +455,28 @@ class PowerMeterReaderThread(WorkerThread):
             self._stability_reset_requested.set()
         return generation
 
-    def update_stability_settings(self, window_s: float, limit_percent: float) -> None:
+    def update_stability_settings(
+        self,
+        window_s: float,
+        limit_percent: float,
+        absolute_span_limit_w: float | None = None,
+    ) -> None:
         """Apply stability settings to the active acquisition loop."""
         if window_s <= 0:
             raise ValueError("稳定窗口必须大于 0 秒")
         if limit_percent < 0:
             raise ValueError("稳定度限值必须大于或等于 0%")
+        if absolute_span_limit_w is not None and (
+            not math.isfinite(float(absolute_span_limit_w))
+            or float(absolute_span_limit_w) < 0.0
+        ):
+            raise ValueError("功率峰峰值限值必须大于或等于 0 W")
         with self._stability_state_lock:
             self._stable_window_s = float(window_s)
             self._stability_limit_percent = float(limit_percent)
+            self._absolute_span_limit_w = (
+                None if absolute_span_limit_w is None else float(absolute_span_limit_w)
+            )
 
     def run(self) -> None:
         meter = None
@@ -523,7 +537,12 @@ class PowerMeterReaderThread(WorkerThread):
             with self._stability_state_lock:
                 stable_window_s = self._stable_window_s
                 stability_limit_percent = self._stability_limit_percent
-            detector = PowerStabilityDetector(stable_window_s, stability_limit_percent)
+                absolute_span_limit_w = self._absolute_span_limit_w
+            detector = PowerStabilityDetector(
+                stable_window_s,
+                stability_limit_percent,
+                absolute_span_limit_w,
+            )
             start = time.monotonic()
             poll_interval_s = self.settings.interval_ms / 1000.0
             next_poll_at = start
@@ -535,11 +554,17 @@ class PowerMeterReaderThread(WorkerThread):
                     generation = self._stability_generation
                     stable_window_s = self._stable_window_s
                     stability_limit_percent = self._stability_limit_percent
+                    absolute_span_limit_w = self._absolute_span_limit_w
                 if reset_requested:
-                    detector = PowerStabilityDetector(stable_window_s, stability_limit_percent)
+                    detector = PowerStabilityDetector(
+                        stable_window_s,
+                        stability_limit_percent,
+                        absolute_span_limit_w,
+                    )
                 else:
                     detector.window_s = stable_window_s
                     detector.stability_limit_percent = stability_limit_percent
+                    detector.absolute_span_limit_w = absolute_span_limit_w
                 elapsed = time.monotonic() - start
                 power_w = meter.read_power_w() * self.settings.software_gain
                 if self._stop_requested.is_set():

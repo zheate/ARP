@@ -13,6 +13,24 @@ from combined_test.core import (
 
 
 class PowerStabilityDetectorTests(unittest.TestCase):
+    def test_absolute_span_mode_accepts_two_tenths_watt_peak_to_peak(self) -> None:
+        detector = PowerStabilityDetector(
+            window_s=5.0,
+            stability_limit_percent=0.2,
+            absolute_span_limit_w=0.2,
+        )
+
+        for elapsed_s, power_w in enumerate((1.0, 1.2, 1.0, 1.2, 1.0, 1.2)):
+            result = detector.add_sample(float(elapsed_s), power_w)
+
+        self.assertTrue(result.stable)
+        self.assertAlmostEqual(result.span_w, 0.2)
+
+        result = detector.add_sample(6.0, 1.21)
+
+        self.assertFalse(result.stable)
+        self.assertGreater(result.span_w, 0.2)
+
     def test_requires_enough_time_before_reporting_stable(self) -> None:
         detector = PowerStabilityDetector(window_s=3.0, stability_limit_percent=0.2)
 

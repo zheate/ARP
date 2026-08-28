@@ -87,6 +87,7 @@ DEFAULT_CONFIGURATION: dict[str, Any] = {
     "productModel": "",
     "batch": "",
     "station": "工位 1",
+    "testTemperatureC": "",
     "outputDir": "test_records",
     "powerSupplyKind": "ch341",
     "ch341SelectedLocationPath": "",

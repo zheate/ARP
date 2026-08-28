@@ -95,9 +95,23 @@ class HeadlessBackendTests(unittest.TestCase):
         self.assertIn("powerSupply", snapshot["devices"])
         self.assertIn("automaticTest", snapshot)
         self.assertIn("configuration", snapshot)
+        self.assertEqual(snapshot["configuration"]["testTemperatureC"], "")
         self.assertNotIn("points", snapshot["pd"])
         aging_script = next(item for item in snapshot["testScripts"] if item["id"] == "aging")
         self.assertEqual(aging_script["powerSupplyKinds"], ["ch341"])
+
+    def test_test_temperature_is_saved_per_station(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            backend = self.backend(directory)
+            backend.dispatch(
+                "app.configure",
+                {"stationId": "2", "testTemperatureC": "水冷25°C"},
+            )
+
+            restored = self.backend(directory)
+
+        self.assertEqual(restored.stations["1"].configuration["testTemperatureC"], "")
+        self.assertEqual(restored.stations["2"].configuration["testTemperatureC"], "水冷25°C")
 
     def test_aging_script_is_fixed_to_ch341_two_amp_ramp_and_two_hour_hold(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -249,7 +263,7 @@ class HeadlessBackendTests(unittest.TestCase):
                     }
                 )
 
-            start_power_meter.assert_called_once_with()
+            start_power_meter.assert_called_once_with(stable_window_s=3.0)
             start_spectrometer.assert_not_called()
             thread_class.return_value.start.assert_called_once_with()
 
@@ -268,6 +282,17 @@ class HeadlessBackendTests(unittest.TestCase):
             self.assertEqual(station.stable_power_points, {})
             self.assertEqual(station.efficiency_points, {})
             self.assertEqual(station.series_revisions["stable"], 8)
+
+    def test_power_meter_start_accepts_automatic_stability_window(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            station = self.backend(directory).stations["1"]
+            station.configuration["powerMeterResource"] = "ASRL3::INSTR"
+
+            with patch("tauri_bridge.station_runtime.PowerMeterReaderThread") as reader_class:
+                station.start_power_meter(stable_window_s=5.0)
+
+            settings = reader_class.call_args.args[0]
+            self.assertEqual(settings.stable_window_s, 5.0)
 
     def test_runtime_modules_do_not_attempt_to_import_pyside(self) -> None:
         script = r'''

@@ -102,6 +102,7 @@ export interface AppConfiguration {
   productModel: string
   batch: string
   station: string
+  testTemperatureC: string
   outputDir: string
   powerSupplyKind: "ch341" | "tdk"
   ch341SelectedLocationPath: string

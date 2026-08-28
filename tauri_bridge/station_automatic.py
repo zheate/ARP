@@ -51,6 +51,46 @@ from .station_support import (
 
 _LOGGER = get_runtime_logger("station_automatic")
 
+STANDARD_WAVELENGTH_STABILITY_TOLERANCE_NM = 0.2
+STANDARD_TEST_STABILITY_WINDOW_S = 5.0
+RELAXED_STABILITY_CURRENT_A = 2.0
+RELAXED_WAVELENGTH_STABILITY_TOLERANCE_NM = 0.5
+RELAXED_POWER_STABILITY_SPAN_W = 0.2
+
+
+def automatic_wavelength_stability_tolerance_nm(current_a: float | None) -> float:
+    """Use a wider centroid window only for the 2 A automatic point."""
+    if current_a is not None and math.isclose(
+        float(current_a),
+        RELAXED_STABILITY_CURRENT_A,
+        rel_tol=0.0,
+        abs_tol=1e-9,
+    ):
+        return RELAXED_WAVELENGTH_STABILITY_TOLERANCE_NM
+    return STANDARD_WAVELENGTH_STABILITY_TOLERANCE_NM
+
+
+def automatic_power_stability_span_limit_w(current_a: float | None) -> float | None:
+    """Allow up to 0.2 W peak-to-peak power movement at the 2 A point."""
+    if current_a is not None and math.isclose(
+        float(current_a),
+        RELAXED_STABILITY_CURRENT_A,
+        rel_tol=0.0,
+        abs_tol=1e-9,
+    ):
+        return RELAXED_POWER_STABILITY_SPAN_W
+    return None
+
+
+def automatic_stability_window_s(
+    selected_script_id: Any,
+    configured_window_s: Any,
+) -> float:
+    """Use a five-second power and wavelength window for the standard test."""
+    if str(selected_script_id).strip() == "standard":
+        return STANDARD_TEST_STABILITY_WINDOW_S
+    return float(configured_window_s)
+
 
 class StationAutomaticMixin:
     def _begin_recording_session(self, settings: AutomaticTestSettings) -> Path:
@@ -523,7 +563,10 @@ class StationAutomaticMixin:
         )
         return validate_automatic_test_settings(
             settings,
-            stable_window_s=float(self.configuration["stableWindowS"]),
+            stable_window_s=automatic_stability_window_s(
+                self.configuration.get("selectedScriptId", "standard"),
+                self.configuration["stableWindowS"],
+            ),
             post_stable_delay_s=FINAL_AUTO_POST_STABLE_DELAY_S,
         )
 
@@ -603,8 +646,11 @@ class StationAutomaticMixin:
         self._automatic_resume.set()
         self.power_drop_protection.reset()
         self.wavelength_stability_detector = WavelengthStabilityDetector(
-            float(self.configuration["stableWindowS"]),
-            0.2,
+            automatic_stability_window_s(
+                self.configuration.get("selectedScriptId", "standard"),
+                self.configuration["stableWindowS"],
+            ),
+            STANDARD_WAVELENGTH_STABILITY_TOLERANCE_NM,
         )
         self.latest_wavelength_stable = False
         self.latest_wavelength_span_nm = math.inf
@@ -633,11 +679,15 @@ class StationAutomaticMixin:
             not aging_test and settings.use_spectrometer and self.spectrometer_reader is None
         )
         try:
+            stable_window_s = automatic_stability_window_s(
+                self.configuration.get("selectedScriptId", "standard"),
+                self.configuration["stableWindowS"],
+            )
             if self.power_meter_reader is None:
-                self.start_power_meter()
+                self.start_power_meter(stable_window_s=stable_window_s)
             else:
                 self.power_meter_reader.update_stability_settings(
-                    float(self.configuration["stableWindowS"]),
+                    stable_window_s,
                     float(self.configuration["stabilityLimitPercent"]),
                 )
             if not aging_test and settings.use_spectrometer:
@@ -666,11 +716,22 @@ class StationAutomaticMixin:
         )
         self._automatic_thread.start()
 
-    def _begin_automatic_measurement_window(self) -> tuple[int, int]:
+    def _begin_automatic_measurement_window(
+        self,
+        current_a: float | None = None,
+    ) -> tuple[int, int]:
         """Return boundaries that exclude samples from the previous setpoint."""
         reader = self.power_meter_reader
         if reader is None:
             raise RuntimeError("功率计采集线程未运行")
+        reader.update_stability_settings(
+            automatic_stability_window_s(
+                self.configuration.get("selectedScriptId", "standard"),
+                self.configuration["stableWindowS"],
+            ),
+            float(self.configuration["stabilityLimitPercent"]),
+            automatic_power_stability_span_limit_w(current_a),
+        )
         stability_generation = reader.reset_stability_window()
         with self._lock:
             spectrum_revision = self.spectrum_revision
@@ -730,12 +791,15 @@ class StationAutomaticMixin:
     ) -> tuple[PowerMeterReading, Any, int, int]:
         """Wait for a fresh joint-stability latch for the active setpoint."""
         self.wavelength_stability_detector = WavelengthStabilityDetector(
-            float(self.configuration["stableWindowS"]),
-            0.2,
+            automatic_stability_window_s(
+                self.configuration.get("selectedScriptId", "standard"),
+                self.configuration["stableWindowS"],
+            ),
+            automatic_wavelength_stability_tolerance_nm(current_a),
         )
         self.latest_wavelength_stable = False
         self.latest_wavelength_span_nm = math.inf
-        stability_generation, spectrum_revision = self._begin_automatic_measurement_window()
+        stability_generation, spectrum_revision = self._begin_automatic_measurement_window(current_a)
         self.automatic.set_state(AutomaticTestState.WAITING_STABLE)
         self.automatic_detail = (
             f"{retry_reason}，正在重新判稳" if retry_reason else f"正在等待 {current_a:g} A 稳定"
@@ -1335,7 +1399,12 @@ class StationAutomaticMixin:
         }
         settings = self.automatic.settings
         if action_name == "recover_power_meter" and self.power_meter_reader is None:
-            self.start_power_meter()
+            self.start_power_meter(
+                stable_window_s=automatic_stability_window_s(
+                    self.configuration.get("selectedScriptId", "standard"),
+                    self.configuration["stableWindowS"],
+                )
+            )
         if action_name == "recover_spectrometer" and self.spectrometer_reader is None:
             self.start_spectrometer()
         if settings is not None and settings.use_spectrometer and action_name in {

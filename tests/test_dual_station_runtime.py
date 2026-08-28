@@ -11,12 +11,18 @@ from unittest.mock import MagicMock, patch
 
 from combined_test.automation import AutomaticTestSettings, AutomaticTestState
 from combined_test.concurrency import Signal
+from combined_test.core import WavelengthStabilityDetector
 from combined_test.excel_export import ExcelTestRecord
 from combined_test.ch341_ports import Ch341DeviceDescriptor
 from combined_test.models import PowerMeterOption, PowerMeterReading, SpectrometerReading
 from combined_test.record_store import AttemptValidity
 from tauri_bridge.headless_backend import HeadlessBackend
 from tauri_bridge.export_queue import ExportQueueWorker, ExportTask
+from tauri_bridge.station_automatic import (
+    automatic_power_stability_span_limit_w,
+    automatic_stability_window_s,
+    automatic_wavelength_stability_tolerance_nm,
+)
 from tauri_bridge.station_support import AutomaticPointRetry
 from tauri_bridge.settings import JsonSettings
 
@@ -91,6 +97,78 @@ class DualStationRuntimeTests(unittest.TestCase):
         station.spectrometer_reader = SimpleNamespace(is_ready=True)
         self.assertTrue(station._automatic_settings().use_spectrometer)
 
+    def test_low_current_automatic_points_use_relaxed_wavelength_stability(self) -> None:
+        low_current_detector = WavelengthStabilityDetector(
+            3.0,
+            automatic_wavelength_stability_tolerance_nm(2.0),
+        )
+        normal_current_detector = WavelengthStabilityDetector(
+            3.0,
+            automatic_wavelength_stability_tolerance_nm(2.01),
+        )
+        samples = (976.0, 976.15, 976.3, 976.45, 976.3, 976.15, 976.0)
+
+        for elapsed_s, wavelength_nm in zip(
+            (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0),
+            samples,
+        ):
+            low_result = low_current_detector.add_sample(elapsed_s, wavelength_nm)
+            normal_result = normal_current_detector.add_sample(elapsed_s, wavelength_nm)
+
+        self.assertTrue(low_result.stable)
+        self.assertFalse(normal_result.stable)
+        self.assertEqual(low_current_detector.tolerance, 0.5)
+        self.assertEqual(normal_current_detector.tolerance, 0.2)
+        self.assertEqual(automatic_wavelength_stability_tolerance_nm(1.0), 0.2)
+
+    def test_standard_test_requires_five_seconds_of_power_and_wavelength_stability(self) -> None:
+        window_s = automatic_stability_window_s("standard", 3.0)
+        detector = WavelengthStabilityDetector(window_s, 0.2)
+
+        for elapsed_s in range(5):
+            result = detector.add_sample(float(elapsed_s), 976.0)
+
+        self.assertEqual(window_s, 5.0)
+        self.assertFalse(result.stable)
+        self.assertTrue(detector.add_sample(5.0, 976.0).stable)
+        self.assertEqual(
+            automatic_stability_window_s("hold-points", 3.0),
+            3.0,
+        )
+        self.assertEqual(automatic_power_stability_span_limit_w(2.0), 0.2)
+        self.assertIsNone(automatic_power_stability_span_limit_w(2.01))
+
+    def test_two_amp_monotonic_wavelength_drift_is_not_stable(self) -> None:
+        detector = WavelengthStabilityDetector(
+            3.0,
+            automatic_wavelength_stability_tolerance_nm(2.0),
+        )
+
+        for elapsed_s, wavelength_nm in zip(
+            (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0),
+            (976.0, 976.075, 976.15, 976.225, 976.3, 976.375, 976.45),
+        ):
+            result = detector.add_sample(elapsed_s, wavelength_nm)
+
+        self.assertFalse(result.stable)
+        self.assertLessEqual(result.span_w, 0.5)
+
+    def test_other_currents_also_reject_monotonic_wavelength_drift(self) -> None:
+        detector = WavelengthStabilityDetector(
+            3.0,
+            automatic_wavelength_stability_tolerance_nm(6.0),
+        )
+
+        for elapsed_s, wavelength_nm in zip(
+            (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0),
+            (976.0, 976.03, 976.06, 976.09, 976.12, 976.15, 976.18),
+        ):
+            result = detector.add_sample(elapsed_s, wavelength_nm)
+
+        self.assertFalse(result.stable)
+        self.assertLessEqual(result.span_w, 0.2)
+        self.assertEqual(detector.tolerance, 0.2)
+
     def test_automatic_readiness_matches_start_requirements(self) -> None:
         station = self.backend.stations["1"]
         station.power_supply_controller = _FakeController()
@@ -133,6 +211,10 @@ class DualStationRuntimeTests(unittest.TestCase):
             )
 
         self.assertFalse(station.automatic.settings.use_spectrometer)
+        self.assertEqual(
+            station.power_meter_reader.update_stability_settings.call_args.args,
+            (5.0, 0.2),
+        )
         start_power_meter.assert_not_called()
         start_spectrometer.assert_not_called()
         thread_class.return_value.start.assert_called_once_with()
@@ -855,8 +937,9 @@ class DualStationRuntimeTests(unittest.TestCase):
         )
         station.spectrum_revision = 12
 
-        generation, spectrum_revision = station._begin_automatic_measurement_window()
+        generation, spectrum_revision = station._begin_automatic_measurement_window(2.0)
 
+        reader.update_stability_settings.assert_called_once_with(5.0, 0.2, 0.2)
         reader.reset_stability_window.assert_called_once_with()
         self.assertEqual((generation, spectrum_revision), (7, 12))
         self.assertIsNone(
