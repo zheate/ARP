@@ -1583,6 +1583,90 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertEqual(snapshot["automaticTest"]["savedPointCount"], 0)
         self.assertEqual(snapshot["measurements"]["stable"], [])
 
+    def test_completed_test_can_restart_without_using_next_device(self) -> None:
+        station = self.backend.stations["1"]
+        previous_store = station.record_store
+        station.configuration.update(
+            {
+                "sn": "SN-RETEST",
+                "powerMeterResource": "ASRL3::INSTR",
+            }
+        )
+        station.power_supply_controller = _FakeController()
+        station.power_meter_reader = MagicMock(is_ready=True)
+        station.automatic.state = AutomaticTestState.COMPLETED
+        station.shutdown_confirmed = False
+
+        self.assertTrue(station.automatic_readiness()["ready"])
+
+        with patch("tauri_bridge.station_automatic.threading.Thread") as thread_class:
+            station.start_automatic({})
+
+        self.assertEqual(station.configuration["sn"], "SN-RETEST")
+        self.assertIsNot(station.record_store, previous_store)
+        self.assertEqual(station.automatic.state, AutomaticTestState.STARTING)
+        thread_class.return_value.start.assert_called_once_with()
+
+    def test_manual_output_off_unlocks_completed_test(self) -> None:
+        station = self.backend.stations["1"]
+        controller = _FakeController()
+        controller.current_a = 0.0
+        station.power_supply_kind = "tdk"
+        station.power_supply_controller = controller
+        station.automatic.state = AutomaticTestState.COMPLETED
+        station.shutdown_confirmed = False
+
+        snapshot = self.backend.dispatch(
+            "powerSupply.setOutput",
+            {"stationId": "1", "enabled": False},
+        )
+
+        self.assertTrue(snapshot["safety"]["shutdown"]["confirmed"])
+        self.assertTrue(snapshot["automaticTest"]["canNextDevice"])
+        self.assertNotIn(
+            "automatic_not_idle",
+            {item["code"] for item in snapshot["automaticTest"]["readiness"]["blockers"]},
+        )
+
+    def test_manual_output_on_relocks_completed_test(self) -> None:
+        station = self.backend.stations["1"]
+        controller = _FakeController()
+        controller.output_enabled = False
+        station.power_supply_kind = "tdk"
+        station.power_supply_controller = controller
+        station.automatic.state = AutomaticTestState.COMPLETED
+        station.shutdown_confirmed = True
+
+        snapshot = self.backend.dispatch(
+            "powerSupply.setOutput",
+            {"stationId": "1", "enabled": True},
+        )
+
+        self.assertFalse(snapshot["safety"]["shutdown"]["confirmed"])
+        self.assertFalse(snapshot["automaticTest"]["canNextDevice"])
+
+    def test_safe_disconnect_unlocks_completed_test(self) -> None:
+        station = self.backend.stations["1"]
+        controller = _FakeController()
+        controller.output_enabled = False
+        controller.current_a = 0.0
+        station.power_supply_kind = "tdk"
+        station.power_supply_controller = controller
+        station.automatic.state = AutomaticTestState.COMPLETED
+        station.shutdown_confirmed = False
+
+        snapshot = self.backend.dispatch(
+            "powerSupply.disconnect",
+            {"stationId": "1"},
+        )
+
+        self.assertTrue(snapshot["safety"]["shutdown"]["confirmed"])
+        blocker_codes = {
+            item["code"] for item in snapshot["automaticTest"]["readiness"]["blockers"]
+        }
+        self.assertNotIn("automatic_not_idle", blocker_codes)
+        self.assertIn("power_supply_not_connected", blocker_codes)
+
     def test_automatic_export_is_queued_without_waiting_for_excel(self) -> None:
         station = self.backend.stations["1"]
         station.record_store.begin_session(

@@ -456,7 +456,7 @@ body {
 
 .automatic-setup-field--large-type [role="combobox"] {
   font-size: 18px;
-  line-height: 1;
+  line-height: 1.25;
 }
 
 .automatic-workstation-card {
@@ -587,13 +587,35 @@ body {
 }
 
 .automatic-metric-card__title {
+  display: flex;
   overflow: hidden;
   flex: 0 1 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
   color: var(--muted-foreground);
   font-size: 0.8125rem;
   line-height: 1.125rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.automatic-metric-card__recording-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #ef4444;
+}
+
+.automatic-metric-card__recording-dot.is-on {
+  opacity: 1;
+  box-shadow: 0 0 0.35rem rgb(239 68 68 / 0.72);
+}
+
+.automatic-metric-card__recording-dot.is-off {
+  opacity: 0;
+  box-shadow: none;
 }
 
 .automatic-metric-card__value {

@@ -560,9 +560,17 @@ class StationRuntime(StationAutomaticMixin):
                 self.power_supply_identity_error = ""
                 self._last_power_supply_command_at = None
                 self._manual_voltage_timer_generation += 1
+                if self.automatic.state == AutomaticTestState.COMPLETED:
+                    self._record_shutdown_result(
+                        confirmed=True,
+                        measured_current_a=None,
+                        output_off_confirmed=True,
+                        reason="电源控制器已安全断开",
+                    )
                 self.notify("info", "电源断开", "身份异常的 CH341 控制器已断开")
                 return
             supply = self._require_power_supply()
+            measured_current_a: float | None = None
             with self._supply_io_lock:
                 if self.power_supply_kind == "tdk":
                     # The cached output flag starts false after connecting and
@@ -593,6 +601,13 @@ class StationRuntime(StationAutomaticMixin):
             self._manual_voltage_timer_generation += 1
             self.pending_manual_stable_current_a = None
             self.pending_manual_stability_generation = None
+            if self.automatic.state == AutomaticTestState.COMPLETED:
+                self._record_shutdown_result(
+                    confirmed=True,
+                    measured_current_a=measured_current_a,
+                    output_off_confirmed=True,
+                    reason="电源控制器已安全断开",
+                )
             self.notify("info", "电源断开", "电源控制器已安全断开")
 
     def set_current(self, params: dict[str, Any], *, wait_for_slot: bool = False) -> None:
@@ -634,6 +649,7 @@ class StationRuntime(StationAutomaticMixin):
         with self._lock:
             enabled = bool(params.get("enabled", False))
             supply = self._require_power_supply()
+            measured_current_a: float | None = None
             with self._supply_io_lock:
                 if enabled and self.power_supply_kind == "tdk":
                     supply.set_current(0.0)
@@ -656,6 +672,16 @@ class StationRuntime(StationAutomaticMixin):
                     self.active_current_a = 0.0
                     self.configuration["setCurrentA"] = 0.0
                     self._manual_voltage_timer_generation += 1
+            if self.automatic.state == AutomaticTestState.COMPLETED:
+                if enabled:
+                    self._clear_shutdown_result()
+                else:
+                    self._record_shutdown_result(
+                        confirmed=True,
+                        measured_current_a=measured_current_a,
+                        output_off_confirmed=True,
+                        reason="电源输出已手动关闭",
+                    )
 
     def read_power_supply(self, params: dict[str, Any]) -> None:
         with self._lock:

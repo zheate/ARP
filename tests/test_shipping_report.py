@@ -17,6 +17,7 @@ from combined_test.shipping_report import (
     SPECTRUM_FIELD_DEFINITIONS,
     REPORT_WORKBOOK_SCHEMA_VERSION,
     SelectedReportField,
+    ShippingReportLanguage,
     ShippingReportRequest,
     ShippingReportType,
     SpectrumAxisMode,
@@ -38,6 +39,7 @@ from combined_test.shipping_report import (
     suggested_field_values,
     validate_shipping_report_request,
 )
+from combined_test.shipping_report_headless import _spectrum_legend_column_count
 from tauri_bridge.settings import JsonSettings
 
 
@@ -100,6 +102,7 @@ class ShippingReportTests(unittest.TestCase):
     def _request_payload(request: ShippingReportRequest) -> dict[str, object]:
         return {
             "reportType": request.report_type.value,
+            "reportLanguage": request.report_language.value,
             "productName": request.product_name,
             "sn": "SHOULD-BE-IGNORED",
             "operatingCurrentA": request.operating_current_a,
@@ -455,6 +458,11 @@ class ShippingReportTests(unittest.TestCase):
         self.assertEqual(_format_scientific_axis_tick(4_530.8), "4.53e3")
         self.assertEqual(_format_scientific_axis_tick(18_123.2), "1.81e4")
 
+    def test_spectrum_legend_uses_two_columns_only_when_single_column_would_overflow(self) -> None:
+        self.assertEqual(_spectrum_legend_column_count(10), 1)
+        self.assertEqual(_spectrum_legend_column_count(11), 2)
+        self.assertEqual(_spectrum_legend_column_count(14), 2)
+
     def test_pole_report_labels_use_the_requested_english_names(self) -> None:
         definitions = {definition.key: definition for definition in POLE_FIELD_DEFINITIONS}
         spectrum_definitions = {definition.key: definition for definition in SPECTRUM_FIELD_DEFINITIONS}
@@ -463,6 +471,41 @@ class ShippingReportTests(unittest.TestCase):
         self.assertEqual(definitions["coolingTemperature"].label, "Cooling Temperature")
         self.assertEqual(spectrum_definitions["coolingTemperature"].label, "Cooling Temperature")
         self.assertEqual(_format_performance_parameters_title(7.0), "Performance @7A")
+
+    def test_chinese_report_localizes_builtin_labels_and_heading(self) -> None:
+        definitions = {
+            definition.key: definition
+            for definition in _report_definitions(
+                ShippingReportType.SPECTRUM,
+                encircled_energy_na="0.22",
+                report_language=ShippingReportLanguage.CHINESE,
+            )
+        }
+
+        self.assertEqual(definitions["power"].label, "输出功率（CW）")
+        self.assertEqual(definitions["electroOpticalEfficiency"].label, "电光效率")
+        self.assertEqual(definitions["na017Energy"].label, "NA 0.22 能量")
+        self.assertEqual(
+            _format_performance_parameters_title(7.0, ShippingReportLanguage.CHINESE),
+            "性能参数 @7A",
+        )
+
+    def test_report_language_defaults_to_english_and_accepts_chinese(self) -> None:
+        english_payload = self._request_payload(self._request(ShippingReportType.POLE))
+        english_payload.pop("reportLanguage")
+        self.assertEqual(
+            ShippingReportRequest.from_mapping(english_payload).report_language,
+            ShippingReportLanguage.ENGLISH,
+        )
+
+        chinese = replace(
+            self._request(ShippingReportType.POLE),
+            report_language=ShippingReportLanguage.CHINESE,
+        )
+        self.assertEqual(
+            ShippingReportRequest.from_mapping(self._request_payload(chinese)).report_language,
+            ShippingReportLanguage.CHINESE,
+        )
 
     def test_spectrum_summary_columns_are_balanced_with_extra_row_on_left(self) -> None:
         fields = [
@@ -638,7 +681,10 @@ class ShippingReportTests(unittest.TestCase):
     def test_preferences_remember_selection_and_only_manual_values(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             settings = JsonSettings(Path(temp_dir) / "report.json")
-            request = self._request(ShippingReportType.SPECTRUM)
+            request = replace(
+                self._request(ShippingReportType.SPECTRUM),
+                report_language=ShippingReportLanguage.CHINESE,
+            )
 
             save_shipping_report_preferences(settings, request)
             restored = load_shipping_report_preferences(settings)["spectrum"]
@@ -646,6 +692,7 @@ class ShippingReportTests(unittest.TestCase):
             self.assertIn("power", restored["selectedFields"])
             self.assertEqual(restored["manualValues"]["coolingTemperature"], "25")
             self.assertNotIn("power", restored["manualValues"])
+            self.assertEqual(restored["reportLanguage"], "zh")
             self.assertEqual(restored["spectrumAxis"]["minimum"], -80.0)
             self.assertEqual(restored["spectrumAxis"]["wavelengthMinimum"], 974.0)
             self.assertEqual(restored["spectrumAxis"]["wavelengthMaximum"], 978.0)

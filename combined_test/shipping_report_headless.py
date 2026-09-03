@@ -22,6 +22,7 @@ from PIL import Image
 
 from .shipping_report import (
     SelectedReportField,
+    ShippingReportLanguage,
     ShippingReportType,
     SpectrumAxisMode,
     _axis_tick_values,
@@ -49,6 +50,13 @@ TITLE_DIVIDER_Y_MM = 55.0
 POLE_SUMMARY_TOP_MM = 62.0
 POLE_TABLE_VALUE_FONT_SIZE = 10.7
 DETAIL_TABLE_VALUE_FONT_SIZE = POLE_TABLE_VALUE_FONT_SIZE
+SPECTRUM_LEGEND_SINGLE_COLUMN_LIMIT = 10
+
+
+def _spectrum_legend_column_count(series_count: int) -> int:
+    """Keep short legends compact and split overflowing spectrum legends."""
+
+    return 2 if series_count > SPECTRUM_LEGEND_SINGLE_COLUMN_LIMIT else 1
 
 
 def _register_font(path: Path) -> None:
@@ -300,6 +308,13 @@ class _HeadlessShippingReportRenderer:
         self.request = request
         self.figures: list[Figure] = []
 
+    @property
+    def _chinese(self) -> bool:
+        return self.request.report_language is ShippingReportLanguage.CHINESE
+
+    def _localized(self, english: str, chinese: str) -> str:
+        return chinese if self._chinese else english
+
     def build(self) -> list[Figure]:
         if self.request.report_type is ShippingReportType.SPECTRUM:
             self._render_spectrum_report()
@@ -331,10 +346,19 @@ class _HeadlessShippingReportRenderer:
         company_x = 137.0
         company_width = CONTENT_RIGHT_MM - company_x
         company_lines = (
-            ("Suzhou Everbright Photonics Co., Ltd.", True),
-            ("No. 56 Lijiang Road, Suzhou New District", False),
-            ("Tel: +86-512-69372570", False),
-            ("Fax: +86-512-69372559", False),
+            (
+                ("苏州长光华芯光电技术股份有限公司", True),
+                ("江苏省苏州市高新区漓江路 56 号", False),
+                ("电话：+86-512-69372570", False),
+                ("传真：+86-512-69372559", False),
+            )
+            if self._chinese
+            else (
+                ("Suzhou Everbright Photonics Co., Ltd.", True),
+                ("No. 56 Lijiang Road, Suzhou New District", False),
+                ("Tel: +86-512-69372570", False),
+                ("Fax: +86-512-69372559", False),
+            )
         )
         company_row_height = 3.3
         for index, (line, bold) in enumerate(company_lines):
@@ -348,23 +372,27 @@ class _HeadlessShippingReportRenderer:
                 size=7.2,
                 bold=bold,
                 chart=True,
+                chinese=self._chinese,
                 horizontal="right",
             )
 
     def _draw_title(self, figure: Figure, continuation_title: str) -> None:
         title = self.request.product_name if not continuation_title else f"{self.request.product_name} - {continuation_title}"
-        _draw_text(figure, CONTENT_LEFT_MM, TITLE_TOP_MM, CONTENT_RIGHT_MM - CONTENT_LEFT_MM, 10.0, title, size=16.0, bold=True, color="#090909", horizontal="center")
-        _draw_text(figure, CONTENT_LEFT_MM, SERIAL_NUMBER_TOP_MM, CONTENT_RIGHT_MM - CONTENT_LEFT_MM, 8.0, f"TEST SN: {self.request.sn}", size=16.0, bold=True, color="#090909", horizontal="center")
+        _draw_text(figure, CONTENT_LEFT_MM, TITLE_TOP_MM, CONTENT_RIGHT_MM - CONTENT_LEFT_MM, 10.0, title, size=16.0, bold=True, color="#090909", chinese=self._chinese, horizontal="center")
+        serial_number = self._localized(f"TEST SN: {self.request.sn}", f"测试 SN：{self.request.sn}")
+        _draw_text(figure, CONTENT_LEFT_MM, SERIAL_NUMBER_TOP_MM, CONTENT_RIGHT_MM - CONTENT_LEFT_MM, 8.0, serial_number, size=16.0, bold=True, color="#090909", chinese=self._chinese, horizontal="center")
         _draw_line(figure, CONTENT_LEFT_MM, TITLE_DIVIDER_Y_MM, CONTENT_RIGHT_MM, TITLE_DIVIDER_Y_MM, color="#d7dade", width_mm=0.18)
 
     def _draw_footer(self, figure: Figure, page_number: int) -> None:
         _draw_line(figure, CONTENT_LEFT_MM, FOOTER_TOP_MM, CONTENT_RIGHT_MM, FOOTER_TOP_MM, color="#d1d1d1", width_mm=0.25)
-        notice = (
+        notice = self._localized(
             "Notice: Everbright Photonics continuously improves its products to provide customers with outstanding quality and reliability.\n"
             "Specifications and product descriptions may be changed at any time without notice. Warranty support is provided to ensure\n"
-            "customer satisfaction. For complete information, please contact our sales representative."
+            "customer satisfaction. For complete information, please contact our sales representative.",
+            "声明：长光华芯持续改进产品，为客户提供卓越的质量与可靠性。产品规格和说明可能随时变更，恕不另行通知。\n"
+            "我们提供质保支持以确保客户满意。如需完整信息，请联系销售代表。",
         )
-        _draw_text(figure, CONTENT_LEFT_MM, 269.0, 142.0, 20.0, notice, size=8.0, color="#1a1a1a", linespacing=1.0)
+        _draw_text(figure, CONTENT_LEFT_MM, 269.0, 142.0, 20.0, notice, size=8.0, color="#1a1a1a", chinese=self._chinese, linespacing=1.0)
         warning = _image_array("assets/report/laser_warning_reference.png")
         warning_height = 18.0
         warning_width = warning_height * warning.shape[1] / warning.shape[0]
@@ -376,6 +404,7 @@ class _HeadlessShippingReportRenderer:
             report_type,
             self.request.custom_fields,
             encircled_energy_na=self.request.encircled_energy_na,
+            report_language=self.request.report_language,
         )
 
     def _selected_fields(self, definitions: Iterable[Any]) -> list[tuple[Any, str]]:
@@ -400,7 +429,7 @@ class _HeadlessShippingReportRenderer:
         actual_accent_height = height if accent_height is None else min(accent_height, height)
         accent_top = top + (height - actual_accent_height) / 2.0
         _draw_rect(figure, CONTENT_LEFT_MM, accent_top, accent_width, actual_accent_height, facecolor="#0b4b82")
-        _draw_text(figure, 21.0, top, 100.0, height, title, size=font_size, color="#0b4b82", bold=True)
+        _draw_text(figure, 21.0, top, 100.0, height, title, size=font_size, color="#0b4b82", bold=True, chinese=self._chinese)
 
     def _render_pole_report(self) -> None:
         fields = self._selected_fields(self._definitions(ShippingReportType.POLE))
@@ -415,7 +444,7 @@ class _HeadlessShippingReportRenderer:
         self._draw_detail_table(figure, table_top, remaining[:room_rows])
         remaining = remaining[room_rows:]
         while remaining:
-            figure = self._new_page("Detailed Measurement Data (Continued)")
+            figure = self._new_page(self._localized("Detailed Measurement Data (Continued)", "详细测量数据（续）"))
             capacity = max(1, int((FOOTER_TOP_MM - 76.0) / 6.0) - 1)
             self._draw_detail_table(figure, 74.0, remaining[:capacity])
             remaining = remaining[capacity:]
@@ -430,18 +459,18 @@ class _HeadlessShippingReportRenderer:
         value_width = table_width * 0.30
         unit_width = table_width - parameter_width - value_width
         cell_padding = 3.5
-        self._draw_section_title(figure, top, _format_performance_parameters_title(self.request.operating_current_a), height=title_height, font_size=14.0, accent_width=0.75, accent_height=5.0)
+        self._draw_section_title(figure, top, _format_performance_parameters_title(self.request.operating_current_a, self.request.report_language), height=title_height, font_size=14.0, accent_width=0.75, accent_height=5.0)
         table_top = top + title_height + title_gap
         table_height = header_height + len(fields) * row_height
         _draw_rect(figure, table_x, table_top, table_width, header_height, facecolor="#f6f8fa")
         _draw_line(figure, table_x, table_top, table_x + table_width, table_top, color="#dfe4e8", width_mm=0.18)
         _draw_line(figure, table_x, table_top + header_height, table_x + table_width, table_top + header_height, color="#dfe4e8", width_mm=0.18)
-        _draw_text(figure, table_x + cell_padding, table_top, parameter_width - 2 * cell_padding, header_height, "Parameter", size=10.3, color="#0b4b82", bold=True)
-        _draw_text(figure, table_x + parameter_width + cell_padding, table_top, value_width - 2 * cell_padding, header_height, "Value", size=10.3, color="#0b4b82", bold=True, horizontal="right")
-        _draw_text(figure, table_x + parameter_width + value_width + cell_padding, table_top, unit_width - 2 * cell_padding, header_height, "Unit", size=10.3, color="#0b4b82", bold=True, horizontal="center")
+        _draw_text(figure, table_x + cell_padding, table_top, parameter_width - 2 * cell_padding, header_height, self._localized("Parameter", "参数"), size=10.3, color="#0b4b82", bold=True, chinese=self._chinese)
+        _draw_text(figure, table_x + parameter_width + cell_padding, table_top, value_width - 2 * cell_padding, header_height, self._localized("Value", "数值"), size=10.3, color="#0b4b82", bold=True, chinese=self._chinese, horizontal="right")
+        _draw_text(figure, table_x + parameter_width + value_width + cell_padding, table_top, unit_width - 2 * cell_padding, header_height, self._localized("Unit", "单位"), size=10.3, color="#0b4b82", bold=True, chinese=self._chinese, horizontal="center")
         for index, (definition, value) in enumerate(fields):
             y = table_top + header_height + index * row_height
-            _draw_text(figure, table_x + cell_padding, y, parameter_width - 2 * cell_padding, row_height, definition.label, size=POLE_TABLE_VALUE_FONT_SIZE, color="#252a2e")
+            _draw_text(figure, table_x + cell_padding, y, parameter_width - 2 * cell_padding, row_height, definition.label, size=POLE_TABLE_VALUE_FONT_SIZE, color="#252a2e", chinese=self._chinese)
             _draw_text(figure, table_x + parameter_width + cell_padding, y, value_width - 2 * cell_padding, row_height, _format_pole_summary_value(definition, value), size=POLE_TABLE_VALUE_FONT_SIZE, color="#252a2e", horizontal="right")
             _draw_text(figure, table_x + parameter_width + value_width + cell_padding, y, unit_width - 2 * cell_padding, row_height, definition.unit, size=10.5, color="#252a2e", horizontal="center")
             _draw_line(figure, table_x, y + row_height, table_x + table_width, y + row_height, color="#dfe4e8", width_mm=0.18)
@@ -451,7 +480,7 @@ class _HeadlessShippingReportRenderer:
         figure = self._new_page()
         fields = self._selected_fields(self._definitions(ShippingReportType.SPECTRUM))
         left, right = _balanced_report_columns(fields)
-        self._draw_section_title(figure, POLE_SUMMARY_TOP_MM, _format_performance_parameters_title(self.request.operating_current_a), height=8.0, font_size=14.0, accent_width=0.75, accent_height=5.0)
+        self._draw_section_title(figure, POLE_SUMMARY_TOP_MM, _format_performance_parameters_title(self.request.operating_current_a, self.request.report_language), height=8.0, font_size=14.0, accent_width=0.75, accent_height=5.0)
         summary_height = self._draw_spectrum_summary(figure, 72.0, left, right)
         chart_top = min(116.0, 75.0 + summary_height + 4.0)
         available = FOOTER_TOP_MM - chart_top - 7.0
@@ -461,7 +490,7 @@ class _HeadlessShippingReportRenderer:
         chart_height = max(45.0, (available - section_gap - section_title_height - chart_gap) / 2.0)
         self._draw_power_efficiency_chart(figure, 23.0, chart_top, 164.0, chart_height)
         spectrum_title_top = chart_top + chart_height + section_gap
-        self._draw_section_title(figure, spectrum_title_top, "Spectrum", height=section_title_height, font_size=14.0, accent_width=0.75, accent_height=5.0)
+        self._draw_section_title(figure, spectrum_title_top, self._localized("Spectrum", "光谱"), height=section_title_height, font_size=14.0, accent_width=0.75, accent_height=5.0)
         self._draw_spectrum_chart(figure, 23.0, spectrum_title_top + section_title_height + chart_gap, 164.0, chart_height)
 
     def _draw_spectrum_summary(
@@ -481,7 +510,7 @@ class _HeadlessShippingReportRenderer:
         for side_x, values in ((23.0, left), (107.0, right)):
             for index, (definition, value) in enumerate(values):
                 y = top + index * row_height
-                _draw_text(figure, side_x, y, 43.0, row_height, definition.label, size=8.5, bold=True)
+                _draw_text(figure, side_x, y, 43.0, row_height, definition.label, size=8.5, bold=True, chinese=self._chinese)
                 _draw_text(figure, side_x + 47.0, y, 20.0, row_height, value, size=8.6, bold=True, horizontal="right")
                 _draw_text(figure, side_x + 69.0, y, 13.0, row_height, definition.unit, size=8.2)
         return height
@@ -523,9 +552,9 @@ class _HeadlessShippingReportRenderer:
         axes.yaxis.set_minor_locator(FixedLocator(_axis_tick_values(power_min, power_max, power_step / 2.0)))
         efficiency_axes.yaxis.set_major_locator(FixedLocator(efficiency_ticks))
         efficiency_axes.yaxis.set_minor_locator(FixedLocator(_axis_tick_values(efficiency_min, efficiency_max, efficiency_step / 2.0)))
-        axes.set_xticklabels([_format_axis_tick(value, x_step) for value in x_ticks], fontproperties=_font(8.0, chart=True))
-        axes.set_yticklabels([_format_axis_tick(value, power_step) for value in power_ticks], fontproperties=_font(8.0, chart=True), color="#0072B2")
-        efficiency_axes.set_yticklabels([_format_axis_tick(value, efficiency_step) for value in efficiency_ticks], fontproperties=_font(8.0, chart=True), color="#D55E00")
+        axes.set_xticklabels([_format_axis_tick(value, x_step) for value in x_ticks], fontproperties=_font(8.0, chart=True, chinese=self._chinese))
+        axes.set_yticklabels([_format_axis_tick(value, power_step) for value in power_ticks], fontproperties=_font(8.0, chart=True, chinese=self._chinese), color="#0072B2")
+        efficiency_axes.set_yticklabels([_format_axis_tick(value, efficiency_step) for value in efficiency_ticks], fontproperties=_font(8.0, chart=True, chinese=self._chinese), color="#D55E00")
         axes.tick_params(axis="x", which="major", direction="in", top=True, bottom=True, length=4.4, width=0.9, colors="#202020", pad=4)
         axes.tick_params(axis="x", which="minor", direction="in", top=True, bottom=True, length=2.4, width=0.62, colors="#202020")
         axes.tick_params(axis="y", which="major", direction="in", left=True, right=False, length=4.4, width=0.9, colors="#0072B2", pad=4)
@@ -546,7 +575,9 @@ class _HeadlessShippingReportRenderer:
             spine.set_linewidth(_line_width(0.42))
 
         single_point = len(points) == 1
-        power_line, = axes.plot(currents, powers, color="#0072B2", linewidth=_line_width(0.60), marker="o", markersize=6.5, markeredgecolor="white", markeredgewidth=_line_width(0.24), label="Output power", clip_on=True, zorder=3)
+        power_label = self._localized("Output power", "输出功率")
+        efficiency_label = self._localized("E-O efficiency", "电光效率")
+        power_line, = axes.plot(currents, powers, color="#0072B2", linewidth=_line_width(0.60), marker="o", markersize=6.5, markeredgecolor="white", markeredgewidth=_line_width(0.24), label=power_label, clip_on=True, zorder=3)
         efficiency_line, = efficiency_axes.plot(
             currents,
             efficiencies,
@@ -557,29 +588,29 @@ class _HeadlessShippingReportRenderer:
             markerfacecolor="none" if single_point else "#D55E00",
             markeredgecolor="#D55E00" if single_point else "white",
             markeredgewidth=_line_width(0.52 if single_point else 0.24),
-            label="E-O efficiency",
+            label=efficiency_label,
             clip_on=True,
             zorder=4,
         )
-        axes.set_xlabel("Drive current (A)", color="#202020", fontproperties=_font(8.8, chart=True), labelpad=6)
-        axes.set_ylabel("Output power (W)", color="#0072B2", fontproperties=_font(8.8, chart=True), labelpad=8)
-        efficiency_axes.set_ylabel("E-O efficiency (%)", color="#D55E00", fontproperties=_font(8.8, chart=True), labelpad=8, rotation=270, va="bottom")
+        axes.set_xlabel(self._localized("Drive current (A)", "驱动电流 (A)"), color="#202020", fontproperties=_font(8.8, chart=True, chinese=self._chinese), labelpad=6)
+        axes.set_ylabel(self._localized("Output power (W)", "输出功率 (W)"), color="#0072B2", fontproperties=_font(8.8, chart=True, chinese=self._chinese), labelpad=8)
+        efficiency_axes.set_ylabel(self._localized("E-O efficiency (%)", "电光效率 (%)"), color="#D55E00", fontproperties=_font(8.8, chart=True, chinese=self._chinese), labelpad=8, rotation=270, va="bottom")
         axes.legend(
             [power_line, efficiency_line],
-            ["Output power", "E-O efficiency"],
+            [power_label, efficiency_label],
             loc="lower right",
             frameon=False,
             borderaxespad=0.6,
             handlelength=3.5,
             handletextpad=0.6,
             labelspacing=0.8,
-            prop=_font(8.0, chart=True),
+            prop=_font(8.0, chart=True, chinese=self._chinese),
         )
 
     def _draw_spectrum_chart(self, figure: Figure, x: float, y: float, width: float, height: float) -> None:
         axis = self.request.spectrum_axis
         assert axis is not None
-        _draw_text(figure, x, y, width, 8.0, "Spectrum at Different Currents", size=10.2, color="#343434", bold=True, chart=True, horizontal="center")
+        _draw_text(figure, x, y, width, 8.0, self._localized("Spectrum at Different Currents", "不同电流下的光谱"), size=10.2, color="#343434", bold=True, chart=True, chinese=self._chinese, horizontal="center")
         plot_x, plot_y = x + 17.0, y + 10.0
         plot_width, plot_height = width - 35.0, height - 22.0
         axes = figure.add_axes(_figure_box(plot_x, plot_y, plot_width, plot_height), facecolor="none")
@@ -592,16 +623,16 @@ class _HeadlessShippingReportRenderer:
         y_ticks = [axis.minimum + index / 4.0 * (axis.maximum - axis.minimum) for index in range(5)]
         axes.xaxis.set_major_locator(FixedLocator(x_ticks))
         axes.yaxis.set_major_locator(FixedLocator(y_ticks))
-        axes.set_xticklabels([f"{value:.1f}" for value in x_ticks], fontproperties=_font(9.0, chart=True))
-        axes.set_yticklabels([_format_scientific_axis_tick(value) if axis.mode is SpectrumAxisMode.COUNTS else f"{value:g}" for value in y_ticks], fontproperties=_font(9.0, chart=True))
+        axes.set_xticklabels([f"{value:.1f}" for value in x_ticks], fontproperties=_font(9.0, chart=True, chinese=self._chinese))
+        axes.set_yticklabels([_format_scientific_axis_tick(value) if axis.mode is SpectrumAxisMode.COUNTS else f"{value:g}" for value in y_ticks], fontproperties=_font(9.0, chart=True, chinese=self._chinese))
         axes.grid(True, which="major", color="#d7dade", linewidth=_line_width(0.13))
         axes.tick_params(axis="x", direction="in", length=4.4, width=0.9, colors="#202020", pad=9)
         axes.tick_params(axis="y", direction="in", length=4.4, width=0.9, colors="#202020", pad=9)
         for spine in axes.spines.values():
             spine.set_color("#202020")
             spine.set_linewidth(_line_width(0.42))
-        axes.set_xlabel("Wavelength (nm)", color="#202020", fontproperties=_font(8.8, chart=True), labelpad=6)
-        axes.set_ylabel("Intensity", color="#202020", fontproperties=_font(8.8, chart=True), labelpad=8)
+        axes.set_xlabel(self._localized("Wavelength (nm)", "波长 (nm)"), color="#202020", fontproperties=_font(8.8, chart=True, chinese=self._chinese), labelpad=6)
+        axes.set_ylabel(self._localized("Intensity", "强度"), color="#202020", fontproperties=_font(8.8, chart=True, chinese=self._chinese), labelpad=8)
         colors = (
             "#376f9f", "#c54e4e", "#799442", "#72548c", "#3f9298", "#d27b36",
             "#254f69", "#8b493d", "#536d2d", "#60456f", "#32767a", "#9b5c22",
@@ -630,19 +661,35 @@ class _HeadlessShippingReportRenderer:
             )
             lines.append(line)
             labels.append(f"{point.current_a:g} A")
-        axes.legend(lines, labels, loc="upper right", frameon=False, borderaxespad=0.35, handlelength=2.5, handletextpad=0.8, labelspacing=0.45, prop=_font(8.0, chart=True))
+        axes.legend(
+            lines,
+            labels,
+            loc="upper right",
+            ncols=_spectrum_legend_column_count(len(labels)),
+            frameon=False,
+            borderaxespad=0.35,
+            handlelength=2.5,
+            handletextpad=0.8,
+            columnspacing=1.4,
+            labelspacing=0.45,
+            prop=_font(8.0, chart=True, chinese=self._chinese),
+        )
 
     def _draw_detail_table(self, figure: Figure, top: float, points: list[Any]) -> None:
-        self._draw_section_title(figure, top, "Detailed Measurement Data")
+        self._draw_section_title(figure, top, self._localized("Detailed Measurement Data", "详细测量数据"))
         table_top = top + 9.0
         row_height = 6.0
         column_widths = (43.5, 43.5, 43.5, 43.5)
-        headers = ("Current (A)", "Power (W)", "Voltage (V)", "E-O efficiency (%)")
+        headers = (
+            ("电流 (A)", "功率 (W)", "电压 (V)", "电光效率 (%)")
+            if self._chinese
+            else ("Current (A)", "Power (W)", "Voltage (V)", "E-O efficiency (%)")
+        )
         x = 18.0
         _draw_rect(figure, x, table_top, sum(column_widths), row_height, facecolor="#0b4b82")
         cursor = x
         for width, header in zip(column_widths, headers):
-            _draw_text(figure, cursor, table_top, width, row_height, header, size=7.7, color="white", bold=True, horizontal="center")
+            _draw_text(figure, cursor, table_top, width, row_height, header, size=7.7, color="white", bold=True, chinese=self._chinese, horizontal="center")
             cursor += width
         for row_index, point in enumerate(points, start=1):
             y = table_top + row_index * row_height
@@ -662,7 +709,17 @@ def _build_figures(inspection: Any, request: Any) -> list[Figure]:
 def render_pdf(path: Path, inspection: Any, request: Any) -> None:
     figures = _build_figures(inspection, request)
     try:
-        with PdfPages(path, metadata={"Title": f"{request.product_name} - {request.sn} Shipping Report", "Creator": "Pump Driver Integrated Test"}) as document:
+        report_name = (
+            "出货报告"
+            if request.report_language is ShippingReportLanguage.CHINESE
+            else "Shipping Report"
+        )
+        creator = (
+            "泵驱一体测试系统"
+            if request.report_language is ShippingReportLanguage.CHINESE
+            else "Pump Driver Integrated Test"
+        )
+        with PdfPages(path, metadata={"Title": f"{request.product_name} - {request.sn} {report_name}", "Creator": creator}) as document:
             for figure in figures:
                 document.savefig(figure, dpi=144, facecolor="white")
     finally:

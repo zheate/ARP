@@ -60,6 +60,11 @@ class ShippingReportType(str, Enum):
     POLE = "pole"
 
 
+class ShippingReportLanguage(str, Enum):
+    ENGLISH = "en"
+    CHINESE = "zh"
+
+
 class SpectrumAxisMode(str, Enum):
     COUNTS = "counts"
     RELATIVE_DB = "relative_db"
@@ -105,6 +110,22 @@ POLE_FIELD_DEFINITIONS = (
     ReportFieldDefinition("electroOpticalEfficiency", "E-O efficiency", "%", "single", "efficiencyPercent"),
     ReportFieldDefinition("coolingTemperature", "Cooling Temperature", "°C", "single"),
 )
+
+_CHINESE_REPORT_FIELD_LABELS = {
+    "power": "输出功率",
+    "operatingCurrent": "工作电流",
+    "centerWavelength": "中心波长",
+    "fwhm": "光谱宽度（FWHM）",
+    "wavelengthCurrentCoefficient": "波长-电流系数",
+    "coolingTemperature": "冷却温度",
+    "powerFluctuation": "功率波动",
+    "thresholdCurrent": "阈值电流",
+    "operatingVoltage": "工作电压",
+    "slopeEfficiency": "斜率效率",
+    "electroOpticalEfficiency": "电光效率",
+    "fiberCoreDiameter": "光纤芯径",
+    "fiberNa": "光纤 NA",
+}
 
 # The approved Pole report sample presents this complete six-row summary.
 # Keep it as the first-use default while preserving any explicit user choice
@@ -381,6 +402,7 @@ class ShippingReportRequest:
     operating_current_a: float
     fields: Mapping[str, SelectedReportField]
     legacy_completion_confirmed: bool
+    report_language: ShippingReportLanguage = ShippingReportLanguage.ENGLISH
     encircled_energy_na: str = DEFAULT_ENCIRCLED_ENERGY_NA
     custom_fields: tuple[ReportFieldDefinition, ...] = ()
     spectrum_axis: SpectrumAxisSettings | None = None
@@ -391,6 +413,12 @@ class ShippingReportRequest:
             report_type = ShippingReportType(str(values.get("reportType", "")))
         except ValueError as exc:
             raise ValueError("请选择有效的报告类型") from exc
+        try:
+            report_language = ShippingReportLanguage(
+                str(values.get("reportLanguage", ShippingReportLanguage.ENGLISH.value))
+            )
+        except ValueError as exc:
+            raise ValueError("请选择有效的报告语言") from exc
         raw_fields = values.get("fields")
         if not isinstance(raw_fields, Mapping):
             raise ValueError("报告参数格式无效")
@@ -457,6 +485,7 @@ class ShippingReportRequest:
             operating_current_a=operating_current_a,
             fields=fields,
             legacy_completion_confirmed=bool(values.get("legacyCompletionConfirmed")),
+            report_language=report_language,
             encircled_energy_na=str(
                 values.get("encircledEnergyNa", DEFAULT_ENCIRCLED_ENERGY_NA)
             ).strip(),
@@ -497,15 +526,25 @@ def _report_definitions(
     custom_fields: Iterable[ReportFieldDefinition] = (),
     *,
     encircled_energy_na: str = DEFAULT_ENCIRCLED_ENERGY_NA,
+    report_language: ShippingReportLanguage = ShippingReportLanguage.ENGLISH,
 ) -> tuple[ReportFieldDefinition, ...]:
     standard = SPECTRUM_FIELD_DEFINITIONS if report_type is ShippingReportType.SPECTRUM else POLE_FIELD_DEFINITIONS
-    if report_type is ShippingReportType.SPECTRUM:
-        standard = tuple(
-            replace(field, label=f"NA {encircled_energy_na} Encircled Energy")
-            if field.key == "na017Energy"
-            else field
-            for field in standard
-        )
+    localized: list[ReportFieldDefinition] = []
+    for field in standard:
+        if field.key == "na017Energy":
+            label = (
+                f"NA {encircled_energy_na} 能量"
+                if report_language is ShippingReportLanguage.CHINESE
+                else f"NA {encircled_energy_na} Encircled Energy"
+            )
+        elif report_language is ShippingReportLanguage.CHINESE:
+            label = _CHINESE_REPORT_FIELD_LABELS.get(field.key, field.label)
+            if field.key == "power" and report_type is ShippingReportType.SPECTRUM:
+                label = "输出功率（CW）"
+        else:
+            label = field.label
+        localized.append(replace(field, label=label))
+    standard = tuple(localized)
     return (*standard, *tuple(custom_fields))
 
 
@@ -1083,10 +1122,16 @@ def load_shipping_report_preferences(settings: Any) -> dict[str, Any]:
                 "unit": str(item.get("unit", "")).strip(),
                 "side": "left" if report_type is ShippingReportType.SPECTRUM else "single",
             })
+        stored_language = str(
+            settings.get(prefix + "language", ShippingReportLanguage.ENGLISH.value)
+        )
+        if stored_language not in {item.value for item in ShippingReportLanguage}:
+            stored_language = ShippingReportLanguage.ENGLISH.value
         preference: dict[str, Any] = {
             "selectedFields": [str(value) for value in selected],
             "manualValues": {str(key): str(value) for key, value in manual_values.items()},
             "customFields": normalized_custom_fields,
+            "reportLanguage": stored_language,
         }
         if report_type is ShippingReportType.SPECTRUM:
             preference["encircledEnergyNa"] = (
@@ -1130,6 +1175,7 @@ def save_shipping_report_preferences(settings: Any, request: ShippingReportReque
         prefix + "custom_fields",
         json.dumps([_field_payload(item) for item in request.custom_fields], ensure_ascii=False),
     )
+    settings.set(prefix + "language", request.report_language.value)
     if request.report_type is ShippingReportType.SPECTRUM:
         settings.set(prefix + "encircled_energy_na", request.encircled_energy_na)
     if request.spectrum_axis is not None:
@@ -1323,9 +1369,14 @@ def _format_pole_summary_value(definition: ReportFieldDefinition, value: str) ->
     return f"{numeric_value:.{precision}f}".rstrip("0").rstrip(".") or "0"
 
 
-def _format_performance_parameters_title(operating_current_a: float) -> str:
-    """Return the English performance-summary heading for the selected current."""
+def _format_performance_parameters_title(
+    operating_current_a: float,
+    report_language: ShippingReportLanguage = ShippingReportLanguage.ENGLISH,
+) -> str:
+    """Return the performance-summary heading for the selected language."""
 
+    if report_language is ShippingReportLanguage.CHINESE:
+        return f"性能参数 @{operating_current_a:g}A"
     return f"Performance @{operating_current_a:g}A"
 
 

@@ -576,7 +576,10 @@ class StationAutomaticMixin:
         def block(code: str, message: str) -> None:
             blockers.append({"code": code, "message": message})
 
-        if self.automatic.state != AutomaticTestState.IDLE:
+        if self.automatic.state not in {
+            AutomaticTestState.IDLE,
+            AutomaticTestState.COMPLETED,
+        }:
             block("automatic_not_idle", "当前自动测试尚未重置")
         if not str(self.configuration.get("sn", "")).strip():
             block("missing_sn", "请填写产品 SN")
@@ -628,6 +631,8 @@ class StationAutomaticMixin:
         if self._automatic_thread is not None and self._automatic_thread.is_alive():
             raise ValueError(f"工位 {self.station_id} 自动测试已在运行")
         self.configure(params)
+        if self.automatic.state == AutomaticTestState.COMPLETED:
+            self._reset_completed_automatic(clear_sn=False, require_shutdown=False)
         aging_test = self._aging_test_selected()
         if not aging_test:
             self._select_latest_test_reference(params)
@@ -1448,18 +1453,24 @@ class StationAutomaticMixin:
         if not self.shutdown_confirmed:
             self.safe_ramp_down()
 
-    def prepare_next_device(self) -> None:
+    def _reset_completed_automatic(
+        self,
+        *,
+        clear_sn: bool,
+        require_shutdown: bool = True,
+    ) -> None:
         if self._automatic_thread is not None and self._automatic_thread.is_alive():
             raise ValueError("自动测试仍在运行，不能进入下一台")
         if self.automatic.state != AutomaticTestState.COMPLETED:
             raise ValueError("当前测试尚未结束")
-        if not self.shutdown_confirmed:
+        if require_shutdown and not self.shutdown_confirmed:
             raise RuntimeError("尚未确认安全下电，不能进入下一台")
         self._export_generation += 1
         self.automatic = AutomaticTestOrchestrator()
         self.record_store = self._new_record_store()
-        self.configuration["sn"] = ""
-        self.automatic_detail = "请输入下一台产品 SN"
+        if clear_sn:
+            self.configuration["sn"] = ""
+        self.automatic_detail = "请输入下一台产品 SN" if clear_sn else "准备重新测试"
         self.automatic_terminal_outcome = None
         self.automatic_terminal_reason = ""
         self.automatic_started_at = None
@@ -1472,6 +1483,9 @@ class StationAutomaticMixin:
         self._clear_shutdown_result()
         self.reset_charts()
         self.backend.clear_station_transient_notices(self.station_id)
+
+    def prepare_next_device(self) -> None:
+        self._reset_completed_automatic(clear_sn=True)
 
     def retry_automatic_export(self, params: dict[str, Any]) -> None:
         if self.automatic.state != AutomaticTestState.COMPLETED:

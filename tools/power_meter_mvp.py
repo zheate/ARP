@@ -27,6 +27,7 @@ OPHIR_RESOURCE_PREFIX = "OPHIR::USB::"
 OPHIR_CHANNEL = 0
 OPHIR_FIRST_SAMPLE_TIMEOUT_S = 2.0
 OPHIR_CACHED_SAMPLE_TIMEOUT_S = 0.5
+LASERPOINT_RANGE_SYNC_ATTEMPTS = 4
 
 
 @dataclass(frozen=True)
@@ -582,7 +583,7 @@ class LaserPointPowerMeter:
         self.rm = acquire_visa_resource_manager()
         self.inst = None
         self.probe_serial_number = ""
-        self._power_scales_to_w: dict[int, float] = {}
+        self._power_ranges_to_w: dict[int, tuple[float, float]] = {}
         try:
             self.inst = self.rm.open_resource(self.resource)
             configure_laserpoint(self.inst)
@@ -648,29 +649,42 @@ class LaserPointPowerMeter:
 
     def set_power_mode(self) -> None:
         self._setting_command("*POWER")
-        self._power_scales_to_w.clear()
+        self._power_ranges_to_w.clear()
 
     def set_gain_mode(self, mode: int) -> None:
         value = int(mode)
         if value < 0 or value > 3:
             raise ValueError("LaserPoint 增益模式必须在 0 至 3 之间")
         self._setting_command(f"*SETX1 {value}")
-        self._power_scales_to_w.clear()
+        self._power_ranges_to_w.clear()
 
     def set_wavelength(self, wavelength_nm: float) -> None:
         self._setting_command(f"*SETLAM{format_laserpoint_wavelength_nm(wavelength_nm)}")
-        self._power_scales_to_w.clear()
+        self._power_ranges_to_w.clear()
 
     def read_power_w(self) -> float:
-        power = parse_laserpoint_power_w(self.inst.query("*OUTPM"))
-        gain_index = parse_laserpoint_gain_index(self.inst.query("*X1D"))
-        scale_to_w = self._power_scales_to_w.get(gain_index)
-        if scale_to_w is None:
-            _full_scale_w, scale_to_w = parse_laserpoint_full_scale_power_to_w(
-                self.inst.query(f"*FSWX1 {gain_index}")
-            )
-            self._power_scales_to_w[gain_index] = scale_to_w
-        return power * scale_to_w
+        for _attempt in range(LASERPOINT_RANGE_SYNC_ATTEMPTS):
+            gain_before = parse_laserpoint_gain_index(self.inst.query("*X1D"))
+            power = parse_laserpoint_power_w(self.inst.query("*OUTPM"))
+            gain_after = parse_laserpoint_gain_index(self.inst.query("*X1D"))
+            if gain_before != gain_after:
+                continue
+
+            power_range = self._power_ranges_to_w.get(gain_after)
+            if power_range is None:
+                power_range = parse_laserpoint_full_scale_power_to_w(
+                    self.inst.query(f"*FSWX1 {gain_after}")
+                )
+                self._power_ranges_to_w[gain_after] = power_range
+            full_scale_w, scale_to_w = power_range
+            power_w = power * scale_to_w
+            # A unit/gain race produces impossible values such as 420,000 W
+            # on a 3,000 W scale. Retry instead of publishing that sample.
+            if abs(power_w) > full_scale_w * 1.05:
+                continue
+            return power_w
+
+        raise RuntimeError("LaserPoint 自动量程切换期间未获得一致功率读数")
 
     def close(self) -> None:
         inst, rm = self.inst, self.rm

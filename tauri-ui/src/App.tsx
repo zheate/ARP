@@ -44,9 +44,10 @@ import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { useBackendSnapshot } from "@/hooks/use-backend-snapshot"
-import { sendBackendRequest, type AppConfiguration, type AppShutdownResult, type AutomaticPauseAction, type AutomaticTerminalOutcome, type BackendSnapshot, type DeviceSnapshot, type SafetyShutdownResult, type ShippingReportBatchGenerationResult, type ShippingReportBatchInspection, type ShippingReportBatchItem, type ShippingReportFieldDefinition, type ShippingReportGenerationResult, type ShippingReportPointSuggestion, type ShippingReportPreviewResult, type ShippingReportType, type ShippingWorkbookInspection, type SnapshotView, type SpectrumAxisMode, type TestScript } from "@/lib/backend"
+import { sendBackendRequest, type AppConfiguration, type AppShutdownResult, type AutomaticPauseAction, type AutomaticTerminalOutcome, type BackendSnapshot, type DeviceSnapshot, type SafetyShutdownResult, type ShippingReportBatchGenerationResult, type ShippingReportBatchInspection, type ShippingReportBatchItem, type ShippingReportFieldDefinition, type ShippingReportGenerationResult, type ShippingReportLanguage, type ShippingReportPointSuggestion, type ShippingReportPreviewResult, type ShippingReportType, type ShippingWorkbookInspection, type SnapshotView, type SpectrumAxisMode, type TestScript } from "@/lib/backend"
 import { powerMeterProfileForResource, powerMeterResourceValue } from "@/lib/power-meter-resource"
 import { automaticPauseCommand, automaticPauseCopy, pauseRemainingSeconds } from "@/lib/automatic-pause"
+import { openResultFile } from "@/lib/result-file"
 import { automaticTerminalTitle, shutdownPresentation } from "@/lib/safety-state"
 import { spectrumPeakAnnotations, spectrumPeakLegend } from "@/lib/spectrum-annotations"
 import { ActivationView } from "@/components/license/ActivationView"
@@ -1336,6 +1337,8 @@ function AutomaticCompletionDialog({
 }) {
   const acknowledgeButtonRef = useRef<HTMLButtonElement>(null)
   const onCloseRef = useRef(onClose)
+  const [openingResult, setOpeningResult] = useState(false)
+  const [resultOpenError, setResultOpenError] = useState("")
   onCloseRef.current = onClose
 
   useEffect(() => {
@@ -1392,6 +1395,22 @@ function AutomaticCompletionDialog({
     : "尚未生成 Excel"
 
   const showDetailMessage = Boolean(message && message !== title && message !== "测试完成" && message !== "测试已完成")
+
+  const handleOpenResult = async () => {
+    if (!exportPath || openingResult) return
+    setOpeningResult(true)
+    setResultOpenError("")
+    try {
+      const outcome = await openResultFile(exportPath, openPath, revealItemInDir)
+      if (outcome.status === "revealed") {
+        setResultOpenError(`无法直接打开 Excel，已在文件夹中定位。${outcome.openError}`)
+      }
+    } catch (reason) {
+      setResultOpenError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setOpeningResult(false)
+    }
+  }
 
   return (
     <DialogPortal>
@@ -1468,12 +1487,13 @@ function AutomaticCompletionDialog({
               <p className={`mt-1 text-xs font-semibold ${exportStatus === "failed" ? "text-destructive" : "text-foreground"}`}>本地 JSONL 已保存 · {exportLabel}</p>
               {exportPath && <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground" title={exportPath}>{exportPath}</p>}
               {exportError && <p className="mt-1 text-xs leading-5 text-destructive">{exportError}</p>}
+              {resultOpenError && <p aria-live="polite" className="mt-1 text-xs leading-5 text-destructive">{resultOpenError}</p>}
               {journalPath && exportStatus === "failed" && <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground" title={journalPath}>原始记录：{journalPath}</p>}
             </div>
           </div>
 
           <div className="flex flex-wrap justify-end gap-2 border-t border-border/70 bg-muted/20 px-6 py-3.5">
-            {exportPath && exportStatus === "completed" && <Button onClick={() => void openPath(exportPath)} size="sm" variant="outline"><FileText className="size-4" />打开结果</Button>}
+            {exportPath && exportStatus === "completed" && <Button disabled={openingResult} onClick={() => void handleOpenResult()} size="sm" variant="outline">{openingResult ? <LoaderCircle className="size-4 animate-spin" /> : <FileText className="size-4" />}{openingResult ? "正在打开…" : "打开结果"}</Button>}
             {canRetryExport && <Button onClick={onRetryExport} size="sm" variant="outline"><RefreshCw className="size-4" />重新生成 Excel</Button>}
             {canRetryExport && <Button onClick={onChooseExportDirectory} size="sm" variant="outline"><FolderOpen className="size-4" />更换目录</Button>}
             {canNextDevice && <Button onClick={onNextDevice} size="sm"><QrCode className="size-4" />测试下一台</Button>}
@@ -2144,11 +2164,23 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
     && previousSpectrum?.spectrumWindow?.halfRangeNm === nextSpectrum?.spectrumWindow?.halfRangeNm
 })
 
-function AutomaticMetricCard({ title, value, unit, valueTone = "muted", onClick, className = "" }: {
+function LivePowerRecordingDot() {
+  const [visible, setVisible] = useState(true)
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setVisible((current) => !current), 500)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  return <span aria-hidden="true" className={`automatic-metric-card__recording-dot ${visible ? "is-on" : "is-off"}`} />
+}
+
+function AutomaticMetricCard({ title, value, unit, valueTone = "muted", recording = false, onClick, className = "" }: {
   title: string
   value: string
   unit: ReactNode
   valueTone?: "success" | "danger" | "warning" | "muted"
+  recording?: boolean
   onClick?: () => void
   className?: string
 }) {
@@ -2166,7 +2198,10 @@ function AutomaticMetricCard({ title, value, unit, valueTone = "muted", onClick,
       role={clickable ? "button" : undefined}
       tabIndex={clickable ? 0 : undefined}
     >
-      <div className="automatic-metric-card__title">{title}</div>
+      <div aria-label={recording ? `${title}，实时记录中` : undefined} className="automatic-metric-card__title">
+        {recording ? <LivePowerRecordingDot /> : null}
+        <span>{title}</span>
+      </div>
       <div className="automatic-metric-card__value">
         <span className={`automatic-metric-card__number is-${valueTone}`}>{value}</span>
         <span className="automatic-metric-card__unit">{unit}</span>
@@ -2206,6 +2241,7 @@ function RealtimeMetricCards({
         value={formatFixedNumber(livePowerW, 3)}
         unit={<>W @ <span className="automatic-metric-card__current">{formatTrimmedNumber(currentA, 2)} A</span></>}
         valueTone="warning"
+        recording={Boolean(powerMeter?.running)}
       />
       <AutomaticMetricCard
         className="automatic-metric-card--title-below"
@@ -3013,6 +3049,7 @@ function storeShippingProductName(value: string): void {
 function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
   const [inspection, setInspection] = useState<ShippingWorkbookInspection | null>(null)
   const [reportType, setReportType] = useState<ShippingReportType>("pole")
+  const [reportLanguage, setReportLanguage] = useState<ShippingReportLanguage>("en")
   const [productName, setProductName] = useState(getStoredShippingProductName)
   const [sn, setSn] = useState("")
   const [operatingCurrentA, setOperatingCurrentA] = useState(0)
@@ -3051,6 +3088,7 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
     ]))
     setFields(nextFields)
     setCustomFields(nextCustomFields)
+    setReportLanguage(preference.reportLanguage ?? "en")
     if (nextType === "spectrum") {
       setEncircledEnergyNa(preference.encircledEnergyNa ?? DEFAULT_ENCIRCLED_ENERGY_NA)
       const axis = preferredSpectrumAxis(nextInspection, currentA)
@@ -3190,6 +3228,7 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
         sourcePath: inspection.sourcePath,
         outputPath: targetPath,
         reportType,
+        reportLanguage,
         productName,
         sn,
         operatingCurrentA,
@@ -3230,6 +3269,7 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
       void sendBackendRequest<ShippingReportPreviewResult>("shippingReport.preview", {
         sourcePath: inspection.sourcePath,
         reportType,
+        reportLanguage,
         productName,
         sn,
         operatingCurrentA,
@@ -3256,7 +3296,7 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [axisMaximum, axisMinimum, axisMode, busy, customFields, encircledEnergyNa, fields, inspection, operatingCurrentA, productName, reportType, sn, wavelengthMaximum, wavelengthMinimum])
+  }, [axisMaximum, axisMinimum, axisMode, busy, customFields, encircledEnergyNa, fields, inspection, operatingCurrentA, productName, reportLanguage, reportType, sn, wavelengthMaximum, wavelengthMinimum])
 
   const definitions: ShippingReportFieldDefinition[] = inspection ? [...inspection.fieldDefinitions[reportType], ...customFields] : []
   const outputPath = shippingOutputFilePath(outputDirectory, sn)
@@ -3313,10 +3353,11 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
 
           <div className={SHIPPING_REPORT_SPLIT_LAYOUT}>
             <div className="min-w-0">
-              <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 2xl:grid-cols-3">
                 <Field label="报告类型"><NativeSelect value={reportType} onChange={(value) => changeReportType(value as ShippingReportType)}>{inspection.allowedReportTypes.includes("spectrum") && <option value="spectrum">含光谱测试报告</option>}<option value="pole">Pole 无光谱测试报告</option></NativeSelect></Field>
+                <Field label="报告语言"><NativeSelect value={reportLanguage} onChange={(value) => setReportLanguage(value as ShippingReportLanguage)}><option value="en">English</option><option value="zh">中文</option></NativeSelect></Field>
                 <Field label="工作电流点"><NativeSelect value={String(operatingCurrentA)} onChange={(value) => changeOperatingCurrent(Number(value))}>{inspection.currents.map((current) => <option key={current} value={String(current)}>{Number.isInteger(current) ? current.toFixed(0) : String(current)} A</option>)}</NativeSelect></Field>
-                <Field label="产品名称"><Input value={productName} onChange={(event) => changeProductName(event.target.value)} /></Field>
+                <Field className="2xl:col-span-2" label="产品名称"><Input value={productName} onChange={(event) => changeProductName(event.target.value)} /></Field>
                 <Field label="SN"><Input value={sn} onChange={(event) => setSn(event.target.value)} /></Field>
               </div>
 
@@ -3447,6 +3488,7 @@ function BatchShippingReportWorkflow({ disabled }: { disabled: boolean }) {
   const [batch, setBatch] = useState<ShippingReportBatchInspection | null>(null)
   const [representative, setRepresentative] = useState<ShippingWorkbookInspection | null>(null)
   const [reportType, setReportType] = useState<ShippingReportType>("pole")
+  const [reportLanguage, setReportLanguage] = useState<ShippingReportLanguage>("en")
   const [productName, setProductName] = useState(getStoredShippingProductName)
   const [operatingCurrentA, setOperatingCurrentA] = useState(Number.NaN)
   const [fields, setFields] = useState<ShippingFieldState>({})
@@ -3485,6 +3527,7 @@ function BatchShippingReportWorkflow({ disabled }: { disabled: boolean }) {
       },
     ])))
     setCustomFields(nextCustomFields)
+    setReportLanguage(preference.reportLanguage ?? "en")
     if (nextType === "spectrum") {
       setEncircledEnergyNa(preference.encircledEnergyNa ?? DEFAULT_ENCIRCLED_ENERGY_NA)
       const axis = preferredSpectrumAxis(inspection, currentA)
@@ -3708,6 +3751,7 @@ function BatchShippingReportWorkflow({ disabled }: { disabled: boolean }) {
           sourcePath: item.sourcePath,
           outputDirectory,
           reportType,
+          reportLanguage,
           productName,
           operatingCurrentA,
           fields,
@@ -3740,6 +3784,7 @@ function BatchShippingReportWorkflow({ disabled }: { disabled: boolean }) {
       void sendBackendRequest<ShippingReportPreviewResult>("shippingReport.preview", {
         sourcePath: representative.sourcePath,
         reportType,
+        reportLanguage,
         productName,
         sn: representative.sn,
         operatingCurrentA,
@@ -3763,7 +3808,7 @@ function BatchShippingReportWorkflow({ disabled }: { disabled: boolean }) {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [axisMaximum, axisMinimum, axisMode, busy, customFields, encircledEnergyNa, fields, operatingCurrentA, productName, reportType, representative, wavelengthMaximum, wavelengthMinimum])
+  }, [axisMaximum, axisMinimum, axisMode, busy, customFields, encircledEnergyNa, fields, operatingCurrentA, productName, reportLanguage, reportType, representative, wavelengthMaximum, wavelengthMinimum])
 
   const reportTypes: ShippingReportType[] = batch?.items.some((item) => item.status === "ready" && item.allowedReportTypes.includes("spectrum")) ? ["spectrum", "pole"] : ["pole"]
   const definitions = representative ? [...representative.fieldDefinitions[reportType], ...customFields] : []
@@ -3788,7 +3833,7 @@ function BatchShippingReportWorkflow({ disabled }: { disabled: boolean }) {
         <div className="mb-5"><h2 className="text-base font-semibold">统一报告配置</h2><p className="mt-1 max-w-3xl truncate text-xs text-muted-foreground">预览样本：{representative.sourcePath}</p></div>
         {productMismatch && <p className="mb-4 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-950">Excel 中存在多个产品名称，本次统一使用下方填写的产品名称。</p>}
         <div className={SHIPPING_REPORT_SPLIT_LAYOUT}><div className="min-w-0">
-          <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2"><Field label="报告类型"><NativeSelect disabled={busy} value={reportType} onChange={(value) => void changeReportType(value as ShippingReportType)}>{reportTypes.includes("spectrum") && <option value="spectrum">含光谱测试报告</option>}<option value="pole">Pole 无光谱测试报告</option></NativeSelect></Field><Field label="统一工作电流"><NativeSelect disabled={busy} value={Number.isFinite(operatingCurrentA) ? String(operatingCurrentA) : ""} onChange={(value) => void changeOperatingCurrent(Number(value))}><option disabled value="">请选择工作电流</option>{batch.unionCurrents.map((current) => <option key={current} value={String(current)}>{Number.isInteger(current) ? current.toFixed(0) : String(current)} A{batch.commonCurrents.includes(current) ? " · 全部共有" : ""}</option>)}</NativeSelect></Field><Field className="2xl:col-span-2" label="统一产品名称"><Input disabled={busy} value={productName} onChange={(event) => changeProductName(event.target.value)} /></Field></div>
+          <div className="grid grid-cols-1 gap-4 2xl:grid-cols-3"><Field label="报告类型"><NativeSelect disabled={busy} value={reportType} onChange={(value) => void changeReportType(value as ShippingReportType)}>{reportTypes.includes("spectrum") && <option value="spectrum">含光谱测试报告</option>}<option value="pole">Pole 无光谱测试报告</option></NativeSelect></Field><Field label="报告语言"><NativeSelect disabled={busy} value={reportLanguage} onChange={(value) => setReportLanguage(value as ShippingReportLanguage)}><option value="en">English</option><option value="zh">中文</option></NativeSelect></Field><Field label="统一工作电流"><NativeSelect disabled={busy} value={Number.isFinite(operatingCurrentA) ? String(operatingCurrentA) : ""} onChange={(value) => void changeOperatingCurrent(Number(value))}><option disabled value="">请选择工作电流</option>{batch.unionCurrents.map((current) => <option key={current} value={String(current)}>{Number.isInteger(current) ? current.toFixed(0) : String(current)} A{batch.commonCurrents.includes(current) ? " · 全部共有" : ""}</option>)}</NativeSelect></Field><Field className="2xl:col-span-3" label="统一产品名称"><Input disabled={busy} value={productName} onChange={(event) => changeProductName(event.target.value)} /></Field></div>
           <Separator className="my-5" />
           <div><div className="mb-3 flex items-end justify-between gap-4"><div><h3 className="text-sm font-semibold">报告参数</h3><p className="mt-1 text-xs text-muted-foreground">测量参数会按每份 Excel 重新取值；手工参数统一应用。</p></div><div className="flex shrink-0 items-center gap-3"><span className="text-xs text-muted-foreground">已选 {Object.values(fields).filter((item) => item.include).length} 项</span><Button disabled={busy} onClick={addCustomField} size="sm" type="button" variant="outline"><Plus className="size-3.5" />手动增加参数</Button></div></div><div className="pr-1"><div className="grid grid-cols-1 gap-x-6 gap-y-3 2xl:grid-cols-2">{definitions.filter((definition) => !customFields.some((field) => field.key === definition.key)).map((definition) => { const state = fields[definition.key] ?? { include: false, value: "" }; return <div className="grid grid-cols-[minmax(150px,0.9fr)_minmax(110px,1fr)_52px] items-center gap-2" key={definition.key}><ShippingReportFieldSelector checked={state.include} definition={definition} disabled={busy} encircledEnergyNa={encircledEnergyNa} onCheckedChange={(include) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include } }))} onEncircledEnergyNaChange={setEncircledEnergyNa} /><Input aria-label={`${definition.label}数值`} className="h-8" disabled={busy || Boolean(definition.measuredKey)} value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} /><span className="text-xs text-muted-foreground">{definition.unit || "-"}</span></div>})}{customFields.map((definition) => { const state = fields[definition.key] ?? { include: true, value: "" }; return <div className="col-span-1 grid grid-cols-[auto_minmax(130px,0.8fr)_minmax(110px,1fr)_minmax(60px,0.35fr)_auto] items-center gap-2 rounded-md border border-dashed border-border bg-muted/20 p-2 2xl:col-span-2" key={definition.key}><input checked={state.include} disabled={busy} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" /><Input className="h-8" disabled={busy} placeholder="参数名称" value={definition.label} onChange={(event) => updateCustomField(definition.key, { label: event.target.value })} /><Input className="h-8" disabled={busy} placeholder="参数值" value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} /><Input className="h-8" disabled={busy} placeholder="单位" value={definition.unit} onChange={(event) => updateCustomField(definition.key, { unit: event.target.value })} /><button aria-label={`删除${definition.label}`} disabled={busy} onClick={() => removeCustomField(definition.key)} type="button"><X className="size-4" /></button></div>})}</div></div></div>
           {reportType === "spectrum" && <><Separator className="my-5" /><div><h3 className="text-sm font-semibold">光谱纵轴</h3><div className="mt-3 grid grid-cols-3 gap-4"><Field label="单位"><NativeSelect disabled value={axisMode} onChange={() => undefined}><option value="counts">原始强度 (counts)</option></NativeSelect></Field><NumberField disabled={busy} label="下限" value={axisMinimum} onChange={setAxisMinimum} /><NumberField disabled={busy} label="上限" value={axisMaximum} onChange={setAxisMaximum} /></div></div><Separator className="my-5" /><div><h3 className="text-sm font-semibold">光谱横轴</h3><div className="mt-3 grid grid-cols-2 gap-4"><NumberField disabled={busy} label="下限 (nm)" value={wavelengthMinimum} onChange={setWavelengthMinimum} step="0.1" /><NumberField disabled={busy} label="上限 (nm)" value={wavelengthMaximum} onChange={setWavelengthMaximum} step="0.1" /></div></div></>}

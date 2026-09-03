@@ -397,6 +397,7 @@ export async function fetchBackendSnapshot(view: SnapshotView, since?: SeriesRev
 }
 
 export type ShippingReportType = "spectrum" | "pole"
+export type ShippingReportLanguage = "en" | "zh"
 export type SpectrumAxisMode = "counts" | "relative_db"
 
 export interface ShippingReportFieldDefinition {
@@ -426,6 +427,7 @@ export interface ShippingReportPreferences {
   selectedFields: string[]
   manualValues: Record<string, string>
   customFields: ShippingReportFieldDefinition[]
+  reportLanguage?: ShippingReportLanguage
   encircledEnergyNa?: string
   spectrumAxis?: {
     mode: SpectrumAxisMode
