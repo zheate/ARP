@@ -93,6 +93,41 @@ def build_test_workbook_path(
     return session_dir / filename
 
 
+def reserve_test_workbook_path(base: Path, session_id: str) -> Path:
+    """Reserve a session destination before its asynchronous export exists.
+
+    Tiny reservation files survive restarts and failed exports. They are not
+    workbooks, and prevent a new session from taking a pending session's name.
+    The same session can safely retry or retarget back to its previous path.
+    """
+    base = Path(base).expanduser()
+    base.parent.mkdir(parents=True, exist_ok=True)
+    reservations = base.parent / ".arp-reservations"
+    reservations.mkdir(exist_ok=True)
+    index = 1
+    while True:
+        candidate = base if index == 1 else base.with_stem(f"{base.stem}_{index:02d}")
+        reservation = reservations / f"{candidate.name}.session"
+        try:
+            owner = reservation.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            owner = None
+        if owner == session_id:
+            return candidate
+        if owner is None and not candidate.exists():
+            try:
+                with reservation.open("x", encoding="utf-8") as stream:
+                    stream.write(session_id)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            except FileExistsError:
+                pass
+            else:
+                if not candidate.exists():
+                    return candidate
+        index += 1
+
+
 def _finite_or_none(value: float) -> float | None:
     number = float(value)
     return number if math.isfinite(number) else None
@@ -180,6 +215,7 @@ def _write_test_station(sheet: OpenpyxlWorksheet, test_station: str) -> None:
     sheet["B1"] = "测试站别"
     sheet["B1"].font = Font(bold=True)
     sheet["C1"] = station
+    sheet["C1"].data_type = "s"
     sheet.column_dimensions["C"].width = max(sheet.column_dimensions["C"].width or 0, 16)
 
 
@@ -634,6 +670,7 @@ def save_test_records(
         {
             "constant_memory": True,
             "strings_to_urls": False,
+            "strings_to_formulas": False,
         },
     )
     try:

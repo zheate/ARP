@@ -122,7 +122,7 @@ class ExcelExportTests(unittest.TestCase):
             writer.assert_called_once()
             self.assertEqual(
                 writer.call_args.args[1],
-                {"constant_memory": True, "strings_to_urls": False},
+                {"constant_memory": True, "strings_to_urls": False, "strings_to_formulas": False},
             )
 
     def test_batch_save_retries_a_transient_windows_replace_lock(self) -> None:

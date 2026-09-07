@@ -10,7 +10,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Mapping, Protocol, runtime_checkable
 
-from .excel_export import ExcelTestRecord, build_test_workbook_path
+from .excel_export import ExcelTestRecord, build_test_workbook_path, reserve_test_workbook_path
 from .session_journal import SessionJournal
 
 
@@ -182,10 +182,12 @@ class SessionRecordStore:
     ) -> Path:
         if not reset and self.current_session is not None:
             return self.current_session.workbook_path
-        workbook_path = build_test_workbook_path(output_dir, sn, started_at, test_station)
-        workbook_path.parent.mkdir(parents=True, exist_ok=True)
+        session_id = str(uuid.uuid4())
+        workbook_path = reserve_test_workbook_path(
+            build_test_workbook_path(output_dir, sn, started_at, test_station), session_id,
+        )
         session = TestSession(
-            session_id=str(uuid.uuid4()),
+            session_id=session_id,
             sn=str(sn),
             station=str(test_station),
             product_model=str(product_model),
@@ -227,7 +229,7 @@ class SessionRecordStore:
             started_at,
             session.station,
         )
-        workbook_path.parent.mkdir(parents=True, exist_ok=True)
+        workbook_path = reserve_test_workbook_path(workbook_path, session.session_id)
         if self._journal is not None:
             self._journal.append(
                 {
@@ -259,7 +261,7 @@ class SessionRecordStore:
             started_at,
             str(test_station),
         )
-        workbook_path.parent.mkdir(parents=True, exist_ok=True)
+        workbook_path = reserve_test_workbook_path(workbook_path, session.session_id)
         self.pending_records = {
             current: replace(record, test_station=str(test_station))
             for current, record in self.pending_records.items()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from contextlib import nullcontext
 import re
 import threading
 import time
@@ -55,6 +56,7 @@ from combined_test.tdk_power_supply import (
 )
 
 
+from .command_safety import CommandSafetyGate, finite_number
 from .station_automatic import StationAutomaticMixin
 from .station_support import (
     AGING_TEST_SCRIPT_ID,
@@ -78,6 +80,7 @@ class StationRuntime(StationAutomaticMixin):
         self.station_id = str(station_id)
         self.backend = backend
         self._lock = threading.RLock()
+        self.command_safety = CommandSafetyGate()
 
         self.configuration = dict(DEFAULT_CONFIGURATION)
         self.configuration["station"] = f"工位 {self.station_id}"
@@ -207,7 +210,7 @@ class StationRuntime(StationAutomaticMixin):
         self.automatic_pause_actions: tuple[str, ...] = ()
         self._emergency_ramp_thread: threading.Thread | None = None
         self._emergency_ramp_thread_lock = threading.Lock()
-        self._safe_ramp_lock = threading.Lock()
+        self._safe_ramp_lock = threading.RLock()
         self._supply_io_lock = threading.RLock()
         self._expected_spectrometer_stop = False
         self._test_reference: Any | None = None
@@ -372,11 +375,13 @@ class StationRuntime(StationAutomaticMixin):
 
     def configure(self, params: dict[str, Any]) -> None:
         with self._lock:
-            kind = str(params.get("powerSupplyKind", self.configuration["powerSupplyKind"])).lower()
+            params = dict(params)
+            candidate = dict(self.configuration)
+            kind = str(params.get("powerSupplyKind", candidate["powerSupplyKind"])).lower()
             if kind not in {"ch341", "tdk"}:
                 raise ValueError("powerSupplyKind must be ch341 or tdk")
             selected_script_id = str(
-                params.get("selectedScriptId", self.configuration["selectedScriptId"])
+                params.get("selectedScriptId", candidate["selectedScriptId"])
             )
             if selected_script_id == AGING_TEST_SCRIPT_ID and kind != "ch341":
                 raise ValueError("AU 老化测试仅支持 CH341 电源，TDK RS232 不允许使用此模式")
@@ -405,13 +410,13 @@ class StationRuntime(StationAutomaticMixin):
                     seen_names.add(name)
                     cleaned_bindings.append({"locationPath": loc, "name": name})
 
-                if self.power_supply_controller is not None and cleaned_bindings != self.configuration.get("ch341PortBindings", []):
+                if self.power_supply_controller is not None and cleaned_bindings != candidate.get("ch341PortBindings", []):
                     raise ValueError("请先断开电源，再修改端口绑定或切换工位")
                 params["ch341PortBindings"] = cleaned_bindings
 
             if "ch341SelectedLocationPath" in params:
                 selected_loc = str(params["ch341SelectedLocationPath"]).strip()
-                if self.power_supply_controller is not None and selected_loc != self.configuration.get("ch341SelectedLocationPath", ""):
+                if self.power_supply_controller is not None and selected_loc != candidate.get("ch341SelectedLocationPath", ""):
                     raise ValueError("请先断开电源，再切换设备通道")
                 params["ch341SelectedLocationPath"] = selected_loc
 
@@ -423,37 +428,79 @@ class StationRuntime(StationAutomaticMixin):
 
             for key in DEFAULT_CONFIGURATION:
                 if key in params:
-                    self.configuration[key] = params[key]
+                    candidate[key] = params[key]
             if selected_script_id == AGING_TEST_SCRIPT_ID:
-                _apply_aging_script_configuration(self.configuration)
+                _apply_aging_script_configuration(candidate)
 
             if "powerMeterResource" in params or "powerMeterDriverKind" in params:
                 _normalize_power_meter_configuration(
-                    self.configuration,
+                    candidate,
                     self.backend.power_meter_options,
                 )
 
-            if self.power_meter_reader is not None:
-                self.power_meter_reader.update_stability_settings(
-                    float(self.configuration["stableWindowS"]),
-                    float(self.configuration["stabilityLimitPercent"]),
-                )
-
             if "spectrometerResource" in params:
-                resource_str = str(self.configuration.get("spectrometerResource", "")).strip()
+                resource_str = str(candidate.get("spectrometerResource", "")).strip()
                 match = re.search(r"(?:设备\s*ID|ID|Device\s*ID)\s*[:：]?\s*(\d+)", resource_str, re.IGNORECASE)
                 if match:
-                    self.configuration["spectrometerDeviceId"] = int(match.group(1))
+                    candidate["spectrometerDeviceId"] = int(match.group(1))
                 elif not resource_str:
-                    self.configuration["spectrometerDeviceId"] = None
+                    candidate["spectrometerDeviceId"] = None
 
-            mode = str(self.configuration["currentPlanMode"]).lower()
+            mode = str(candidate["currentPlanMode"]).lower()
             if mode not in {"range", "custom"}:
                 raise ValueError("currentPlanMode must be range or custom")
-            points = self.configuration["customCurrentPoints"]
+            points = candidate["customCurrentPoints"]
             if not isinstance(points, list):
                 raise ValueError("customCurrentPoints must be a list")
+            candidate["powerSupplyKind"] = kind
+            candidate["currentPlanMode"] = mode
+            self._validate_configuration(candidate)
+            if self.power_meter_reader is not None:
+                self.power_meter_reader.update_stability_settings(
+                    candidate["stableWindowS"], candidate["stabilityLimitPercent"],
+                )
+            self.configuration = candidate
             self.power_supply_kind = kind
+
+    @staticmethod
+    def _validate_configuration(candidate: dict[str, Any]) -> None:
+        positive = {
+            "powerMeterWavelengthNm", "softwareGain", "powerMeterIntervalMs", "integrationTimeUs",
+            "spectrometerIntervalMs", "spectrumAverageFrames", "pibCenterWavelengthNm", "pibHalfRangeNm",
+            "centerWavelengthSpecNm", "stableWindowS", "currentStepA", "pointTimeoutS", "rampDownStepA",
+        }
+        current_fields = {"setCurrentA", "initialCurrentA", "targetCurrentA", "currentStepA", "rampDownStepA"}
+        for key, default in DEFAULT_CONFIGURATION.items():
+            if isinstance(default, bool):
+                if not isinstance(candidate[key], bool):
+                    raise ValueError(f"{key} 必须是 JSON 布尔值")
+            elif isinstance(default, (int, float)):
+                maximum = 100.0 if key == "pibMinimumPercent" else (
+                    20.0 if candidate["powerSupplyKind"] == "ch341" and key in current_fields else None
+                )
+                value = finite_number(candidate[key], key, maximum=maximum)
+                if key in positive and value <= 0:
+                    raise ValueError(f"{key} 必须大于 0")
+                if isinstance(default, int):
+                    if not value.is_integer():
+                        raise ValueError(f"{key} 必须是整数")
+                    value = int(value)
+                candidate[key] = value
+        device_id = candidate.get("spectrometerDeviceId")
+        if device_id is not None:
+            value = finite_number(device_id, "spectrometerDeviceId")
+            if not value.is_integer():
+                raise ValueError("spectrometerDeviceId 必须是整数")
+            candidate["spectrometerDeviceId"] = int(value)
+        cleaned_points = []
+        for point in candidate["customCurrentPoints"]:
+            if not isinstance(point, dict):
+                raise ValueError("自定义电流点必须是对象")
+            cleaned_points.append({
+                "currentA": finite_number(point.get("currentA"), "currentA", maximum=20 if candidate["powerSupplyKind"] == "ch341" else None),
+                "dwellS": finite_number(point.get("dwellS", 0), "dwellS"),
+            })
+        candidate["customCurrentPoints"] = cleaned_points
 
     def connect_power_supply(self) -> None:
         with self._lock:
@@ -547,7 +594,8 @@ class StationRuntime(StationAutomaticMixin):
             self.notify("info", "电源连接", f"CH341 Device {target_index} 已连接")
 
     def disconnect_power_supply(self) -> None:
-        with self._lock:
+        # All shutdown paths acquire the ramp lock before station or I/O locks.
+        with self.command_safety.stopping(), self._safe_ramp_lock, self._lock:
             if self.power_supply_controller is None:
                 return
             if self.power_supply_kind == "ch341" and self.power_supply_identity_error:
@@ -571,6 +619,8 @@ class StationRuntime(StationAutomaticMixin):
                 return
             supply = self._require_power_supply()
             measured_current_a: float | None = None
+            if self.power_supply_kind == "ch341" and self.active_current_a and abs(self.active_current_a) > 0.01:
+                self.safe_ramp_down()
             with self._supply_io_lock:
                 if self.power_supply_kind == "tdk":
                     # The cached output flag starts false after connecting and
@@ -586,8 +636,6 @@ class StationRuntime(StationAutomaticMixin):
                         )
                     self.active_current_a = 0.0
                     self.configuration["setCurrentA"] = 0.0
-                elif self.active_current_a and abs(self.active_current_a) > 0.01:
-                    self.safe_ramp_down()
                 ControllerPowerSupply(self.power_supply_controller).disconnect()
             self.power_supply_controller = None
             self.connected_ch341_port = None
@@ -611,8 +659,8 @@ class StationRuntime(StationAutomaticMixin):
             self.notify("info", "电源断开", "电源控制器已安全断开")
 
     def set_current(self, params: dict[str, Any], *, wait_for_slot: bool = False) -> None:
-        with self._lock:
-            current_a = float(params["currentA"])
+        with self.command_safety.command(), self._lock:
+            current_a = finite_number(params.get("currentA"), "电流")
             if current_a < 0.0:
                 raise ValueError("电流设定值不能为负数")
             if self.power_supply_kind == "ch341" and current_a > 20.0:
@@ -620,6 +668,8 @@ class StationRuntime(StationAutomaticMixin):
             supply = self._require_power_supply()
             with self._supply_io_lock:
                 self._reserve_power_supply_command(wait=wait_for_slot)
+                self.command_safety.check()
+                self._clear_shutdown_result()
                 supply.set_current(current_a)
             self.active_current_a = current_a
             self.configuration["setCurrentA"] = current_a
@@ -636,21 +686,28 @@ class StationRuntime(StationAutomaticMixin):
                 )
 
     def set_voltage(self, params: dict[str, Any]) -> None:
-        with self._lock:
-            voltage_v = float(params["voltageV"])
+        with self.command_safety.command(), self._lock:
+            voltage_v = finite_number(params.get("voltageV"), "电压")
             if self.power_supply_kind != "tdk":
                 raise ValueError("仅 TDK 电源支持设置电压")
             supply = self._require_power_supply()
             with self._supply_io_lock:
+                self.command_safety.check()
+                self._clear_shutdown_result()
                 supply.set_voltage(voltage_v)
             self.configuration["tdkVoltageV"] = voltage_v
 
     def set_output(self, params: dict[str, Any]) -> None:
-        with self._lock:
-            enabled = bool(params.get("enabled", False))
+        guard = self.command_safety.command() if params.get("enabled", False) is not False else nullcontext()
+        with guard, self._lock:
+            enabled = params.get("enabled")
+            if not isinstance(enabled, bool):
+                raise ValueError("enabled 必须是 JSON 布尔值")
             supply = self._require_power_supply()
             measured_current_a: float | None = None
             with self._supply_io_lock:
+                if enabled:
+                    self.command_safety.check()
                 if enabled and self.power_supply_kind == "tdk":
                     supply.set_current(0.0)
                     self.active_current_a = 0.0
@@ -662,6 +719,9 @@ class StationRuntime(StationAutomaticMixin):
                             "开启输出已取消：TDK 电流未归零，"
                             f"当前实测 {measured_current_a:.3f} A"
                         )
+                if enabled:
+                    self.command_safety.check()
+                    self._clear_shutdown_result()
                 supply.set_output_enabled(enabled)
                 if not enabled and self.power_supply_kind == "tdk":
                     measured_current_a = float(supply.read_output_current())
@@ -1060,7 +1120,9 @@ class StationRuntime(StationAutomaticMixin):
         resource = str(self.configuration.get("powerMeterResource", "")).strip()
         if not resource:
             raise ValueError("请先选择功率计资源")
-        enabled = bool(params.get("enabled", False))
+        enabled = params.get("enabled")
+        if not isinstance(enabled, bool):
+            raise ValueError("enabled 必须是 JSON 布尔值")
         driver_kind = str(self.configuration.get("powerMeterDriverKind", "caihuang")).lower()
         if driver_kind == "ophir":
             raise RuntimeError("Ophir 不支持当前的相对调零指令")

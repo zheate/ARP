@@ -18,6 +18,7 @@ license.json
 
 # Runtime measurement data kept local only.
 pd_data/
+**/.arp-reservations/
 
 # Hardware/vendor drivers kept local only.
 local_drivers/

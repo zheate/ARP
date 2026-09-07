@@ -19,6 +19,32 @@ The bridge being connected never means a physical device is connected. Every dev
 
 Requests are dispatched by ownership. `app.stopAll`, `app.shutdown`, and `automatic.end` use a dedicated safety executor. Report inspection, preview, and generation use a report executor. Ordinary commands remain serialized separately, so a report or device operation cannot keep an emergency request in the normal command queue.
 
+The Python reader captures a per-station command generation before queuing each
+request. Emergency stops invalidate earlier generations immediately. Dangerous
+commands submitted before or during a stop are rejected even if their queue
+entry executes after shutdown finishes; the operator may then submit a new
+command. Current, voltage and output-on operations recheck the generation after
+acquiring the hardware I/O lock. Automatic worker start/reset is a short atomic
+state transition; it cannot clear a newer emergency-stop signal. Physical
+shutdown and disconnect always acquire the ramp lock before the station/I/O
+locks. Potentially energizing commands clear the previous shutdown confirmation
+before touching the device, including when the device command later fails.
+
+Boolean parameters must be JSON booleans and numeric parameters must be finite
+JSON numbers within the existing device limits. Invalid configuration requests
+are validated on a candidate copy and do not partially update station settings.
+
+New sessions reserve their Excel destinations before export. The existing
+minute-based filename is retained; collisions use `_02`, `_03`, etc. A session
+reuses its reserved destination for retries. `.arp-reservations` contains small
+session ownership markers that must survive pending/failed exports and restarts;
+these are not workbooks and are excluded from Git. User-entered Excel text is
+always stored as text, never implicitly converted to a formula.
+
+PD point histories are copied only for PD/full views with changed revisions.
+Runtime-only commands such as chart reset and readback do not persist settings;
+changed configuration values are written together in one atomic replacement.
+
 ## Methods
 
 - Application: `system.ping`, `app.snapshot`, `app.configure`, `app.stopAll`, `app.shutdown`

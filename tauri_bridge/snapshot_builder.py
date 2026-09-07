@@ -111,16 +111,19 @@ class SnapshotBuilder:
         )
         spectrometer_resources = shared["spectrometer_resources"]
 
-        with active_st._pd_lock:
-            pd_state = {
-                key: (list(value) if key == "points" else dict(value) if key == "settings" else list(value) if isinstance(value, list) else value)
-                for key, value in active_st.pd_state.items()
-            }
-            pd_revision = active_st.series_revisions["pd"]
-        status_message = active_st.status_message or status_message
-
         include_live = view in {"automatic", "automatic_1", "automatic_2", "manual", "manual_1", "manual_2", "full"}
         include_pd = view in {"pd", "pd_1", "pd_2", "full"}
+        raw_since = params.get("since")
+        since_revisions = raw_since if isinstance(raw_since, dict) else None
+        with active_st._pd_lock:
+            pd_revision = active_st.series_revisions["pd"]
+            pd_state = {
+                key: (dict(value) if key == "settings" else list(value) if isinstance(value, list) else value)
+                for key, value in active_st.pd_state.items() if key != "points"
+            }
+            if include_pd and (since_revisions is None or since_revisions.get("pd") != pd_revision):
+                pd_state["points"] = list(active_st.pd_state["points"])
+        status_message = active_st.status_message or status_message
 
         supply = active_st._power_supply()
         frame = active_st.latest_spectrum
@@ -215,7 +218,7 @@ class SnapshotBuilder:
 
         pd_snapshot = {key: value for key, value in pd_state.items() if key != "points"}
         if include_series("pd", include_pd):
-            pd_points = list(pd_state["points"])
+            pd_points = pd_state["points"]
             pd_patch = append_patch("pd", pd_points, "elapsedS")
             if pd_patch is None:
                 pd_snapshot["points"] = pd_points

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import copy
 import os
 import threading
 from pathlib import Path
@@ -92,7 +93,7 @@ class JsonSettings:
 
     def get(self, key: str, default: Any = None, value_type: type[Any] | None = None) -> Any:
         with self._lock:
-            value = self._values.get(str(key), default)
+            value = copy.deepcopy(self._values.get(str(key), default))
         if value_type is None or value is None:
             return value
         if value_type is bool and isinstance(value, str):
@@ -103,9 +104,20 @@ class JsonSettings:
             return default
 
     def set(self, key: str, value: Any) -> None:
+        self.update({str(key): value})
+
+    def update(self, values: dict[str, Any]) -> None:
         with self._lock:
-            self._values[str(key)] = value
-            self.flush()
+            candidate = {**self._values, **copy.deepcopy(values)}
+            if candidate == self._values:
+                return
+            previous = self._values
+            self._values = candidate
+            try:
+                self.flush()
+            except Exception:
+                self._values = previous
+                raise
 
     def delete(self, key: str) -> None:
         with self._lock:

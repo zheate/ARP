@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+from contextlib import ExitStack
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -22,6 +23,7 @@ from combined_test.models import (
 from combined_test.runtime_logging import get_runtime_logger
 
 from .backend_dispatch import BackendDispatcher
+from .command_safety import finite_number
 from .device_discovery import DeviceDiscoveryService
 from .export_queue import ExportQueueWorker
 from .settings import JsonSettings
@@ -351,18 +353,20 @@ class HeadlessBackend:
             configuration["ch341PortBindings"] = []
             return configuration
 
-        self.settings.set("runtime/configuration", persistent_configuration(self.stations["1"]))
-        self.settings.set(
-            "runtime/stations",
-            {sid: persistent_configuration(st) for sid, st in self.stations.items()},
-        )
-        self.settings.set("runtime/deviceProfiles", self.device_profiles)
+        self.settings.update({
+            "runtime/configuration": persistent_configuration(self.stations["1"]),
+            "runtime/stations": {sid: persistent_configuration(st) for sid, st in self.stations.items()},
+            "runtime/deviceProfiles": self.device_profiles,
+        })
 
     def ping(self) -> dict[str, Any]:
         return {"status": "ok", "mode": self.mode}
 
-    def dispatch(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
-        return self.dispatcher.dispatch(method, params)
+    def capture_command_generations(self) -> dict[str, int]:
+        return {sid: st.command_safety.capture() for sid, st in self.stations.items()}
+
+    def dispatch(self, method: str, params: dict[str, Any], *, command_generations: dict[str, int] | None = None) -> dict[str, Any]:
+        return self.dispatcher.dispatch(method, params, command_generations=command_generations)
 
     def dispatch_file_task(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         return self.dispatcher.dispatch_file_task(method, params)
@@ -433,9 +437,29 @@ class HeadlessBackend:
 
     def _configure_pd(self, station: StationRuntime, params: dict[str, Any]) -> None:
         with station._pd_lock:
-            for key in station.pd_state["settings"]:
-                if key in params:
-                    station.pd_state["settings"][key] = params[key]
+            candidate = {
+                key: params.get(key, value)
+                for key, value in station.pd_state["settings"].items()
+            }
+            for key in ("range", "sampleRateHz", "blockSize", "scale", "offset"):
+                candidate[key] = finite_number(
+                    candidate[key], key, minimum=float("-inf") if key in {"scale", "offset"} else 0,
+                )
+            if not candidate["blockSize"].is_integer():
+                raise ValueError("blockSize 必须是整数")
+            candidate["blockSize"] = int(candidate["blockSize"])
+            if not isinstance(candidate["save"], bool):
+                raise ValueError("save 必须是 JSON 布尔值")
+            from tools.pd_daq_mvp import PdDaqSettings
+            selected = next((device for device in station._pd_devices if candidate["device"] in {device.name, device.label()}), None)
+            PdDaqSettings(
+                channel=str(candidate["channel"]) or "unselected",
+                terminal_mode=str(candidate["terminal"]),
+                voltage_range_v=candidate["range"], sample_rate_hz=candidate["sampleRateHz"],
+                block_size=candidate["blockSize"], scale=candidate["scale"], offset=candidate["offset"],
+                unit=str(candidate["unit"]),
+            ).validate(None if selected is None else selected.max_single_channel_rate_hz)
+            station.pd_state["settings"] = candidate
 
     def _start_pd(self, station: StationRuntime, params: dict[str, Any]) -> None:
         self._configure_pd(station, params)
@@ -545,6 +569,12 @@ class HeadlessBackend:
             station.pd_state["status"] = "已停止"
 
     def _stop_all(self) -> None:
+        with ExitStack() as guards:
+            for station in self.stations.values():
+                guards.enter_context(station.command_safety.stopping())
+            self._stop_all_impl()
+
+    def _stop_all_impl(self) -> None:
         errors: list[str] = []
         stations = tuple(self.stations.values())
         for st in stations:

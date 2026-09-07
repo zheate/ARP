@@ -132,11 +132,15 @@ class StationAutomaticMixin:
             if current is not None and current.is_alive():
                 return
 
+            self.command_safety.begin_stop()
+
             def run() -> None:
                 try:
                     self.safe_ramp_down()
                 except Exception as exc:
                     self.notify("error", "安全下电失败", f"{reason}：{exc}")
+                finally:
+                    self.command_safety.end_stop()
 
             self._emergency_ramp_thread = threading.Thread(
                 target=run,
@@ -628,6 +632,10 @@ class StationAutomaticMixin:
         return str(self.configuration.get("selectedScriptId", "standard")) == AGING_TEST_SCRIPT_ID
 
     def start_automatic(self, params: dict[str, Any]) -> None:
+        with self.command_safety.command():
+            self._start_automatic_impl(params)
+
+    def _start_automatic_impl(self, params: dict[str, Any]) -> None:
         if self._automatic_thread is not None and self._automatic_thread.is_alive():
             raise ValueError(f"工位 {self.station_id} 自动测试已在运行")
         self.configure(params)
@@ -647,8 +655,6 @@ class StationAutomaticMixin:
         self.automatic_terminal_outcome = None
         self.automatic_terminal_reason = ""
         self._clear_shutdown_result()
-        self._automatic_stop.clear()
-        self._automatic_resume.set()
         self.power_drop_protection.reset()
         self.wavelength_stability_detector = WavelengthStabilityDetector(
             automatic_stability_window_s(
@@ -714,12 +720,26 @@ class StationAutomaticMixin:
             self.export_status = "failed"
             self.export_error = str(exc)
             raise
-        self._automatic_thread = threading.Thread(
-            target=self._run_automatic,
-            name=f"automatic-test-station-{self.station_id}",
-            daemon=True,
-        )
-        self._automatic_thread.start()
+        # Starting the worker and resetting its stop event are one short
+        # transition. An emergency invalidates this request before signaling
+        # the stop event, so an old start cannot clear that signal afterwards.
+        try:
+            with self.command_safety.commit():
+                self._automatic_command_generation = self.command_safety.token()
+                self._automatic_stop.clear()
+                self._automatic_resume.set()
+                self._automatic_thread = threading.Thread(
+                    target=self._run_automatic,
+                    name=f"automatic-test-station-{self.station_id}",
+                    daemon=True,
+                )
+                self._automatic_thread.start()
+        except Exception:
+            self._automatic_stop.set()
+            self.automatic.complete()
+            self.automatic_detail = "启动已取消，请等待安全停止完成"
+            self._close_automatic_sample_recorder()
+            raise
 
     def _begin_automatic_measurement_window(
         self,
@@ -880,6 +900,11 @@ class StationAutomaticMixin:
         )
 
     def _set_automatic_current(self, current_a: float) -> None:
+        generation = getattr(self, "_automatic_command_generation", self.command_safety.token())
+        with self.command_safety.command(generation):
+            self._set_automatic_current_impl(current_a)
+
+    def _set_automatic_current_impl(self, current_a: float) -> None:
         try:
             self.set_current({"currentA": current_a}, wait_for_slot=True)
         except Exception:
@@ -1260,7 +1285,7 @@ class StationAutomaticMixin:
             self._clear_automatic_pause()
 
     def safe_ramp_down(self) -> None:
-        with self._safe_ramp_lock:
+        with self.command_safety.stopping(), self._safe_ramp_lock:
             self._shutdown_measurement_candidate = None
             try:
                 with self._supply_io_lock:
@@ -1391,7 +1416,11 @@ class StationAutomaticMixin:
             raise ValueError(f"当前暂停状态不允许执行：{action_name}")
         values = params or {}
         if action_name == "adjust_spectrum":
-            integration_time_us = int(values.get("integrationTimeUs", 0))
+            from .command_safety import finite_number
+            integration_time_us = finite_number(values.get("integrationTimeUs", 0), "integrationTimeUs")
+            if not integration_time_us.is_integer():
+                raise ValueError("积分时间必须是整数")
+            integration_time_us = int(integration_time_us)
             if integration_time_us <= 0:
                 raise ValueError("积分时间必须大于 0 μs")
             self.configuration["autoIntegration"] = False
@@ -1428,9 +1457,11 @@ class StationAutomaticMixin:
         self._automatic_pause_holds_current = False
         self._automatic_pause_generation += 1
         self._clear_automatic_pause()
+        self._automatic_command_generation = self.command_safety.token()
         self._automatic_resume.set()
 
     def request_emergency_stop(self, reason: str = "操作者提前结束测试") -> None:
+        self.command_safety.invalidate()
         if self._automatic_thread is not None and self._automatic_thread.is_alive():
             if not self.automatic_terminal_reason:
                 self.automatic_terminal_reason = reason
@@ -1439,6 +1470,10 @@ class StationAutomaticMixin:
         self._start_emergency_ramp_down(reason)
 
     def end_automatic(self) -> None:
+        with self.command_safety.stopping():
+            self._end_automatic_impl()
+
+    def _end_automatic_impl(self) -> None:
         self.request_emergency_stop()
         thread = self._automatic_thread
         if thread is not None:

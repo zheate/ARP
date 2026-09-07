@@ -47,12 +47,13 @@ class BridgeService:
         *,
         queued_at_monotonic: float | None = None,
         file_task: bool = False,
+        command_generations: dict[str, int] | None = None,
     ) -> dict[str, Any]:
         started_at = time.perf_counter()
         request_id = ""
         method: Any = ""
         try:
-            return self._handle_line(line, file_task=file_task)
+            return self._handle_line(line, file_task=file_task, command_generations=command_generations)
         finally:
             try:
                 request = json.loads(line)
@@ -74,7 +75,7 @@ class BridgeService:
                     "file" if file_task else "main",
                 )
 
-    def _handle_line(self, line: str, *, file_task: bool = False) -> dict[str, Any]:
+    def _handle_line(self, line: str, *, file_task: bool = False, command_generations: dict[str, int] | None = None) -> dict[str, Any]:
         try:
             request = json.loads(line)
         except json.JSONDecodeError:
@@ -148,6 +149,8 @@ class BridgeService:
                 _LOGGER.info("前端命令开始 | id=%s | method=%s | params=%r", request_id, method, params)
                 if file_task:
                     result = self.backend.dispatch_file_task(str(method), params)
+                elif command_generations is not None:
+                    result = self.backend.dispatch(str(method), params, command_generations=command_generations)
                 else:
                     result = self.backend.dispatch(str(method), params)
                 _LOGGER.info("前端命令完成 | id=%s | method=%s", request_id, method)

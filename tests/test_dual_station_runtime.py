@@ -379,10 +379,10 @@ class DualStationRuntimeTests(unittest.TestCase):
         with patch("tauri_bridge.station_automatic.datetime") as mock_datetime:
             mock_datetime.now.return_value = datetime(2026, 8, 18, 12, 34, 0)
             first_path = station_one._begin_recording_session(settings)
-            with self.assertRaisesRegex(RuntimeError, "测试文件路径相同"):
-                station_two._begin_recording_session(settings)
+            second_path = station_two._begin_recording_session(settings)
 
-        self.assertEqual(first_path, station_two.record_store.workbook_path)
+        self.assertNotEqual(first_path, second_path)
+        self.assertEqual(second_path.stem, first_path.stem + "_02")
 
     def test_secondary_station_does_not_claim_default_hardware_resources(self) -> None:
         station_one = self.backend.stations["1"].configuration

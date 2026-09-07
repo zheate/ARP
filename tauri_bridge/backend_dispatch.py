@@ -17,7 +17,20 @@ class BackendDispatcher:
     def __init__(self, backend: Any) -> None:
         self._backend = backend
 
-    def dispatch(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+    def dispatch(self, method: str, params: dict[str, Any], *, command_generations: dict[str, int] | None = None) -> dict[str, Any]:
+        st = self._backend._station(self._backend._station_id_from_params(params))
+        guarded = method in {
+            "app.configure", "powerSupply.connect", "powerSupply.setCurrent", "powerSupply.setVoltage",
+            "automatic.start", "automatic.resume", "automatic.retryPoint", "automatic.recoverPowerMeter",
+            "automatic.recoverSpectrometer", "automatic.adjustSpectrum", "automatic.retryPersist",
+        } or (method == "powerSupply.setOutput" and params.get("enabled", False) is not False)
+        if guarded:
+            generation = None if command_generations is None else command_generations.get(st.station_id, -1)
+            with st.command_safety.command(generation):
+                return self._dispatch(method, params)
+        return self._dispatch(method, params)
+
+    def _dispatch(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         backend = self._backend
         station_id = backend._station_id_from_params(params)
         st = backend._station(station_id)
@@ -71,11 +84,12 @@ class BackendDispatcher:
         if action is None:
             raise KeyError(method)
         result = action(params)
-        if method not in {
-            "automatic.end",
-            "app.stopAll",
-            "app.shutdown",
-            *BACKGROUND_FILE_TASK_METHODS,
+        if method in {
+            "app.configure", "device.refresh", "powerSupply.connect", "powerSupply.disconnect",
+            "powerSupply.setCurrent", "powerSupply.setVoltage", "powerSupply.setOutput",
+            "powerMeter.start", "spectrometer.start", "automatic.start", "automatic.nextDevice",
+            "automatic.resume", "automatic.retryPoint", "automatic.recoverPowerMeter",
+            "automatic.recoverSpectrometer", "automatic.adjustSpectrum", "pd.configure",
         }:
             backend._persist_configuration()
         return backend.snapshot(params) if result is None else result
