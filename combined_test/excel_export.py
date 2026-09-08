@@ -9,6 +9,7 @@ import re
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -47,6 +48,7 @@ SECOND_SAMPLE_HEADERS = (
     "PIB",
 )
 _DATA_HEADER_COLOR = "#D9EAF7"
+_SPECTRUM_SAMPLES_PER_SHEET = 16_384 // 2
 
 
 @dataclass(frozen=True)
@@ -289,6 +291,12 @@ def _current_sheet_prefix(current_a: float) -> str:
     return f"{float(current_a):.12g}A"
 
 
+def _spectrum_current_label(current_a: float) -> str:
+    # This header is also the persisted key used to pair spectra with LIV rows.
+    # Preserve the current instead of applying a display-only decimal rounding.
+    return f"{Decimal(str(float(current_a))):f}A"
+
+
 def _create_xlsxwriter_formats(
     workbook: XlsxWriterWorkbook,
 ) -> dict[str, XlsxWriterFormat]:
@@ -311,6 +319,21 @@ def _create_xlsxwriter_formats(
     }
 
 
+def _require_xlsx_write(
+    result: int,
+    sheet: XlsxWriterWorksheet,
+    row: int,
+    column: int,
+) -> None:
+    # XlsxWriter reports cell limits and other write errors as negative return
+    # codes. Let the export fail before replacing a workbook or deleting its CSV.
+    if result != 0:
+        raise RuntimeError(
+            f"Excel 写入失败：{sheet.name} 第 {row + 1} 行第 {column + 1} 列"
+            f"（错误代码 {result}）"
+        )
+
+
 def _write_xlsx_number(
     sheet: XlsxWriterWorksheet,
     row: int,
@@ -320,9 +343,10 @@ def _write_xlsx_number(
 ) -> None:
     number = None if value is None else _finite_or_none(value)
     if number is None:
-        sheet.write_blank(row, column, None, cell_format)
+        result = sheet.write_blank(row, column, None, cell_format)
     else:
-        sheet.write_number(row, column, number, cell_format)
+        result = sheet.write_number(row, column, number, cell_format)
+    _require_xlsx_write(result, sheet, row, column)
 
 
 def _write_xlsx_test_data_sheet(
@@ -356,7 +380,10 @@ def _write_xlsx_test_data_sheet(
     ]
     for spectrum_index, (current, _wavelengths, _intensities) in enumerate(spectra):
         spectrum_column = 9 + spectrum_index * 2
-        sheet.write(1, spectrum_column, f"{current:.1f}A")
+        _require_xlsx_write(
+            sheet.write(1, spectrum_column, _spectrum_current_label(current)),
+            sheet, 1, spectrum_column,
+        )
         sheet.set_column(spectrum_column, spectrum_column + 1, 14)
 
     result_formats = (
@@ -558,7 +585,10 @@ def _write_xlsx_designated_second_sheets(
         for column, width in enumerate((12, 16, 14, 16, 18, 18, 14, 12)):
             summary_sheet.set_column(column, column, width)
         summary_sheet.autofilter(0, 0, len(samples), len(SECOND_SAMPLE_HEADERS) - 1)
-        summary_sheet.write_row(0, 0, SECOND_SAMPLE_HEADERS, formats["data_header"])
+        _require_xlsx_write(
+            summary_sheet.write_row(0, 0, SECOND_SAMPLE_HEADERS, formats["data_header"]),
+            summary_sheet, 0, 0,
+        )
         for row, sample in enumerate(samples, start=1):
             values = (
                 sample["elapsed_second"],
@@ -573,45 +603,63 @@ def _write_xlsx_designated_second_sheets(
             for column, (value, cell_format) in enumerate(zip(values, summary_formats)):
                 _write_xlsx_number(summary_sheet, row, column, value, cell_format)
 
-        spectrum_sheet = workbook.add_worksheet(f"{sheet_prefix}光谱数据")
-        spectrum_sheet.freeze_panes(1, 0)
-        for sample_index, sample in enumerate(samples):
-            wavelength_column = sample_index * 2
-            elapsed_second = sample["elapsed_second"]
-            spectrum_sheet.set_column(wavelength_column, wavelength_column, 16)
-            spectrum_sheet.set_column(wavelength_column + 1, wavelength_column + 1, 18)
-            spectrum_sheet.write(
-                0,
-                wavelength_column,
-                f"{elapsed_second}s波长(nm)",
-                formats["data_header"],
+        for offset in range(0, len(samples), _SPECTRUM_SAMPLES_PER_SHEET):
+            page = offset // _SPECTRUM_SAMPLES_PER_SHEET + 1
+            suffix = "" if page == 1 else f"_{page}"
+            _write_xlsx_second_spectrum_sheet(
+                workbook,
+                formats,
+                f"{sheet_prefix}光谱数据{suffix}",
+                samples[offset:offset + _SPECTRUM_SAMPLES_PER_SHEET],
             )
+
+
+def _write_xlsx_second_spectrum_sheet(
+    workbook: XlsxWriterWorkbook,
+    formats: dict[str, XlsxWriterFormat],
+    sheet_name: str,
+    samples: list[dict[str, Any]],
+) -> None:
+    spectrum_sheet = workbook.add_worksheet(sheet_name)
+    spectrum_sheet.freeze_panes(1, 0)
+    for sample_index, sample in enumerate(samples):
+        wavelength_column = sample_index * 2
+        elapsed_second = sample["elapsed_second"]
+        spectrum_sheet.set_column(wavelength_column, wavelength_column, 16)
+        spectrum_sheet.set_column(wavelength_column + 1, wavelength_column + 1, 18)
+        _require_xlsx_write(
             spectrum_sheet.write(
-                0,
-                wavelength_column + 1,
-                f"{elapsed_second}s强度(counts)",
-                formats["data_header"],
-            )
-        maximum_spectrum_points = max(
-            (len(sample["wavelengths_nm"]) for sample in samples),
-            default=0,
+                0, wavelength_column, f"{elapsed_second}s波长(nm)", formats["data_header"],
+            ),
+            spectrum_sheet, 0, wavelength_column,
         )
-        for point_index in range(maximum_spectrum_points):
-            row = point_index + 1
-            row_values: list[Any] = []
-            for sample in samples:
-                wavelengths = sample["wavelengths_nm"]
-                if point_index < len(wavelengths):
-                    row_values.append(round(float(wavelengths[point_index]), 3))
-                    row_values.append(round(float(sample["intensities"][point_index]), 3))
-                else:
-                    row_values.append(None)
-                    row_values.append(None)
-            # One batched row across every sample's wavelength/intensity
-            # column pair. xlsxwriter 3.x applies a single format per row;
-            # None cells become number_3 blanks instead of being skipped,
-            # which is visually identical and keeps column alignment.
-            spectrum_sheet.write_row(row, 0, row_values, formats["number_3"])
+        _require_xlsx_write(
+            spectrum_sheet.write(
+                0, wavelength_column + 1, f"{elapsed_second}s强度(counts)", formats["data_header"],
+            ),
+            spectrum_sheet, 0, wavelength_column + 1,
+        )
+    maximum_spectrum_points = max(
+        (len(sample["wavelengths_nm"]) for sample in samples),
+        default=0,
+    )
+    for point_index in range(maximum_spectrum_points):
+        row = point_index + 1
+        row_values: list[Any] = []
+        for sample in samples:
+            wavelengths = sample["wavelengths_nm"]
+            if point_index < len(wavelengths):
+                row_values.append(round(float(wavelengths[point_index]), 3))
+                row_values.append(round(float(sample["intensities"][point_index]), 3))
+            else:
+                row_values.append(None)
+                row_values.append(None)
+        # One batched row across every sample's wavelength/intensity
+        # column pair. None cells retain the number format and column alignment.
+        _require_xlsx_write(
+            spectrum_sheet.write_row(row, 0, row_values, formats["number_3"]),
+            spectrum_sheet, row, 0,
+        )
 
 
 def _discard_xlsxwriter_workbook(
@@ -785,7 +833,7 @@ def append_test_record(path: Path, record: ExcelTestRecord) -> None:
     sheet["J1"] = "光谱"
     for spectrum_index, current in enumerate(sorted(spectra_by_current)):
         spectrum_column = 10 + spectrum_index * 2
-        sheet.cell(row=2, column=spectrum_column, value=f"{current:.1f}A")
+        sheet.cell(row=2, column=spectrum_column, value=_spectrum_current_label(current))
         sheet.column_dimensions[sheet.cell(row=1, column=spectrum_column).column_letter].width = 14
         sheet.column_dimensions[sheet.cell(row=1, column=spectrum_column + 1).column_letter].width = 14
         for spectrum_row, (wavelength_nm, intensity) in enumerate(spectra_by_current[current], start=3):

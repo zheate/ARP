@@ -3,6 +3,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+from combined_test.devices import PowerMeterReaderThread
+from combined_test.models import PowerMeterSettings
 from tools import power_meter_mvp
 from tools.power_meter_mvp import OphirPowerMeter
 
@@ -23,7 +25,99 @@ class _DelayedOphirController:
         return (self.value,), (123.0,), (0,)
 
 
+class _SampleClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, duration: float) -> None:
+        self.now += duration
+
+
+class _InterruptedOphirController:
+    def __init__(self, clock: _SampleClock, resumes_at: float | None = None) -> None:
+        self.clock = clock
+        self.resumes_at = resumes_at
+        self.sent_first = False
+
+    def StartStream(self, _handle: int, _channel: int) -> None:
+        return None
+
+    def GetData(self, _handle: int, _channel: int):
+        if not self.sent_first:
+            self.sent_first = True
+            return (1.0,), (0.0,), (0,)
+        if self.resumes_at is not None and self.clock.now >= self.resumes_at:
+            return (2.0,), (self.clock.now,), (0,)
+        return (), (), ()
+
+
 class OphirPowerMeterReadTests(unittest.TestCase):
+    @staticmethod
+    def _meter(controller) -> OphirPowerMeter:
+        meter = OphirPowerMeter.__new__(OphirPowerMeter)
+        meter.controller = controller
+        meter.handle = 1000
+        meter.channel = 0
+        meter._stream_started = False
+        return meter
+
+    def test_missing_new_samples_raise_instead_of_replaying_previous_power(self) -> None:
+        clock = _SampleClock()
+        meter = self._meter(_InterruptedOphirController(clock))
+        with (
+            patch("tools.power_meter_mvp.time.monotonic", clock.monotonic),
+            patch("tools.power_meter_mvp.time.sleep", clock.sleep),
+        ):
+            self.assertEqual(meter.read_power_w(), 1.0)
+            with self.assertRaisesRegex(RuntimeError, "未返回.*测量数据"):
+                meter.read_power_w()
+
+    def test_next_sample_can_arrive_after_a_half_second_gap(self) -> None:
+        clock = _SampleClock()
+        meter = self._meter(_InterruptedOphirController(clock, resumes_at=0.8))
+        with (
+            patch("tools.power_meter_mvp.time.monotonic", clock.monotonic),
+            patch("tools.power_meter_mvp.time.sleep", clock.sleep),
+        ):
+            self.assertEqual(meter.read_power_w(), 1.0)
+            self.assertEqual(meter.read_power_w(), 2.0)
+        self.assertGreaterEqual(clock.now, 0.8)
+
+    def test_acquisition_reports_stream_loss_without_publishing_cached_samples(self) -> None:
+        clock = _SampleClock()
+        meter = self._meter(_InterruptedOphirController(clock))
+        reader = PowerMeterReaderThread(
+            PowerMeterSettings("OPHIR::USB::TEST", 976.0, 1.0, 0, 3.0, 0.2, "ophir")
+        )
+        readings = []
+        errors = []
+
+        def capture(reading) -> None:
+            readings.append(reading)
+            # Bound the old buggy implementation, which republishes indefinitely.
+            if len(readings) > 1:
+                reader.stop()
+
+        reader.reading.connect(capture)
+        reader.failed.connect(errors.append)
+        with (
+            patch.object(power_meter_mvp, "OphirPowerMeter", return_value=meter),
+            patch.object(meter, "test", return_value="OK"),
+            patch.object(meter, "set_wavelength"),
+            patch.object(meter, "close") as close,
+            patch("tools.power_meter_mvp.time.monotonic", clock.monotonic),
+            patch("tools.power_meter_mvp.time.sleep", clock.sleep),
+        ):
+            reader.run()
+        self.assertEqual([reading.power_w for reading in readings], [1.0])
+        self.assertEqual(len(errors), 1)
+        self.assertIn("未返回", errors[0])
+        self.assertFalse(reader.is_ready)
+        close.assert_called_once()
+
     def test_probe_uses_sensor_serial_for_gain_identity(self) -> None:
         class Controller:
             def __init__(self) -> None:
@@ -72,7 +166,6 @@ class OphirPowerMeterReadTests(unittest.TestCase):
         meter.handle = 1000
         meter.channel = 0
         meter._stream_started = False
-        meter._last_power_w = None
 
         monotonic_values = iter(float(index) / 10 for index in range(20))
         with (

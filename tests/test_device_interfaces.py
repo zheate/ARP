@@ -170,6 +170,8 @@ class DeviceInterfaceTests(unittest.TestCase):
         reader = SpectrometerReaderThread(
             SpectrometerSettings(10_000, 50, average_frames=3)
         )
+        readings = []
+        reader.reading.connect(readings.append)
         wait_count = 0
 
         def stop_after_average(_timeout: float) -> bool:
@@ -199,10 +201,52 @@ class DeviceInterfaceTests(unittest.TestCase):
         self.assertEqual((latest_frame.wavelength, latest_frame.intensity), expected)
         self.assertIsNotNone(latest_frame.stats)
         self.assertEqual(analyzed, [expected])
+        self.assertEqual(len(readings), 1)
         self.assertIsNotNone(latest_frame.saturation)
         self.assertFalse(latest_frame.saturation.saturated)
         self.assertEqual(latest_frame.peak_intensity, 60.0)
         self.assertTrue(math.isnan(latest_frame.pib))
+
+    def test_averaged_spectrum_retains_raw_saturation_until_frame_leaves_window(self) -> None:
+        reader = SpectrometerReaderThread(SpectrometerSettings(10_000, 50, average_frames=3))
+        reader.full_scale_counts = 100.0
+        wavelength = [974.0, 975.0, 976.0, 977.0, 978.0]
+        clean = [0.0, 20.0, 30.0, 20.0, 0.0]
+        clipped = [0.0, 100.0, 100.0, 100.0, 0.0]
+        published = []
+        reader.reading.connect(lambda _reading: published.append(reader.take_latest_spectrum()))
+
+        for intensity in (clean, clipped, clean, clean, clean):
+            reader._publish_averaged_spectrum(wavelength, intensity)
+
+        self.assertEqual(len(published), 3)
+        self.assertEqual([frame.saturation.saturated for frame in published], [True, True, False])
+        for frame in published[:2]:
+            self.assertLess(frame.peak_intensity, reader.full_scale_counts * 0.995)
+            self.assertEqual(frame.saturation.peak_intensity, 100.0)
+            self.assertEqual(frame.saturation.consecutive_pixels, 3)
+            self.assertTrue(math.isnan(frame.pib))
+            self.assertIsNone(frame.smsr)
+        self.assertTrue(math.isfinite(published[-1].pib))
+        self.assertIsNotNone(published[-1].smsr)
+
+    def test_averaged_saturation_clears_with_grid_or_integration_window_reset(self) -> None:
+        for reset_kind in ("grid", "integration"):
+            with self.subTest(reset=reset_kind):
+                reader = SpectrometerReaderThread(SpectrometerSettings(10_000, 50, average_frames=2))
+                reader.full_scale_counts = 100.0
+                wavelength = [975.0, 976.0, 977.0]
+                reader._publish_averaged_spectrum(wavelength, [100.0, 100.0, 100.0])
+                if reset_kind == "grid":
+                    wavelength = [976.0, 977.0, 978.0]
+                else:
+                    reader._spectrum_averager.reset()
+                reader._publish_averaged_spectrum(wavelength, [10.0, 20.0, 10.0])
+                self.assertIsNone(reader.take_latest_spectrum())
+                reader._publish_averaged_spectrum(wavelength, [10.0, 20.0, 10.0])
+                frame = reader.take_latest_spectrum()
+                self.assertIsNotNone(frame)
+                self.assertFalse(frame.saturation.saturated)
 
     def test_analyzed_frame_keeps_pib_for_headless_snapshot(self) -> None:
         reader = SpectrometerReaderThread(

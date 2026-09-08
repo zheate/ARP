@@ -1,6 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core"
 
 import { decodeColumnarSpectrum, mergeSpectrumColumns, type SpectrumColumns, type SpectrumColumnsPatch } from "@/lib/spectrum-columns"
+import { isOlderSeriesRevision, mergeSnapshotSeries } from "@/lib/snapshot-series"
 
 export type BackendMode = "read_only" | "active"
 export type DeviceConnectionState = "disconnected" | "connecting" | "connected" | "error"
@@ -227,6 +228,7 @@ export interface BackendSnapshot {
     mode: BackendMode
     protocolVersion?: number
     pythonVersion: string
+    runtimeId?: string
     runtimeLogPath?: string
     notices?: Notice[]
   }
@@ -346,36 +348,40 @@ export function decodeBackendSnapshotPatch(value: unknown): BackendSnapshotPatch
   return patch
 }
 
-function mergeAppendSeries<T>(
-  previous: T[] | undefined,
-  patch: { startX: number; points: T[] } | undefined,
-  getX: (point: T) => number,
-): T[] | undefined {
-  if (!patch) return previous
-  return [...(previous ?? []).filter((point) => getX(point) >= patch.startX), ...patch.points]
-}
-
 export function mergeBackendSnapshot(previous: BackendSnapshot | null, patch: BackendSnapshotPatch): BackendSnapshot {
+  // Revisions are local to a station/runtime. View changes start a new cache;
+  // never compare counters or reuse histories across sources.
+  if (previous && (
+    previous.activeStation !== patch.activeStation
+    || previous.backend.mode !== patch.backend.mode
+    || previous.backend.runtimeId !== patch.backend.runtimeId
+  )) previous = null
   const { measurements: patchMeasurements, pd: patchPd, seriesPatches, ...base } = patch
+  const acceptsSeries = (name: keyof SeriesRevisions) => !isOlderSeriesRevision(previous?.seriesRevisions?.[name], patch.seriesRevisions?.[name])
+  const seriesRevisions = patch.seriesRevisions ? { ...patch.seriesRevisions } : previous?.seriesRevisions
+  if (seriesRevisions && previous?.seriesRevisions) {
+    for (const name of Object.keys(seriesRevisions) as Array<keyof SeriesRevisions>) {
+      if (!acceptsSeries(name)) seriesRevisions[name] = previous.seriesRevisions[name]
+    }
+  }
   const previousMeasurements = previous?.measurements
   const hasMeasurements = patchMeasurements !== undefined || previousMeasurements !== undefined || seriesPatches?.power !== undefined
   const measurements = hasMeasurements ? {
-    power: patchMeasurements?.power
-      ?? mergeAppendSeries(previousMeasurements?.power, seriesPatches?.power, (point) => point.elapsedS)
+    power: mergeSnapshotSeries(previousMeasurements?.power, patchMeasurements?.power, seriesPatches?.power, (point) => point.elapsedS, previous?.seriesRevisions?.power, patch.seriesRevisions?.power)
       ?? [],
-    stable: patchMeasurements?.stable ?? previousMeasurements?.stable ?? [],
-    agingPower: patchMeasurements?.agingPower ?? previousMeasurements?.agingPower ?? [],
-    spectrum: mergeSpectrumColumns(previousMeasurements?.spectrum, patchMeasurements?.spectrum),
-    spectrumPeaks: patchMeasurements?.spectrumPeaks ?? previousMeasurements?.spectrumPeaks ?? [],
+    stable: (acceptsSeries("stable") ? patchMeasurements?.stable : undefined) ?? previousMeasurements?.stable ?? [],
+    agingPower: (acceptsSeries("aging") ? patchMeasurements?.agingPower : undefined) ?? previousMeasurements?.agingPower ?? [],
+    spectrum: mergeSpectrumColumns(previousMeasurements?.spectrum, acceptsSeries("spectrum") ? patchMeasurements?.spectrum : undefined),
+    spectrumPeaks: (acceptsSeries("spectrum") ? patchMeasurements?.spectrumPeaks : undefined) ?? previousMeasurements?.spectrumPeaks ?? [],
   } : undefined
   const pd = patchPd ? {
     ...patchPd,
-    points: patchPd.points
-      ?? mergeAppendSeries(previous?.pd?.points, seriesPatches?.pd, (point) => point.elapsedS)
+    points: mergeSnapshotSeries(previous?.pd?.points, patchPd.points, seriesPatches?.pd, (point) => point.elapsedS, previous?.seriesRevisions?.pd, patch.seriesRevisions?.pd)
       ?? [],
   } : undefined
   return {
     ...base,
+    ...(seriesRevisions ? { seriesRevisions } : {}),
     ...(measurements ? { measurements } : {}),
     ...(pd ? { pd } : {}),
   }

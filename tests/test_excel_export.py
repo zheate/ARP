@@ -1,3 +1,4 @@
+import csv
 import tempfile
 import unittest
 from datetime import datetime
@@ -7,6 +8,7 @@ from unittest.mock import patch
 
 from openpyxl import Workbook, load_workbook
 from xlsxwriter import Workbook as XlsxWriterWorkbook
+from xlsxwriter.worksheet import Worksheet as XlsxWriterWorksheet
 
 from combined_test.automatic_samples import AutomaticSampleRecorder, AutomaticSecondSample
 from combined_test.excel_export import (
@@ -19,6 +21,17 @@ from combined_test.excel_export import (
 
 
 class ExcelExportTests(unittest.TestCase):
+    @staticmethod
+    def _write_second_samples(path: Path, count: int) -> None:
+        with path.open("w", newline="", encoding="utf-8") as output:
+            writer = csv.writer(output)
+            writer.writerow((
+                "target_current_a", "point_elapsed_s", "optical_power_w",
+                "spectrum_wavelengths_nm", "spectrum_intensities",
+            ))
+            for second in range(1, count + 1):
+                writer.writerow((3, second, second, "974;975", f"{second};{second + 1}"))
+
     def _record(self, current_a: float, test_station: str = "") -> ExcelTestRecord:
         return ExcelTestRecord(
             current_a=current_a,
@@ -419,6 +432,74 @@ class ExcelExportTests(unittest.TestCase):
                 [20.0, 200.0, 30.0],
             )
             workbook.close()
+
+    def test_long_hold_spectra_split_at_excel_column_limit_without_losing_seconds(self) -> None:
+        for count in (8192, 8193):
+            with self.subTest(seconds=count), tempfile.TemporaryDirectory() as temp_dir:
+                directory = Path(temp_dir)
+                path = directory / "long_hold.xlsx"
+                sample_path = directory / "long_hold_1s_samples.csv"
+                self._write_second_samples(sample_path, count)
+
+                save_test_records(path, [self._record(3.0)], automatic_samples_path=sample_path)
+
+                workbook = load_workbook(path)
+                try:
+                    names = [name for name in workbook.sheetnames if name.startswith("3A光谱数据")]
+                    self.assertEqual(
+                        names,
+                        ["3A光谱数据"] if count == 8192 else ["3A光谱数据", "3A光谱数据_2"],
+                    )
+                    seconds: list[int] = []
+                    for name in names:
+                        sheet = workbook[name]
+                        self.assertLessEqual(sheet.max_column, 16384)
+                        for column in range(1, sheet.max_column + 1, 2):
+                            second = len(seconds) + 1
+                            self.assertEqual(sheet.cell(1, column).value, f"{second}s波长(nm)")
+                            self.assertEqual(sheet.cell(1, column + 1).value, f"{second}s强度(counts)")
+                            self.assertEqual(
+                                [sheet.cell(row, column).value for row in (2, 3)], [974, 975],
+                            )
+                            self.assertEqual(
+                                [sheet.cell(row, column + 1).value for row in (2, 3)],
+                                [second, second + 1],
+                            )
+                            seconds.append(second)
+                    self.assertEqual(seconds, list(range(1, count + 1)))
+                    summary = workbook["3A逐秒数据"]
+                    self.assertEqual(summary.max_row, count + 1)
+                    self.assertEqual(summary.cell(count + 1, 1).value, count)
+                finally:
+                    workbook.close()
+
+    def test_xlsx_write_errors_keep_previous_workbook_and_source_csv(self) -> None:
+        for method_name, sheet_name in (
+            ("write_number", "3A逐秒数据"),
+            ("write_row", "3A光谱数据"),
+        ):
+            with self.subTest(method=method_name), tempfile.TemporaryDirectory() as temp_dir:
+                directory = Path(temp_dir)
+                path = directory / "save.xlsx"
+                sample_path = directory / "save_1s_samples.csv"
+                self._write_second_samples(sample_path, 1)
+                save_test_records(path, [self._record(3.0)])
+                previous_workbook = path.read_bytes()
+                previous_csv = sample_path.read_bytes()
+                original_write = getattr(XlsxWriterWorksheet, method_name)
+
+                def rejected_write(sheet, row, column, *args, **kwargs):
+                    if sheet.name == sheet_name and row == 1:
+                        return -1
+                    return original_write(sheet, row, column, *args, **kwargs)
+
+                with patch.object(XlsxWriterWorksheet, method_name, rejected_write):
+                    with self.assertRaisesRegex(RuntimeError, "Excel 写入失败"):
+                        save_test_records(path, [self._record(3.0)], automatic_samples_path=sample_path)
+
+                self.assertEqual(path.read_bytes(), previous_workbook)
+                self.assertEqual(sample_path.read_bytes(), previous_csv)
+                self.assertFalse((directory / ".save.tmp.xlsx").exists())
 
     def test_each_second_keeps_its_own_wavelength_axis_rounded_to_three_decimals(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

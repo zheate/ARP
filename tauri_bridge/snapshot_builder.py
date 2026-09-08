@@ -316,6 +316,7 @@ class SnapshotBuilder:
             "backend": {
                 "connected": True,
                 "mode": backend.mode,
+                "runtimeId": backend.runtime_id,
                 "pythonVersion": platform.python_version(),
                 "runtimeLogPath": str(runtime_log_path() or ""),
                 "notices": notices,

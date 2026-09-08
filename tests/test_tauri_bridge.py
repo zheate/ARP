@@ -89,6 +89,16 @@ class HeadlessBackendContractTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary_directory.cleanup()
 
+    def test_runtime_identity_distinguishes_restart_from_older_series_revisions(self) -> None:
+        first = self.backend.snapshot({"view": "automatic"})["backend"]["runtimeId"]
+        self.assertTrue(first)
+        self.assertEqual(first, self.backend.snapshot({"view": "pd_2"})["backend"]["runtimeId"])
+        restarted = HeadlessBackend(JsonSettings(Path(self.temporary_directory.name) / "restarted.json"))
+        try:
+            self.assertNotEqual(first, restarted.snapshot()["backend"]["runtimeId"])
+        finally:
+            restarted.export_worker.graceful_stop(2)
+
     def test_spectrum_snapshot_keeps_every_native_sample(self) -> None:
         self.backend.latest_spectrum = SimpleNamespace(
             wavelength=[974.0, 974.5, 975.0, 975.5, 976.0],

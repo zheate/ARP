@@ -25,8 +25,7 @@ DEFAULT_RESOURCE = "ASRL3::INSTR"
 OPHIR_COM_PROGID = "OphirLMMeasurement.CoLMMeasurement"
 OPHIR_RESOURCE_PREFIX = "OPHIR::USB::"
 OPHIR_CHANNEL = 0
-OPHIR_FIRST_SAMPLE_TIMEOUT_S = 2.0
-OPHIR_CACHED_SAMPLE_TIMEOUT_S = 0.5
+OPHIR_SAMPLE_TIMEOUT_S = 2.0
 LASERPOINT_RANGE_SYNC_ATTEMPTS = 4
 
 
@@ -731,7 +730,6 @@ class OphirPowerMeter:
         self._pythoncom: Any | None = None
         self.handle: int | None = None
         self._stream_started = False
-        self._last_power_w: float | None = None
         try:
             self.controller, self._pythoncom = _create_ophir_controller()
             serial_numbers = self._scan_serial_numbers(self.controller)
@@ -932,12 +930,10 @@ class OphirPowerMeter:
         if self.controller is None or self.handle is None:
             raise RuntimeError("Ophir USB 功率计尚未打开")
         self._ensure_stream()
-        timeout_s = (
-            OPHIR_FIRST_SAMPLE_TIMEOUT_S
-            if self._last_power_w is None
-            else OPHIR_CACHED_SAMPLE_TIMEOUT_S
-        )
-        deadline = time.monotonic() + timeout_s
+        # Every returned value becomes a new stability sample. Give the meter
+        # the same bounded warm-up budget between samples, but never manufacture
+        # fresh data by returning the previous value when its stream is empty.
+        deadline = time.monotonic() + OPHIR_SAMPLE_TIMEOUT_S
         while True:
             data_result = self.controller.GetData(self.handle, self.channel)
             values, _timestamps, statuses = _com_outputs(data_result, 3)
@@ -959,13 +955,10 @@ class OphirPowerMeter:
                 if status != 0:
                     status_name = self._STATUS_NAMES.get(status, f"status {status}")
                     raise RuntimeError(f"Ophir 功率计读数无效：{status_name}")
-                self._last_power_w = value
                 return value
 
-            if self._last_power_w is not None and time.monotonic() >= deadline:
-                return self._last_power_w
             if time.monotonic() >= deadline:
-                raise RuntimeError("Ophir 功率计暂未返回有效测量数据")
+                raise RuntimeError("Ophir 功率计超时未返回新的有效测量数据")
             time.sleep(0.02)
 
     def set_relative_zero(self, _enabled: bool) -> None:

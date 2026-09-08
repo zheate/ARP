@@ -843,6 +843,7 @@ class StationRuntime(StationAutomaticMixin):
             reader.start()
 
     def stop_power_meter(self) -> None:
+        self._invalidate_manual_power_capture()
         reader = self.power_meter_reader
         if reader is not None:
             self._expected_power_meter_stop = True
@@ -909,14 +910,14 @@ class StationRuntime(StationAutomaticMixin):
                     )
 
     def _capture_manual_stable_point(self, reading: PowerMeterReading) -> None:
-        current_a = self.pending_manual_stable_current_a
-        generation = self.pending_manual_stability_generation
-        if current_a is None or current_a <= 0.0 or current_a != self.active_current_a:
-            return
-        if generation is not None and reading.stability_generation != generation:
-            return
-        power_w = self._stable_power_w(reading)
         with self._lock:
+            current_a = self.pending_manual_stable_current_a
+            generation = self.pending_manual_stability_generation
+            if current_a is None or current_a <= 0.0 or current_a != self.active_current_a:
+                return
+            if generation is not None and reading.stability_generation != generation:
+                return
+            power_w = self._stable_power_w(reading)
             self.stable_power_points[current_a] = power_w
             self.efficiency_points.pop(current_a, None)
             self.pending_manual_stable_current_a = None
@@ -950,6 +951,15 @@ class StationRuntime(StationAutomaticMixin):
             daemon=True,
         ).start()
 
+    def _invalidate_manual_power_capture(self) -> None:
+        """Cancel unfinished point capture without discarding measured history."""
+        with self._lock:
+            self._manual_voltage_timer_generation += 1
+            self.pending_manual_stable_current_a = None
+            self.pending_manual_stability_generation = None
+            self.recorded_manual_stable_current_a = None
+            self.recorded_manual_stability_generation = None
+
     def _ensure_manual_recording_session(self) -> None:
         session = self.record_store.current_session
         if session is not None and session.mode == "manual" and session.ended_at_utc is None:
@@ -968,6 +978,23 @@ class StationRuntime(StationAutomaticMixin):
         self.backend.check_workbook_path_available(self.station_id, workbook_path)
 
     def _record_manual_voltage_point(self, raw_voltage_v: float) -> None:
+        # A power failure may arrive after the delayed voltage read began.
+        # Validate and commit under the same lock as manual capture invalidation.
+        with self._lock:
+            reader = self.power_meter_reader
+            received_at = self.latest_power_received_monotonic_s
+            live_limit_s = max(1.0, float(self.configuration["powerMeterIntervalMs"]) * 3.0 / 1_000.0)
+            if (
+                reader is None
+                or not reader.is_ready
+                or self._expected_power_meter_stop
+                or received_at is None
+                or time.monotonic() - received_at > live_limit_s
+            ):
+                return
+            self._record_manual_voltage_point_locked(raw_voltage_v)
+
+    def _record_manual_voltage_point_locked(self, raw_voltage_v: float) -> None:
         current_a = self.recorded_manual_stable_current_a
         generation = self.recorded_manual_stability_generation
         reading = self.latest_power
@@ -1078,6 +1105,7 @@ class StationRuntime(StationAutomaticMixin):
         self.automatic.mark_power_meter_ready()
 
     def _on_power_failed(self, message: str) -> None:
+        self._invalidate_manual_power_capture()
         self.power_meter_error = str(message)
         self.notify("error", "功率计", message)
         if self.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED}:
@@ -1095,6 +1123,7 @@ class StationRuntime(StationAutomaticMixin):
             )
 
     def _on_power_finished(self) -> None:
+        self._invalidate_manual_power_capture()
         self.power_meter_reader = None
         self.automatic.power_meter_ready = False
         if self._expected_power_meter_stop:
@@ -1191,6 +1220,7 @@ class StationRuntime(StationAutomaticMixin):
             )
             reader.device_opened.connect(self._on_spectrometer_device_opened)
             reader.integration_time_changed.connect(self._on_integration_changed)
+            reader.auto_integration_failed.connect(self._on_auto_integration_failed)
             reader.finished.connect(self._on_spectrometer_finished)
             reader.start()
 
@@ -1411,6 +1441,17 @@ class StationRuntime(StationAutomaticMixin):
 
     def _on_integration_changed(self, value: int) -> None:
         self.configuration["integrationTimeUs"] = int(value)
+
+    def _on_auto_integration_failed(self, details: dict[str, Any]) -> None:
+        self.notify(
+            "warning",
+            "自动积分需要处理",
+            f"自动积分调整 {int(details['adjustment_count'])} 次后仍未达到目标强度"
+            f"（当前 {int(details['integration_time_us'])} μs，峰值 {float(details['peak_counts']):g} counts）。"
+            "已暂停自动调整，光谱仍持续采集。请调整光路后停止并重新启动采集，"
+            "或关闭自动积分、设置固定积分时间后重新启动采集。",
+            code="spectrum_auto_integration_failed",
+        )
 
     def save_spectrum_csv(self, params: dict[str, Any]) -> None:
         frame = self.latest_spectrum

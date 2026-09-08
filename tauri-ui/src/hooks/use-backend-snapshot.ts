@@ -159,6 +159,7 @@ const DEMO_SNAPSHOT: BackendSnapshot = {
 export function useBackendSnapshot(view: SnapshotView) {
   const [snapshot, setSnapshot] = useState<BackendSnapshot | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [streamError, setStreamError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [commandPending, setCommandPending] = useState(false)
   const [pendingCommand, setPendingCommand] = useState<string | null>(null)
@@ -223,8 +224,10 @@ export function useBackendSnapshot(view: SnapshotView) {
     if (method === "app.stopAll") {
       try {
         const requestedView = view
-        const nextSnapshot = await sendBackendCommand(method, params)
-        if (mountedRef.current && latestViewRef.current === requestedView) {
+        const response = await sendBackendCommand(method, params)
+        const matchesView = latestViewRef.current === requestedView && (!response.activeStation || response.activeStation === (requestedView.endsWith("_2") ? "2" : "1"))
+        const nextSnapshot = matchesView ? mergeBackendSnapshot(snapshotRef.current, response) : response
+        if (mountedRef.current && matchesView) {
           snapshotRef.current = nextSnapshot
           revisionsRef.current = nextSnapshot.seriesRevisions ?? null
           setSnapshot(nextSnapshot)
@@ -399,8 +402,10 @@ export function useBackendSnapshot(view: SnapshotView) {
         return DEMO_SNAPSHOT
       }
       const requestedView = view
-      const nextSnapshot = await sendBackendCommand(method, params)
-      if (mountedRef.current && latestViewRef.current === requestedView) {
+      const response = await sendBackendCommand(method, params)
+      const matchesView = latestViewRef.current === requestedView && (!response.activeStation || response.activeStation === (requestedView.endsWith("_2") ? "2" : "1"))
+      const nextSnapshot = matchesView ? mergeBackendSnapshot(snapshotRef.current, response) : response
+      if (mountedRef.current && matchesView) {
         snapshotRef.current = nextSnapshot
         revisionsRef.current = nextSnapshot.seriesRevisions ?? null
         setSnapshot(nextSnapshot)
@@ -432,6 +437,7 @@ export function useBackendSnapshot(view: SnapshotView) {
     revisionsRef.current = null
     setSnapshot(null)
     setError(null)
+    setStreamError(null)
     setLoading(true)
 
     if (DEMO_PREVIEW_ENABLED) {
@@ -460,11 +466,12 @@ export function useBackendSnapshot(view: SnapshotView) {
             revisionsRef.current = nextSnapshot.seriesRevisions ?? null
             setSnapshot(nextSnapshot)
             setError(null)
+            setStreamError(null)
             setLoading(false)
           },
           (message) => {
             if (cancelled || epoch !== streamEpoch) return
-            setError(message)
+            setStreamError(message)
             setLoading(false)
           },
         )
@@ -472,7 +479,7 @@ export function useBackendSnapshot(view: SnapshotView) {
         else stopStream = unsubscribe
       } catch (reason) {
         if (cancelled || epoch !== streamEpoch) return
-        setError(reason instanceof Error ? reason.message : String(reason))
+        setStreamError(reason instanceof Error ? reason.message : String(reason))
         setLoading(false)
       }
     }
@@ -486,5 +493,5 @@ export function useBackendSnapshot(view: SnapshotView) {
     }
   }, [loadSnapshot, view])
 
-  return { snapshot, error, loading, commandPending, pendingCommand, refresh, command }
+  return { snapshot, error: streamError ?? error, loading, commandPending, pendingCommand, refresh, command }
 }

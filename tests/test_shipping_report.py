@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 from openpyxl import Workbook, load_workbook
 
-from combined_test.excel_export import ExcelTestRecord, save_test_records
+from combined_test.excel_export import ExcelTestRecord, append_test_record, save_test_records
 from combined_test.record_store import SessionStatus
 from combined_test.shipping_report import (
     POLE_FIELD_DEFINITIONS,
@@ -201,6 +201,29 @@ class ShippingReportTests(unittest.TestCase):
             self.assertEqual(pole_suggestions["slopeEfficiency"], "20.000")
             zero_current = replace(inspection.point_for_current(1.0), current_a=0.0, power_w=0.0)
             self.assertIsNone(zero_current.suggestions()["slopeEfficiencyWPerA"])
+
+    def test_centiampere_spectra_keep_their_liv_current_when_saved_and_appended(self) -> None:
+        for append in (False, True):
+            with self.subTest(append=append), tempfile.TemporaryDirectory() as temp_dir:
+                path = Path(temp_dir) / "fine-current.xlsx"
+                records = [
+                    replace(self._record(2.01), intensity=[1, 2, 3, 4, 5]),
+                    replace(self._record(2.02), intensity=[10, 20, 30, 40, 50]),
+                ]
+                if append:
+                    save_test_records(path, records[:1], session=self._session())
+                    append_test_record(path, records[1])
+                else:
+                    save_test_records(path, records, session=self._session())
+
+                inspection = inspect_shipping_workbook(path)
+
+                self.assertEqual(inspection.allowed_report_types, ("spectrum", "pole"))
+                self.assertEqual([point.current_a for point in inspection.points], [2.01, 2.02])
+                for record in records:
+                    point = inspection.point_for_current(record.current_a)
+                    self.assertEqual(point.wavelength, tuple(record.wavelength))
+                    self.assertEqual(point.intensity, tuple(record.intensity))
 
     def test_manual_single_point_workbook_generates_spectrum_report(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

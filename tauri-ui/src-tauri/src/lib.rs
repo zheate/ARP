@@ -1,7 +1,9 @@
 mod license;
+mod snapshot_stream;
 
 use license::{license_get_status, license_install, LicenseState};
 use serde_json::{json, Value};
+use snapshot_stream::{run_snapshot_stream, wait_for_generation, StreamRequestError};
 
 const LIVE_SNAPSHOT_INTERVAL_MS: u64 = 200;
 const PD_SNAPSHOT_INTERVAL_MS: u64 = 500;
@@ -517,13 +519,23 @@ fn request_shared_bridge(
     method: &str,
     params: Value,
 ) -> Result<Value, String> {
+    request_shared_bridge_result(shared_bridge, method, params).map_err(PythonBridgeError::message)
+}
+
+fn request_shared_bridge_result(
+    shared_bridge: &Arc<Mutex<Option<Arc<PythonBridge>>>>,
+    method: &str,
+    params: Value,
+) -> Result<Value, PythonBridgeError> {
     let queued_at = Instant::now();
     let bridge = {
         let mut bridge_guard = shared_bridge
             .lock()
-            .map_err(|_| "Python 后端状态锁不可用".to_string())?;
+            .map_err(|_| PythonBridgeError::Transport("Python 后端状态锁不可用".to_string()))?;
         if bridge_guard.is_none() {
-            *bridge_guard = Some(Arc::new(PythonBridge::spawn()?));
+            *bridge_guard = Some(Arc::new(
+                PythonBridge::spawn().map_err(PythonBridgeError::Transport)?,
+            ));
         }
         Arc::clone(bridge_guard.as_ref().expect("bridge was initialized"))
     };
@@ -541,7 +553,7 @@ fn request_shared_bridge(
             }
         }
     }
-    result.map_err(PythonBridgeError::message)
+    result
 }
 
 fn should_reset_bridge(result: &Result<Value, PythonBridgeError>) -> bool {
@@ -622,50 +634,6 @@ fn snapshot_interval_ms(view: &str) -> u64 {
         "shipping" => SHIPPING_SNAPSHOT_INTERVAL_MS,
         _ => LIVE_SNAPSHOT_INTERVAL_MS,
     }
-}
-
-fn update_stream_cursor(
-    snapshot: &Value,
-    series: &str,
-    full_pointer: &str,
-    cursors: &mut serde_json::Map<String, Value>,
-) {
-    let patch_pointer = format!("/seriesPatches/{series}/points");
-    let latest = snapshot
-        .pointer(&patch_pointer)
-        .or_else(|| snapshot.pointer(full_pointer))
-        .and_then(Value::as_array)
-        .and_then(|points| points.last())
-        .and_then(|point| point.get("elapsedS"))
-        .and_then(Value::as_f64);
-    if let Some(value) = latest {
-        cursors.insert(series.to_string(), json!(value));
-    }
-}
-
-fn snapshot_state_fingerprint(snapshot: &Value) -> Value {
-    let Some(root) = snapshot.as_object() else {
-        return snapshot.clone();
-    };
-    // History arrays are transported separately through revisions/cursors.
-    // Never retain or clone them just to decide whether the UI state changed.
-    const IGNORED: [&str; 3] = ["capturedAt", "measurements", "seriesPatches"];
-    let mut fingerprint = serde_json::Map::with_capacity(root.len().saturating_sub(3));
-    for (key, value) in root {
-        if IGNORED.contains(&key.as_str()) {
-            continue;
-        }
-        if key == "pd" {
-            let mut pd = value.clone();
-            if let Some(pd_object) = pd.as_object_mut() {
-                pd_object.remove("points");
-            }
-            fingerprint.insert(key.clone(), pd);
-        } else {
-            fingerprint.insert(key.clone(), value.clone());
-        }
-    }
-    Value::Object(fingerprint)
 }
 
 fn stream_envelope(subscription_id: &str, message: Value) -> Value {
@@ -776,44 +744,24 @@ fn start_bridge_stream(view: String, sender: StreamSender, state: &BridgeState) 
     let interval = snapshot_interval_ms(&view);
 
     tauri::async_runtime::spawn_blocking(move || {
-        let mut since: Option<Value> = None;
-        let mut cursors = serde_json::Map::new();
-        let mut last_fingerprint: Option<Value> = None;
-        while active_generation.load(Ordering::SeqCst) == generation {
-            let mut params = serde_json::Map::new();
-            params.insert("view".to_string(), json!(view));
-            if let Some(revisions) = since.clone() {
-                params.insert("since".to_string(), revisions);
-            }
-            if !cursors.is_empty() {
-                params.insert("cursors".to_string(), Value::Object(cursors.clone()));
-            }
-
-            match request_shared_bridge(&shared_bridge, "app.snapshot", Value::Object(params)) {
-                Ok(snapshot) => {
-                    since = snapshot.get("seriesRevisions").cloned();
-                    update_stream_cursor(&snapshot, "power", "/measurements/power", &mut cursors);
-                    update_stream_cursor(&snapshot, "pd", "/pd/points", &mut cursors);
-                    let fingerprint = snapshot_state_fingerprint(&snapshot);
-                    if last_fingerprint.as_ref() == Some(&fingerprint) {
-                        std::thread::sleep(Duration::from_millis(interval));
-                        continue;
-                    }
-                    last_fingerprint = Some(fingerprint);
-                    if let Err(error) = sender.send(json!({ "snapshot": snapshot })) {
-                        eprintln!("WebView 实时推流已停止：{error}");
-                        break;
-                    }
-                }
-                Err(error) => {
-                    if let Err(send_error) = sender.send(json!({ "error": error })) {
-                        eprintln!("无法发送后端推流错误：{send_error}");
-                    }
-                    break;
-                }
-            }
-            std::thread::sleep(Duration::from_millis(interval));
-        }
+        run_snapshot_stream(
+            &view,
+            Duration::from_millis(interval),
+            |params| {
+                request_shared_bridge_result(&shared_bridge, "app.snapshot", params).map_err(
+                    |error| match error {
+                        PythonBridgeError::Timeout(message) => StreamRequestError::Timeout(message),
+                        other => StreamRequestError::Fatal(other.message()),
+                    },
+                )
+            },
+            |message| {
+                sender
+                    .send(message)
+                    .inspect_err(|error| eprintln!("WebView 实时推流已停止：{error}"))
+            },
+            |delay| wait_for_generation(&active_generation, generation, delay),
+        );
     });
     generation
 }
@@ -963,10 +911,10 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    use super::snapshot_stream::snapshot_state_fingerprint;
     use super::{
         await_webview_send_result, request_timeout, should_reset_bridge, snapshot_interval_ms,
-        snapshot_state_fingerprint, stream_envelope, validate_columnar_spectrum, PythonBridge,
-        PythonBridgeError,
+        stream_envelope, validate_columnar_spectrum, PythonBridge, PythonBridgeError,
     };
 
     #[test]

@@ -30,6 +30,7 @@ from .models import (
     PowerMeterReading,
     PowerMeterSettings,
     SpectrumFrame,
+    SpectrumSaturationResult,
     SpectrometerReading,
     SpectrometerSettings,
 )
@@ -64,8 +65,24 @@ class SpectrumFrameAverager:
         self._wavelength: list[float] | None = None
         self._frames: deque[list[float]] = deque()
         self._sums: list[float] = []
+        self._saturations: deque[SpectrumSaturationResult | None] = deque(maxlen=self.frame_count)
 
-    def add(self, wavelength: Any, intensity: Any) -> tuple[list[float], list[float]] | None:
+    @property
+    def source_saturation(self) -> SpectrumSaturationResult | None:
+        """Retain clipping evidence until its raw frame leaves the mean."""
+        return max(
+            (result for result in self._saturations if result is not None and result.saturated),
+            key=lambda result: (result.consecutive_pixels, result.peak_intensity),
+            default=None,
+        )
+
+    def add(
+        self,
+        wavelength: Any,
+        intensity: Any,
+        *,
+        saturation: SpectrumSaturationResult | None = None,
+    ) -> tuple[list[float], list[float]] | None:
         wavelength_values = [float(value) for value in wavelength]
         intensity_values = [float(value) for value in intensity]
         if not wavelength_values or len(wavelength_values) != len(intensity_values):
@@ -83,6 +100,7 @@ class SpectrumFrameAverager:
                 self._sums[index] -= value
 
         self._frames.append(intensity_values)
+        self._saturations.append(saturation)
         for index, value in enumerate(intensity_values):
             self._sums[index] += value
 
@@ -811,7 +829,11 @@ class SpectrometerReaderThread(WorkerThread):
         wavelength: Any,
         intensity: Any,
     ) -> tuple[list[float], list[float]] | None:
-        averaged = self._spectrum_averager.add(wavelength, intensity)
+        averaged = self._spectrum_averager.add(
+            wavelength,
+            intensity,
+            saturation=detect_spectrum_saturation(intensity, self.full_scale_counts),
+        )
         if averaged is not None:
             calculate_stats = self._calculate_stats
             if calculate_stats is None:
@@ -821,6 +843,7 @@ class SpectrometerReaderThread(WorkerThread):
                 averaged[0],
                 averaged[1],
                 calculate_stats(averaged[0], averaged[1]),
+                source_saturation=self._spectrum_averager.source_saturation,
             )
         return averaged
 
@@ -829,6 +852,8 @@ class SpectrometerReaderThread(WorkerThread):
         wavelength: Any,
         intensity: Any,
         stats: Any,
+        *,
+        source_saturation: SpectrumSaturationResult | None = None,
     ) -> None:
         """Analyze an averaged frame on the reader thread and publish it.
 
@@ -837,6 +862,10 @@ class SpectrometerReaderThread(WorkerThread):
         peak annotations all run here so the GUI thread only consumes results.
         """
         saturation = detect_spectrum_saturation(intensity, self.full_scale_counts)
+        if source_saturation is not None and source_saturation.saturated:
+            # Averaging can lower a clipped plateau below full scale, but it
+            # cannot recover the signal lost in any contributing raw frame.
+            saturation = source_saturation
         try:
             peak_intensity = max(float(value) for value in intensity)
         except (TypeError, ValueError):
@@ -874,6 +903,13 @@ class SpectrometerReaderThread(WorkerThread):
                 saturation=saturation,
                 peak_annotations=tuple(annotations),
                 peak_intensity=float(peak_intensity),
+            )
+        )
+        self.reading.emit(
+            SpectrometerReading(
+                peak_wavelength_nm=stats.peak_wavelength_nm,
+                centroid_nm=stats.centroid_nm,
+                fwhm_nm=stats.fwhm_nm,
             )
         )
 
@@ -1034,13 +1070,6 @@ class SpectrometerReaderThread(WorkerThread):
                     stats = self._calculate_stats(wavelength, intensity)
                     if not self._has_stable_auto_integration_center(stats):
                         self._publish_analyzed_spectrum(wavelength, intensity, stats)
-                        self.reading.emit(
-                            SpectrometerReading(
-                                peak_wavelength_nm=stats.peak_wavelength_nm,
-                                centroid_nm=stats.centroid_nm,
-                                fwhm_nm=stats.fwhm_nm,
-                            )
-                        )
                         self._stop_requested.wait(self.settings.interval_ms / 1000.0)
                         continue
                     try:
@@ -1085,24 +1114,7 @@ class SpectrometerReaderThread(WorkerThread):
                             self._publish_averaged_spectrum(wavelength, intensity)
                         self._stop_requested.wait(self.settings.interval_ms / 1000.0)
                         continue
-                averaged = self._spectrum_averager.add(wavelength, intensity)
-                if averaged is None:
-                    self._stop_requested.wait(self.settings.interval_ms / 1000.0)
-                    continue
-                averaged_wavelength, averaged_intensity = averaged
-                stats = calculate_stats(averaged_wavelength, averaged_intensity)
-                self._publish_analyzed_spectrum(
-                    averaged_wavelength,
-                    averaged_intensity,
-                    stats,
-                )
-                self.reading.emit(
-                    SpectrometerReading(
-                        peak_wavelength_nm=stats.peak_wavelength_nm,
-                        centroid_nm=stats.centroid_nm,
-                        fwhm_nm=stats.fwhm_nm,
-                    )
-                )
+                self._publish_averaged_spectrum(wavelength, intensity)
                 self._stop_requested.wait(self.settings.interval_ms / 1000.0)
         except Exception as exc:
             _LOGGER.exception("光谱仪采集线程失败")

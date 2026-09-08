@@ -864,6 +864,8 @@ class DualStationRuntimeTests(unittest.TestCase):
         station.active_current_a = 2.0
         station.recorded_manual_stable_current_a = 2.0
         station.recorded_manual_stability_generation = 3
+        station.power_meter_reader = MagicMock(is_ready=True)
+        station.latest_power_received_monotonic_s = time.monotonic()
         station.latest_power = PowerMeterReading(
             elapsed_s=5.0,
             power_w=4.0,

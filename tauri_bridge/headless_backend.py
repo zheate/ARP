@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import uuid
 from contextlib import ExitStack
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -44,6 +45,7 @@ class HeadlessBackend:
     mode = "active"
 
     def __init__(self, settings: JsonSettings | None = None) -> None:
+        self.runtime_id = str(uuid.uuid4())
         self._lock = threading.RLock()
         self._snapshot_lock = threading.RLock()
         self.snapshot_builder = SnapshotBuilder(self)
