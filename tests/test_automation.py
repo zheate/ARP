@@ -230,6 +230,31 @@ class AutomaticCurrentSequenceTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "1.1"):
             validate_automatic_test_settings(settings, stable_window_s=3.0, post_stable_delay_s=5.0)
 
+    def test_ramp_down_interval_accepts_zero_and_short_intervals_without_command_guard(self) -> None:
+        for interval_s in (0.0, 0.1, 0.5, 1.0):
+            with self.subTest(interval_s=interval_s):
+                settings = AutomaticTestSettings(ramp_down_interval_s=interval_s)
+                self.assertIs(
+                    validate_automatic_test_settings(
+                        settings,
+                        stable_window_s=3.0,
+                        post_stable_delay_s=5.0,
+                        minimum_ramp_down_interval_s=0.0,
+                    ),
+                    settings,
+                )
+
+    def test_ramp_down_interval_still_rejects_invalid_values_without_command_guard(self) -> None:
+        for interval_s in (-0.1, math.nan, math.inf, -math.inf):
+            with self.subTest(interval_s=interval_s):
+                with self.assertRaisesRegex(ValueError, "下电间隔"):
+                    validate_automatic_test_settings(
+                        AutomaticTestSettings(ramp_down_interval_s=interval_s),
+                        stable_window_s=3.0,
+                        post_stable_delay_s=5.0,
+                        minimum_ramp_down_interval_s=0.0,
+                    )
+
     def test_point_timeout_must_allow_stability_and_voltage_delay(self) -> None:
         settings = AutomaticTestSettings(point_timeout_s=7.9)
 

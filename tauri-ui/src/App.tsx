@@ -3064,6 +3064,8 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [lastOutputPath, setLastOutputPath] = useState("")
+  const [openingResult, setOpeningResult] = useState(false)
+  const [resultOpenNotice, setResultOpenNotice] = useState("")
   const [previewPages, setPreviewPages] = useState<string[]>([])
   const [previewBusy, setPreviewBusy] = useState(false)
   const [previewError, setPreviewError] = useState("")
@@ -3239,11 +3241,33 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
         ...(reportType === "spectrum" ? { spectrumAxis: { mode: axisMode, minimum: axisMinimum, maximum: axisMaximum, wavelengthMinimum, wavelengthMaximum } } : {}),
       })
       setLastOutputPath(result.outputPath)
+      setResultOpenNotice("")
       setInspection(null)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
       setBusy(false)
+    }
+  }
+
+  const openGeneratedReport = async (revealOnly = false) => {
+    if (!lastOutputPath || openingResult) return
+    setOpeningResult(true)
+    setError("")
+    setResultOpenNotice("")
+    try {
+      if (revealOnly) {
+        await revealItemInDir(lastOutputPath)
+      } else {
+        const outcome = await openResultFile(lastOutputPath, openPath, revealItemInDir)
+        if (outcome.status === "revealed") {
+          setResultOpenNotice(`无法直接打开 PDF，已在文件夹中定位。${outcome.openError}`)
+        }
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setOpeningResult(false)
     }
   }
 
@@ -3325,7 +3349,18 @@ function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
           <div className="min-w-0 text-xs text-muted-foreground">
             {error && <p className="font-medium text-destructive">{error}</p>}
-            {lastOutputPath && <div className="flex min-w-0 flex-wrap items-center gap-2"><span className="max-w-[520px] truncate">已生成：{lastOutputPath}</span><Button onClick={() => void openPath(lastOutputPath)} size="sm" variant="outline"><FileText className="size-3.5" />打开 PDF</Button><Button onClick={() => void revealItemInDir(lastOutputPath)} size="sm" variant="outline"><FolderOpen className="size-3.5" />打开文件夹</Button></div>}
+            {resultOpenNotice && <p role="status">{resultOpenNotice}</p>}
+            {lastOutputPath && (
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <span className="max-w-[520px] truncate" title={lastOutputPath}>已生成：{lastOutputPath}</span>
+                <Button disabled={openingResult} onClick={() => void openGeneratedReport()} size="sm" variant="outline">
+                  <FileText className="size-3.5" />{openingResult ? "正在打开…" : "打开 PDF"}
+                </Button>
+                <Button disabled={openingResult} onClick={() => void openGeneratedReport(true)} size="sm" variant="outline">
+                  <FolderOpen className="size-3.5" />打开文件夹
+                </Button>
+              </div>
+            )}
             {!error && !lastOutputPath && <p>填写数据路径与输出目录后，点击“读取数据”开始配置报告。</p>}
           </div>
           <Button disabled={disabled || busy} onClick={() => void configureReport()}><FileText className="size-4" />{busy && !inspection ? "正在读取…" : "读取并配置报告"}</Button>
@@ -3894,6 +3929,14 @@ const AutomaticPage = memo(function AutomaticPage({
     ? `CH341 · ${config.initialCurrentA}A → ${config.targetCurrentA}A (${config.currentStepA}A)`
     : `TDK · ${config.initialCurrentA}A → ${config.targetCurrentA}A (${config.tdkVoltageV}V)`
   const powerMeterSummary = `${config.powerMeterResource ? powerMeterResourceLabel(config.powerMeterResource, snapshot?.devices.powerMeter?.resources) : "未选串口"} · ${config.powerMeterWavelengthNm} nm (×${config.softwareGain})`
+  const powerMeter = snapshot?.devices.powerMeter
+  const livePowerW = powerMeter?.quality === "live" ? powerMeter.powerW : null
+  const powerSupply = snapshot?.devices.powerSupply
+  // The planned test point remains at the last point after shutdown.
+  // TDK reports measured current; CH341 follows successful current commands.
+  const liveCurrentA = powerSupply?.connected
+    ? (config.powerSupplyKind === "tdk" ? powerSupply.outputCurrentA : powerSupply.activeCurrentA)
+    : null
   const spectrometer = snapshot?.devices.spectrometer
   const useSpectrometer = Boolean(spectrometer?.running)
   const spectrometerSummary = useSpectrometer
@@ -4028,7 +4071,19 @@ const AutomaticPage = memo(function AutomaticPage({
 
       <section className={`automatic-chart-grid ${useSpectrometer ? "" : "without-spectrum"}`}>
         <div className="automatic-chart-grid__power-row">
-          <PowerRealtimeChart curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} snapshot={snapshot} stretch />
+          <div className="automatic-power-chart">
+            <PowerRealtimeChart curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} snapshot={snapshot} stretch />
+            {!useSpectrometer && (
+              <AutomaticMetricCard
+                className="automatic-power-chart__reading automatic-metric-card--power automatic-metric-card--title-below"
+                title="Live Power"
+                value={formatFixedNumber(livePowerW, 3)}
+                unit={<>W @ <span className="automatic-metric-card__current">{formatTrimmedNumber(liveCurrentA, 2)} A</span></>}
+                valueTone="warning"
+                recording={Boolean(powerMeter?.running)}
+              />
+            )}
+          </div>
           {config.selectedScriptId === "aging"
             ? <AgingPowerChart snapshot={snapshot} stretch />
             : <PowerEfficiencyChart snapshot={snapshot} stretch />}
@@ -4036,7 +4091,7 @@ const AutomaticPage = memo(function AutomaticPage({
         {useSpectrometer && (
           <RealtimeMetricCards
             config={config}
-            currentA={auto?.currentA}
+            currentA={liveCurrentA}
             onOpenSpecifications={() => setSpecificationsOpen(true)}
             powerMeter={snapshot?.devices.powerMeter}
             spectrometer={spectrometer}

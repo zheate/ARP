@@ -416,6 +416,7 @@ def validate_automatic_test_settings(
     *,
     stable_window_s: float,
     post_stable_delay_s: float,
+    minimum_ramp_down_interval_s: float = MIN_POWER_SUPPLY_COMMAND_INTERVAL_S,
 ) -> AutomaticTestSettings:
     """Validate settings shared by the UI and automatic runner."""
     currents = build_test_currents(settings)
@@ -427,9 +428,11 @@ def validate_automatic_test_settings(
     )
     if (
         not math.isfinite(settings.ramp_down_interval_s)
-        or settings.ramp_down_interval_s < MIN_POWER_SUPPLY_COMMAND_INTERVAL_S
+        or settings.ramp_down_interval_s < 0.0
     ):
-        raise ValueError("下电间隔不能小于 1.1 s")
+        raise ValueError("下电间隔必须为大于或等于 0 的有限数值")
+    if settings.ramp_down_interval_s < minimum_ramp_down_interval_s:
+        raise ValueError(f"下电间隔不能小于 {minimum_ramp_down_interval_s:g} s")
     stable_window = float(stable_window_s)
     post_stable_delay = float(post_stable_delay_s)
     if not math.isfinite(stable_window) or stable_window <= 0.0:

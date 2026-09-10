@@ -9,6 +9,12 @@
     "core:webview:allow-set-webview-zoom",
     "dialog:default",
     "opener:default",
-    "opener:allow-open-path"
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [
+        { "path": "**/*.pdf" },
+        { "path": "**/*.xlsx" }
+      ]
+    }
   ]
 }

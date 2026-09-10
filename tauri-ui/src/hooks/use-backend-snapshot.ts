@@ -77,6 +77,7 @@ const DEMO_SNAPSHOT: BackendSnapshot = {
       connected: true,
       outputEnabled: true,
       activeCurrentA: 8,
+      outputCurrentA: 8,
       ch341: {
         discoveryState: "ready",
         error: "",
@@ -279,7 +280,7 @@ export function useBackendSnapshot(view: SnapshotView) {
               },
               devices: {
                 ...DEMO_SNAPSHOT.devices,
-                powerSupply: { ...DEMO_SNAPSHOT.devices.powerSupply, activeCurrentA: stage.currentA },
+                powerSupply: { ...DEMO_SNAPSHOT.devices.powerSupply, activeCurrentA: stage.currentA, outputCurrentA: stage.currentA },
                 powerMeter: { ...DEMO_SNAPSHOT.devices.powerMeter, powerW: stage.powerW, stable: stage.stable },
               },
               automaticTest: {

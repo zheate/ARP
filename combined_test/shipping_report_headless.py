@@ -466,12 +466,12 @@ class _HeadlessShippingReportRenderer:
         _draw_line(figure, table_x, table_top, table_x + table_width, table_top, color="#dfe4e8", width_mm=0.18)
         _draw_line(figure, table_x, table_top + header_height, table_x + table_width, table_top + header_height, color="#dfe4e8", width_mm=0.18)
         _draw_text(figure, table_x + cell_padding, table_top, parameter_width - 2 * cell_padding, header_height, self._localized("Parameter", "参数"), size=10.3, color="#0b4b82", bold=True, chinese=self._chinese)
-        _draw_text(figure, table_x + parameter_width + cell_padding, table_top, value_width - 2 * cell_padding, header_height, self._localized("Value", "数值"), size=10.3, color="#0b4b82", bold=True, chinese=self._chinese, horizontal="right")
+        _draw_text(figure, table_x + parameter_width + cell_padding, table_top, value_width - 2 * cell_padding, header_height, self._localized("Value", "数值"), size=10.3, color="#0b4b82", bold=True, chinese=self._chinese, horizontal="center")
         _draw_text(figure, table_x + parameter_width + value_width + cell_padding, table_top, unit_width - 2 * cell_padding, header_height, self._localized("Unit", "单位"), size=10.3, color="#0b4b82", bold=True, chinese=self._chinese, horizontal="center")
         for index, (definition, value) in enumerate(fields):
             y = table_top + header_height + index * row_height
             _draw_text(figure, table_x + cell_padding, y, parameter_width - 2 * cell_padding, row_height, definition.label, size=POLE_TABLE_VALUE_FONT_SIZE, color="#252a2e", chinese=self._chinese)
-            _draw_text(figure, table_x + parameter_width + cell_padding, y, value_width - 2 * cell_padding, row_height, _format_pole_summary_value(definition, value), size=POLE_TABLE_VALUE_FONT_SIZE, color="#252a2e", horizontal="right")
+            _draw_text(figure, table_x + parameter_width + cell_padding, y, value_width - 2 * cell_padding, row_height, _format_pole_summary_value(definition, value), size=POLE_TABLE_VALUE_FONT_SIZE, color="#252a2e", horizontal="center")
             _draw_text(figure, table_x + parameter_width + value_width + cell_padding, y, unit_width - 2 * cell_padding, row_height, definition.unit, size=10.5, color="#252a2e", horizontal="center")
             _draw_line(figure, table_x, y + row_height, table_x + table_width, y + row_height, color="#dfe4e8", width_mm=0.18)
         return title_height + title_gap + table_height

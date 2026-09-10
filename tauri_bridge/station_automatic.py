@@ -279,7 +279,12 @@ class StationAutomaticMixin:
         supply = self._require_power_supply()
         try:
             with self._supply_io_lock:
+                self.latest_power_supply_output_current_a = None
                 output_current_a = float(supply.read_output_current())
+                self.latest_power_supply_output_current_a = (
+                    output_current_a if math.isfinite(output_current_a) else None
+                )
+                self._last_live_current_read_at = time.monotonic()
                 output_voltage_raw_v = float(supply.read_output_voltage())
             output_voltage_v = compensate_tdk_output_voltage(
                 output_voltage_raw_v,
@@ -325,6 +330,7 @@ class StationAutomaticMixin:
     def _await_automatic_resume(self) -> float | None:
         if self._automatic_stop.is_set():
             return None
+        self._refresh_live_power_supply_current()
         if self._automatic_resume.is_set():
             if self._automatic_retry_requested:
                 self._automatic_retry_requested = False
@@ -336,6 +342,7 @@ class StationAutomaticMixin:
         while not self._automatic_resume.is_set():
             if self._automatic_stop.wait(0.05):
                 return None
+            self._refresh_live_power_supply_current()
         paused_duration = time.monotonic() - paused_at
         if self._automatic_stop.is_set():
             return None
@@ -572,6 +579,9 @@ class StationAutomaticMixin:
                 self.configuration["stableWindowS"],
             ),
             post_stable_delay_s=FINAL_AUTO_POST_STABLE_DELAY_S,
+            minimum_ramp_down_interval_s=(
+                0.0 if self.power_supply_kind == "tdk" else MIN_POWER_SUPPLY_COMMAND_INTERVAL_S
+            ),
         )
 
     def automatic_readiness(self) -> dict[str, Any]:
@@ -1347,6 +1357,7 @@ class StationAutomaticMixin:
             settings.ramp_down_step_a,
             maximum_current_a=settings.maximum_current_a,
         )
+        read_current_during_ramp = self.power_supply_kind == "tdk"
         for current_a in ramp_currents:
             if self.power_supply_kind == "ch341":
                 previous = self._last_power_supply_command_at
@@ -1372,11 +1383,15 @@ class StationAutomaticMixin:
                     return measured_current_a, True
                 raise
             self.active_current_a = current_a
+            self.latest_power_supply_output_current_a = None
             if current_a > 0.0:
+                if read_current_during_ramp:
+                    read_current_during_ramp = self._refresh_live_power_supply_current(force=True)
                 time.sleep(settings.ramp_down_interval_s)
         if not ramp_currents or ramp_currents[-1] != 0.0:
             supply.set_current(0.0)
         self.active_current_a = 0.0
+        self.latest_power_supply_output_current_a = None
         self.configuration["setCurrentA"] = 0.0
         if self.power_supply_kind == "tdk":
             # Always send OUT 0; the cached flag cannot prove the physical

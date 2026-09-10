@@ -191,6 +191,69 @@ class DualStationRuntimeTests(unittest.TestCase):
         )
         self.assertTrue(station.automatic_readiness()["ready"])
 
+    def test_automatic_readiness_only_requires_ch341_ramp_down_command_interval(self) -> None:
+        for station_id, kind in (("1", "tdk"), ("2", "ch341")):
+            station = self.backend.stations[station_id]
+            station.power_supply_controller = _FakeController()
+            station.power_supply_kind = kind
+            station.configuration.update(
+                {
+                    "powerSupplyKind": kind,
+                    "sn": f"RAMP-INTERVAL-{kind}",
+                    "outputDir": self.temp_dir.name,
+                    "powerMeterResource": "ASRL3::INSTR",
+                    "selectedScriptId": "standard",
+                }
+            )
+            for interval_s in (0.0, 0.1, 1.0, 1.1):
+                with self.subTest(kind=kind, interval_s=interval_s):
+                    station.configuration["rampDownIntervalS"] = interval_s
+                    readiness = station.automatic_readiness()
+                    if kind == "tdk" or interval_s >= 1.1:
+                        self.assertTrue(readiness["ready"], readiness["blockers"])
+                        self.assertEqual(station._require_automatic_ready().ramp_down_interval_s, interval_s)
+                    else:
+                        self.assertEqual(
+                            readiness["blockers"],
+                            [{"code": "invalid_test_settings", "message": "下电间隔不能小于 1.1 s"}],
+                        )
+                        with self.assertRaisesRegex(ValueError, "1.1 s"):
+                            station._require_automatic_ready()
+
+    def test_tdk_automatic_start_and_shutdown_use_short_configured_ramp_interval(self) -> None:
+        station = self.backend.stations["1"]
+        controller = _FakeController()
+        station.power_supply_controller = controller
+        station.power_supply_kind = "tdk"
+        station.power_meter_reader = MagicMock(is_ready=True)
+
+        with patch("tauri_bridge.station_automatic.threading.Thread") as thread_class:
+            station.start_automatic(
+                {
+                    "powerSupplyKind": "tdk",
+                    "sn": "TDK-SHORT-RAMP",
+                    "outputDir": self.temp_dir.name,
+                    "powerMeterResource": "ASRL3::INSTR",
+                    "selectedScriptId": "standard",
+                    "rampDownStepA": 5.0,
+                    "rampDownIntervalS": 0.1,
+                }
+            )
+
+        thread_class.return_value.start.assert_called_once_with()
+        self.assertEqual(station.automatic.settings.ramp_down_interval_s, 0.1)
+        station.active_current_a = 12.0
+        controller.current_a = 12.0
+        station._last_power_supply_command_at = time.monotonic()
+
+        with patch("tauri_bridge.station_automatic.time.sleep") as sleep:
+            station.safe_ramp_down()
+
+        self.assertEqual(controller.writes, [7.0, 2.0, 0.0])
+        self.assertEqual([item.args for item in sleep.call_args_list], [(0.1,), (0.1,)])
+        self.assertFalse(controller.output_enabled)
+        self.assertTrue(station.shutdown_confirmed)
+
     def test_automatic_start_without_connected_spectrometer_uses_power_only(self) -> None:
         station = self.backend.stations["1"]
         station.power_supply_controller = _FakeController()

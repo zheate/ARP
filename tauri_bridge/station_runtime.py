@@ -127,6 +127,7 @@ class StationRuntime(StationAutomaticMixin):
         self.latest_power_supply_input_voltage_v: float | None = None
         self.latest_power_supply_output_voltage_v: float | None = None
         self.latest_power_supply_output_current_a: float | None = None
+        self._last_live_current_read_at: float | None = None
         self.latest_power_supply_temperature_c: float | None = None
         self._last_power_supply_command_at: float | None = None
 
@@ -347,6 +348,35 @@ class StationRuntime(StationAutomaticMixin):
                 time.sleep(remaining)
         self._last_power_supply_command_at = time.monotonic()
 
+    def _refresh_live_power_supply_current(self, *, force: bool = False) -> bool:
+        """Refresh TDK telemetry without waiting for another hardware operation.
+
+        CH341 reads consume the same guarded command slots as current writes,
+        so its live display follows active_current_a instead.
+        """
+        if self.power_supply_kind != "tdk" or not self._supply_io_lock.acquire(blocking=False):
+            return False
+        try:
+            now = time.monotonic()
+            previous = self._last_live_current_read_at
+            if not force and previous is not None and now - previous < 0.2:
+                return True
+            self._last_live_current_read_at = now
+            measured = float(self._require_power_supply().read_output_current())
+            if not math.isfinite(measured):
+                self.latest_power_supply_output_current_a = None
+                return False
+            self.latest_power_supply_output_current_a = measured
+            return True
+        except Exception:
+            self.latest_power_supply_output_current_a = None
+            # Telemetry must never interrupt safe ramp-down. The final zero
+            # current verification remains mandatory in safe_ramp_down.
+            _LOGGER.debug("工位 %s 实时电流读取失败", self.station_id, exc_info=True)
+            return False
+        finally:
+            self._supply_io_lock.release()
+
     def _device_snapshots(self) -> tuple[DeviceSnapshot, ...]:
         ch341 = self.connected_ch341_port or {}
         return (
@@ -520,6 +550,7 @@ class StationRuntime(StationAutomaticMixin):
                 self.power_supply_identity_error = ""
                 try:
                     self.active_current_a = float(supply.read_output_current())
+                    self.latest_power_supply_output_current_a = self.active_current_a
                 except Exception:
                     supply.disconnect_device()
                     self.power_supply_controller = None
@@ -671,6 +702,8 @@ class StationRuntime(StationAutomaticMixin):
                 self.command_safety.check()
                 self._clear_shutdown_result()
                 supply.set_current(current_a)
+                self.latest_power_supply_output_current_a = None
+                self._last_live_current_read_at = None
             self.active_current_a = current_a
             self.configuration["setCurrentA"] = current_a
             if self.automatic.state in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED}:
@@ -714,6 +747,7 @@ class StationRuntime(StationAutomaticMixin):
                     self.configuration["setCurrentA"] = 0.0
                     self._manual_voltage_timer_generation += 1
                     measured_current_a = float(supply.read_output_current())
+                    self.latest_power_supply_output_current_a = measured_current_a
                     if not math.isfinite(measured_current_a) or abs(measured_current_a) > 0.01:
                         raise RuntimeError(
                             "开启输出已取消：TDK 电流未归零，"
@@ -725,6 +759,7 @@ class StationRuntime(StationAutomaticMixin):
                 supply.set_output_enabled(enabled)
                 if not enabled and self.power_supply_kind == "tdk":
                     measured_current_a = float(supply.read_output_current())
+                    self.latest_power_supply_output_current_a = measured_current_a
                     if not math.isfinite(measured_current_a) or abs(measured_current_a) > 0.01:
                         raise RuntimeError(
                             f"TDK 输出已关闭，但无法确认输出电流归零：{measured_current_a:.3f} A"
