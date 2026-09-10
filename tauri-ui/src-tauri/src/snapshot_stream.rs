@@ -155,7 +155,7 @@ mod tests {
         let mut waits = Vec::new();
         let finished = Cell::new(false);
         run_snapshot_stream(
-            "automatic_1",
+            "automatic",
             Duration::from_millis(200),
             |request| {
                 params.push(request);
@@ -176,7 +176,7 @@ mod tests {
         assert_eq!(params[1]["since"]["power"], 2);
         assert_eq!(params[1]["cursors"]["power"], 10.0);
         assert_eq!(params[1]["cursors"]["pd"], 5.0);
-        assert_eq!(params[2], json!({ "view": "automatic_1" }));
+        assert_eq!(params[2], json!({ "view": "automatic" }));
         assert_eq!(
             messages,
             vec![
@@ -193,7 +193,7 @@ mod tests {
         let mut attempts = 0;
         let mut waits = Vec::new();
         run_snapshot_stream(
-            "pd_2",
+            "pd",
             Duration::from_millis(500),
             |_| {
                 attempts += 1;

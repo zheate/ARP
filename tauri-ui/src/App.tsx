@@ -275,6 +275,7 @@ const emptyConfig: AppConfiguration = {
   powerMeterWavelengthNm: 976,
   softwareGain: 1,
   powerMeterIntervalMs: 100,
+  powerSmoothing: true,
   spectrometerResource: "",
   spectrometerSerialNumber: "",
   integrationTimeUs: 1000,
@@ -939,6 +940,10 @@ function PowerMeterSettingsForm({ snapshot, config, update, active, pending, run
       <DetectionStatus detail={meter?.detail} detecting={meter?.detecting} />
       <NumberField label="校准波长 (nm)" value={config.powerMeterWavelengthNm} onChange={(v) => update("powerMeterWavelengthNm", v)} step="0.1" />
       <NumberField label="软件增益" value={config.softwareGain} onChange={(v) => update("softwareGain", v)} step="0.01" />
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <label className="device-settings-checkbox"><input checked={config.powerSmoothing ?? true} onChange={(e) => update("powerSmoothing", e.target.checked)} type="checkbox" />功率曲线平滑</label>
+        <span className="text-xs text-muted-foreground">仅影响显示，不改变测量数据</span>
+      </div>
       <div className="device-settings-action-grid"><Button disabled={!active || pending || meter?.detecting || meter?.running || !selectedResourceAvailable} onClick={() => void run("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button disabled={!active || pending || meter?.detecting || meter?.running || !selectedResourceAvailable} onClick={() => void run("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></div>
       <Button className={`w-full transition-all ${meter?.running ? "btn-running-pulse" : ""}`} disabled={!active || pending || meter?.detecting || (!meter?.running && !selectedResourceAvailable)} onClick={() => void run(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
       <p className="text-xs text-muted-foreground">{measurementSummary}</p>
@@ -1330,7 +1335,6 @@ function AutomaticCompletionDialog({
   message,
   onClose,
   outcome,
-  stationId,
   shutdown,
   totalPoints,
   completedPoints,
@@ -1349,7 +1353,6 @@ function AutomaticCompletionDialog({
   message: string
   onClose: () => void
   outcome?: AutomaticTerminalOutcome | null
-  stationId?: "1" | "2"
   shutdown?: SafetyShutdownResult
   totalPoints?: number
   completedPoints?: number
@@ -1407,12 +1410,12 @@ function AutomaticCompletionDialog({
     : "bg-destructive/15 text-destructive ring-1 ring-destructive/25"
 
   const subtitle = isSuccess
-    ? `工位 ${stationId || "1"} · 测试流程已完成，电源状态已确认`
+    ? `测试流程已完成，电源状态已确认`
     : isStopped
-    ? `工位 ${stationId || "1"} · 测试由操作员终止，电源状态已确认`
+    ? `测试由操作员终止，电源状态已确认`
     : shutdownConfirmed
-    ? `工位 ${stationId || "1"} · 测试异常中断，电源状态已确认`
-    : `工位 ${stationId || "1"} · 测试已停止，但下电状态未确认`
+    ? `测试异常中断，电源状态已确认`
+    : `测试已停止，但下电状态未确认`
 
   const shutdownStatus = shutdownState.label
   const exportLabel = exportStatus === "completed"
@@ -1599,7 +1602,7 @@ function ShutdownFailureDialog({
         <div className="space-y-4 px-5 py-5">
           <p className="whitespace-pre-line text-sm leading-6 text-foreground" id="shutdown-failure-description">{message}</p>
           {shutdownConfirmed ? (
-            <div className="rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-4 py-3 text-sm leading-6 text-foreground">后端已经确认全部工位安全下电。导出或配置保存失败不会撤销该安全结果。</div>
+            <div className="rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-4 py-3 text-sm leading-6 text-foreground">后端已经确认安全下电。导出或配置保存失败不会撤销该安全结果。</div>
           ) : (
             <>
               <div className="rounded-lg border border-[color-mix(in_srgb,var(--app-warning)_35%,transparent)] bg-[var(--app-warning-soft)] px-4 py-3 text-sm leading-6 text-foreground">
@@ -1948,7 +1951,7 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
     && sameRows(previous.annotationLegend, next.annotationLegend, ["label", "color", "value"])
 })
 
-const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, curveLineStyle = "solid", latestPointMarkerStyle = "point", stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; curveLineStyle?: CurveLineStyle; latestPointMarkerStyle?: LatestPointMarkerStyle; stretch?: boolean; heightClassName?: string }) {
+const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, smoothing = true, curveLineStyle = "solid", latestPointMarkerStyle = "point", stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; smoothing?: boolean; curveLineStyle?: CurveLineStyle; latestPointMarkerStyle?: LatestPointMarkerStyle; stretch?: boolean; heightClassName?: string }) {
   const powerData = (snapshot?.measurements?.power ?? []) as Array<Record<string, number | null>>
   const latestElapsedS = powerData[powerData.length - 1]?.elapsedS
   const powerTimeDomain: [number, number] = typeof latestElapsedS === "number"
@@ -1965,7 +1968,7 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, curveLin
       ? [row.powerW]
       : []
   )))
-  const lines: CanvasChartLine[] = [{ key: "powerW", label: "实时功率", color: powerStabilityColor, dash: curveLineDash(curveLineStyle), showLatestPoint: true, latestPointStyle: latestPointMarkerStyle }]
+  const lines: CanvasChartLine[] = [{ key: "powerW", label: "实时功率", color: powerStabilityColor, interpolation: smoothing ? "monotone" : "linear", dash: curveLineDash(curveLineStyle), showLatestPoint: true, latestPointStyle: latestPointMarkerStyle }]
 
   return (
     <ChartPanel
@@ -1987,6 +1990,8 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, curveLin
   const previousPower = previous.snapshot?.measurements?.power
   const nextPower = next.snapshot?.measurements?.power
   return previous.stretch === next.stretch
+    && previous.smoothing === next.smoothing
+    && previous.curveLineStyle === next.curveLineStyle
     && previous.heightClassName === next.heightClassName
     && previous.latestPointMarkerStyle === next.latestPointMarkerStyle
     && previous.snapshot?.automaticTest.currentA === next.snapshot?.automaticTest.currentA
@@ -2001,7 +2006,7 @@ const agingPowerLines: CanvasChartLine[] = [
 const agingPowerTimeDomain: [number, number] = [0, 120]
 const agingPowerTimeTicks = [0, 20, 40, 60, 80, 100, 120]
 
-const AgingPowerChart = memo(function AgingPowerChart({ snapshot, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; stretch?: boolean; heightClassName?: string }) {
+const AgingPowerChart = memo(function AgingPowerChart({ snapshot, smoothing = true, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; smoothing?: boolean; stretch?: boolean; heightClassName?: string }) {
   const chartData = snapshot?.measurements?.agingPower ?? []
   const powerDomain = useMemo(
     () => powerYAxisDomain(chartData.map((row) => row.powerW)),
@@ -2014,7 +2019,7 @@ const AgingPowerChart = memo(function AgingPowerChart({ snapshot, stretch = fals
       data={chartData}
       empty="AU 老化测试每 5 分钟记录一次功率"
       hideHeader
-      lines={agingPowerLines}
+      lines={agingPowerLines.map((line) => ({ ...line, interpolation: smoothing ? "monotone" : "linear" }))}
       stretch={stretch}
       heightClassName={heightClassName}
       title="AU 老化功率"
@@ -2026,6 +2031,7 @@ const AgingPowerChart = memo(function AgingPowerChart({ snapshot, stretch = fals
     />
   )
 }, (previous, next) => previous.stretch === next.stretch
+  && previous.smoothing === next.smoothing
   && previous.heightClassName === next.heightClassName
   && sameRows(previous.snapshot?.measurements?.agingPower, next.snapshot?.measurements?.agingPower, ["elapsedMinutes", "powerW"]))
 
@@ -2034,7 +2040,7 @@ const powerEfficiencyLines: CanvasChartLine[] = [
   { key: "efficiencyPercent", label: "效率 (%)", color: PLM_CHART_SERIES.blue, axisColor: PLM_CHART_SERIES.blue, yAxisId: "right", showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 2.4, connectNulls: true },
 ]
 
-const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; stretch?: boolean; heightClassName?: string }) {
+const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, smoothing = true, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; smoothing?: boolean; stretch?: boolean; heightClassName?: string }) {
   const stableData = (snapshot?.measurements?.stable ?? []) as Array<Record<string, number | null>>
   const referencePoints = snapshot?.automaticTest.reference?.points ?? []
   const chartData = useMemo<Array<Record<string, number | null>>>(() => {
@@ -2049,8 +2055,11 @@ const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stre
     return [...rows.values()].sort((left, right) => (left.currentA ?? 0) - (right.currentA ?? 0))
   }, [referencePoints, stableData])
   const lines: CanvasChartLine[] = [
-    ...powerEfficiencyLines,
-    ...(referencePoints.length ? [{ key: "referencePowerW", label: "历史参考", color: HISTORY_CHART_SERIES.power, lineWidth: 1.2, dash: [4, 4], hideLegend: true }] : []),
+    ...powerEfficiencyLines.map((line): CanvasChartLine => ({
+      ...line,
+      interpolation: line.key === "powerW" && smoothing ? "monotone" : "linear",
+    })),
+    ...(referencePoints.length ? [{ key: "referencePowerW", label: "历史参考", color: HISTORY_CHART_SERIES.power, interpolation: smoothing ? "monotone" as const : "linear" as const, lineWidth: 1.2, dash: [4, 4], hideLegend: true }] : []),
   ]
   const currentDomain = useMemo<[number, number] | undefined>(() => {
     const currents = chartData
@@ -2096,6 +2105,7 @@ const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stre
     />
   )
 }, (previous, next) => previous.stretch === next.stretch
+  && previous.smoothing === next.smoothing
   && previous.heightClassName === next.heightClassName
   && sameRows(previous.snapshot?.measurements?.stable, next.snapshot?.measurements?.stable, ["currentA", "powerW", "efficiencyPercent"])
   && previous.snapshot?.automaticTest.reference?.sourcePath === next.snapshot?.automaticTest.reference?.sourcePath
@@ -2343,7 +2353,7 @@ function AppTitlebar({
           size="sm"
           variant="outline"
         >
-          <OctagonAlert className="size-4" />全部工位急停
+          <OctagonAlert className="size-4" />急停
         </Button>
       </div>
     </header>
@@ -2358,20 +2368,11 @@ function LicensedApp({
   onImportLicense: () => Promise<void>
 }) {
   const [page, setPage] = useState<Page>(() => (typeof window !== "undefined" && (new URLSearchParams(window.location.search).get("page") as Page)) || "automatic")
-  const [stationId, setStationId] = useState<"1" | "2">("1")
   const [theme, setTheme] = useState<Theme>(getStoredTheme)
   const [accentTheme, setAccentTheme] = useState<AccentTheme>(getStoredAccentTheme)
   const [curveLineStyle, setCurveLineStyle] = useState<CurveLineStyle>(getStoredCurveLineStyle)
   const [latestPointMarkerStyle, setLatestPointMarkerStyle] = useState<LatestPointMarkerStyle>(getStoredLatestPointMarkerStyle)
-  const currentView: SnapshotView = page === "automatic"
-    ? (stationId === "1" ? "automatic_1" : "automatic_2")
-    : page === "manual"
-    ? (stationId === "1" ? "manual_1" : "manual_2")
-    : page === "pd"
-    ? (stationId === "1" ? "pd_1" : "pd_2")
-    : page === "settings"
-    ? (stationId === "1" ? "automatic_1" : "automatic_2")
-    : page
+  const currentView: SnapshotView = page === "settings" ? "automatic" : page
   const { snapshot, error, commandPending, pendingCommand, command } = useBackendSnapshot(currentView)
   const [config, setConfig] = useState<AppConfiguration>(emptyConfig)
   const [dirty, setDirty] = useState(false)
@@ -2420,7 +2421,7 @@ function LicensedApp({
         try {
           await sendBackendRequest(
             "app.configure",
-            { stationId, ...configRef.current } as unknown as Record<string, unknown>,
+            { ...configRef.current } as unknown as Record<string, unknown>,
           )
         } catch (reason) {
           setCloseFailure({
@@ -2441,7 +2442,7 @@ function LicensedApp({
       closeRequestInFlightRef.current = false
       setCloseRequestPending(false)
     }
-  }, [licenseStatus.valid, stationId])
+  }, [licenseStatus.valid])
 
   const forceClose = useCallback(async () => {
     try {
@@ -2467,7 +2468,7 @@ function LicensedApp({
   }, [attemptGracefulClose])
 
   useEffect(() => {
-    const currentConfig = snapshot?.configurations?.[stationId] ?? snapshot?.configuration
+    const currentConfig = snapshot?.configuration
     if (!currentConfig || dirty) return
     const pendingPersisted = pendingPersistedConfigRef.current
     if (pendingPersisted && !configurationsEqual(currentConfig, pendingPersisted)) return
@@ -2478,7 +2479,7 @@ function LicensedApp({
       configHydratedRef.current = true
       return next
     })
-  }, [snapshot?.configurations, snapshot?.configuration, stationId, dirty])
+  }, [snapshot?.configuration, dirty])
 
   const saveConfiguration = useCallback(async () => {
     if (!operational) return
@@ -2486,16 +2487,16 @@ function LicensedApp({
     await automaticSaveFlightRef.current.catch(() => undefined)
     const savedSnapshot = await command(
       "app.configure",
-      { stationId, ...configRef.current } as unknown as Record<string, unknown>,
+      { ...configRef.current } as unknown as Record<string, unknown>,
     )
     if (configRevisionRef.current === revision) {
-      const persisted = savedSnapshot.configurations?.[stationId] ?? savedSnapshot.configuration ?? configRef.current
+      const persisted = savedSnapshot.configuration ?? configRef.current
       pendingPersistedConfigRef.current = persisted
       configRef.current = persisted
       setConfig(persisted)
       setDirty(false)
     }
-  }, [command, operational, stationId])
+  }, [command, operational])
 
   const run: RunCommand = useCallback(async (method, params, sync) => {
     if (!active) return
@@ -2503,9 +2504,9 @@ function LicensedApp({
       throw new Error(`软件授权无效：${licenseReasonLabels[licenseStatus.reason]}`)
     }
     if (sync && dirty) await saveConfiguration()
-    await command(method, { stationId, ...params })
+    await command(method, params)
     if (method === "automatic.start") setDirty(false)
-  }, [active, command, dirty, licenseStatus.reason, licenseStatus.valid, saveConfiguration, stationId])
+  }, [active, command, dirty, licenseStatus.reason, licenseStatus.valid, saveConfiguration])
 
   const update: UpdateConfig = useCallback((key, value) => {
     configRevisionRef.current += 1
@@ -2585,12 +2586,7 @@ function LicensedApp({
     return () => window.removeEventListener("keydown", handleKeyDown)
   }, [changePage])
 
-  // Backend notices are retained globally so a station's fault is not lost
-  // while the operator views the other tab.  Only render station-tagged
-  // notices on their owning station; untagged notices remain global.
-  const notices = (snapshot?.backend.notices ?? []).filter(
-    (notice) => !notice.stationId || notice.stationId === stationId,
-  )
+  const notices = snapshot?.backend.notices ?? []
   const notifications = [
     ...(error ? [{ key: `request-error:${error}`, level: "error" as const, title: "系统错误", message: error }] : []),
     ...notices.map((notice, index) => ({ ...notice, key: notice.id ? `backend-notice:${notice.id}` : `backend-notice:${notice.level}:${notice.title}:${notice.message}:${index}` })),
@@ -2696,7 +2692,7 @@ function LicensedApp({
           <div><strong>{licenseReasonLabels[licenseStatus.reason]}</strong><span>已禁止开始新测试和修改硬件输出；仍可安全结束当前任务或执行急停。</span></div>
           <div>
             {automaticWorkflowActive && <Button onClick={() => void run("automatic.end")} size="sm" variant="outline">安全结束测试</Button>}
-            <Button onClick={() => void run("app.stopAll")} size="sm" variant="destructive">全部工位急停</Button>
+            <Button onClick={() => void run("app.stopAll")} size="sm" variant="destructive">急停</Button>
           </div>
         </div>
       )}
@@ -2767,7 +2763,6 @@ function LicensedApp({
               onRetryExport={() => void retryAutomaticExport()}
               outcome={snapshot?.automaticTest.terminalOutcome}
               sn={config.sn}
-              stationId={stationId}
               shutdown={snapshot?.safety.shutdown}
               title={automaticCompletion.title}
               totalPoints={snapshot?.automaticTest.currents?.length}
@@ -2781,8 +2776,8 @@ function LicensedApp({
             data-page={page}
             key={page}
           >
-            {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={operational} controlsLocked={automaticInteractionLocked || !licenseStatus.valid} curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} stationSwitchDisabled={commandPending || dirty} pending={commandPending} run={run} saveConfiguration={saveConfiguration} testScripts={snapshot?.testScripts ?? BUILTIN_TEST_SCRIPT_OPTIONS} onScriptSelect={selectTestScript} stationId={stationId} onStationChange={setStationId} />}
-            {page === "manual" && <ManualPage snapshot={snapshot} config={config} update={update} active={operational} pending={commandPending} run={run} stationId={stationId} />}
+            {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={operational} controlsLocked={automaticInteractionLocked || !licenseStatus.valid} curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} pending={commandPending} run={run} saveConfiguration={saveConfiguration} testScripts={snapshot?.testScripts ?? BUILTIN_TEST_SCRIPT_OPTIONS} onScriptSelect={selectTestScript} />}
+            {page === "manual" && <ManualPage snapshot={snapshot} config={config} update={update} active={operational} pending={commandPending} run={run} />}
             {page === "pd" && <PdPage snapshot={snapshot} active={operational} pending={commandPending} run={run} />}
             {page === "shipping" && <ShippingReportPage active={operational} controlsLocked={automaticInteractionLocked || !licenseStatus.valid} pending={commandPending} />}
             {page === "settings" && <SystemSettingsPage curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} licenseStatus={licenseStatus} onCurveLineStyleChange={setCurveLineStyle} onImportLicense={onImportLicense} onLatestPointMarkerStyleChange={setLatestPointMarkerStyle} theme={theme} onThemeChange={setTheme} accentTheme={accentTheme} onAccentThemeChange={setAccentTheme} />}
@@ -3934,14 +3929,11 @@ const AutomaticPage = memo(function AutomaticPage({
   controlsLocked,
   curveLineStyle,
   latestPointMarkerStyle,
-  stationSwitchDisabled,
   pending,
   run,
   saveConfiguration,
   testScripts,
   onScriptSelect,
-  stationId,
-  onStationChange,
 }: {
   snapshot: BackendSnapshot | null
   config: AppConfiguration
@@ -3950,14 +3942,11 @@ const AutomaticPage = memo(function AutomaticPage({
   controlsLocked: boolean
   curveLineStyle: CurveLineStyle
   latestPointMarkerStyle: LatestPointMarkerStyle
-  stationSwitchDisabled: boolean
   pending: boolean
   run: RunCommand
   saveConfiguration: () => Promise<void>
   testScripts: TestScript[]
   onScriptSelect: (scriptId: string) => void
-  stationId: "1" | "2"
-  onStationChange: (stationId: "1" | "2") => void
 }) {
   const auto = snapshot?.automaticTest
   const availableTestScripts = testScripts.filter((script) => (
@@ -4009,26 +3998,7 @@ const AutomaticPage = memo(function AutomaticPage({
 
   return (
     <>
-      <div className="automatic-setup-panel relative z-20 shrink-0 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[minmax(110px,0.5fr)_minmax(160px,0.82fr)_minmax(160px,0.82fr)_minmax(120px,0.55fr)_minmax(190px,1fr)_minmax(280px,1.3fr)] items-end gap-3 rounded-lg border border-border/70 bg-card/40 p-3 shadow-none">
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground">
-            <Milestone className="mr-1 inline size-3.5" />测试工位
-          </Label>
-          <div className="automatic-workstation-card" aria-label="测试工位">
-            {(["1", "2"] as const).map((id) => (
-              <button
-                aria-pressed={stationId === id}
-                className={stationId === id ? "is-active" : ""}
-                disabled={stationSwitchDisabled}
-                key={id}
-                onClick={() => onStationChange(id)}
-                type="button"
-              >
-                {id}
-              </button>
-            ))}
-          </div>
-        </div>
+      <div className="automatic-setup-panel relative z-20 shrink-0 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[minmax(160px,0.82fr)_minmax(160px,0.82fr)_minmax(120px,0.55fr)_minmax(190px,1fr)_minmax(280px,1.3fr)] items-end gap-3 rounded-lg border border-border/70 bg-card/40 p-3 shadow-none">
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground" htmlFor="automatic-sn">
             <QrCode className="mr-1 inline size-3.5" />产品 SN
@@ -4119,7 +4089,7 @@ const AutomaticPage = memo(function AutomaticPage({
       <section className={`automatic-chart-grid ${useSpectrometer ? "" : "without-spectrum"}`}>
         <div className="automatic-chart-grid__power-row">
           <div className="automatic-power-chart">
-            <PowerRealtimeChart curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} snapshot={snapshot} stretch />
+            <PowerRealtimeChart curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} snapshot={snapshot} smoothing={config.powerSmoothing ?? true} stretch />
             {!useSpectrometer && (
               <AutomaticMetricCard
                 className="automatic-power-chart__reading automatic-metric-card--power automatic-metric-card--title-below"
@@ -4132,8 +4102,8 @@ const AutomaticPage = memo(function AutomaticPage({
             )}
           </div>
           {config.selectedScriptId === "aging"
-            ? <AgingPowerChart snapshot={snapshot} stretch />
-            : <PowerEfficiencyChart snapshot={snapshot} stretch />}
+            ? <AgingPowerChart snapshot={snapshot} smoothing={config.powerSmoothing ?? true} stretch />
+            : <PowerEfficiencyChart snapshot={snapshot} smoothing={config.powerSmoothing ?? true} stretch />}
         </div>
         {useSpectrometer && (
           <RealtimeMetricCards
@@ -4152,8 +4122,6 @@ const AutomaticPage = memo(function AutomaticPage({
   )
 }, (previous, next) => (
   previous.active === next.active
-  && previous.stationId === next.stationId
-  && previous.onStationChange === next.onStationChange
   && previous.controlsLocked === next.controlsLocked
   && previous.latestPointMarkerStyle === next.latestPointMarkerStyle
   && previous.pending === next.pending
@@ -4314,7 +4282,6 @@ const ManualPage = memo(function ManualPage({
   active,
   pending,
   run,
-  stationId,
 }: {
   snapshot: BackendSnapshot | null
   config: AppConfiguration
@@ -4322,7 +4289,6 @@ const ManualPage = memo(function ManualPage({
   active: boolean
   pending: boolean
   run: RunCommand
-  stationId: "1" | "2"
 }) {
   const psu = snapshot?.devices.powerSupply
   const meter = snapshot?.devices.powerMeter
@@ -4347,8 +4313,6 @@ const ManualPage = memo(function ManualPage({
   const spectrometerResources = spectrum?.resources ?? []
   const selectedSpectrometerResourceAvailable = spectrometerResources.includes(config.spectrometerResource)
   const displayedSpectrometerResource = selectedSpectrometerResourceAvailable ? config.spectrometerResource : ""
-  const otherStationId = stationId === "1" ? "2" : "1"
-  const otherConfig = snapshot?.configurations?.[otherStationId]
   const manualControlsAllowed = snapshot?.safety.manualControlsAllowed === true
   const commandLockRef = useRef(false)
   const runManualCommand: RunCommand = async (method, params, sync) => {
@@ -4458,29 +4422,10 @@ const ManualPage = memo(function ManualPage({
           </Button>
         </div>
       </section>
-      {otherConfig && (
-        (() => {
-          const conflicts: string[] = []
-          if (
-            config.powerSupplyKind === "ch341" &&
-            otherConfig.powerSupplyKind === "ch341" &&
-            config.ch341SelectedLocationPath &&
-            config.ch341SelectedLocationPath === otherConfig.ch341SelectedLocationPath
-          ) {
-            conflicts.push(`CH341 端口 (${config.ch341SelectedLocationPath})`)
-          }
-          if (conflicts.length === 0) return null
-          return (
-            <div className="rounded-lg border border-[color-mix(in_srgb,var(--app-warning)_40%,transparent)] bg-[var(--app-warning-soft)] px-4 py-2.5 text-xs text-[var(--app-warning)]">
-              ⚠️ 硬件端口冲突提醒：工位 1 与工位 2 当前选择了相同的 {conflicts.join("、")}，请为两个工位选择不同的硬件接口。
-            </div>
-          )
-        })()
-      )}
       {!manualControlsAllowed && (
         <div className="rounded-lg border border-[color-mix(in_srgb,var(--app-warning)_40%,transparent)] bg-[var(--app-warning-soft)] px-4 py-3 text-sm text-foreground" role="status">
           <p className="font-semibold text-[var(--app-warning)]">手动控制已锁定</p>
-          <p className="mt-1 text-xs text-muted-foreground">硬件控制权由自动测试工位持有。请返回自动测试，执行“结束并安全下电”后再操作设备。</p>
+          <p className="mt-1 text-xs text-muted-foreground">硬件控制权由自动测试持有。请返回自动测试，执行“结束并安全下电”后再操作设备。</p>
         </div>
       )}
       <fieldset aria-disabled={!manualControlsAllowed} className="contents" disabled={!manualControlsAllowed}>
@@ -4597,6 +4542,10 @@ const ManualPage = memo(function ManualPage({
             <NumberField label="软件增益" value={config.softwareGain} onChange={(v) => update("softwareGain", v)} step="0.01" />
           </div>
           <ManualSectionHeading>功能操作</ManualSectionHeading>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <label className="device-settings-checkbox"><input checked={config.powerSmoothing ?? true} onChange={(e) => update("powerSmoothing", e.target.checked)} type="checkbox" />功率曲线平滑</label>
+            <span className="text-xs text-muted-foreground">仅影响显示，不改变测量数据</span>
+          </div>
           <div className="grid grid-cols-2 gap-2"><Button disabled={!active || meter?.detecting || meter?.running || !selectedPowerMeterResourceAvailable} onClick={() => void runManualCommand("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button disabled={!active || meter?.detecting || meter?.running || !selectedPowerMeterResourceAvailable} onClick={() => void runManualCommand("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></div>
           <ManualSectionHeading>状态</ManualSectionHeading>
           <p className="manual-device-status"><span className={`manual-device-status__dot ${meter?.running ? "is-active" : ""}`} />状态：{meter?.running ? "采集中" : "未调零"}</p>
@@ -4633,8 +4582,8 @@ const ManualPage = memo(function ManualPage({
       </section>
       <section className="automatic-chart-grid">
         <div className="automatic-chart-grid__power-row">
-          <PowerRealtimeChart snapshot={snapshot} stretch />
-          <PowerEfficiencyChart snapshot={snapshot} stretch />
+          <PowerRealtimeChart snapshot={snapshot} smoothing={config.powerSmoothing ?? true} stretch />
+          <PowerEfficiencyChart snapshot={snapshot} smoothing={config.powerSmoothing ?? true} stretch />
         </div>
         <RealtimeMetricCards
           config={config}
@@ -4649,7 +4598,6 @@ const ManualPage = memo(function ManualPage({
   )
 }, (previous, next) => (
   previous.active === next.active
-  && previous.stationId === next.stationId
   && previous.pending === next.pending
   && previous.snapshot?.safety.manualControlsAllowed === next.snapshot?.safety.manualControlsAllowed
   && previous.snapshot?.manualTest?.pendingCount === next.snapshot?.manualTest?.pendingCount

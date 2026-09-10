@@ -100,23 +100,22 @@ class HeadlessBackendTests(unittest.TestCase):
         aging_script = next(item for item in snapshot["testScripts"] if item["id"] == "aging")
         self.assertEqual(aging_script["powerSupplyKinds"], ["ch341"])
 
-    def test_test_temperature_is_saved_per_station(self) -> None:
+    def test_test_temperature_is_saved(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             backend = self.backend(directory)
             backend.dispatch(
                 "app.configure",
-                {"stationId": "2", "testTemperatureC": "水冷25°C"},
+                {"testTemperatureC": "水冷25°C"},
             )
 
             restored = self.backend(directory)
 
-        self.assertEqual(restored.stations["1"].configuration["testTemperatureC"], "")
-        self.assertEqual(restored.stations["2"].configuration["testTemperatureC"], "水冷25°C")
+        self.assertEqual(restored.runtime.configuration["testTemperatureC"], "水冷25°C")
 
     def test_aging_script_is_fixed_to_ch341_two_amp_ramp_and_two_hour_hold(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             backend = self.backend(directory)
-            station = backend.stations["1"]
+            station = backend.runtime
             station.configure(
                 {
                     "powerSupplyKind": "ch341",
@@ -181,7 +180,7 @@ class HeadlessBackendTests(unittest.TestCase):
     def test_aging_power_sample_records_elapsed_minutes_and_fresh_power(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             backend = self.backend(directory)
-            station = backend.stations["1"]
+            station = backend.runtime
             station.power_meter_reader = SimpleNamespace(is_ready=True)
             station.latest_power = SimpleNamespace(power_w=1.234, stable=True)
             station.latest_power_received_monotonic_s = time.monotonic()
@@ -207,7 +206,7 @@ class HeadlessBackendTests(unittest.TestCase):
 
     def test_automatic_duration_runs_interval_callback_on_exact_boundaries(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            station = self.backend(directory).stations["1"]
+            station = self.backend(directory).runtime
             clock = [0.0]
             recorded: list[float] = []
 
@@ -231,7 +230,7 @@ class HeadlessBackendTests(unittest.TestCase):
 
     def test_tdk_rejects_aging_script(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            station = self.backend(directory).stations["1"]
+            station = self.backend(directory).runtime
 
             with self.assertRaisesRegex(ValueError, "仅支持 CH341"):
                 station.configure(
@@ -246,7 +245,7 @@ class HeadlessBackendTests(unittest.TestCase):
 
     def test_aging_start_starts_power_meter_but_not_spectrometer(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            station = self.backend(directory).stations["1"]
+            station = self.backend(directory).runtime
             station.power_supply_controller = _FakeController()
 
             with (
@@ -270,7 +269,7 @@ class HeadlessBackendTests(unittest.TestCase):
     def test_manual_power_meter_start_clears_power_efficiency_history(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             backend = self.backend(directory)
-            station = backend.stations["1"]
+            station = backend.runtime
             station.configuration["powerMeterResource"] = "ASRL3::INSTR"
             station.stable_power_points = {2.0: 0.204, 6.0: 0.612}
             station.efficiency_points = {2.0: 4.2, 6.0: 10.2}
@@ -285,7 +284,7 @@ class HeadlessBackendTests(unittest.TestCase):
 
     def test_power_meter_start_accepts_automatic_stability_window(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            station = self.backend(directory).stations["1"]
+            station = self.backend(directory).runtime
             station.configuration["powerMeterResource"] = "ASRL3::INSTR"
 
             with patch("tauri_bridge.station_runtime.PowerMeterReaderThread") as reader_class:

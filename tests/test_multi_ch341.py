@@ -500,17 +500,15 @@ class MultiCH341Test(unittest.TestCase):
 
             backend = HeadlessBackend(settings)
             try:
-                for station in backend.stations.values():
-                    self.assertEqual(station.configuration["ch341SelectedLocationPath"], "")
-                    self.assertEqual(station.configuration["ch341PortBindings"], [])
+                self.assertEqual(backend.runtime.configuration["ch341SelectedLocationPath"], "")
+                self.assertEqual(backend.runtime.configuration["ch341PortBindings"], [])
 
-                backend.stations["1"].configuration["ch341SelectedLocationPath"] = "CURRENT_LOC"
+                backend.runtime.configuration["ch341SelectedLocationPath"] = "CURRENT_LOC"
                 backend._persist_configuration()
-                persisted = settings.get("runtime/stations")
-                self.assertEqual(persisted["1"]["ch341SelectedLocationPath"], "")
-                self.assertEqual(persisted["1"]["ch341PortBindings"], [])
-                self.assertEqual(persisted["2"]["ch341SelectedLocationPath"], "")
-                self.assertEqual(persisted["2"]["ch341PortBindings"], [])
+                persisted = settings.get("runtime/configuration")
+                self.assertEqual(persisted["ch341SelectedLocationPath"], "")
+                self.assertEqual(persisted["ch341PortBindings"], [])
+                self.assertIsNone(settings.get("runtime/stations"))
             finally:
                 backend.export_worker.graceful_stop(timeout_s=5.0)
 

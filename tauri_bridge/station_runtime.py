@@ -76,27 +76,12 @@ _LOGGER = get_runtime_logger("headless_backend")
 class StationRuntime(StationAutomaticMixin):
     """Isolated hardware, automation, and measurement state for one test station."""
 
-    def __init__(self, station_id: str, backend: HeadlessBackend, initial_config: dict[str, Any] | None = None) -> None:
-        self.station_id = str(station_id)
+    def __init__(self, backend: HeadlessBackend, initial_config: dict[str, Any] | None = None) -> None:
         self.backend = backend
         self._lock = threading.RLock()
         self.command_safety = CommandSafetyGate()
 
         self.configuration = dict(DEFAULT_CONFIGURATION)
-        self.configuration["station"] = f"工位 {self.station_id}"
-        if self.station_id == "2":
-            self.configuration.update(
-                {
-                    "ch341SelectedLocationPath": "",
-                    "ch341PortBindings": [],
-                    "tdkResource": "",
-                    "powerMeterResource": "",
-                    "powerMeterSerialNumber": "",
-                    "spectrometerResource": "",
-                    "spectrometerDeviceId": None,
-                    "spectrometerSerialNumber": "",
-                }
-            )
         if initial_config:
             self.configuration.update({k: v for k, v in initial_config.items() if k in DEFAULT_CONFIGURATION})
             self.configuration["testTemperatureC"] = str(
@@ -193,7 +178,7 @@ class StationRuntime(StationAutomaticMixin):
         journal_root = (
             self.backend.settings.path.parent
             / "test-records"
-            / f"station-{self.station_id}"
+            / "station-1"  # Keep existing journal paths readable after migration.
         )
         self._journal_root = journal_root
         self.record_store = self._new_record_store()
@@ -239,9 +224,8 @@ class StationRuntime(StationAutomaticMixin):
     ) -> None:
         self.backend.notify(
             level,
-            f"[工位 {self.station_id}] {title}",
+            title,
             message,
-            station_id=self.station_id,
             code=code,
         )
 
@@ -372,7 +356,7 @@ class StationRuntime(StationAutomaticMixin):
             self.latest_power_supply_output_current_a = None
             # Telemetry must never interrupt safe ramp-down. The final zero
             # current verification remains mandatory in safe_ramp_down.
-            _LOGGER.debug("工位 %s 实时电流读取失败", self.station_id, exc_info=True)
+            _LOGGER.debug("实时电流读取失败", exc_info=True)
             return False
         finally:
             self._supply_io_lock.release()
@@ -441,7 +425,7 @@ class StationRuntime(StationAutomaticMixin):
                     cleaned_bindings.append({"locationPath": loc, "name": name})
 
                 if self.power_supply_controller is not None and cleaned_bindings != candidate.get("ch341PortBindings", []):
-                    raise ValueError("请先断开电源，再修改端口绑定或切换工位")
+                    raise ValueError("请先断开电源，再修改端口绑定")
                 params["ch341PortBindings"] = cleaned_bindings
 
             if "ch341SelectedLocationPath" in params:
@@ -541,7 +525,6 @@ class StationRuntime(StationAutomaticMixin):
                 resource = str(self.configuration["tdkResource"]).strip()
                 if not resource:
                     raise ValueError("请选择 TDK 串口资源")
-                self.backend.check_device_conflicts(self.station_id, "tdk", resource)
                 supply = TdkLambdaPowerSupply(resource)
                 connected, detail = supply.connect_device(0)
                 if not connected:
@@ -562,7 +545,6 @@ class StationRuntime(StationAutomaticMixin):
             selected_loc = str(self.configuration.get("ch341SelectedLocationPath", "")).strip()
             if not selected_loc:
                 raise ValueError("请先选择 CH341 物理端口")
-            self.backend.check_device_conflicts(self.station_id, "ch341", selected_loc)
             # Always rescan immediately before opening: CH341 DLL indices are
             # enumeration-order handles and can swap after USB re-enumeration.
             self.backend.scan_ch341()
@@ -834,7 +816,6 @@ class StationRuntime(StationAutomaticMixin):
             resource = str(self.configuration["powerMeterResource"]).strip()
             if not resource:
                 raise ValueError("请先选择功率计资源")
-            self.backend.check_device_conflicts(self.station_id, "powerMeter", resource)
 
             settings = PowerMeterSettings(
                 resource=resource,
@@ -871,7 +852,7 @@ class StationRuntime(StationAutomaticMixin):
             reader.failed.connect(self._on_power_failed)
             reader.status.connect(
                 lambda msg: self.backend.set_status(
-                    f"[工位 {self.station_id}] {msg}", station_id=self.station_id
+                    str(msg)
                 )
             )
             reader.finished.connect(self._on_power_finished)
@@ -982,7 +963,7 @@ class StationRuntime(StationAutomaticMixin):
 
         threading.Thread(
             target=delayed_read,
-            name=f"manual-voltage-station-{self.station_id}",
+            name="manual-voltage",
             daemon=True,
         ).start()
 
@@ -999,7 +980,7 @@ class StationRuntime(StationAutomaticMixin):
         session = self.record_store.current_session
         if session is not None and session.mode == "manual" and session.ended_at_utc is None:
             return
-        workbook_path = self.record_store.begin_session(
+        self.record_store.begin_session(
             Path(str(self.configuration["outputDir"])),
             str(self.configuration["sn"]),
             datetime.now(),
@@ -1010,7 +991,6 @@ class StationRuntime(StationAutomaticMixin):
             settings=dict(self.configuration),
             devices=self._device_snapshots(),
         )
-        self.backend.check_workbook_path_available(self.station_id, workbook_path)
 
     def _record_manual_voltage_point(self, raw_voltage_v: float) -> None:
         # A power failure may arrive after the delayed voltage read began.
@@ -1112,13 +1092,12 @@ class StationRuntime(StationAutomaticMixin):
             raise ValueError("请填写测试站别")
         if not output_dir:
             raise ValueError("请选择测试数据输出目录")
-        workbook_path = self.record_store.retarget_manual_session(
+        self.record_store.retarget_manual_session(
             Path(output_dir),
             sn,
             test_station,
             settings=dict(self.configuration),
         )
-        self.backend.check_workbook_path_available(self.station_id, workbook_path)
         self.record_store.complete_session(
             SessionStatus.COMPLETED,
             "手动单点保存完成",
@@ -1211,22 +1190,6 @@ class StationRuntime(StationAutomaticMixin):
             device_id_val = None if device_id in {None, ""} else int(device_id)
             if device_id_val is None:
                 raise ValueError("请先选择光谱仪设备")
-            spectrometer_serial = _normalize_device_serial(
-                self.configuration.get("spectrometerSerialNumber")
-            )
-            if spectrometer_serial:
-                self.backend.check_device_conflicts(
-                    self.station_id,
-                    "spectrometerSerial",
-                    spectrometer_serial,
-                )
-            else:
-                self.backend.check_device_conflicts(
-                    self.station_id,
-                    "spectrometer",
-                    device_id_val,
-                )
-
             settings = SpectrometerSettings(
                 integration_time_us=int(self.configuration["integrationTimeUs"]),
                 interval_ms=int(self.configuration["spectrometerIntervalMs"]),
@@ -1250,7 +1213,7 @@ class StationRuntime(StationAutomaticMixin):
             reader.failed.connect(self._on_spectrometer_failed)
             reader.status.connect(
                 lambda msg: self.backend.set_status(
-                    f"[工位 {self.station_id}] {msg}", station_id=self.station_id
+                    str(msg)
                 )
             )
             reader.device_opened.connect(self._on_spectrometer_device_opened)
@@ -1370,9 +1333,8 @@ class StationRuntime(StationAutomaticMixin):
         self.spectrum_centroid_candidate_nm = None
         self.spectrum_centroid_candidate_count = 0
         self.backend.set_status(
-            f"[工位 {self.station_id}] 光谱横轴已按{lock_reference}锁定："
+            f"光谱横轴已按{lock_reference}锁定："
             f"{locked_center:.3f} nm ± {SPECTRUM_CENTER_LOCK_HALF_RANGE_NM:g} nm",
-            station_id=self.station_id,
         )
 
     @staticmethod
@@ -1435,12 +1397,6 @@ class StationRuntime(StationAutomaticMixin):
             previous_device_id = (
                 None if previous_value in {None, ""} else int(previous_value)
             )
-            if previous_device_id != actual_device_id:
-                self.backend.check_device_conflicts(
-                    self.station_id,
-                    "spectrometer",
-                    actual_device_id,
-                )
             label = _spectrometer_label(actual_device_id, serial_number)
             self.configuration["spectrometerDeviceId"] = actual_device_id
             self.configuration["spectrometerResource"] = label
@@ -1470,9 +1426,8 @@ class StationRuntime(StationAutomaticMixin):
             # A successful automatic rebind needs no operator action, so keep
             # it in the status stream instead of raising a warning toast.
             self.backend.set_status(
-                f"[工位 {self.station_id}] 光谱仪设备 ID 已从 {previous_device_id} 自动更新为 {actual_device_id}",
-                station_id=self.station_id,
-            )
+                f"光谱仪设备 ID 已从 {previous_device_id} 自动更新为 {actual_device_id}",
+                )
 
     def _on_integration_changed(self, value: int) -> None:
         self.configuration["integrationTimeUs"] = int(value)
@@ -1496,7 +1451,7 @@ class StationRuntime(StationAutomaticMixin):
         path = (
             Path(requested)
             if requested
-            else Path(str(self.configuration["outputDir"])) / f"spectrum_st{self.station_id}_{datetime.now():%Y%m%d_%H%M%S}.csv"
+            else Path(str(self.configuration["outputDir"])) / f"spectrum_{datetime.now():%Y%m%d_%H%M%S}.csv"
         )
         save_spectrum_curve(path, frame.wavelength, frame.intensity)
         self.notify("info", "光谱保存", f"光谱已保存：{path}")
@@ -1551,50 +1506,6 @@ class StationRuntime(StationAutomaticMixin):
     def _select_latest_test_reference(self, params: dict[str, Any]) -> None:
         records = self._history_records(params)
         self._test_reference = records[0] if records else None
-
-    def summary_snapshot(self) -> dict[str, Any]:
-        with self._lock:
-            supply = self._power_supply()
-            readiness = self.automatic_readiness()
-            currents = list(self.automatic.currents)
-            current_index = int(self.automatic.current_index)
-            progress = max(0.0, min(1.0, (current_index + 1) / len(currents))) if currents else 0.0
-            return {
-                "stationId": self.station_id,
-                "station": str(self.configuration.get("station", f"工位 {self.station_id}")),
-                "sn": str(self.configuration.get("sn", "")),
-                "productModel": str(self.configuration.get("productModel", "")),
-                "batch": str(self.configuration.get("batch", "")),
-                "state": self.automatic.state.value,
-                "detail": self.automatic_detail,
-                "progress": progress,
-                "activeCurrentA": _finite(self.active_current_a),
-                "powerW": _finite(None if self.latest_power is None else self.latest_power.power_w),
-                "powerSupplyConnected": supply is not None,
-                "powerMeterRunning": self.power_meter_reader is not None,
-                "spectrometerRunning": self.spectrometer_reader is not None,
-                "canStart": readiness["ready"],
-                "readiness": readiness,
-                "canPause": self.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED, AutomaticTestState.PAUSED, AutomaticTestState.RAMPING_DOWN},
-                "canEnd": self.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED, AutomaticTestState.RAMPING_DOWN},
-                "terminalOutcome": self.automatic_terminal_outcome,
-                "terminalReason": self.automatic_terminal_reason,
-                "pauseKind": self.automatic_pause_kind,
-                "pauseStartedAtUtc": self.automatic_pause_started_at_utc,
-                "pauseDeadlineAtUtc": self.automatic_pause_deadline_at_utc,
-                "pauseActions": list(self.automatic_pause_actions),
-                "savedPointCount": len(self.record_store.recorded_currents),
-                "exportedPointCount": len(self.record_store.exported_currents),
-                "journalPath": "" if self.record_store.journal_path is None else str(self.record_store.journal_path),
-                "canNextDevice": self.automatic.state == AutomaticTestState.COMPLETED and self.shutdown_confirmed,
-                "canRetryExport": self.automatic.state == AutomaticTestState.COMPLETED and self.export_status == "failed",
-                "controlOwner": "manual" if self.manual_controls_allowed() else "automatic",
-                "manualControlsAllowed": self.manual_controls_allowed(),
-                "shutdown": self.shutdown_snapshot(),
-                "exportStatus": self.export_status,
-                "exportPath": self.export_path,
-                "exportError": self.export_error,
-            }
 
     def build_stable_snapshot(self) -> list[dict[str, Any]]:
         with self._lock:

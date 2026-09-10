@@ -1,12 +1,10 @@
-"""Dual-station coordinator and JSON bridge dispatch backend."""
+"""Single-station coordinator and JSON bridge dispatch backend."""
 
 from __future__ import annotations
 
 import threading
 import uuid
-from contextlib import ExitStack
 from collections import deque
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Callable, Literal
 
@@ -32,7 +30,6 @@ from .snapshot_builder import SnapshotBuilder
 from .station_runtime import StationRuntime
 from .station_support import (
     DeviceDiscoveryThread as _DeviceDiscoveryThread,
-    normalize_device_serial as _normalize_device_serial,
 )
 
 
@@ -40,7 +37,7 @@ _LOGGER = get_runtime_logger("headless_backend")
 
 
 class HeadlessBackend:
-    """Own dual-station hardware, automation, and serializable application state."""
+    """Own single-station hardware, automation, and serializable application state."""
 
     mode = "active"
 
@@ -65,11 +62,10 @@ class HeadlessBackend:
                 if isinstance(value, dict)
             }
 
-        # Shared export queue worker
+        # Background Excel export worker
         self.export_worker = ExportQueueWorker()
-        self.export_worker.start()
 
-        # Shared device discovery state
+        # Device discovery state
         self.power_supply_resources: list[str] = []
         self.ch341_discovery_state: Literal["not_scanned", "ready", "empty", "error"] = "not_scanned"
         self.ch341_scan_error: str = ""
@@ -77,228 +73,161 @@ class HeadlessBackend:
         self.power_meter_options: list[PowerMeterOption] = []
         self.power_meter_detect_thread: PowerMeterDetectThread | None = None
         self.power_meter_detection_detail: str = ""
-        self.power_meter_detection_station_id: str = ""
         self.power_supply_detect_thread: _DeviceDiscoveryThread | None = None
         self.power_supply_detection_detail: str = ""
         self.power_supply_detection_kind: Literal["ch341", "tdk"] | None = None
-        self.power_supply_detection_station_id: str = ""
         self.spectrometer_detect_thread: _DeviceDiscoveryThread | None = None
         self.spectrometer_detection_detail: str = ""
-        self.spectrometer_detection_station_id: str = ""
         self.spectrometer_resources: list[dict[str, Any]] = []
 
-        # Initialize Stations
-        station_configs = self.settings.get("runtime/stations", {})
-        raw_st1_config = station_configs.get("1", stored_dict) if isinstance(station_configs, dict) else stored_dict
-        raw_st2_config = station_configs.get("2", {}) if isinstance(station_configs, dict) else {}
-        st1_config = dict(raw_st1_config) if isinstance(raw_st1_config, dict) else {}
-        st2_config = dict(raw_st2_config) if isinstance(raw_st2_config, dict) else {}
-
-        for config in (st1_config, st2_config):
-            config["ch341SelectedLocationPath"] = ""
-            config["ch341PortBindings"] = []
-
-        for key in (
-            "tdkResource",
-            "powerMeterResource",
-            "powerMeterSerialNumber",
-            "spectrometerSerialNumber",
-        ):
-            station_one_resource = st1_config.get(key)
-            if station_one_resource not in {None, ""} and st2_config.get(key) == station_one_resource:
-                st2_config[key] = ""
-
-        self.stations: dict[str, StationRuntime] = {
-            "1": StationRuntime("1", self, st1_config),
-            "2": StationRuntime("2", self, st2_config),
-        }
-        if any(station.power_meter_configuration_migrated for station in self.stations.values()):
+        # Older releases stored two configurations. Adopt station 1 once;
+        # historical workbooks and journals remain in their original locations.
+        legacy_stations = self.settings.get("runtime/stations")
+        initial_config = stored_dict
+        if isinstance(legacy_stations, dict) and isinstance(legacy_stations.get("1"), dict):
+            initial_config = legacy_stations["1"]
+        initial_config = dict(initial_config)
+        initial_config["ch341SelectedLocationPath"] = ""
+        initial_config["ch341PortBindings"] = []
+        self.runtime = StationRuntime(self, initial_config)
+        if legacy_stations is not None or self.runtime.power_meter_configuration_migrated:
             self._persist_configuration()
+        self.export_worker.start()
 
         self.notices: deque[dict[str, Any]] = deque(maxlen=8)
         self._notice_sequence = 0
         self.status_message = "后台已就绪"
 
-    def _station(self, station_id: str | None = None) -> StationRuntime:
-        key = str(station_id) if station_id is not None else "1"
-        return self.stations.get(key, self.stations["1"])
+    @staticmethod
+    def validate_runtime_target(params: dict[str, Any]) -> None:
+        """Reject stale second-station commands instead of controlling this device."""
+        if params.get("stationId") is not None and str(params["stationId"]) != "1":
+            raise ValueError("当前版本仅支持单工位，旧工位请求已拒绝")
+        view = str(params.get("view", ""))
+        if view in {"automatic_2", "manual_2", "pd_2"}:
+            raise ValueError(f"未知视图：{view}")
 
-    def _station_id_from_params(self, params: dict[str, Any]) -> str:
-        """Resolve routing without confusing the human-readable station label."""
-        value = params.get("stationId")
-        if value is None:
-            legacy_value = params.get("station")
-            value = legacy_value if str(legacy_value) in self.stations else "1"
-        station_id = str(value)
-        if station_id not in self.stations:
-            raise ValueError(f"未知工位 ID：{station_id}")
-        return station_id
-
-    # Forwarding properties for Station 1 backwards compatibility.  Older
-    # tests/integrations used these names before PD became station-scoped.
+    # Compatibility properties for integrations using the coordinator directly.
     @property
     def pd_state(self) -> dict[str, Any]:
-        return self.stations["1"].pd_state
+        return self.runtime.pd_state
 
     @property
     def series_revisions(self) -> dict[str, int]:
-        return self.stations["1"].series_revisions
+        return self.runtime.series_revisions
 
-    # Forwarding properties for Station 1 backwards compatibility
     @property
     def configuration(self) -> dict[str, Any]:
-        return self.stations["1"].configuration
+        return self.runtime.configuration
 
     @configuration.setter
     def configuration(self, value: dict[str, Any]) -> None:
-        self.stations["1"].configuration = value
+        self.runtime.configuration = value
 
     @property
     def power_supply_controller(self) -> Any | None:
-        return self.stations["1"].power_supply_controller
+        return self.runtime.power_supply_controller
 
     @power_supply_controller.setter
     def power_supply_controller(self, value: Any | None) -> None:
-        self.stations["1"].power_supply_controller = value
+        self.runtime.power_supply_controller = value
 
     @property
     def power_supply_kind(self) -> str:
-        return self.stations["1"].power_supply_kind
+        return self.runtime.power_supply_kind
 
     @power_supply_kind.setter
     def power_supply_kind(self, value: str) -> None:
-        self.stations["1"].power_supply_kind = value
+        self.runtime.power_supply_kind = value
 
     @property
     def active_current_a(self) -> float | None:
-        return self.stations["1"].active_current_a
+        return self.runtime.active_current_a
 
     @active_current_a.setter
     def active_current_a(self, value: float | None) -> None:
-        self.stations["1"].active_current_a = value
+        self.runtime.active_current_a = value
 
     @property
     def latest_spectrum(self) -> SpectrumFrame | None:
-        return self.stations["1"].latest_spectrum
+        return self.runtime.latest_spectrum
 
     @latest_spectrum.setter
     def latest_spectrum(self, value: SpectrumFrame | None) -> None:
-        self.stations["1"].latest_spectrum = value
+        self.runtime.latest_spectrum = value
 
     @property
     def power_points(self) -> deque[dict[str, float]]:
-        return self.stations["1"].power_points
+        return self.runtime.power_points
 
     @property
     def stable_power_points(self) -> dict[float, float]:
-        return self.stations["1"].stable_power_points
+        return self.runtime.stable_power_points
 
     @property
     def efficiency_points(self) -> dict[float, float]:
-        return self.stations["1"].efficiency_points
+        return self.runtime.efficiency_points
 
     @property
     def automatic(self) -> AutomaticTestOrchestrator:
-        return self.stations["1"].automatic
+        return self.runtime.automatic
 
     @property
     def automatic_detail(self) -> str:
-        return self.stations["1"].automatic_detail
+        return self.runtime.automatic_detail
 
     @automatic_detail.setter
     def automatic_detail(self, value: str) -> None:
-        self.stations["1"].automatic_detail = value
+        self.runtime.automatic_detail = value
 
     @property
     def power_meter_reader(self) -> PowerMeterReaderThread | None:
-        return self.stations["1"].power_meter_reader
+        return self.runtime.power_meter_reader
 
     @power_meter_reader.setter
     def power_meter_reader(self, value: PowerMeterReaderThread | None) -> None:
-        self.stations["1"].power_meter_reader = value
+        self.runtime.power_meter_reader = value
 
     @property
     def spectrometer_reader(self) -> SpectrometerReaderThread | None:
-        return self.stations["1"].spectrometer_reader
+        return self.runtime.spectrometer_reader
 
     @spectrometer_reader.setter
     def spectrometer_reader(self, value: SpectrometerReaderThread | None) -> None:
-        self.stations["1"].spectrometer_reader = value
+        self.runtime.spectrometer_reader = value
 
     @property
     def connected_ch341_port(self) -> dict[str, Any] | None:
-        return self.stations["1"].connected_ch341_port
+        return self.runtime.connected_ch341_port
 
     @connected_ch341_port.setter
     def connected_ch341_port(self, value: dict[str, Any] | None) -> None:
-        self.stations["1"].connected_ch341_port = value
+        self.runtime.connected_ch341_port = value
 
     @property
     def power_supply_identity_error(self) -> str:
-        return self.stations["1"].power_supply_identity_error
+        return self.runtime.power_supply_identity_error
 
     @power_supply_identity_error.setter
     def power_supply_identity_error(self, value: str) -> None:
-        self.stations["1"].power_supply_identity_error = str(value)
+        self.runtime.power_supply_identity_error = str(value)
 
     @property
     def _test_reference(self) -> Any | None:
-        return self.stations["1"]._test_reference
+        return self.runtime._test_reference
 
     @_test_reference.setter
     def _test_reference(self, value: Any | None) -> None:
-        self.stations["1"]._test_reference = value
+        self.runtime._test_reference = value
 
     def _connect_power_supply(self) -> None:
-        self.stations["1"].connect_power_supply()
+        self.runtime.connect_power_supply()
 
     def _disconnect_power_supply(self) -> None:
-        self.stations["1"].disconnect_power_supply()
+        self.runtime.disconnect_power_supply()
 
     def _history_records(self, params: dict[str, Any]) -> tuple[Any, ...]:
-        return self.stations["1"]._history_records(params)
-
-    def check_device_conflicts(self, target_station_id: str, device_type: str, resource_identifier: Any) -> None:
-        """Prevent Station 1 and Station 2 from binding to the same physical hardware."""
-        for other_id, other_st in self.stations.items():
-            if other_id == target_station_id:
-                continue
-            if device_type == "ch341":
-                other_loc = other_st.configuration.get("ch341SelectedLocationPath")
-                if other_st.power_supply_controller is not None and other_loc == resource_identifier:
-                    raise RuntimeError(f"CH341 端口 {resource_identifier} 正在被工位 {other_id} 使用")
-            elif device_type == "tdk":
-                other_res = other_st.configuration.get("tdkResource")
-                if other_st.power_supply_controller is not None and other_res == resource_identifier:
-                    raise RuntimeError(f"TDK 电源 {resource_identifier} 正在被工位 {other_id} 使用")
-            elif device_type == "powerMeter":
-                other_res = other_st.configuration.get("powerMeterResource")
-                if other_st.power_meter_reader is not None and other_res == resource_identifier:
-                    raise RuntimeError(f"功率计 {resource_identifier} 正在被工位 {other_id} 使用")
-            elif device_type == "spectrometer":
-                other_dev = other_st.configuration.get("spectrometerDeviceId")
-                if other_st.spectrometer_reader is not None and other_dev == resource_identifier:
-                    raise RuntimeError(f"光谱仪设备 ID {resource_identifier} 正在被工位 {other_id} 使用")
-            elif device_type == "spectrometerSerial":
-                other_serial = _normalize_device_serial(
-                    other_st.configuration.get("spectrometerSerialNumber")
-                )
-                if other_st.spectrometer_reader is not None and other_serial == resource_identifier:
-                    raise RuntimeError(f"光谱仪 SN {resource_identifier} 正在被工位 {other_id} 使用")
-
-    def check_workbook_path_available(self, target_station_id: str, workbook_path: Path) -> None:
-        """Prevent two live station sessions from exporting to the same workbook."""
-        target = Path(workbook_path).resolve(strict=False)
-        with self._lock:
-            for other_id, other_st in self.stations.items():
-                if other_id == str(target_station_id):
-                    continue
-                other_path = other_st.record_store.workbook_path
-                if other_path is not None and Path(other_path).resolve(strict=False) == target:
-                    raise RuntimeError(
-                        f"工位 {target_station_id} 与工位 {other_id} 的测试文件路径相同：{target}；"
-                        "请修改 SN、测试站别或输出目录"
-                    )
+        return self.runtime._history_records(params)
 
     def notify(
         self,
@@ -306,7 +235,6 @@ class HeadlessBackend:
         title: str,
         message: str,
         *,
-        station_id: str = "",
         code: str = "",
     ) -> None:
         with self._lock:
@@ -317,29 +245,24 @@ class HeadlessBackend:
                 "title": str(title),
                 "message": str(message),
             }
-            if station_id:
-                notice["stationId"] = str(station_id)
             if code:
                 notice["code"] = str(code)
             self.notices.append(notice)
             self.status_message = str(message)
-            if station_id and str(station_id) in self.stations:
-                self.stations[str(station_id)].status_message = f"[工位 {station_id}] {message}"
+            self.runtime.status_message = str(message)
 
-    def set_status(self, message: str, *, station_id: str | None = None) -> None:
+    def set_status(self, message: str) -> None:
         with self._lock:
             self.status_message = str(message)
-            if station_id is not None and str(station_id) in self.stations:
-                self.stations[str(station_id)].status_message = str(message)
+            self.runtime.status_message = str(message)
 
-    def clear_station_transient_notices(self, station_id: str) -> None:
+    def clear_transient_notices(self) -> None:
         with self._lock:
             self.notices = deque(
                 (
                     notice
                     for notice in self.notices
-                    if str(notice.get("stationId", "")) != str(station_id)
-                    or notice.get("level") == "error"
+                    if notice.get("level") == "error"
                     or notice.get("code") == "power_protection"
                 ),
                 maxlen=8,
@@ -356,19 +279,18 @@ class HeadlessBackend:
             return configuration
 
         self.settings.update({
-            "runtime/configuration": persistent_configuration(self.stations["1"]),
-            "runtime/stations": {sid: persistent_configuration(st) for sid, st in self.stations.items()},
+            "runtime/configuration": persistent_configuration(self.runtime),
             "runtime/deviceProfiles": self.device_profiles,
-        })
+        }, remove_keys=("runtime/stations",))
 
     def ping(self) -> dict[str, Any]:
         return {"status": "ok", "mode": self.mode}
 
-    def capture_command_generations(self) -> dict[str, int]:
-        return {sid: st.command_safety.capture() for sid, st in self.stations.items()}
+    def capture_command_generation(self) -> int:
+        return self.runtime.command_safety.capture()
 
-    def dispatch(self, method: str, params: dict[str, Any], *, command_generations: dict[str, int] | None = None) -> dict[str, Any]:
-        return self.dispatcher.dispatch(method, params, command_generations=command_generations)
+    def dispatch(self, method: str, params: dict[str, Any], *, command_generation: int | None = None) -> dict[str, Any]:
+        return self.dispatcher.dispatch(method, params, command_generation=command_generation)
 
     def dispatch_file_task(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         return self.dispatcher.dispatch_file_task(method, params)
@@ -571,36 +493,20 @@ class HeadlessBackend:
             station.pd_state["status"] = "已停止"
 
     def _stop_all(self) -> None:
-        with ExitStack() as guards:
-            for station in self.stations.values():
-                guards.enter_context(station.command_safety.stopping())
+        with self.runtime.command_safety.stopping():
             self._stop_all_impl()
 
     def _stop_all_impl(self) -> None:
+        self.runtime.request_emergency_stop("急停")
         errors: list[str] = []
-        stations = tuple(self.stations.values())
-        for st in stations:
-            st.request_emergency_stop("全部工位急停")
-
-        def stop_station(station: StationRuntime) -> list[str]:
-            station_errors: list[str] = []
-            try:
-                station.stop_all()
-            except Exception as exc:
-                station_errors.append(f"工位 {station.station_id}：{exc}")
-            try:
-                self._stop_pd(station)
-            except Exception as exc:
-                station_errors.append(f"工位 {station.station_id} PD：{exc}")
-            return station_errors
-
-        with ThreadPoolExecutor(
-            max_workers=len(stations),
-            thread_name_prefix="station-emergency-stop",
-        ) as executor:
-            futures = [executor.submit(stop_station, st) for st in stations]
-            for future in as_completed(futures):
-                errors.extend(future.result())
+        try:
+            self.runtime.stop_all()
+        except Exception as exc:
+            errors.append(str(exc))
+        try:
+            self._stop_pd(self.runtime)
+        except Exception as exc:
+            errors.append(f"PD：{exc}")
         if errors:
             raise RuntimeError("停止未完全确认：" + "；".join(errors))
 
@@ -613,33 +519,14 @@ class HeadlessBackend:
         finally:
             exports_drained = self.export_worker.graceful_stop()
 
-        station_results = {
-            station_id: st.shutdown_snapshot()
-            for station_id, st in self.stations.items()
-        }
-        confirmed = all(result["confirmed"] for result in station_results.values())
-        reasons = [
-            f"工位 {station_id}：{result['reason']}"
-            for station_id, result in station_results.items()
-            if not result["confirmed"] and result["reason"]
-        ]
+        shutdown = self.runtime.shutdown_snapshot()
         if stop_error:
-            reasons.insert(0, stop_error)
+            shutdown["reason"] = "；".join(filter(None, (stop_error, shutdown["reason"])))
         return {
-            "shutdownConfirmed": confirmed,
+            "shutdownConfirmed": shutdown["confirmed"],
             "exportsDrained": exports_drained,
-            "shutdown": {
-                "requested": True,
-                "confirmed": confirmed,
-                "measuredCurrentA": None,
-                "outputOffConfirmed": all(
-                    result["outputOffConfirmed"] for result in station_results.values()
-                ),
-                "reason": "；".join(reasons) if reasons else "全部工位已确认安全下电",
-            },
-            "stations": station_results,
+            "shutdown": shutdown,
         }
-
 
     def snapshot(self, params: dict[str, Any] | None = None) -> dict[str, Any]:
         return self.snapshot_builder.build(params)

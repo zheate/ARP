@@ -461,36 +461,6 @@ body {
   line-height: 1.25;
 }
 
-.automatic-workstation-card {
-  display: grid;
-  height: 2.25rem;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  overflow: hidden;
-  border: 1px solid var(--input);
-  border-radius: var(--radius-lg);
-  background: var(--background);
-}
-
-.automatic-workstation-card button {
-  display: grid;
-  height: 100%;
-  place-items: center;
-  border: 0;
-  background: transparent;
-  color: var(--muted-foreground);
-  font-size: 0.6875rem;
-  font-weight: 650;
-}
-
-.automatic-workstation-card button + button {
-  border-left: 1px solid var(--border);
-}
-
-.automatic-workstation-card button.is-active {
-  background: var(--app-accent-soft);
-  color: var(--primary);
-}
-
 .device-card {
   min-height: 4.75rem;
 }

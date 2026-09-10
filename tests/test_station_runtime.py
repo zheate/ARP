@@ -59,7 +59,7 @@ class _FakeController:
         return True
 
 
-class DualStationRuntimeTests(unittest.TestCase):
+class StationRuntimeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
         settings_path = Path(self.temp_dir.name) / "settings.json"
@@ -69,43 +69,34 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.backend.export_worker.graceful_stop(timeout_s=5.0)
         self.temp_dir.cleanup()
 
-    def test_dual_stations_have_independent_configurations_and_runtimes(self) -> None:
-        self.backend.dispatch("app.configure", {"stationId": "1", "sn": "SN-001", "targetCurrentA": 10.0})
-        self.backend.dispatch("app.configure", {"stationId": "2", "sn": "SN-002", "targetCurrentA": 15.0})
+    def test_configuration_updates_the_single_runtime(self) -> None:
+        self.backend.dispatch("app.configure", {"sn": "SN-001", "targetCurrentA": 10.0})
+        snapshot = self.backend.snapshot()
+        self.assertEqual(snapshot["configuration"]["sn"], "SN-001")
+        self.assertEqual(self.backend.runtime.configuration["targetCurrentA"], 10.0)
+        self.assertFalse(hasattr(self.backend, "stations"))
+        for removed in ("activeStation", "stations", "configurations"):
+            self.assertNotIn(removed, snapshot)
 
-        st1 = self.backend.stations["1"]
-        st2 = self.backend.stations["2"]
-
-        self.assertEqual(st1.configuration["sn"], "SN-001")
-        self.assertEqual(st2.configuration["sn"], "SN-002")
-        self.assertEqual(st1.configuration["targetCurrentA"], 10.0)
-        self.assertEqual(st2.configuration["targetCurrentA"], 15.0)
-
-    def test_spectrum_smoothing_is_enabled_by_default_and_persists_per_station(self) -> None:
-        for station in self.backend.stations.values():
-            self.assertIs(station.configuration["spectrumSmoothing"], True)
-        self.backend.dispatch("app.configure", {"stationId": "1", "spectrumSmoothing": False})
-        self.backend.dispatch("app.configure", {"stationId": "2", "spectrumSmoothing": True})
-        for station_id, expected in (("1", False), ("2", True)):
-            snapshot = self.backend.snapshot({"stationId": station_id})
-            self.assertIs(snapshot["configuration"]["spectrumSmoothing"], expected)
-
+    def test_spectrum_smoothing_is_enabled_by_default_and_persists(self) -> None:
+        self.assertTrue(self.backend.runtime.configuration["spectrumSmoothing"])
+        self.backend.dispatch("app.configure", {"spectrumSmoothing": False})
+        self.assertFalse(self.backend.snapshot()["configuration"]["spectrumSmoothing"])
         restarted = HeadlessBackend(JsonSettings(Path(self.temp_dir.name) / "settings.json"))
         try:
-            self.assertIs(restarted.stations["1"].configuration["spectrumSmoothing"], False)
-            self.assertIs(restarted.stations["2"].configuration["spectrumSmoothing"], True)
+            self.assertFalse(restarted.runtime.configuration["spectrumSmoothing"])
         finally:
             restarted.export_worker.graceful_stop(timeout_s=5.0)
 
     def test_spectrum_smoothing_rejects_non_boolean_values_without_mutating_configuration(self) -> None:
-        original = dict(self.backend.stations["1"].configuration)
+        original = dict(self.backend.runtime.configuration)
         for value in ("false", 0, None):
             with self.subTest(value=value), self.assertRaisesRegex(ValueError, "spectrumSmoothing"):
                 self.backend.dispatch("app.configure", {"stationId": "1", "spectrumSmoothing": value})
-            self.assertEqual(self.backend.stations["1"].configuration, original)
+            self.assertEqual(self.backend.runtime.configuration, original)
 
     def test_automatic_spectrum_follows_active_acquisition(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
 
         self.assertFalse(station._automatic_settings().use_spectrometer)
 
@@ -193,7 +184,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertEqual(detector.tolerance, 0.2)
 
     def test_automatic_readiness_matches_start_requirements(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         station.power_supply_controller = _FakeController()
 
         readiness = station.automatic_readiness()
@@ -215,8 +206,8 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertTrue(station.automatic_readiness()["ready"])
 
     def test_automatic_readiness_only_requires_ch341_ramp_down_command_interval(self) -> None:
-        for station_id, kind in (("1", "tdk"), ("2", "ch341")):
-            station = self.backend.stations[station_id]
+        for kind in ("tdk", "ch341"):
+            station = self.backend.runtime
             station.power_supply_controller = _FakeController()
             station.power_supply_kind = kind
             station.configuration.update(
@@ -244,7 +235,7 @@ class DualStationRuntimeTests(unittest.TestCase):
                             station._require_automatic_ready()
 
     def test_tdk_automatic_start_and_shutdown_use_short_configured_ramp_interval(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         controller = _FakeController()
         station.power_supply_controller = controller
         station.power_supply_kind = "tdk"
@@ -278,7 +269,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertTrue(station.shutdown_confirmed)
 
     def test_automatic_start_without_connected_spectrometer_uses_power_only(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         station.power_supply_controller = _FakeController()
         station.power_meter_reader = MagicMock(is_ready=True)
 
@@ -306,7 +297,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         thread_class.return_value.start.assert_called_once_with()
 
     def test_snapshot_marks_old_measurements_stale_then_invalid(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         station.latest_power = PowerMeterReading(
             elapsed_s=1.0,
             power_w=0.8,
@@ -320,22 +311,22 @@ class DualStationRuntimeTests(unittest.TestCase):
         station.power_meter_reader = MagicMock(is_ready=True)
 
         with patch("tauri_bridge.station_runtime.time.monotonic", return_value=100.0):
-            live = self.backend.snapshot({"view": "automatic_1"})["devices"]["powerMeter"]
+            live = self.backend.snapshot({"view": "automatic"})["devices"]["powerMeter"]
         self.assertEqual(live["quality"], "live")
         self.assertEqual(live["ageMs"], 0)
 
         station.power_meter_reader = None
         with patch("tauri_bridge.station_runtime.time.monotonic", return_value=100.0):
-            stale = self.backend.snapshot({"view": "automatic_1"})["devices"]["powerMeter"]
+            stale = self.backend.snapshot({"view": "automatic"})["devices"]["powerMeter"]
         self.assertEqual(stale["quality"], "stale")
 
         with patch("tauri_bridge.station_runtime.time.monotonic", return_value=110.0):
-            invalid = self.backend.snapshot({"view": "automatic_1"})["devices"]["powerMeter"]
+            invalid = self.backend.snapshot({"view": "automatic"})["devices"]["powerMeter"]
         self.assertEqual(invalid["quality"], "invalid")
 
     def test_saturated_measurement_is_not_reported_live(self) -> None:
         with patch("tauri_bridge.station_runtime.time.monotonic", return_value=10.0):
-            freshness = self.backend.stations["1"].measurement_freshness(
+            freshness = self.backend.runtime.measurement_freshness(
                 received_at_monotonic_s=9.9,
                 sampled_at_utc="2026-08-23T01:00:00.000+00:00",
                 running=True,
@@ -414,76 +405,42 @@ class DualStationRuntimeTests(unittest.TestCase):
             ["ASRL7::INSTR", "ASRL9::INSTR"],
         )
 
-    def test_human_station_label_does_not_broadcast_configuration_to_both_stations(self) -> None:
-        self.backend.stations["1"].configuration["sn"] = "SN-001"
-        self.backend.stations["2"].configuration["sn"] = "SN-002"
+    def test_test_stage_label_is_metadata_including_numeric_labels(self) -> None:
+        for label in ("熔接前", "2"):
+            self.backend.dispatch("app.configure", {"station": label, "sn": "SN-LEGACY"})
+            self.assertEqual(self.backend.runtime.configuration["station"], label)
+            self.assertEqual(self.backend.runtime.configuration["sn"], "SN-LEGACY")
 
-        self.backend.dispatch(
-            "app.configure",
-            {"station": "熔接前", "sn": "SN-LEGACY"},
-        )
-
-        self.assertEqual(self.backend.stations["1"].configuration["sn"], "SN-LEGACY")
-        self.assertEqual(self.backend.stations["1"].configuration["station"], "熔接前")
-        self.assertEqual(self.backend.stations["2"].configuration["sn"], "SN-002")
-
-    def test_station_notice_keeps_machine_readable_code_and_station_id(self) -> None:
-        self.backend.stations["2"].notify(
-            "warning",
-            "光谱饱和",
-            "请调整光路",
-            code="spectrum_saturation",
-        )
-
-        notice = self.backend.snapshot({"view": "automatic_1"})["backend"]["notices"][-1]
-        self.assertEqual(notice["stationId"], "2")
+    def test_notice_keeps_machine_readable_code_without_station_routing(self) -> None:
+        self.backend.runtime.notify("warning", "光谱饱和", "请调整光路", code="spectrum_saturation")
+        notice = self.backend.snapshot()["backend"]["notices"][-1]
+        self.assertNotIn("stationId", notice)
         self.assertEqual(notice["code"], "spectrum_saturation")
-        self.assertEqual(notice["title"], "[工位 2] 光谱饱和")
+        self.assertEqual(notice["title"], "光谱饱和")
 
-    def test_dual_station_sessions_cannot_share_the_same_workbook_path(self) -> None:
-        station_one = self.backend.stations["1"]
-        station_two = self.backend.stations["2"]
-        shared_configuration = {
-            "outputDir": self.temp_dir.name,
-            "sn": "SAME-SN",
-            "station": "熔接前",
-        }
-        station_one.configuration.update(shared_configuration)
-        station_two.configuration.update(shared_configuration)
+    def test_successive_sessions_reserve_unique_workbook_paths(self) -> None:
+        station = self.backend.runtime
+        station.configuration.update({"outputDir": self.temp_dir.name, "sn": "SAME-SN", "station": "熔接前"})
         settings = AutomaticTestSettings()
-        station_one.automatic.start(
-            settings,
-            power_meter_ready=False,
-            spectrum_meter_ready=False,
-        )
-        station_two.automatic.start(
-            settings,
-            power_meter_ready=False,
-            spectrum_meter_ready=False,
-        )
-
+        station.automatic.start(settings, power_meter_ready=False, spectrum_meter_ready=False)
         with patch("tauri_bridge.station_automatic.datetime") as mock_datetime:
             mock_datetime.now.return_value = datetime(2026, 8, 18, 12, 34, 0)
-            first_path = station_one._begin_recording_session(settings)
-            second_path = station_two._begin_recording_session(settings)
-
+            first_path = station._begin_recording_session(settings)
+            station._close_automatic_sample_recorder()
+            second_path = station._begin_recording_session(settings)
+            station._close_automatic_sample_recorder()
         self.assertNotEqual(first_path, second_path)
         self.assertEqual(second_path.stem, first_path.stem + "_02")
 
-    def test_secondary_station_does_not_claim_default_hardware_resources(self) -> None:
-        station_one = self.backend.stations["1"].configuration
-        station_two = self.backend.stations["2"].configuration
-
-        self.assertEqual(station_one["powerMeterResource"], "")
-        self.assertEqual(station_two["ch341SelectedLocationPath"], "")
-        self.assertEqual(station_two["ch341PortBindings"], [])
-        self.assertEqual(station_two["tdkResource"], "")
-        self.assertEqual(station_two["powerMeterResource"], "")
-        self.assertEqual(station_two["spectrometerResource"], "")
-        self.assertIsNone(station_two["spectrometerDeviceId"])
+    def test_fresh_runtime_has_no_preselected_hardware(self) -> None:
+        config = self.backend.runtime.configuration
+        for key in ("ch341SelectedLocationPath", "tdkResource", "powerMeterResource", "spectrometerResource"):
+            self.assertEqual(config[key], "")
+        self.assertEqual(config["ch341PortBindings"], [])
+        self.assertIsNone(config["spectrometerDeviceId"])
 
     def test_spectrum_x_axis_locks_to_stable_peak_like_main(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         for peak_nm in (976.0, 976.1, 976.2, 976.3):
             station._update_spectrum_center_lock(
                 SpectrometerReading(peak_nm, peak_nm + 0.05, 0.4)
@@ -494,7 +451,7 @@ class DualStationRuntimeTests(unittest.TestCase):
             SpectrometerReading(976.4, 976.45, 0.4)
         )
 
-        snapshot = self.backend.snapshot({"view": "automatic_1"})
+        snapshot = self.backend.snapshot({"view": "automatic"})
         spectrum_window = snapshot["devices"]["spectrometer"]["spectrumWindow"]
         self.assertAlmostEqual(spectrum_window["centerNm"], 976.2)
         self.assertEqual(spectrum_window["halfRangeNm"], 20.0)
@@ -503,49 +460,73 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertIsNone(station.spectrum_center_locked_nm)
 
     def test_chart_reset_does_not_touch_pd_revision(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         station.series_revisions["pd"] = 7
 
         station.reset_charts()
 
         self.assertEqual(station.series_revisions["pd"], 7)
 
-    def test_persisted_runtime_device_identities_are_restored_for_both_stations(self) -> None:
-        settings_path = Path(self.temp_dir.name) / "duplicate-settings.json"
-        settings = JsonSettings(settings_path)
-        settings.set(
-            "runtime/stations",
-            {
+    def test_legacy_configuration_migrates_station_one_once(self) -> None:
+        settings = JsonSettings(Path(self.temp_dir.name) / "legacy-settings.json")
+        settings.update({
+            "runtime/configuration": {"sn": "STALE-FALLBACK"},
+            "runtime/stations": {
                 "1": {
-                    "powerMeterResource": "ASRL3::INSTR",
-                    "powerMeterDriverKind": "coherent",
-                    "spectrometerResource": "Ocean Insight | 设备 ID 5",
-                    "spectrometerDeviceId": 5,
-                    "integrationTimeUs": 12345,
+                    "sn": "KEEP-SN", "station": "熔接前",
+                    "powerMeterResource": "ASRL3::INSTR", "powerMeterDriverKind": "coherent",
+                    "spectrometerDeviceId": 5, "integrationTimeUs": 12345,
+                    "ch341SelectedLocationPath": "STALE-USB-PATH",
                 },
-                "2": {
-                    "powerMeterResource": "OPHIR::USB::3103403",
-                    "powerMeterDriverKind": "ophir",
-                    "spectrometerResource": "Ocean Insight | 设备 ID 7",
-                    "spectrometerDeviceId": 7,
-                },
+                "2": {"sn": "DISCARD-SN", "spectrometerDeviceId": 7},
             },
-        )
+            "shipping_report/pole/custom_fields": ["keep-field"],
+        })
         backend = HeadlessBackend(settings)
         try:
-            station_one = backend.stations["1"].configuration
-            station_two = backend.stations["2"].configuration
-            self.assertEqual(station_one["powerMeterResource"], "ASRL3::INSTR")
-            self.assertEqual(station_one["powerMeterDriverKind"], "coherent")
-            self.assertEqual(station_one["spectrometerDeviceId"], 5)
-            self.assertEqual(station_two["powerMeterResource"], "OPHIR::USB::3103403")
-            self.assertEqual(station_two["powerMeterDriverKind"], "ophir")
-            self.assertEqual(station_two["spectrometerDeviceId"], 7)
-            self.assertEqual(backend.stations["1"].configuration["integrationTimeUs"], 12345)
+            config = backend.runtime.configuration
+            self.assertEqual(config["sn"], "KEEP-SN")
+            self.assertEqual(config["station"], "熔接前")
+            self.assertEqual(config["powerMeterResource"], "ASRL3::INSTR")
+            self.assertEqual(config["powerMeterDriverKind"], "coherent")
+            self.assertEqual(config["spectrometerDeviceId"], 5)
+            self.assertEqual(config["integrationTimeUs"], 12345)
+            self.assertEqual(config["ch341SelectedLocationPath"], "")
+            self.assertIsNone(settings.get("runtime/stations"))
+            self.assertEqual(settings.get("shipping_report/pole/custom_fields"), ["keep-field"])
+            backend.dispatch("app.configure", {"sn": "NEW-SN"})
+        finally:
+            backend.export_worker.graceful_stop(timeout_s=5.0)
+        restarted = HeadlessBackend(JsonSettings(settings.path))
+        try:
+            self.assertEqual(restarted.runtime.configuration["sn"], "NEW-SN")
+            self.assertEqual(restarted.runtime.configuration["spectrometerDeviceId"], 5)
+        finally:
+            restarted.export_worker.graceful_stop(timeout_s=5.0)
 
-            persisted = settings.get("runtime/stations")
-            self.assertEqual(persisted["1"]["powerMeterResource"], "ASRL3::INSTR")
-            self.assertEqual(persisted["2"]["spectrometerDeviceId"], 7)
+    def test_legacy_migration_preserves_settings_when_atomic_write_fails(self) -> None:
+        settings = JsonSettings(Path(self.temp_dir.name) / "failed-migration.json")
+        original = {"runtime/stations": {"1": {"sn": "KEEP"}, "2": {"sn": "OLD"}}}
+        settings.update(original)
+        original_bytes = settings.path.read_bytes()
+        with patch.object(settings, "flush", side_effect=OSError("disk full")):
+            with self.assertRaisesRegex(OSError, "disk full"):
+                HeadlessBackend(settings)
+        self.assertEqual(settings.path.read_bytes(), original_bytes)
+        self.assertEqual(settings.get("runtime/stations"), original["runtime/stations"])
+        self.assertIsNone(settings.get("runtime/configuration"))
+
+    def test_legacy_migration_uses_main_configuration_when_station_one_is_missing(self) -> None:
+        settings = JsonSettings(Path(self.temp_dir.name) / "fallback-migration.json")
+        settings.update({
+            "runtime/configuration": {"sn": "KEEP", "station": "出厂测试"},
+            "runtime/stations": {"2": {"sn": "DO-NOT-ADOPT"}},
+        })
+        backend = HeadlessBackend(settings)
+        try:
+            self.assertEqual(backend.runtime.configuration["sn"], "KEEP")
+            self.assertEqual(backend.runtime.configuration["station"], "出厂测试")
+            self.assertIsNone(settings.get("runtime/stations"))
         finally:
             backend.export_worker.graceful_stop(timeout_s=5.0)
 
@@ -562,10 +543,10 @@ class DualStationRuntimeTests(unittest.TestCase):
         )
         backend = HeadlessBackend(settings)
         try:
-            config = backend.stations["1"].configuration
+            config = backend.runtime.configuration
             self.assertEqual(config["powerMeterResource"], "OPHIR::USB::3103403")
             self.assertEqual(config["powerMeterDriverKind"], "ophir")
-            persisted = settings.get("runtime/stations")["1"]
+            persisted = settings.get("runtime/configuration")
             self.assertEqual(persisted["powerMeterResource"], "OPHIR::USB::3103403")
             self.assertEqual(persisted["powerMeterDriverKind"], "ophir")
         finally:
@@ -592,7 +573,7 @@ class DualStationRuntimeTests(unittest.TestCase):
             },
         )
 
-        config = self.backend.stations["1"].configuration
+        config = self.backend.runtime.configuration
         self.assertEqual(config["powerMeterResource"], "OPHIR::USB::METER123")
         self.assertEqual(config["powerMeterDriverKind"], "ophir")
         self.assertEqual(config["powerMeterSerialNumber"], "PROBE456")
@@ -620,7 +601,7 @@ class DualStationRuntimeTests(unittest.TestCase):
             "app.configure",
             {"stationId": "1", "powerMeterResource": meter_b.resource},
         )
-        self.assertEqual(self.backend.stations["1"].configuration["softwareGain"], 1.0)
+        self.assertEqual(self.backend.runtime.configuration["softwareGain"], 1.0)
 
         self.backend.dispatch(
             "app.configure",
@@ -630,7 +611,7 @@ class DualStationRuntimeTests(unittest.TestCase):
             "app.configure",
             {"stationId": "1", "powerMeterResource": meter_a.resource},
         )
-        config = self.backend.stations["1"].configuration
+        config = self.backend.runtime.configuration
         self.assertEqual(config["powerMeterSerialNumber"], "PROBE-A")
         self.assertEqual(config["softwareGain"], 1.23)
 
@@ -672,7 +653,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertEqual(profiles[meter_b.resource]["softwareGain"], 0.97)
         self.assertEqual(profiles[meter_b.resource]["serialNumber"], "222483")
 
-        frontend_payload = dict(self.backend.stations["1"].configuration)
+        frontend_payload = dict(self.backend.runtime.configuration)
         frontend_payload.update(
             {"stationId": "1", "powerMeterResource": meter_b.resource}
         )
@@ -680,7 +661,7 @@ class DualStationRuntimeTests(unittest.TestCase):
 
         self.backend.dispatch("app.configure", frontend_payload)
 
-        config = self.backend.stations["1"].configuration
+        config = self.backend.runtime.configuration
         self.assertEqual(config["powerMeterDriverKind"], "laserpoint")
         self.assertEqual(config["powerMeterSerialNumber"], "222483")
         self.assertEqual(config["softwareGain"], 0.97)
@@ -710,7 +691,7 @@ class DualStationRuntimeTests(unittest.TestCase):
             {"stationId": "1", "powerMeterResource": meter_a.resource, "softwareGain": 1.04},
         )
 
-        frontend_payload = dict(self.backend.stations["1"].configuration)
+        frontend_payload = dict(self.backend.runtime.configuration)
         frontend_payload.update(
             {
                 "stationId": "1",
@@ -720,7 +701,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         )
         self.backend.dispatch("app.configure", frontend_payload)
 
-        config = self.backend.stations["1"].configuration
+        config = self.backend.runtime.configuration
         self.assertEqual(config["powerMeterSerialNumber"], "222483")
         self.assertEqual(config["softwareGain"], 1.08)
         self.assertEqual(
@@ -729,7 +710,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         )
 
     def test_remembered_serial_rebinds_power_meter_to_its_current_port(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         station.configuration.update(
             {
                 "powerMeterResource": "ASRL3::INSTR",
@@ -756,7 +737,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertEqual(station.configuration["softwareGain"], 1.37)
 
     def test_ophir_probe_gain_survives_a_meter_head_change(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         station.configuration.update(
             {
                 "powerMeterResource": "OPHIR::USB::OLD-METER",
@@ -785,7 +766,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertEqual(station.configuration["softwareGain"], 0.87)
 
     def test_remembered_spectrometer_serial_rebinds_new_oceandirect_id(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         station.configuration.update(
             {
                 "spectrometerResource": "Ocean Insight | 设备 ID 5 | SN OCEAN-A",
@@ -807,8 +788,8 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertEqual(station.configuration["spectrometerResource"], resources[0]["label"])
 
     def test_startup_restores_remembered_devices_and_scans_spectrometer(self) -> None:
-        station_two = self.backend.stations["2"]
-        station_two.configuration.update(
+        station = self.backend.runtime
+        station.configuration.update(
             {
                 "powerMeterResource": "ASRL8::INSTR",
                 "powerMeterDriverKind": "coherent",
@@ -826,7 +807,7 @@ class DualStationRuntimeTests(unittest.TestCase):
             self.backend.start_remembered_device_discovery()
 
         refresh_power_meter.assert_not_called()
-        refresh_spectrometer.assert_called_once_with(self.backend.stations["1"])
+        refresh_spectrometer.assert_called_once_with()
         self.assertEqual(len(self.backend.power_meter_options), 1)
         self.assertEqual(self.backend.power_meter_options[0].serial_number, "PROBE-B")
         self.assertEqual(
@@ -840,22 +821,17 @@ class DualStationRuntimeTests(unittest.TestCase):
             ],
         )
 
-    def test_hardware_commands_target_specific_station(self) -> None:
-        ctrl1 = _FakeController()
-        ctrl2 = _FakeController()
-        self.backend.stations["1"].power_supply_controller = ctrl1
-        self.backend.stations["2"].power_supply_controller = ctrl2
-
-        self.backend.dispatch("powerSupply.setCurrent", {"stationId": "1", "currentA": 3.0})
-        self.backend.dispatch("powerSupply.setCurrent", {"stationId": "2", "currentA": 6.0})
-
-        self.assertEqual(ctrl1.current_a, 3.0)
-        self.assertEqual(ctrl2.current_a, 6.0)
-        self.assertEqual(self.backend.stations["1"].active_current_a, 3.0)
-        self.assertEqual(self.backend.stations["2"].active_current_a, 6.0)
+    def test_hardware_commands_use_single_runtime_and_accept_legacy_station_one(self) -> None:
+        controller = _FakeController()
+        self.backend.runtime.power_supply_controller = controller
+        self.backend.runtime.power_supply_kind = "tdk"
+        self.backend.dispatch("powerSupply.setCurrent", {"currentA": 3.0})
+        self.backend.dispatch("powerSupply.setCurrent", {"stationId": "1", "currentA": 6.0})
+        self.assertEqual(controller.writes, [3.0, 6.0])
+        self.assertEqual(self.backend.runtime.active_current_a, 6.0)
 
     def test_tdk_output_is_not_enabled_until_zero_current_is_verified(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         controller = MagicMock()
         controller.is_connected = True
         controller.output_enabled = False
@@ -870,7 +846,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         controller.set_output_enabled.assert_not_called()
 
     def test_failed_disconnect_keeps_controller_state_for_retry(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         controller = MagicMock()
         controller.is_connected = True
         controller.disconnect_device.return_value = False
@@ -882,7 +858,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertIs(station.power_supply_controller, controller)
 
     def test_ch341_does_not_create_or_write_second_samples(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         controller = MagicMock()
         controller.is_connected = True
         station.power_supply_kind = "ch341"
@@ -901,7 +877,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         recorder.write.assert_not_called()
 
     def test_ch341_manual_reads_share_the_command_interval_guard(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         controller = MagicMock()
         controller.is_connected = True
         station.power_supply_kind = "ch341"
@@ -914,7 +890,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         controller.read_output_voltage.assert_not_called()
 
     def test_acquisition_failure_pauses_and_retries_current_point(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         station.configuration["outputDir"] = self.temp_dir.name
         station.configuration["sn"] = "AUTO-RETRY"
         station.automatic.start(
@@ -939,7 +915,7 @@ class DualStationRuntimeTests(unittest.TestCase):
             station._await_automatic_resume()
 
     def test_manual_stable_point_can_be_saved_to_excel(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         station.configuration.update(
             {
                 "outputDir": self.temp_dir.name,
@@ -965,7 +941,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         station._record_manual_voltage_point(10.0)
 
         self.assertAlmostEqual(station.efficiency_points[2.0], 20.0)
-        snapshot = self.backend.snapshot({"view": "manual_1"})
+        snapshot = self.backend.snapshot({"view": "manual"})
         self.assertEqual(snapshot["manualTest"]["pendingCount"], 1)
         selected_output_dir = Path(self.temp_dir.name) / "selected"
         station.configuration.update(
@@ -986,7 +962,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertEqual(station.record_store.unsaved_records(), ())
 
     def test_power_supply_read_returns_snapshot_and_only_reads_requested_value(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         controller = MagicMock()
         controller.is_connected = True
         controller.output_enabled = False
@@ -1007,7 +983,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertEqual(snapshot["backend"]["notices"][-1]["message"], "输出电流：4.56 A")
 
     def test_automatic_measurement_rejects_samples_from_previous_setpoint(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         reader = MagicMock()
         reader.reset_stability_window.return_value = 7
         station.power_meter_reader = reader
@@ -1069,7 +1045,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertIs(frame, station.latest_spectrum)
 
     def test_power_efficiency_curve_uses_stability_window_median_like_main(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         reading = PowerMeterReading(
             elapsed_s=1.0,
             power_w=0.123,
@@ -1083,7 +1059,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertEqual(station._stable_power_w(reading), 0.115)
 
     def test_ch341_reads_use_the_same_four_operations_as_main(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
 
         class Ch341Controller:
             is_connected = True
@@ -1137,44 +1113,35 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertAlmostEqual(power_supply["outputCurrentA"], 4.56)
         self.assertAlmostEqual(power_supply["temperatureC"], 37.25)
 
-    def test_device_conflict_check_prevents_binding_same_hardware(self) -> None:
-        ctrl1 = _FakeController()
-        self.backend.stations["1"].power_supply_controller = ctrl1
-        self.backend.stations["1"].configuration["powerSupplyKind"] = "ch341"
-        self.backend.stations["1"].configuration["ch341SelectedLocationPath"] = "PCIROOT(0)#USB(1)"
+    def test_stale_second_station_requests_cannot_control_the_single_runtime(self) -> None:
+        controller = _FakeController()
+        self.backend.runtime.power_supply_controller = controller
+        original = dict(self.backend.runtime.configuration)
+        for method, params in (
+            ("powerSupply.setCurrent", {"currentA": 3}),
+            ("app.configure", {"sn": "WRONG-SN"}),
+            ("automatic.start", {}),
+            ("device.refresh", {"device": "powerSupply"}),
+        ):
+            with self.subTest(method=method), self.assertRaisesRegex(ValueError, "单工位"):
+                self.backend.dispatch(method, {"stationId": "2", **params})
+            with self.subTest(method=method), self.assertRaisesRegex(ValueError, "未知视图"):
+                self.backend.dispatch(method, {"view": "automatic_2", **params})
+        self.assertEqual(controller.writes, [])
+        self.assertEqual(self.backend.runtime.configuration, original)
+        with self.assertRaisesRegex(ValueError, "单工位"):
+            self.backend.snapshot({"stationId": "2"})
 
-        with self.assertRaisesRegex(RuntimeError, "正在被工位 1 使用"):
-            self.backend.check_device_conflicts("2", "ch341", "PCIROOT(0)#USB(1)")
-
-    def test_station_snapshot_excludes_ch341_port_connected_by_other_station(self) -> None:
-        occupied_location = "PCIROOT(0)#USB(1)"
-        available_location = "PCIROOT(0)#USB(2)"
-        station_one = self.backend.stations["1"]
-        station_one.power_supply_kind = "ch341"
-        station_one.power_supply_controller = _FakeController()
-        station_one.configuration["ch341SelectedLocationPath"] = occupied_location
-        self.backend.ch341_discovery_state = "ready"
-        self.backend.ch341_descriptors = [
-            Ch341DeviceDescriptor(0, "iface-0", occupied_location),
-            Ch341DeviceDescriptor(1, "iface-1", available_location),
-        ]
-
-        station_two_snapshot = self.backend.snapshot({"stationId": "2"})
-        station_two_ports = station_two_snapshot["devices"]["powerSupply"]["ch341"]["ports"]
-        self.assertEqual(
-            [(port["locationPath"], port["deviceIndex"]) for port in station_two_ports],
-            [(available_location, 1)],
-        )
-
-        station_one_snapshot = self.backend.snapshot({"stationId": "1"})
-        station_one_paths = {
-            port["locationPath"]
-            for port in station_one_snapshot["devices"]["powerSupply"]["ch341"]["ports"]
-        }
-        self.assertIn(occupied_location, station_one_paths)
+    def test_snapshot_lists_all_ch341_ports_with_the_selected_port(self) -> None:
+        locations = ["PCIROOT(0)#USB(1)", "PCIROOT(0)#USB(2)"]
+        self.backend.runtime.power_supply_controller = _FakeController()
+        self.backend.runtime.configuration["ch341SelectedLocationPath"] = locations[0]
+        self.backend.ch341_descriptors = [Ch341DeviceDescriptor(i, f"iface-{i}", loc) for i, loc in enumerate(locations)]
+        ports = self.backend.snapshot()["devices"]["powerSupply"]["ch341"]["ports"]
+        self.assertEqual([(port["locationPath"], port["deviceIndex"]) for port in ports], list(zip(locations, (0, 1))))
 
     def test_spectrometer_open_updates_and_persists_identity(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         station.configuration["spectrometerDeviceId"] = 5
         station.configuration["spectrometerResource"] = "Ocean Insight | 设备 ID 5"
         self.backend.spectrometer_resources = [
@@ -1193,9 +1160,9 @@ class DualStationRuntimeTests(unittest.TestCase):
             [{"label": "Ocean Insight | 设备 ID 7", "deviceId": 7, "serialNumber": ""}],
         )
         self.backend._persist_configuration()
-        persisted = self.backend.settings.get("runtime/stations")
-        self.assertEqual(persisted["1"]["spectrometerResource"], "Ocean Insight | 设备 ID 7")
-        self.assertEqual(persisted["1"]["spectrometerDeviceId"], 7)
+        persisted = self.backend.settings.get("runtime/configuration")
+        self.assertEqual(persisted["spectrometerResource"], "Ocean Insight | 设备 ID 7")
+        self.assertEqual(persisted["spectrometerDeviceId"], 7)
         self.assertIn("光谱仪设备 ID 已从 5 自动更新为 7", self.backend.status_message)
         self.assertFalse(
             any(notice["title"].endswith("光谱仪设备已重绑定") for notice in self.backend.notices)
@@ -1248,17 +1215,14 @@ class DualStationRuntimeTests(unittest.TestCase):
             scanning_snapshot["devices"]["powerMeter"]["detail"],
             "正在检测串口 1/1：ASRL7::INSTR（依次尝试 彩煌、Coherent、LaserPoint）",
         )
-        other_station_snapshot = self.backend.snapshot({"stationId": "2"})
-        self.assertFalse(other_station_snapshot["devices"]["powerMeter"]["detecting"])
-        self.assertEqual(other_station_snapshot["devices"]["powerMeter"]["detail"], "已停止")
         instances[0].detected.emit([option, second_option])
         instances[0].finished.emit()
 
-        runtime = self.backend.stations["1"].configuration
+        runtime = self.backend.runtime.configuration
         self.assertEqual(runtime["powerMeterResource"], option.resource)
         self.assertEqual(runtime["powerMeterDriverKind"], "ophir")
         self.assertEqual(runtime["powerMeterSerialNumber"], "PROBE-001")
-        persisted = self.backend.settings.get("runtime/stations")["1"]
+        persisted = self.backend.settings.get("runtime/configuration")
         self.assertEqual(persisted["powerMeterResource"], option.resource)
         self.assertEqual(persisted["powerMeterDriverKind"], "ophir")
         self.assertEqual(persisted["powerMeterSerialNumber"], "PROBE-001")
@@ -1271,7 +1235,7 @@ class DualStationRuntimeTests(unittest.TestCase):
             "识别完成：发现 2 台兼容功率计",
         )
 
-    def test_open_devices_are_removed_from_other_station_options(self) -> None:
+    def test_selected_devices_remain_in_available_options(self) -> None:
         occupied_meter = PowerMeterOption(
             resource="ASRL3::INSTR",
             device_type="彩煌串口",
@@ -1289,22 +1253,12 @@ class DualStationRuntimeTests(unittest.TestCase):
             {"label": "Ocean Insight | 设备 ID 5", "deviceId": 5},
             {"label": "Ocean Insight | 设备 ID 7", "deviceId": 7},
         ]
-        station_one = self.backend.stations["1"]
+        station_one = self.backend.runtime
         station_one.configuration["powerMeterResource"] = occupied_meter.resource
         station_one.configuration["spectrometerResource"] = "Ocean Insight | 设备 ID 5"
         station_one.configuration["spectrometerDeviceId"] = 5
         station_one.power_meter_reader = MagicMock(is_ready=True)
         station_one.spectrometer_reader = MagicMock(is_ready=True)
-
-        station_two_devices = self.backend.snapshot({"stationId": "2"})["devices"]
-        self.assertEqual(
-            station_two_devices["powerMeter"]["resources"],
-            [available_meter.label()],
-        )
-        self.assertEqual(
-            station_two_devices["spectrometer"]["resources"],
-            ["Ocean Insight | 设备 ID 7"],
-        )
 
         station_one_devices = self.backend.snapshot({"stationId": "1"})["devices"]
         self.assertEqual(
@@ -1318,9 +1272,9 @@ class DualStationRuntimeTests(unittest.TestCase):
 
     def test_spectrometer_requires_an_explicit_runtime_selection(self) -> None:
         with self.assertRaisesRegex(ValueError, "请先选择光谱仪设备"):
-            self.backend.stations["1"].start_spectrometer()
+            self.backend.runtime.start_spectrometer()
 
-    def test_ch341_detection_completion_is_published_as_station_toast(self) -> None:
+    def test_ch341_detection_completion_is_published_as_toast(self) -> None:
         instances = []
 
         class FakeDiscoveryThread:
@@ -1339,7 +1293,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         with patch("tauri_bridge.device_discovery._DeviceDiscoveryThread", FakeDiscoveryThread):
             self.backend.dispatch(
                 "device.refresh",
-                {"stationId": "2", "device": "powerSupply"},
+                {"device": "powerSupply"},
             )
 
         instances[0].completed.emit(("ch341", []))
@@ -1349,12 +1303,12 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertEqual(notice["level"], "info")
         self.assertEqual(notice["title"], "CH341 识别")
         self.assertEqual(notice["message"], "识别完成：发现 0 个 CH341 设备")
-        self.assertEqual(notice["stationId"], "2")
+        self.assertNotIn("stationId", notice)
 
-        station_two = self.backend.stations["2"]
-        station_two.power_supply_kind = "tdk"
-        station_two.configuration["powerSupplyKind"] = "tdk"
-        tdk_snapshot = self.backend.snapshot({"stationId": "2"})["devices"]["powerSupply"]
+        station = self.backend.runtime
+        station.power_supply_kind = "tdk"
+        station.configuration["powerSupplyKind"] = "tdk"
+        tdk_snapshot = self.backend.snapshot()["devices"]["powerSupply"]
         self.assertFalse(tdk_snapshot["detecting"])
         self.assertEqual(tdk_snapshot["detail"], "未连接")
 
@@ -1388,7 +1342,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         instances[0].finished.emit()
 
         self.assertEqual(
-            self.backend.stations["1"].configuration["ch341SelectedLocationPath"],
+            self.backend.runtime.configuration["ch341SelectedLocationPath"],
             "PCIROOT(0)#USB(1)",
         )
 
@@ -1422,7 +1376,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         )
         instances[0].finished.emit()
 
-        config = self.backend.stations["1"].configuration
+        config = self.backend.runtime.configuration
         self.assertEqual(config["spectrometerDeviceId"], 11)
         self.assertEqual(config["spectrometerSerialNumber"], "OCEAN-A")
         self.assertEqual(
@@ -1433,7 +1387,7 @@ class DualStationRuntimeTests(unittest.TestCase):
 
     def test_ch341_connection_opens_selected_index_at_20_khz(self) -> None:
         location = "PCIROOT(0)#USB(2)"
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         station.configuration.update(
             {
                 "powerSupplyKind": "ch341",
@@ -1468,7 +1422,7 @@ class DualStationRuntimeTests(unittest.TestCase):
 
     def test_ch341_failed_open_is_not_reported_as_connected(self) -> None:
         location = "PCIROOT(0)#USB(1)"
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         station.configuration["ch341SelectedLocationPath"] = location
         station.configuration["ch341PortBindings"] = [
             {"locationPath": location, "name": "1号工位"}
@@ -1494,7 +1448,7 @@ class DualStationRuntimeTests(unittest.TestCase):
 
     def test_ch341_post_open_port_mismatch_disconnects_device(self) -> None:
         location = "PCIROOT(0)#USB(1)"
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         station.configuration["ch341SelectedLocationPath"] = location
         station.configuration["ch341PortBindings"] = [
             {"locationPath": location, "name": "1号工位"}
@@ -1524,52 +1478,36 @@ class DualStationRuntimeTests(unittest.TestCase):
         controller.disconnect_device.assert_called_once_with()
         self.assertIsNone(station.power_supply_controller)
 
-    def test_global_stop_all_stops_both_stations(self) -> None:
-        ctrl1 = _FakeController()
-        ctrl2 = _FakeController()
-        ctrl1.current_a = 5.0
-        ctrl2.current_a = 8.0
-        self.backend.stations["1"].power_supply_controller = ctrl1
-        self.backend.stations["1"].active_current_a = 5.0
-        self.backend.stations["2"].power_supply_controller = ctrl2
-        self.backend.stations["2"].active_current_a = 8.0
-
+    def test_emergency_stop_confirms_zero_current(self) -> None:
+        controller = _FakeController()
+        controller.current_a = 5.0
+        self.backend.runtime.power_supply_controller = controller
+        self.backend.runtime.active_current_a = 5.0
         self.backend.dispatch("app.stopAll", {})
+        self.assertEqual(controller.current_a, 0.0)
+        self.assertEqual(self.backend.runtime.active_current_a, 0.0)
 
-        self.assertEqual(self.backend.stations["1"].active_current_a, 0.0)
-        self.assertEqual(self.backend.stations["2"].active_current_a, 0.0)
-        self.assertEqual(ctrl1.current_a, 0.0)
-        self.assertEqual(ctrl2.current_a, 0.0)
-
-    def test_global_stop_broadcasts_before_parallel_station_cleanup(self) -> None:
-        first = self.backend.stations["1"]
-        second = self.backend.stations["2"]
-        first_cleanup_release = threading.Event()
-        second_cleanup_started = threading.Event()
-        broadcasts: list[str] = []
-
-        first.request_emergency_stop = lambda _reason: broadcasts.append("1")
-        second.request_emergency_stop = lambda _reason: broadcasts.append("2")
-        first.stop_all = lambda: first_cleanup_release.wait(2.0)
-        second.stop_all = second_cleanup_started.set
-
-        with patch.object(self.backend, "_stop_pd", return_value=None):
-            worker = threading.Thread(target=self.backend._stop_all)
-            worker.start()
-            self.assertTrue(second_cleanup_started.wait(1.0))
-            self.assertEqual(broadcasts, ["1", "2"])
-            first_cleanup_release.set()
-            worker.join(2.0)
-
-        self.assertFalse(worker.is_alive())
+    def test_emergency_stop_signals_before_cleanup_and_still_stops_pd_on_failure(self) -> None:
+        events = []
+        def fail_cleanup():
+            events.append("cleanup")
+            raise RuntimeError("power shutdown failed")
+        with (
+            patch.object(self.backend.runtime, "request_emergency_stop", side_effect=lambda _reason: events.append("signal")),
+            patch.object(self.backend.runtime, "stop_all", side_effect=fail_cleanup),
+            patch.object(self.backend, "_stop_pd", side_effect=lambda _runtime: events.append("pd")),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "power shutdown failed"):
+                self.backend._stop_all()
+        self.assertEqual(events, ["signal", "cleanup", "pd"])
 
     def test_emergency_stop_signal_does_not_wait_for_station_state_lock(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         station._lock.acquire()
         try:
             worker = threading.Thread(
                 target=station.request_emergency_stop,
-                args=("全部工位急停",),
+                args=("急停",),
             )
             worker.start()
             worker.join(0.5)
@@ -1592,26 +1530,26 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertTrue(snapshot["safety"]["shutdown"]["confirmed"])
 
     def test_manual_hardware_commands_are_rejected_while_automatic_owns_control(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         station.automatic.state = AutomaticTestState.PAUSED
 
         with self.assertRaisesRegex(RuntimeError, "硬件控制权由自动测试持有"):
             self.backend.dispatch("powerSupply.setCurrent", {"stationId": "1", "currentA": 1.0})
 
-        snapshot = self.backend.snapshot({"view": "manual_1"})
+        snapshot = self.backend.snapshot({"view": "manual"})
         self.assertEqual(snapshot["safety"]["controlOwner"], "automatic")
         self.assertFalse(snapshot["safety"]["manualControlsAllowed"])
 
     def test_snapshot_reports_actual_saved_point_count(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         station.record_store.recorded_currents.update({2.0, 4.0})
 
-        snapshot = self.backend.snapshot({"view": "automatic_1"})
+        snapshot = self.backend.snapshot({"view": "automatic"})
 
         self.assertEqual(snapshot["automaticTest"]["savedPointCount"], 2)
 
     def test_operator_pause_publishes_reason_actions_and_deadline(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         station.automatic.settings = AutomaticTestSettings(
             pause_ramp_down_timeout_s=60.0,
             use_spectrometer=False,
@@ -1619,7 +1557,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         station.automatic.state = AutomaticTestState.WAITING_STABLE
 
         station.pause_automatic()
-        snapshot = self.backend.snapshot({"view": "automatic_1"})["automaticTest"]
+        snapshot = self.backend.snapshot({"view": "automatic"})["automaticTest"]
 
         self.assertEqual(snapshot["pauseKind"], "operator")
         self.assertEqual(snapshot["pauseActions"], ["resume", "safe_end"])
@@ -1629,7 +1567,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertEqual(station.automatic.state, AutomaticTestState.WAITING_STABLE)
 
     def test_spectrum_pause_only_accepts_controlled_recovery_action(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         station.automatic.settings = AutomaticTestSettings(use_spectrometer=True)
         station.automatic.state = AutomaticTestState.WAITING_STABLE
         station.spectrometer_reader = MagicMock()
@@ -1648,7 +1586,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         station.spectrometer_reader.use_fixed_integration_time.assert_called_once_with(12_000)
 
     def test_next_device_preserves_setup_and_clears_session_state(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         station.configuration.update(
             {
                 "sn": "SN-DONE",
@@ -1672,7 +1610,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertEqual(snapshot["measurements"]["stable"], [])
 
     def test_completed_test_can_restart_without_using_next_device(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         previous_store = station.record_store
         station.configuration.update(
             {
@@ -1696,7 +1634,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         thread_class.return_value.start.assert_called_once_with()
 
     def test_manual_output_off_unlocks_completed_test(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         controller = _FakeController()
         controller.current_a = 0.0
         station.power_supply_kind = "tdk"
@@ -1717,7 +1655,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         )
 
     def test_manual_output_on_relocks_completed_test(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         controller = _FakeController()
         controller.output_enabled = False
         station.power_supply_kind = "tdk"
@@ -1734,7 +1672,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertFalse(snapshot["automaticTest"]["canNextDevice"])
 
     def test_safe_disconnect_unlocks_completed_test(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         controller = _FakeController()
         controller.output_enabled = False
         controller.current_a = 0.0
@@ -1756,7 +1694,7 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertIn("power_supply_not_connected", blocker_codes)
 
     def test_automatic_export_is_queued_without_waiting_for_excel(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         station.record_store.begin_session(
             Path(self.temp_dir.name) / "excel",
             "SN-ASYNC",
@@ -1793,50 +1731,29 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertEqual(station.export_status, "completed")
         self.assertEqual(station.record_store.exported_currents, {2.0})
 
-    def test_snapshots_distinguish_active_station_and_summaries(self) -> None:
-        self.backend.stations["1"].latest_spectrum = SimpleNamespace(
-            wavelength=[975.0, 976.0],
-            intensity=[100.0, 500.0],
-            saturation=None,
-            stats=None,
-            smsr=None,
-            peak_annotations=(),
+    def test_snapshot_views_use_single_measurements_and_reject_removed_views(self) -> None:
+        self.backend.runtime.latest_spectrum = SimpleNamespace(
+            wavelength=[975.0, 976.0], intensity=[100.0, 500.0], saturation=None,
+            stats=None, smsr=None, peak_annotations=(),
         )
-        self.backend.stations["2"].latest_spectrum = SimpleNamespace(
-            wavelength=[976.0, 977.0],
-            intensity=[200.0, 800.0],
-            saturation=None,
-            stats=None,
-            smsr=None,
-            peak_annotations=(),
-        )
+        for view in ("automatic", "manual", "automatic_1", "manual_1"):
+            snapshot = self.backend.snapshot({"view": view})
+            self.assertEqual(snapshot["measurements"]["spectrum"]["wavelengthNm"], [975.0, 976.0])
+            self.assertNotIn("stations", snapshot)
+        for view in ("automatic_2", "manual_2", "pd_2"):
+            with self.subTest(view=view), self.assertRaisesRegex(ValueError, "未知视图"):
+                self.backend.snapshot({"view": view})
 
-        snap1 = self.backend.snapshot({"view": "automatic_1"})
-        self.assertEqual(snap1["activeStation"], "1")
-        self.assertEqual(snap1["measurements"]["spectrum"]["wavelengthNm"], [975.0, 976.0])
-        self.assertIn("1", snap1["stations"])
-        self.assertIn("2", snap1["stations"])
-
-        snap2 = self.backend.snapshot({"view": "automatic_2"})
-        self.assertEqual(snap2["activeStation"], "2")
-        self.assertEqual(snap2["measurements"]["spectrum"]["wavelengthNm"], [976.0, 977.0])
-
-    def test_pd_state_and_snapshot_are_isolated_per_station(self) -> None:
-        self.backend.stations["1"].pd_state["points"] = [{"elapsedS": 1.0, "value": 1.0}]
-        self.backend.stations["2"].pd_state["points"] = [{"elapsedS": 2.0, "value": 2.0}]
-        self.backend.stations["1"].series_revisions["pd"] = 1
-        self.backend.stations["2"].series_revisions["pd"] = 1
-
-        snap1 = self.backend.snapshot({"view": "pd_1"})
-        snap2 = self.backend.snapshot({"view": "pd_2"})
-
-        self.assertEqual(snap1["activeStation"], "1")
-        self.assertEqual(snap1["pd"]["points"], [{"elapsedS": 1.0, "value": 1.0}])
-        self.assertEqual(snap2["activeStation"], "2")
-        self.assertEqual(snap2["pd"]["points"], [{"elapsedS": 2.0, "value": 2.0}])
+    def test_pd_history_is_only_included_in_the_pd_view(self) -> None:
+        points = [{"elapsedS": 1.0, "value": 2.0}]
+        self.backend.runtime.pd_state["points"] = points
+        self.backend.runtime.series_revisions["pd"] = 1
+        self.assertEqual(self.backend.snapshot({"view": "pd"})["pd"]["points"], points)
+        self.assertEqual(self.backend.snapshot({"view": "pd_1"})["pd"]["points"], points)
+        self.assertNotIn("points", self.backend.snapshot({"view": "automatic"})["pd"])
 
     def test_snapshot_is_safe_while_power_samples_arrive(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         errors: list[Exception] = []
         start = threading.Barrier(2)
 
@@ -1862,7 +1779,7 @@ class DualStationRuntimeTests(unittest.TestCase):
             try:
                 start.wait()
                 for _ in range(300):
-                    snapshot = self.backend.snapshot({"view": "automatic_1"})
+                    snapshot = self.backend.snapshot({"view": "automatic"})
                     self.assertIn("measurements", snapshot)
             except Exception as exc:
                 errors.append(exc)
@@ -1899,8 +1816,8 @@ class DualStationRuntimeTests(unittest.TestCase):
         path1 = out_dir / "st1.xlsx"
         path2 = out_dir / "st2.xlsx"
 
-        task1 = ExportTask("1", path1, records, lambda p, e: results.append(str(p)))
-        task2 = ExportTask("2", path2, records, lambda p, e: results.append(str(p)))
+        task1 = ExportTask(path1, records, lambda p, e: results.append(str(p)))
+        task2 = ExportTask(path2, records, lambda p, e: results.append(str(p)))
 
         self.assertTrue(worker.submit(task1))
         self.assertTrue(worker.submit(task2))
@@ -1917,7 +1834,6 @@ class DualStationRuntimeTests(unittest.TestCase):
         release = threading.Event()
         callback_results: list[tuple[str | None, Exception | None]] = []
         task = ExportTask(
-            "1",
             Path(self.temp_dir.name) / "slow.xlsx",
             [],
             lambda path, error: callback_results.append((path, error)),

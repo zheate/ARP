@@ -106,7 +106,6 @@ class StationAutomaticMixin:
             settings=dict(self.configuration),
             devices=self._device_snapshots(),
         )
-        self.backend.check_workbook_path_available(self.station_id, workbook_path)
         self.record_store.configure_sequence(self.automatic.currents)
         self._close_automatic_sample_recorder()
         self.automatic_sample_path = ""
@@ -144,7 +143,7 @@ class StationAutomaticMixin:
 
             self._emergency_ramp_thread = threading.Thread(
                 target=run,
-                name=f"emergency-ramp-station-{self.station_id}",
+                name="emergency-ramp",
                 daemon=True,
             )
             self._emergency_ramp_thread.start()
@@ -173,7 +172,7 @@ class StationAutomaticMixin:
 
         threading.Thread(
             target=wait_for_timeout,
-            name=f"pause-safety-station-{self.station_id}",
+            name="pause-safety",
             daemon=True,
         ).start()
 
@@ -427,7 +426,6 @@ class StationAutomaticMixin:
 
             submitted = worker.submit(
                 ExportTask(
-                    station_id=self.station_id,
                     target_path=path,
                     records=list(records),
                     callback=on_export_done,
@@ -535,7 +533,6 @@ class StationAutomaticMixin:
             return
         submitted = worker.submit(
             ExportTask(
-                station_id=self.station_id,
                 target_path=path,
                 records=list(records),
                 callback=on_export_done,
@@ -647,7 +644,7 @@ class StationAutomaticMixin:
 
     def _start_automatic_impl(self, params: dict[str, Any]) -> None:
         if self._automatic_thread is not None and self._automatic_thread.is_alive():
-            raise ValueError(f"工位 {self.station_id} 自动测试已在运行")
+            raise ValueError("自动测试已在运行")
         self.configure(params)
         if self.automatic.state == AutomaticTestState.COMPLETED:
             self._reset_completed_automatic(clear_sn=False, require_shutdown=False)
@@ -740,7 +737,7 @@ class StationAutomaticMixin:
                 self._automatic_resume.set()
                 self._automatic_thread = threading.Thread(
                     target=self._run_automatic,
-                    name=f"automatic-test-station-{self.station_id}",
+                    name="automatic-test",
                     daemon=True,
                 )
                 self._automatic_thread.start()
@@ -1241,11 +1238,11 @@ class StationAutomaticMixin:
             self.automatic_terminal_reason = "所有计划测试点均已保存"
             self.automatic_detail = "自动测试已安全完成，本地记录已保存"
         except Exception as exc:
-            _LOGGER.exception("工位 %s 自动测试异常", self.station_id)
+            _LOGGER.exception("自动测试异常")
             reason = self.automatic_terminal_reason or str(exc)
             operator_stopped = reason in {
                 "操作者提前结束测试",
-                "全部工位急停",
+                "急停",
                 "自动测试已停止",
             }
             self.automatic_detail = reason
@@ -1532,7 +1529,7 @@ class StationAutomaticMixin:
         self._clear_automatic_pause()
         self._clear_shutdown_result()
         self.reset_charts()
-        self.backend.clear_station_transient_notices(self.station_id)
+        self.backend.clear_transient_notices()
 
     def prepare_next_device(self) -> None:
         self._reset_completed_automatic(clear_sn=True)

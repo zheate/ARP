@@ -17,27 +17,26 @@ class BackendDispatcher:
     def __init__(self, backend: Any) -> None:
         self._backend = backend
 
-    def dispatch(self, method: str, params: dict[str, Any], *, command_generations: dict[str, int] | None = None) -> dict[str, Any]:
-        st = self._backend._station(self._backend._station_id_from_params(params))
+    def dispatch(self, method: str, params: dict[str, Any], *, command_generation: int | None = None) -> dict[str, Any]:
+        self._backend.validate_runtime_target(params)
+        st = self._backend.runtime
         guarded = method in {
             "app.configure", "powerSupply.connect", "powerSupply.setCurrent", "powerSupply.setVoltage",
             "automatic.start", "automatic.resume", "automatic.retryPoint", "automatic.recoverPowerMeter",
             "automatic.recoverSpectrometer", "automatic.adjustSpectrum", "automatic.retryPersist",
         } or (method == "powerSupply.setOutput" and params.get("enabled", False) is not False)
         if guarded:
-            generation = None if command_generations is None else command_generations.get(st.station_id, -1)
-            with st.command_safety.command(generation):
+            with st.command_safety.command(command_generation):
                 return self._dispatch(method, params)
         return self._dispatch(method, params)
 
     def _dispatch(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         backend = self._backend
-        station_id = backend._station_id_from_params(params)
-        st = backend._station(station_id)
+        st = backend.runtime
 
         if method in MANUAL_CONTROL_METHODS and not st.manual_controls_allowed():
             raise RuntimeError(
-                f"工位 {station_id} 的硬件控制权由自动测试持有；请先结束并安全下电"
+                "硬件控制权由自动测试持有；请先结束并安全下电"
             )
 
         actions: dict[str, Callable[[dict[str, Any]], Any]] = {
@@ -122,8 +121,8 @@ class BackendDispatcher:
 
     def configure(self, params: dict[str, Any]) -> None:
         backend = self._backend
-        target_station_id = backend._station_id_from_params(params)
-        target_station = backend.stations[target_station_id]
+        backend.validate_runtime_target(params)
+        target_station = backend.runtime
         previous_kind = target_station.power_supply_kind
         previous_power_meter_resource = str(
             target_station.configuration.get("powerMeterResource", "")
@@ -190,10 +189,7 @@ class BackendDispatcher:
                 target_station.configuration["spectrometerDeviceId"] = None
                 target_station.configuration["spectrometerSerialNumber"] = ""
         current_kind = target_station.power_supply_kind
-        if previous_kind == "ch341" and current_kind == "tdk" and not any(
-            st.power_supply_kind == "ch341" and st.power_supply_controller is not None
-            for st in backend.stations.values()
-        ):
+        if previous_kind == "ch341" and current_kind == "tdk":
             with backend._lock:
                 backend.ch341_discovery_state = "not_scanned"
                 backend.ch341_scan_error = ""
@@ -201,7 +197,8 @@ class BackendDispatcher:
 
     def _set_current(self, params: dict[str, Any]) -> None:
         backend = self._backend
-        st = backend._station(backend._station_id_from_params(params))
+        backend.validate_runtime_target(params)
+        st = backend.runtime
         st.set_current(params)
 
     def _report_module(self) -> Any:

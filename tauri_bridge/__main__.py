@@ -108,14 +108,14 @@ def _run_headless_backend() -> int:
         *,
         file_task: bool = False,
     ) -> None:
-        command_generations = backend.capture_command_generations()
+        command_generation = backend.capture_command_generation()
         executor.submit(
             lambda: writer_queue.put(
                 service.handle_line(
                     request_line,
                     queued_at_monotonic=queued_at,
                     file_task=file_task,
-                    command_generations=command_generations,
+                    command_generation=command_generation,
                 )
             )
         )

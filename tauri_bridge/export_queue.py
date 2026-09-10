@@ -1,4 +1,4 @@
-"""Sequential Excel export queue shared by all stations."""
+"""Sequential background Excel export queue."""
 
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ _LOGGER = get_runtime_logger("station_export")
 
 @dataclass
 class ExportTask:
-    station_id: str
     target_path: Path
     records: list[ExcelTestRecord]
     callback: Callable[[str | None, Exception | None], None] | None = None
@@ -97,18 +96,17 @@ class ExportQueueWorker:
                 out_path = str(saved_path)
                 duration_ms = (time.perf_counter() - started_at) * 1000.0
                 _LOGGER.info(
-                    "工位 %s Excel 导出完成 | path=%s | duration_ms=%.2f",
-                    task.station_id,
+                    "Excel 导出完成 | path=%s | duration_ms=%.2f",
                     out_path,
                     duration_ms,
                 )
             except Exception as exc:
                 error = exc
-                _LOGGER.exception("工位 %s Excel 导出失败", task.station_id)
+                _LOGGER.exception("Excel 导出失败")
             finally:
                 if task.callback is not None:
                     try:
                         task.callback(out_path, error)
                     except Exception:
-                        _LOGGER.exception("工位 %s Excel 导出回调失败", task.station_id)
+                        _LOGGER.exception("Excel 导出回调失败")
                 self._queue.task_done()

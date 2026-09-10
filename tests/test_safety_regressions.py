@@ -18,7 +18,7 @@ from combined_test.record_store import SessionRecordStore
 from tauri_bridge.headless_backend import HeadlessBackend
 from tauri_bridge.service import BridgeService
 from tauri_bridge.settings import JsonSettings
-from tests.test_dual_station_runtime import _FakeController
+from tests.test_station_runtime import _FakeController
 from tests import test_excel_export
 
 
@@ -28,7 +28,7 @@ class SafetyRegressions(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.backend = HeadlessBackend(JsonSettings(Path(self.temp.name) / "settings.json"))
         self.addCleanup(self.backend.export_worker.graceful_stop, 2)
-        self.station = self.backend.stations["1"]
+        self.station = self.backend.runtime
         self.controller = _FakeController()
         self.station.power_supply_controller = self.controller
         self.station.power_supply_kind = "tdk"
@@ -36,10 +36,10 @@ class SafetyRegressions(unittest.TestCase):
 
     def test_queued_command_is_rejected_after_stop_and_new_command_is_allowed(self):
         service = BridgeService(self.backend)
-        queued = self.backend.capture_command_generations()
+        queued = self.backend.capture_command_generation()
         self.station.end_automatic()
         request = json.dumps({"v": 2, "id": "old", "method": "powerSupply.setCurrent", "params": {"currentA": 5}})
-        response = service.handle_line(request, command_generations=queued)
+        response = service.handle_line(request, command_generation=queued)
         self.assertIn("error", response)
         self.assertEqual(self.controller.current_a, 0)
         self.assertTrue(self.station.shutdown_confirmed)
@@ -49,11 +49,11 @@ class SafetyRegressions(unittest.TestCase):
 
     def test_commands_captured_during_stop_never_become_valid(self):
         with self.station.command_safety.stopping():
-            queued = self.backend.capture_command_generations()
+            queued = self.backend.capture_command_generation()
             with self.assertRaises(RuntimeError):
                 self.station.set_current({"currentA": 1})
         with self.assertRaises(RuntimeError):
-            self.backend.dispatch("powerSupply.setCurrent", {"currentA": 1}, command_generations=queued)
+            self.backend.dispatch("powerSupply.setCurrent", {"currentA": 1}, command_generation=queued)
 
     def test_stop_is_rechecked_after_waiting_for_io(self):
         def reserve(**kwargs):

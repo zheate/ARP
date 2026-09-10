@@ -39,6 +39,7 @@ const DEMO_SNAPSHOT: BackendSnapshot = {
     powerMeterWavelengthNm: 976,
     softwareGain: 1,
     powerMeterIntervalMs: 100,
+    powerSmoothing: true,
     spectrometerResource: "",
     spectrometerSerialNumber: "",
     integrationTimeUs: 10000,
@@ -227,7 +228,7 @@ export function useBackendSnapshot(view: SnapshotView) {
       try {
         const requestedView = view
         const response = await sendBackendCommand(method, params)
-        const matchesView = latestViewRef.current === requestedView && (!response.activeStation || response.activeStation === (requestedView.endsWith("_2") ? "2" : "1"))
+        const matchesView = latestViewRef.current === requestedView
         const nextSnapshot = matchesView ? mergeBackendSnapshot(snapshotRef.current, response) : response
         if (mountedRef.current && matchesView) {
           snapshotRef.current = nextSnapshot
@@ -369,10 +370,6 @@ export function useBackendSnapshot(view: SnapshotView) {
           const nextSnap: BackendSnapshot = {
             ...DEMO_SNAPSHOT,
             configuration: { ...DEMO_SNAPSHOT.configuration!, sn: "" },
-            configurations: {
-              ...DEMO_SNAPSHOT.configurations,
-              "1": { ...(DEMO_SNAPSHOT.configurations?.["1"] ?? DEMO_SNAPSHOT.configuration!), sn: "" },
-            },
             automaticTest: {
               ...DEMO_SNAPSHOT.automaticTest,
               state: "idle",
@@ -405,7 +402,7 @@ export function useBackendSnapshot(view: SnapshotView) {
       }
       const requestedView = view
       const response = await sendBackendCommand(method, params)
-      const matchesView = latestViewRef.current === requestedView && (!response.activeStation || response.activeStation === (requestedView.endsWith("_2") ? "2" : "1"))
+      const matchesView = latestViewRef.current === requestedView
       const nextSnapshot = matchesView ? mergeBackendSnapshot(snapshotRef.current, response) : response
       if (mountedRef.current && matchesView) {
         snapshotRef.current = nextSnapshot

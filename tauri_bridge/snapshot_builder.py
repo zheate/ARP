@@ -29,13 +29,8 @@ class SnapshotBuilder:
         # Keep lock ordering one-way: backend state, then station state.
         with backend._snapshot_lock:
             view_params = params or {}
-            view = str(view_params.get("view", "full"))
-            active_station_id = (
-                "2"
-                if view in {"automatic_2", "manual_2", "pd_2"}
-                else backend._station_id_from_params(view_params)
-            )
-            active_st = backend._station(active_station_id)
+            backend.validate_runtime_target(view_params)
+            active_st = backend.runtime
             with backend._lock:
                 shared = {
                     "notices": list(backend.notices),
@@ -47,14 +42,11 @@ class SnapshotBuilder:
                     "power_meter_options": list(backend.power_meter_options),
                     "power_meter_detecting": backend.power_meter_detect_thread is not None,
                     "power_meter_detection_detail": backend.power_meter_detection_detail,
-                    "power_meter_detection_station_id": backend.power_meter_detection_station_id,
                     "power_supply_detecting": backend.power_supply_detect_thread is not None,
                     "power_supply_detection_detail": backend.power_supply_detection_detail,
                     "power_supply_detection_kind": backend.power_supply_detection_kind,
-                    "power_supply_detection_station_id": backend.power_supply_detection_station_id,
                     "spectrometer_detecting": backend.spectrometer_detect_thread is not None,
                     "spectrometer_detection_detail": backend.spectrometer_detection_detail,
-                    "spectrometer_detection_station_id": backend.spectrometer_detection_station_id,
                     "spectrometer_resources": [dict(item) for item in backend.spectrometer_resources],
                 }
             with active_st._lock:
@@ -67,12 +59,12 @@ class SnapshotBuilder:
         shared: dict[str, Any],
     ) -> dict[str, Any]:
         view = str(params.get("view", "full"))
-        active_station_id = (
-            "2"
-            if view in {"automatic_2", "manual_2", "pd_2"}
-            else backend._station_id_from_params(params)
-        )
-        active_st = backend._station(active_station_id)
+        # Accept old station-1 views during upgrades, but never route an old
+        # station-2 view to this runtime.
+        view = {"automatic_1": "automatic", "manual_1": "manual", "pd_1": "pd"}.get(view, view)
+        if view not in {"automatic", "manual", "pd", "shipping", "data", "full"}:
+            raise ValueError(f"未知视图：{view}")
+        active_st = backend.runtime
 
         notices = shared["notices"]
         status_message = shared["status_message"]
@@ -81,18 +73,10 @@ class SnapshotBuilder:
         ch341_scan_error = shared["ch341_scan_error"]
         ch341_descriptors = shared["ch341_descriptors"]
         power_meter_options = shared["power_meter_options"]
-        power_meter_detection_matches = (
-            shared["power_meter_detection_station_id"] == active_station_id
-        )
-        power_meter_detecting = shared["power_meter_detecting"] and power_meter_detection_matches
-        power_meter_detection_detail = (
-            shared["power_meter_detection_detail"]
-            if power_meter_detection_matches
-            else ""
-        )
+        power_meter_detecting = shared["power_meter_detecting"]
+        power_meter_detection_detail = shared["power_meter_detection_detail"]
         power_supply_detection_matches = (
             shared["power_supply_detection_kind"] == active_st.power_supply_kind
-            and shared["power_supply_detection_station_id"] == active_station_id
         )
         power_supply_detecting = shared["power_supply_detecting"] and power_supply_detection_matches
         power_supply_detection_detail = (
@@ -100,19 +84,12 @@ class SnapshotBuilder:
             if power_supply_detection_matches
             else ""
         )
-        spectrometer_detection_matches = (
-            shared["spectrometer_detection_station_id"] == active_station_id
-        )
-        spectrometer_detecting = shared["spectrometer_detecting"] and spectrometer_detection_matches
-        spectrometer_detection_detail = (
-            shared["spectrometer_detection_detail"]
-            if spectrometer_detection_matches
-            else ""
-        )
+        spectrometer_detecting = shared["spectrometer_detecting"]
+        spectrometer_detection_detail = shared["spectrometer_detection_detail"]
         spectrometer_resources = shared["spectrometer_resources"]
 
-        include_live = view in {"automatic", "automatic_1", "automatic_2", "manual", "manual_1", "manual_2", "full"}
-        include_pd = view in {"pd", "pd_1", "pd_2", "full"}
+        include_live = view in {"automatic", "manual", "full"}
+        include_pd = view in {"pd", "full"}
         raw_since = params.get("since")
         since_revisions = raw_since if isinstance(raw_since, dict) else None
         with active_st._pd_lock:
@@ -227,19 +204,6 @@ class SnapshotBuilder:
 
         # CH341 device ports map
         online_map = {d.location_path: d.device_index for d in ch341_descriptors}
-        occupied_paths = {
-            str(other_st.configuration.get("ch341SelectedLocationPath", "")).strip()
-            for other_id, other_st in backend.stations.items()
-            if other_id != active_st.station_id
-            and other_st.power_supply_kind == "ch341"
-            and other_st.power_supply_controller is not None
-            and str(other_st.configuration.get("ch341SelectedLocationPath", "")).strip()
-        }
-        all_paths = [
-            loc
-            for loc in online_map
-            if loc not in occupied_paths
-        ]
         ports = [
             {
                 "locationPath": loc,
@@ -247,31 +211,7 @@ class SnapshotBuilder:
                 "online": True,
                 "deviceIndex": online_map[loc],
             }
-            for loc in all_paths
-        ]
-        occupied_power_meter_resources = {
-            str(other_st.configuration.get("powerMeterResource", "")).strip()
-            for other_id, other_st in backend.stations.items()
-            if other_id != active_st.station_id
-            and other_st.power_meter_reader is not None
-            and str(other_st.configuration.get("powerMeterResource", "")).strip()
-        }
-        available_power_meter_options = [
-            option
-            for option in power_meter_options
-            if option.resource not in occupied_power_meter_resources
-        ]
-        occupied_spectrometer_ids = {
-            int(other_st.configuration["spectrometerDeviceId"])
-            for other_id, other_st in backend.stations.items()
-            if other_id != active_st.station_id
-            and other_st.spectrometer_reader is not None
-            and other_st.configuration.get("spectrometerDeviceId") not in {None, ""}
-        }
-        available_spectrometer_resources = [
-            resource
-            for resource in spectrometer_resources
-            if int(resource["deviceId"]) not in occupied_spectrometer_ids
+            for loc in online_map
         ]
         ch341_snapshot = {
             "discoveryState": ch341_discovery_state,
@@ -305,14 +245,10 @@ class SnapshotBuilder:
                 else float(math.floor(elapsed_s))
             )
 
-        stations_summary = {sid: st.summary_snapshot() for sid, st in backend.stations.items()}
-
         return {
             "capturedAt": datetime.now(timezone.utc).isoformat(),
             "seriesRevisions": merged_revisions,
             **({"seriesPatches": series_patches} if series_patches else {}),
-            "activeStation": active_station_id,
-            "stations": stations_summary,
             "backend": {
                 "connected": True,
                 "mode": backend.mode,
@@ -322,7 +258,6 @@ class SnapshotBuilder:
                 "notices": notices,
             },
             "configuration": dict(active_st.configuration),
-            "configurations": {sid: dict(st.configuration) for sid, st in backend.stations.items()},
             "testScripts": [dict(item) for item in BUILTIN_TEST_SCRIPTS],
             "devices": {
                 "powerSupply": {
@@ -358,7 +293,7 @@ class SnapshotBuilder:
                         active_st.configuration["stabilityLimitPercent"]
                     ),
                     **power_freshness,
-                    "resources": [item.label() for item in available_power_meter_options],
+                    "resources": [item.label() for item in power_meter_options],
                     "resourceProfiles": [
                         {
                             "resource": item.resource,
@@ -366,7 +301,7 @@ class SnapshotBuilder:
                             "serialNumber": power_meter_serial_number(item),
                             "softwareGain": backend.discovery._power_meter_profile_gain(item),
                         }
-                        for item in available_power_meter_options
+                        for item in power_meter_options
                     ],
                 },
                 "spectrometer": {
@@ -391,7 +326,7 @@ class SnapshotBuilder:
                         if active_st.spectrum_center_locked_nm is not None
                         else None
                     ),
-                    "resources": [item["label"] for item in available_spectrometer_resources],
+                    "resources": [item["label"] for item in spectrometer_resources],
                 },
             },
             "automaticTest": {

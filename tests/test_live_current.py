@@ -9,14 +9,14 @@ from unittest.mock import MagicMock, patch
 from combined_test.automation import AutomaticTestSettings
 from tauri_bridge.headless_backend import HeadlessBackend
 from tauri_bridge.settings import JsonSettings
-from tests.test_dual_station_runtime import _FakeController
+from tests.test_station_runtime import _FakeController
 
 
 class LiveCurrentTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.backend = HeadlessBackend(JsonSettings(Path(self.temp.name) / "settings.json"))
-        self.station = self.backend.stations["1"]
+        self.station = self.backend.runtime
         self.controller = _FakeController()
         self.station.power_supply_controller = self.controller
         self.station.power_supply_kind = "tdk"
@@ -43,7 +43,6 @@ class LiveCurrentTests(unittest.TestCase):
         snapshot = self.backend.snapshot({"stationId": "1"})
         self.assertEqual(snapshot["devices"]["powerSupply"]["outputCurrentA"], 4.81)
         self.assertEqual(snapshot["automaticTest"]["currentA"], 5)
-        self.assertIsNone(self.backend.snapshot({"stationId": "2"})["devices"]["powerSupply"]["outputCurrentA"])
 
     def test_ramp_publishes_measured_steps_and_zero_while_last_test_point_stays_five(self) -> None:
         observed = []

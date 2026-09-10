@@ -42,7 +42,7 @@ function pageProps({ measured = 0, active = 0, spectrum = false, kind = "tdk", c
   return {
     snapshot, config: snapshot.configuration, testScripts: snapshot.testScripts,
     active: true, controlsLocked: false, pending: false, stationSwitchDisabled: false,
-    stationId: "1", curveLineStyle: "solid", latestPointMarkerStyle: "point",
+    curveLineStyle: "solid", latestPointMarkerStyle: "point",
     update: noop, run: noop, saveConfiguration: noop, onScriptSelect: noop, onStationChange: noop,
   }
 }

@@ -82,13 +82,13 @@ class TestHistoryTests(unittest.TestCase):
 
             backend = HeadlessBackend(JsonSettings(root / "settings.json"))
             backend.configuration.update({"outputDir": str(root), "sn": sn})
-            backend.stations["1"]._select_latest_test_reference({})
+            backend.runtime._select_latest_test_reference({})
             self.assertEqual(backend._test_reference.station, "站别 B")
             self.assertEqual(
                 backend.snapshot({"view": "automatic"})["automaticTest"]["reference"]["station"],
                 "站别 B",
             )
-            backend.stations["1"]._select_latest_test_reference({"referencePath": str(records[-1].inspection.source_path)})
+            backend.runtime._select_latest_test_reference({"referencePath": str(records[-1].inspection.source_path)})
             self.assertEqual(backend._test_reference.station, "站别 B")
 
     def test_unchanged_history_workbooks_are_not_reopened(self) -> None:

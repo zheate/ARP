@@ -12,10 +12,9 @@ const bundled = await build({
 })
 const { mergeBackendSnapshot } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`)
 
-function snapshot(station, revision, times) {
+function snapshot(revision, times) {
   return {
     capturedAt: "2026-09-08T00:00:00Z",
-    activeStation: station,
     backend: { mode: "active", runtimeId: "runtime-1" },
     seriesRevisions: { power: revision, stable: revision, aging: revision, spectrum: revision, pd: revision },
     measurements: {
@@ -27,8 +26,8 @@ function snapshot(station, revision, times) {
   }
 }
 
-function delta(station, revision, times) {
-  const result = snapshot(station, revision, times)
+function delta(revision, times) {
+  const result = snapshot(revision, times)
   result.seriesPatches = {
     power: { startX: 10, points: result.measurements.power },
     pd: { startX: 10, points: result.pd.points },
@@ -39,18 +38,18 @@ function delta(station, revision, times) {
 }
 
 test("actual snapshot merge handles full command histories followed by overlapping stream deltas", () => {
-  let state = mergeBackendSnapshot(null, snapshot("1", 10, [10]))
-  state = mergeBackendSnapshot(state, snapshot("1", 11, [10, 11]))
-  state = mergeBackendSnapshot(state, delta("1", 12, [11, 12]))
+  let state = mergeBackendSnapshot(null, snapshot(10, [10]))
+  state = mergeBackendSnapshot(state, snapshot(11, [10, 11]))
+  state = mergeBackendSnapshot(state, delta(12, [11, 12]))
   assert.deepEqual(state.measurements.power.map((point) => point.elapsedS), [10, 11, 12])
   assert.deepEqual(state.pd.points.map((point) => point.elapsedS), [10, 11, 12])
   assert.equal(state.seriesRevisions.power, 12)
 })
 
 test("actual snapshot merge retains reset histories and revisions against delayed messages", () => {
-  let state = mergeBackendSnapshot(null, snapshot("2", 20, [10, 11]))
-  state = mergeBackendSnapshot(state, snapshot("2", 21, []))
-  state = mergeBackendSnapshot(state, delta("2", 20, [11, 12]))
+  let state = mergeBackendSnapshot(null, snapshot(20, [10, 11]))
+  state = mergeBackendSnapshot(state, snapshot(21, []))
+  state = mergeBackendSnapshot(state, delta(20, [11, 12]))
   assert.deepEqual(state.measurements.power, [])
   assert.deepEqual(state.pd.points, [])
   assert.equal(state.seriesRevisions.power, 21)
@@ -58,18 +57,9 @@ test("actual snapshot merge retains reset histories and revisions against delaye
   assert.deepEqual(state.measurements.spectrum.intensity, [21])
 })
 
-test("actual snapshot merge treats another station as a new source even when counters decrease", () => {
-  const previous = mergeBackendSnapshot(null, snapshot("1", 100, [100]))
-  const next = mergeBackendSnapshot(previous, snapshot("2", 1, [1]))
-  assert.equal(next.activeStation, "2")
-  assert.equal(next.seriesRevisions.power, 1)
-  assert.deepEqual(next.measurements.power.map((point) => point.elapsedS), [1])
-  assert.deepEqual(next.pd.points.map((point) => point.elapsedS), [1])
-})
-
-test("actual snapshot merge replaces histories after a Python runtime restart on the same station", () => {
-  const previous = mergeBackendSnapshot(null, snapshot("1", 100, [100]))
-  const restarted = snapshot("1", 1, [0])
+test("actual snapshot merge replaces histories after a Python runtime restart with lower revisions", () => {
+  const previous = mergeBackendSnapshot(null, snapshot(100, [100]))
+  const restarted = snapshot(1, [0])
   restarted.backend.runtimeId = "runtime-2"
   const next = mergeBackendSnapshot(previous, restarted)
   assert.equal(next.backend.runtimeId, "runtime-2")

@@ -16,7 +16,7 @@ class ManualPowerCaptureRegressions(unittest.TestCase):
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
         self.backend = HeadlessBackend(JsonSettings(Path(self.directory.name) / "settings.json"))
-        self.station = self.backend.stations["1"]
+        self.station = self.backend.runtime
         self.station.configuration.update({"sn": "MANUAL-REGRESSION", "outputDir": self.directory.name})
         self.station.power_supply_controller = SimpleNamespace(
             read_output_voltage=Mock(return_value=10.0), is_connected=True,

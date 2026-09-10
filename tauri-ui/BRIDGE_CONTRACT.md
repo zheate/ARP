@@ -19,7 +19,7 @@ The bridge being connected never means a physical device is connected. Every dev
 
 Requests are dispatched by ownership. `app.stopAll`, `app.shutdown`, and `automatic.end` use a dedicated safety executor. Report inspection, preview, and generation use a report executor. Ordinary commands remain serialized separately, so a report or device operation cannot keep an emergency request in the normal command queue.
 
-The Python reader captures a per-station command generation before queuing each
+The Python reader captures a runtime command generation before queuing each
 request. Emergency stops invalidate earlier generations immediately. Dangerous
 commands submitted before or during a stop are rejected even if their queue
 entry executes after shutdown finishes; the operator may then submit a new
@@ -66,7 +66,7 @@ Every successful mutation returns a fresh full snapshot. The routine snapshot st
 
 After the first full response, the frontend returns `seriesRevisions` as `params.since`. Unchanged live-power, stable-point, aging-power, spectrum, and PD arrays are omitted and the frontend retains the previous arrays. Power and PD additionally send their last displayed `elapsedS` values in `params.cursors`; when the bounded history is continuous, the response uses `seriesPatches` to append only newer points and supplies `startX` so the frontend can discard points that left the display window. A missing cursor, reset curve, page change, or explicit refresh falls back to a complete array.
 
-Command snapshots and stream patches can overlap. The frontend merges power and PD points by `elapsedS`, retains the latest revision of each series, and starts a new cache when the active station, backend mode, or `backend.runtimeId` changes. The runtime ID identifies one Python backend instance so a restart can legitimately reset revision counters.
+Command snapshots and stream patches can overlap. The frontend merges power and PD points by `elapsedS`, retains the latest revision of each series, and starts a new cache when the backend mode or `backend.runtimeId` changes. The runtime ID identifies one Python backend instance so a restart can legitimately reset revision counters.
 
 A Python snapshot response timeout retries on the same process with a 500 ms to 5 s backoff. Recovery clears revisions, cursors, and the state fingerprint to request and deliver a complete snapshot. A successful command does not dismiss a stream error; a recovered stream does. Subscription cancellation interrupts retry waits and discards responses from the previous view. Transport failures remain terminal for that subscription.
 
@@ -101,11 +101,11 @@ Backend notices are retained as a bounded queue of the most recent eight entries
 - UI actions call existing controller methods; JavaScript never generates current sequences or decides that shutdown succeeded.
 - `automaticTest.readiness` and `automatic.start` call the same backend validation path. It gates SN, output directory, script/controller compatibility, zero-current/output state, the power-meter resource, and validated timing/current settings; the UI only presents the returned blockers. A normal automatic test includes spectrum only when the spectrometer is already connected and ready at start; otherwise it follows the power-only path without starting or waiting for a spectrometer, even if a spectrometer resource was selected earlier. The CH341-only aging script never uses a spectrometer, but still requires its configured power meter because aging power is recorded.
 - TDK output enable still requires a programmed and measured zero-current state.
-- A global emergency stop broadcasts both station stop events before waiting for either station, then performs station cleanup concurrently. A blocked station must not delay the other station from starting its ramp-down.
+- Emergency stop invalidates queued control commands and signals the single runtime before waiting for cleanup. PD acquisition is still stopped if power/test cleanup fails; errors remain visible and physical zero-current confirmation is required.
 - End, emergency stop, disconnect, bridge shutdown, and process disposal use the same zero-current/output-off boundary. Configuration persistence is never a prerequisite for this safety path.
 - `safety.controlOwner` and `safety.manualControlsAllowed` are authoritative. While an automatic flow is not `idle` or `completed`, the backend rejects manual power-supply, power-meter, spectrometer, discovery, configuration, and manual-export commands even if the UI is bypassed.
 - Paused automatic tests retain controller ownership. Recovery uses only the actions listed by `automaticTest.pauseActions`; it never unlocks the manual hardware page. `pauseKind`, `pauseReason`, `pauseStartedAtUtc`, and `pauseDeadlineAtUtc` define the visible recovery state and safety countdown.
-- `safety.shutdown` is the active station's machine-readable result:
+- `safety.shutdown` is the runtime's machine-readable result:
 
 ```json
 {
@@ -127,3 +127,11 @@ Backend notices are retained as a bounded queue of the most recent eight entries
 - Per-second spectrum exports split after 8192 samples per sheet to respect Excel's column limit. Export write errors fail before replacing the workbook or deleting source CSV files. Main-sheet spectrum labels retain the current's decimal precision so nearby current points remain distinguishable in shipping reports.
 - `app.shutdown` stops accepting new Excel exports and waits for every already accepted task before returning `exportsDrained: true`. A timeout returns `exportsDrained: false`; the UI keeps the close flow blocked unless the operator explicitly forces exit.
 - `automatic.nextDevice` is accepted only after the current automatic state is `completed` and shutdown is confirmed. It keeps device connections, model, batch, station, script, and measurement settings; clears SN, charts, terminal state, and the active record store; and requires `automatic.start` to create the next `sessionId`.
+
+## Single-station runtime and upgrades
+
+The backend owns one `runtime`; the UI uses `automatic`, `manual`, and `pd` views without a station selector. Snapshots contain one `configuration` and no `activeStation`, `stations`, or `configurations` maps. `app.shutdown` returns that runtime's `shutdown` result, including its measured current, plus `shutdownConfirmed` and `exportsDrained`.
+
+On upgrade, `runtime/stations["1"]` is adopted when present; otherwise `runtime/configuration` is retained. Saving the single configuration and removing the legacy `runtime/stations` key is one atomic settings update. A write failure preserves the old settings. Station 2 is never instantiated or used as a fallback. Existing test files and journal locations remain unchanged. The `configuration.station` field remains the editable test-stage label for historical comparisons and exports, including numeric labels.
+
+For stale clients, `stationId: "1"` and the old `automatic_1`, `manual_1`, and `pd_1` snapshot views remain accepted. Other station IDs and removed station-2 views are rejected rather than redirected to the single runtime. New frontend commands omit `stationId`.

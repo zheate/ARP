@@ -106,9 +106,11 @@ class JsonSettings:
     def set(self, key: str, value: Any) -> None:
         self.update({str(key): value})
 
-    def update(self, values: dict[str, Any]) -> None:
+    def update(self, values: dict[str, Any], *, remove_keys: tuple[str, ...] = ()) -> None:
         with self._lock:
             candidate = {**self._values, **copy.deepcopy(values)}
+            for key in remove_keys:
+                candidate.pop(key, None)
             if candidate == self._values:
                 return
             previous = self._values

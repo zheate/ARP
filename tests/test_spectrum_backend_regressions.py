@@ -20,7 +20,7 @@ class SpectrumBackendRegressions(unittest.TestCase):
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
         self.backend = HeadlessBackend(JsonSettings(Path(self.directory.name) / "settings.json"))
-        self.station = self.backend.stations["1"]
+        self.station = self.backend.runtime
 
     def tearDown(self) -> None:
         self.backend.export_worker.graceful_stop()

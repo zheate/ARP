@@ -630,7 +630,7 @@ fn validate_columnar_spectrum(snapshot: &Value) -> Result<(), PythonBridgeError>
 
 fn snapshot_interval_ms(view: &str) -> u64 {
     match view {
-        "pd" | "pd_1" | "pd_2" => PD_SNAPSHOT_INTERVAL_MS,
+        "pd" => PD_SNAPSHOT_INTERVAL_MS,
         "shipping" | "data" => SHIPPING_SNAPSHOT_INTERVAL_MS,
         _ => LIVE_SNAPSHOT_INTERVAL_MS,
     }
@@ -1010,8 +1010,6 @@ mod tests {
         assert_eq!(snapshot_interval_ms("automatic"), 200);
         assert_eq!(snapshot_interval_ms("manual"), 200);
         assert_eq!(snapshot_interval_ms("pd"), 500);
-        assert_eq!(snapshot_interval_ms("pd_1"), 500);
-        assert_eq!(snapshot_interval_ms("pd_2"), 500);
         assert_eq!(snapshot_interval_ms("shipping"), 500);
     }
 

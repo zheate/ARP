@@ -92,7 +92,7 @@ class HeadlessBackendContractTests(unittest.TestCase):
     def test_runtime_identity_distinguishes_restart_from_older_series_revisions(self) -> None:
         first = self.backend.snapshot({"view": "automatic"})["backend"]["runtimeId"]
         self.assertTrue(first)
-        self.assertEqual(first, self.backend.snapshot({"view": "pd_2"})["backend"]["runtimeId"])
+        self.assertEqual(first, self.backend.snapshot({"view": "pd"})["backend"]["runtimeId"])
         restarted = HeadlessBackend(JsonSettings(Path(self.temporary_directory.name) / "restarted.json"))
         try:
             self.assertNotEqual(first, restarted.snapshot()["backend"]["runtimeId"])
@@ -146,11 +146,11 @@ class HeadlessBackendContractTests(unittest.TestCase):
                 {"elapsedS": 0.2, "powerW": 2.0},
             ]
         )
-        self.backend.stations["1"].series_revisions["power"] = 2
+        self.backend.runtime.series_revisions["power"] = 2
         initial = self.backend.snapshot({"view": "automatic"})
 
         self.backend.power_points.append({"elapsedS": 0.3, "powerW": 3.0})
-        self.backend.stations["1"].series_revisions["power"] += 1
+        self.backend.runtime.series_revisions["power"] += 1
         incremental = self.backend.snapshot(
             {
                 "view": "automatic",
@@ -187,7 +187,7 @@ class HeadlessBackendContractTests(unittest.TestCase):
                 {"elapsedS": 1.1, "powerW": 2.0},
             ]
         )
-        self.backend.stations["1"].series_revisions["power"] = 2
+        self.backend.runtime.series_revisions["power"] = 2
 
         snapshot = self.backend.snapshot(
             {
@@ -201,7 +201,7 @@ class HeadlessBackendContractTests(unittest.TestCase):
         self.assertNotIn("seriesPatches", snapshot)
 
     def test_live_snapshot_only_sends_aging_power_when_it_changes(self) -> None:
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         station.aging_power_points.append({"elapsedMinutes": 5.0, "powerW": 1.2})
         station.series_revisions["aging"] = 1
         initial = self.backend.snapshot({"view": "automatic"})
@@ -241,11 +241,11 @@ class HeadlessBackendContractTests(unittest.TestCase):
             smsr=None,
             peak_annotations=(),
         )
-        self.backend.stations["1"].series_revisions["spectrum"] = 1
+        self.backend.runtime.series_revisions["spectrum"] = 1
         initial = self.backend.snapshot({"view": "automatic"})
 
         self.backend.latest_spectrum.intensity = [2.0, 8.0, 2.0]
-        self.backend.stations["1"].series_revisions["spectrum"] += 1
+        self.backend.runtime.series_revisions["spectrum"] += 1
         incremental = self.backend.snapshot(
             {"view": "automatic", "since": initial["seriesRevisions"]}
         )
@@ -259,7 +259,7 @@ class HeadlessBackendContractTests(unittest.TestCase):
         )
 
         self.backend.latest_spectrum.wavelength = [975.0, 975.5, 976.0]
-        self.backend.stations["1"].series_revisions["spectrum"] += 1
+        self.backend.runtime.series_revisions["spectrum"] += 1
         changed_grid = self.backend.snapshot(
             {"view": "automatic", "since": incremental["seriesRevisions"]}
         )
@@ -324,9 +324,9 @@ class HeadlessBackendContractTests(unittest.TestCase):
 
         self.assertFalse(result["shutdownConfirmed"])
         self.assertTrue(result["exportsDrained"])
-        self.assertFalse(result["stations"]["1"]["confirmed"])
-        self.assertEqual(result["stations"]["1"]["measuredCurrentA"], 0.5)
-        self.assertIn("无法确认电源输出电流已归零", result["stations"]["1"]["reason"])
+        self.assertFalse(result["shutdown"]["confirmed"])
+        self.assertEqual(result["shutdown"]["measuredCurrentA"], 0.5)
+        self.assertIn("无法确认电源输出电流已归零", result["shutdown"]["reason"])
 
     def test_safe_shutdown_returns_explicit_confirmation(self) -> None:
         controller = _FakePowerController(measured_current_a=0.0)
@@ -337,12 +337,12 @@ class HeadlessBackendContractTests(unittest.TestCase):
         self.assertTrue(result["shutdownConfirmed"])
         self.assertTrue(result["exportsDrained"])
         self.assertTrue(result["shutdown"]["outputOffConfirmed"])
-        self.assertEqual(result["stations"]["1"]["measuredCurrentA"], 0.0)
+        self.assertEqual(result["shutdown"]["measuredCurrentA"], 0.0)
         self.assertEqual(controller.current_writes[-1], 0.0)
 
     def test_automatic_failure_uses_unconfirmed_terminal_outcome_when_shutdown_fails(self) -> None:
         controller = _FakePowerController(measured_current_a=0.5)
-        station = self.backend.stations["1"]
+        station = self.backend.runtime
         station.power_supply_controller = controller
         station.power_supply_kind = "tdk"
         station.automatic.state = AutomaticTestState.STARTING
@@ -456,7 +456,7 @@ class TauriBridgeServiceTests(unittest.TestCase):
         self.assertTrue(response["result"]["shutdownConfirmed"])
         self.assertTrue(response["result"]["exportsDrained"])
         self.assertTrue(response["result"]["shutdown"]["confirmed"])
-        self.assertEqual(response["result"]["stations"], {})
+        self.assertNotIn("stations", response["result"])
 
     def test_injected_backend_owns_snapshot_and_mutating_commands(self) -> None:
         class FakeBackend:
