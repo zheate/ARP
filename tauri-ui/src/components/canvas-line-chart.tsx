@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { traceMonotoneCurve, type CurvePoint } from "@/lib/monotone-curve"
+import { useAppearance } from "@/hooks/use-appearance"
+import { chartTrailBoundary, type AppearancePreferences } from "@/lib/appearance"
 
 export type CanvasChartLine = {
   key: string
@@ -18,6 +20,8 @@ export type CanvasChartLine = {
   dash?: number[]
   connectNulls?: boolean
   hideLegend?: boolean
+  /** Only time-series plots that explicitly opt in receive the live tail. */
+  trail?: boolean
 }
 
 export type CanvasChartAnnotation = {
@@ -60,6 +64,7 @@ type CanvasLineChartProps = {
   xLabel?: string
   xTickSuffix?: string
   yLabel?: string
+  appearance?: Partial<AppearancePreferences>
 }
 
 type ChartSize = { width: number; height: number }
@@ -464,6 +469,7 @@ function drawBaseChart(
   xLabel?: string,
   xTickSuffix?: string,
   yLabel?: string,
+  appearance?: AppearancePreferences,
 ): void {
   const context = prepareCanvas(canvas, size)
   if (!context) return
@@ -473,7 +479,7 @@ function drawBaseChart(
     color: resolveChartColor(line.color, styles),
     axisColor: line.axisColor ? resolveChartColor(line.axisColor, styles) : undefined,
   }))
-  const border = styles.getPropertyValue("--chart-grid").trim() || "hsl(42 7% 25% / 0.52)"
+  const border = styles.getPropertyValue("--app-border-strong").trim() || "#686c70"
   const muted = styles.getPropertyValue("--muted-foreground").trim() || "hsl(40 8% 60%)"
   const chartBackground = styles.getPropertyValue("--card").trim() || "hsl(48 3% 17%)"
   context.font = CHART_FONT
@@ -482,21 +488,49 @@ function drawBaseChart(
   context.fillStyle = muted
 
   context.save()
-  context.setLineDash([3, 3])
-  for (const tick of layout.leftY.ticks) {
+  context.strokeStyle = resolveChartColor(muted, styles)
+  context.globalAlpha = appearance?.gridOpacity ?? 0.3
+  context.setLineDash(appearance?.canvas === "engineering" ? [] : [2, 4])
+  for (const tick of appearance?.canvas === "clean" ? [] : layout.leftY.ticks) {
     const y = mapY(tick, layout.leftY, layout)
     context.beginPath()
     context.moveTo(layout.left, y)
     context.lineTo(layout.left + layout.plotWidth, y)
     context.stroke()
   }
-  for (const tick of layout.x.ticks) {
+  for (const tick of appearance?.canvas === "clean" ? [] : layout.x.ticks) {
     const x = mapX(tick, layout)
     context.beginPath()
     context.moveTo(x, layout.top)
     context.lineTo(x, layout.top + layout.plotHeight)
     context.stroke()
   }
+  if (appearance?.canvas === "engineering") {
+    context.globalAlpha = appearance.gridOpacity * 0.4
+    for (const [ticks, vertical] of [[layout.x.ticks, true], [layout.leftY.ticks, false]] as const) {
+      for (let index = 1; index < ticks.length; index += 1) {
+        for (let subdivision = 1; subdivision < 5; subdivision += 1) {
+          const value = ticks[index - 1] + (ticks[index] - ticks[index - 1]) * subdivision / 5
+          const position = vertical ? mapX(value, layout) : mapY(value, layout.leftY, layout)
+          context.beginPath()
+          context.moveTo(vertical ? position : layout.left, vertical ? layout.top : position)
+          context.lineTo(vertical ? position : layout.left + layout.plotWidth, vertical ? layout.top + layout.plotHeight : position)
+          context.stroke()
+        }
+      }
+    }
+  }
+  context.restore()
+
+  // Axes remain visible even when the internal grid is disabled.
+  context.save()
+  context.strokeStyle = border
+  context.globalAlpha = 0.65
+  context.beginPath()
+  context.moveTo(layout.left, layout.top)
+  context.lineTo(layout.left, layout.top + layout.plotHeight)
+  context.lineTo(layout.left + layout.plotWidth, layout.top + layout.plotHeight)
+  context.stroke()
   context.restore()
 
   context.textAlign = "right"
@@ -537,11 +571,12 @@ function drawBaseChart(
     const scale = line.yAxisId === "right" && layout.rightY ? layout.rightY : layout.leftY
     context.beginPath()
     context.strokeStyle = line.color
-    context.lineWidth = line.lineWidth ?? 2.4
+    context.lineWidth = (line.lineWidth ?? 2.4) * (appearance?.lineWidth ?? 2.4) / 2.4
     context.setLineDash(line.dash ?? [])
     context.lineJoin = "round"
     context.lineCap = "round"
     let drawing = false
+    let latestX: number | null = null
     const curvePoints: (CurvePoint | null)[] | null = line.interpolation === "monotone" ? [] : null
     for (const index of indexes) {
       const xValue = data.valueAt(index, xKey)
@@ -560,13 +595,28 @@ function drawBaseChart(
       }
       const x = mapX(xValue, layout)
       const y = mapY(yValue, scale, layout)
+      latestX = xValue
       if (curvePoints) curvePoints.push({ x, y })
       else if (drawing) context.lineTo(x, y)
       else context.moveTo(x, y)
       drawing = true
     }
     if (curvePoints) traceMonotoneCurve(context, curvePoints)
+    const tailBoundary = line.trail && appearance?.trailEnabled
+      ? chartTrailBoundary(latestX, appearance.trailSeconds, [layout.x.min, layout.x.max])
+      : null
+    context.globalAlpha = tailBoundary !== null ? 0.6 : 1
     context.stroke()
+    context.globalAlpha = 1
+    if (tailBoundary !== null && latestX !== null && latestX > tailBoundary) {
+      const tail = context.createLinearGradient(mapX(tailBoundary, layout), 0, mapX(latestX, layout), 0)
+      tail.addColorStop(0, "transparent")
+      tail.addColorStop(0.45, line.color)
+      tail.addColorStop(1, line.color)
+      context.strokeStyle = tail
+      // Re-stroke the SAME path. No extra samples, interpolation or thinning.
+      context.stroke()
+    }
     context.setLineDash([])
 
     if (line.showPoints) {
@@ -721,7 +771,9 @@ function tooltipNumber(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }
 
-export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, annotations = [], annotationLegend = [], ariaLabel, preserveAllPoints = false, tightInsets = false, xLabel, xTickSuffix, yLabel }: CanvasLineChartProps) {
+export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, annotations = [], annotationLegend = [], ariaLabel, preserveAllPoints = false, tightInsets = false, xLabel, xTickSuffix, yLabel, appearance: appearanceOverride }: CanvasLineChartProps) {
+  const { appearance } = useAppearance()
+  const chartAppearance = useMemo(() => appearanceOverride ? { ...appearance, ...appearanceOverride } : appearance, [appearance, appearanceOverride])
   const containerRef = useRef<HTMLDivElement>(null)
   const baseCanvasRef = useRef<HTMLCanvasElement>(null)
   const hoverCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -791,6 +843,7 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     xLabel?: string
     xTickSuffix?: string
     yLabel?: string
+    appearance: AppearancePreferences
   }>(null)
   const baseFrameRef = useRef<number | null>(null)
   const flushBaseDraw = useCallback(() => {
@@ -799,11 +852,11 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     const canvas = baseCanvasRef.current
     const container = containerRef.current
     if (!args || !canvas || !container || args.size.width <= 0 || args.size.height <= 0) return
-    drawBaseChart(canvas, container, args.size, args.layout, args.chartData, args.displayIndexes, args.xKey, args.lines, args.annotations, args.xLabel, args.xTickSuffix, args.yLabel)
+    drawBaseChart(canvas, container, args.size, args.layout, args.chartData, args.displayIndexes, args.xKey, args.lines, args.annotations, args.xLabel, args.xTickSuffix, args.yLabel, args.appearance)
   }, [])
 
   useEffect(() => {
-    baseDrawArgsRef.current = { size, layout, chartData, displayIndexes, xKey, lines, annotations, xLabel, xTickSuffix, yLabel }
+    baseDrawArgsRef.current = { size, layout, chartData, displayIndexes, xKey, lines, annotations, xLabel, xTickSuffix, yLabel, appearance: chartAppearance }
     if (document.visibilityState === "hidden") {
       if (baseFrameRef.current !== null) {
         window.cancelAnimationFrame(baseFrameRef.current)
@@ -813,7 +866,7 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     } else if (baseFrameRef.current === null) {
       baseFrameRef.current = window.requestAnimationFrame(flushBaseDraw)
     }
-  }, [annotations, appearanceVersion, chartData, displayIndexes, layout, lines, size, xKey, xLabel, xTickSuffix, yLabel, flushBaseDraw])
+  }, [annotations, appearanceVersion, chartAppearance, chartData, displayIndexes, layout, lines, size, xKey, xLabel, xTickSuffix, yLabel, flushBaseDraw])
 
   useEffect(() => () => {
     if (baseFrameRef.current !== null) window.cancelAnimationFrame(baseFrameRef.current)

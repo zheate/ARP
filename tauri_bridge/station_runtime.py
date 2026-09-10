@@ -164,6 +164,8 @@ class StationRuntime(StationAutomaticMixin):
         self.automatic_detail = "准备测试"
         self.status_message = "准备测试"
         self.automatic_started_at: float | None = None
+        self.automatic_finished_at: float | None = None
+        self.automatic_run_context: dict[str, str] | None = None
         self.automatic_hold_started_at: float | None = None
         self.automatic_terminal_outcome: str | None = None
         self.automatic_terminal_reason = ""

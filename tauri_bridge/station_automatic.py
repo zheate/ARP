@@ -659,6 +659,11 @@ class StationAutomaticMixin:
             spectrum_meter_ready=bool(self.spectrometer_reader and self.spectrometer_reader.is_ready),
         )
         self.automatic_started_at = time.monotonic()
+        self.automatic_finished_at = None
+        self.automatic_run_context = {
+            key: str(self.configuration.get(key, ""))
+            for key in ("sn", "station", "testTemperatureC", "selectedScriptId")
+        }
         self.automatic_terminal_outcome = None
         self.automatic_terminal_reason = ""
         self._clear_shutdown_result()
@@ -744,6 +749,7 @@ class StationAutomaticMixin:
         except Exception:
             self._automatic_stop.set()
             self.automatic.complete()
+            self.automatic_finished_at = time.monotonic()
             self.automatic_detail = "启动已取消，请等待安全停止完成"
             self._close_automatic_sample_recorder()
             raise
@@ -1291,6 +1297,9 @@ class StationAutomaticMixin:
             self.automatic.complete()
             self._clear_automatic_pause()
 
+        finally:
+            self.automatic_finished_at = time.monotonic()
+
     def safe_ramp_down(self) -> None:
         with self.command_safety.stopping(), self._safe_ramp_lock:
             self._shutdown_measurement_candidate = None
@@ -1521,6 +1530,8 @@ class StationAutomaticMixin:
         self.automatic_terminal_outcome = None
         self.automatic_terminal_reason = ""
         self.automatic_started_at = None
+        self.automatic_finished_at = None
+        self.automatic_run_context = None
         self._test_reference = None
         self.export_status = "idle"
         self.export_path = ""

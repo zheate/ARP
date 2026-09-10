@@ -1,9 +1,11 @@
 import { Children, isValidElement, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react"
 import { createPortal } from "react-dom"
+import { Tooltip } from "radix-ui"
 import {
   BarChart3,
   Check,
   ChevronDown,
+  ChevronRight,
   CircleGauge,
   FileText,
   FolderOpen,
@@ -25,7 +27,6 @@ import {
   Settings,
   ShieldCheck,
   Square,
-  Sun,
   Thermometer,
   Upload,
   X,
@@ -51,22 +52,15 @@ import { openResultFile } from "@/lib/result-file"
 import { automaticTerminalTitle, shutdownPresentation } from "@/lib/safety-state"
 import { spectrumPeakAnnotations, spectrumPeakLegend } from "@/lib/spectrum-annotations"
 import { ActivationView } from "@/components/license/ActivationView"
+import { AppearanceProvider, useAppearance } from "@/hooks/use-appearance"
+import { AppearanceSettings, DisplayMenu } from "@/components/appearance-controls"
+import { AutomaticCompletionSummary, AutomaticPhaseTrack } from "@/components/automatic-overview"
+import { NumericReadout } from "@/components/numeric-readout"
+import { ACCENT_THEMES, type Theme, type AccentTheme, type CurveLineStyle, type LatestPointMarkerStyle } from "@/lib/appearance"
 import { DataBrowserPage } from "@/components/data-browser-page"
 import { formatLicenseDate, getLicenseStatus, installLicense, licenseReasonLabels, type LicenseStatus } from "@/lib/license"
 
 type Page = "automatic" | "manual" | "pd" | "data" | "shipping" | "settings"
-type Theme = "dark" | "light"
-const ACCENT_THEMES = [
-  { id: "orange", label: "经典橙" },
-  { id: "blue", label: "极光蓝" },
-  { id: "green", label: "森林绿" },
-  { id: "purple", label: "鸢尾紫" },
-  { id: "rose", label: "玫瑰" },
-  { id: "graphite", label: "石墨" },
-] as const
-type AccentTheme = typeof ACCENT_THEMES[number]["id"]
-type CurveLineStyle = "solid" | "dashed" | "dotted"
-type LatestPointMarkerStyle = "point" | "paper-plane" | "paw"
 
 function DialogPortal({ children }: { children: ReactNode }) {
   return createPortal(children, document.body)
@@ -642,47 +636,38 @@ function StatusDot({ state }: { state?: string }) {
 
 type DeviceSettingsKind = "powerSupply" | "powerMeter" | "spectrometer"
 
-function DeviceCard({ title, icon, device, summary, disabled = false, onOpenSettings }: { title: string; icon: ReactNode; device?: DeviceSnapshot; summary?: string; disabled?: boolean; onOpenSettings: () => void }) {
+function DeviceCard({ title, icon, device, model, details, summary, disabled = false, onOpenSettings }: { title: string; icon: ReactNode; device?: DeviceSnapshot; model: string; details: Array<[string, string]>; summary?: string; disabled?: boolean; onOpenSettings: () => void }) {
   const connectionLabel = device?.detecting ? "识别中"
     : device?.state === "connected" ? "在线"
     : device?.state === "connecting" ? "连接中"
-    : device?.state === "error" ? "异常"
-    : "未连接"
+    : device?.state === "error" ? "异常" : "未连接"
   const activityLabel = device?.outputEnabled ? "输出中"
-    : device?.running ? (title === "功率计" ? "测量中" : "采集中")
-    : ""
-  return (
-    <Card
-      aria-disabled={disabled}
-      aria-label={`打开${title}设置`}
-      className={`device-card justify-center gap-2.5 py-3 shadow-none transition-[color,background-color,border-color,box-shadow] duration-200 ${disabled ? "cursor-not-allowed" : "cursor-pointer hover:border-[var(--plm-flat-border-strong)] hover:bg-[var(--plm-flat-hover)] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25"}`}
-      onClick={() => { if (!disabled) onOpenSettings() }}
-      onKeyDown={(event) => {
-        if (disabled) return
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault()
-          onOpenSettings()
-        }
-      }}
-      role="button"
-      tabIndex={disabled ? -1 : 0}
-      title={summary}
-    >
-      <CardContent className="flex items-center gap-3 px-4 py-0">
-        <div className={`device-card-icon grid size-10 place-items-center rounded-lg border border-[var(--plm-flat-border)] bg-muted/35 text-muted-foreground ${device?.outputEnabled ? "is-active" : ""}`}>{icon}</div>
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium">
-            <span>{title}</span>
-          </div>
-          <p className="mt-1 flex items-center gap-1.5 truncate text-xs font-medium text-muted-foreground">
-            <StatusDot state={device?.state} />
-            <span>{connectionLabel}</span>
-            {activityLabel && <><span aria-hidden="true">·</span><span>{activityLabel}</span></>}
-          </p>
-        </div>
-      </CardContent>
-    </Card>
-  )
+    : device?.running ? (title === "功率计" ? "测量中" : "采集中") : ""
+  return <Tooltip.Provider delayDuration={250}>
+    <Tooltip.Root>
+      <Tooltip.Trigger asChild>
+        <button
+          aria-disabled={disabled}
+          aria-label={`${title}信息${disabled ? "，测试期间设置已锁定" : "，点击打开设置"}`}
+          className="device-rail-item"
+          onClick={() => { if (!disabled) onOpenSettings() }}
+          type="button"
+        >
+          <span className="device-rail-item__icon" data-active={device?.outputEnabled}>{icon}</span>
+          <span className="device-rail-item__copy"><span><strong>{title}</strong><small title={model}>{model}</small></span><span className="device-rail-item__state"><StatusDot state={device?.detecting ? "connecting" : device?.state} />{connectionLabel}{activityLabel && <> · {activityLabel}</>}</span></span>
+          <ChevronRight className="device-rail-item__chevron size-4" />
+        </button>
+      </Tooltip.Trigger>
+      <Tooltip.Portal><Tooltip.Content className="device-info-tooltip" side="bottom" sideOffset={8} collisionPadding={12}>
+        <strong>{title} · {model}</strong>
+        <dl>{details.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value || "未配置"}</dd></div>)}</dl>
+        {device?.state === "error" && <p className="text-destructive">{device.detail}</p>}
+        <p>{disabled ? "测试期间仅查看参数" : "点击设备栏进入设置"}</p>
+        <span className="sr-only">{summary}</span>
+        <Tooltip.Arrow className="device-info-tooltip__arrow" />
+      </Tooltip.Content></Tooltip.Portal>
+    </Tooltip.Root>
+  </Tooltip.Provider>
 }
 
 function AutomaticTestControlCard({
@@ -1770,6 +1755,11 @@ function sameAutomaticTestState(
   if (!left || !right) return false
   return left.state === right.state
     && left.detail === right.detail
+    && left.elapsedS === right.elapsedS
+    && left.runContext?.sn === right.runContext?.sn
+    && left.runContext?.station === right.runContext?.station
+    && left.runContext?.testTemperatureC === right.runContext?.testTemperatureC
+    && left.runContext?.selectedScriptId === right.runContext?.selectedScriptId
     && left.currentA === right.currentA
     && left.currentIndex === right.currentIndex
     && left.currentDwellS === right.currentDwellS
@@ -1851,8 +1841,9 @@ function ChartLegend({ lines }: { lines: CanvasChartLine[] }) {
   )
 }
 
-const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, lines, empty = "暂无实时数据", heightClassName, annotations, annotationLegend, stretch = false, compactHeader = false, hideHeader = false, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, preserveAllPoints = false, xLabel, xTickSuffix, yLabel }: {
+const ChartPanel = memo(function ChartPanel({ title, subtitle, data = [], columns, xKey, lines, empty = "暂无实时数据", heightClassName, annotations, annotationLegend, stretch = false, compactHeader = false, hideHeader = false, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, preserveAllPoints = false, xLabel, xTickSuffix, yLabel }: {
   title: string
+  subtitle?: string
   data?: Array<Record<string, number | null>>
   columns?: CanvasColumnarData
   xKey: string
@@ -1881,7 +1872,8 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
     <Card aria-label={title} size="sm" className={`${compactHeader ? "gap-0" : ""} shadow-none ${stretch ? "h-full min-h-0 flex flex-col" : ""}`}>
       {!hideHeader && (
         <CardHeader className="flex min-h-8 shrink-0 flex-row items-center px-3 py-1.5">
-          <ChartLegend lines={lines} />
+          <strong className="chart-panel-heading">{title}</strong>
+          {subtitle ? <small className="chart-panel-subtitle">{subtitle}</small> : <ChartLegend lines={lines} />}
         </CardHeader>
       )}
       <CardContent className={`${stretch ? "min-h-0 flex-1" : heightClassName || (dataLength === 0 ? "h-40" : "h-56")} ${hideHeader ? "px-1.5 py-1.5" : "px-3 pb-1.5 pt-0"}`}>
@@ -1911,6 +1903,7 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
         && line.lineWidth === other.lineWidth
         && line.interpolation === other.interpolation
         && line.hideLegend === other.hideLegend
+        && line.trail === other.trail
         && sameNumberArray(line.dash, other.dash)
     })
   const sameNumbers = (left?: number[], right?: number[]) => (
@@ -1931,6 +1924,7 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
   return sameRows(previous.data, next.data, dataKeys)
     && sameColumns
     && previous.title === next.title
+    && previous.subtitle === next.subtitle
     && previous.xKey === next.xKey
     && previous.empty === next.empty
     && previous.heightClassName === next.heightClassName
@@ -1951,7 +1945,8 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
     && sameRows(previous.annotationLegend, next.annotationLegend, ["label", "color", "value"])
 })
 
-const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, smoothing = true, curveLineStyle = "solid", latestPointMarkerStyle = "point", stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; smoothing?: boolean; curveLineStyle?: CurveLineStyle; latestPointMarkerStyle?: LatestPointMarkerStyle; stretch?: boolean; heightClassName?: string }) {
+const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, smoothing = true, curveLineStyle = "solid", latestPointMarkerStyle = "point", stretch = false, heightClassName, automatic = false }: { snapshot: BackendSnapshot | null; automatic?: boolean; smoothing?: boolean; curveLineStyle?: CurveLineStyle; latestPointMarkerStyle?: LatestPointMarkerStyle; stretch?: boolean; heightClassName?: string }) {
+  const { appearance } = useAppearance()
   const powerData = (snapshot?.measurements?.power ?? []) as Array<Record<string, number | null>>
   const latestElapsedS = powerData[powerData.length - 1]?.elapsedS
   const powerTimeDomain: [number, number] = typeof latestElapsedS === "number"
@@ -1968,14 +1963,15 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, smoothin
       ? [row.powerW]
       : []
   )))
-  const lines: CanvasChartLine[] = [{ key: "powerW", label: "实时功率", color: powerStabilityColor, interpolation: smoothing ? "monotone" : "linear", dash: curveLineDash(curveLineStyle), showLatestPoint: true, latestPointStyle: latestPointMarkerStyle }]
+  const lines: CanvasChartLine[] = [{ key: "powerW", label: "实时功率", color: powerStabilityColor, interpolation: smoothing ? "monotone" : "linear", dash: curveLineDash(curveLineStyle), showLatestPoint: true, latestPointStyle: latestPointMarkerStyle, trail: automatic }]
 
   return (
     <ChartPanel
       title="功率实时"
+      subtitle={automatic ? `最近 60 s${appearance.trailEnabled ? ` · 尾迹 ${appearance.trailSeconds} s` : ""}` : undefined}
       compactHeader
       data={powerData}
-      hideHeader
+      hideHeader={!automatic}
       xKey="elapsedS"
       lines={lines}
       stretch={stretch}
@@ -1990,6 +1986,7 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, smoothin
   const previousPower = previous.snapshot?.measurements?.power
   const nextPower = next.snapshot?.measurements?.power
   return previous.stretch === next.stretch
+    && previous.automatic === next.automatic
     && previous.smoothing === next.smoothing
     && previous.curveLineStyle === next.curveLineStyle
     && previous.heightClassName === next.heightClassName
@@ -2092,7 +2089,6 @@ const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, smoo
       compactHeader
       data={chartData}
       empty="完成稳定测试点后显示功率 / 效率"
-      hideHeader
       lines={lines}
       stretch={stretch}
       heightClassName={heightClassName}
@@ -2165,7 +2161,6 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, sm
     <ChartPanel
       title="光谱"
       compactHeader
-      hideHeader
       columns={spectrumData}
       xKey="wavelengthNm"
       xDomain={spectrumXDomain}
@@ -2234,7 +2229,7 @@ function AutomaticMetricCard({ title, value, unit, valueTone = "muted", recordin
         <span>{title}</span>
       </div>
       <div className="automatic-metric-card__value">
-        <span className={`automatic-metric-card__number is-${valueTone}`}>{value}</span>
+        <span className={`automatic-metric-card__number is-${valueTone}`}><NumericReadout value={value} /></span>
         <span className="automatic-metric-card__unit">{unit}</span>
       </div>
     </div>
@@ -2268,7 +2263,7 @@ function RealtimeMetricCards({
     <section className="automatic-metric-grid" aria-label="实时关键指标">
       <AutomaticMetricCard
         className="automatic-metric-card--power automatic-metric-card--title-below"
-        title="Live Power"
+        title="实时功率"
         value={formatFixedNumber(livePowerW, 3)}
         unit={<>W @ <span className="automatic-metric-card__current">{formatTrimmedNumber(currentA, 2)} A</span></>}
         valueTone="warning"
@@ -2276,7 +2271,7 @@ function RealtimeMetricCards({
       />
       <AutomaticMetricCard
         className="automatic-metric-card--title-below"
-        title="Center Wavelength"
+        title="中心波长"
         value={formatFixedNumber(centerWavelengthValue, 3)}
         unit="nm"
         valueTone={hasSpectrumMetrics ? (centerWavelengthPass ? "success" : "danger") : "muted"}
@@ -2303,6 +2298,9 @@ function RealtimeMetricCards({
 }
 
 function AppTitlebar({
+  snapshot,
+  showPhase,
+  onOpenAppearance,
   active,
   canPause,
   commandPending,
@@ -2312,6 +2310,9 @@ function AppTitlebar({
   run,
   saveConfiguration,
 }: {
+  snapshot: BackendSnapshot | null
+  showPhase: boolean
+  onOpenAppearance: () => void
   active: boolean
   canPause: boolean
   commandPending: boolean
@@ -2332,7 +2333,9 @@ function AppTitlebar({
           </span>
         )}
       </div>
+      {showPhase && <AutomaticPhaseTrack snapshot={snapshot} />}
       <div className="app-titlebar__actions">
+        <DisplayMenu onOpenSettings={onOpenAppearance} />
         {canPause && (
           <Button disabled={!active || commandPending} onClick={() => void run("automatic.pause")} size="sm" variant="outline">
             <Pause className="size-4" />暂停测试
@@ -2630,8 +2633,10 @@ function LicensedApp({
 
     automaticRunSeenRef.current = false
     const title = automaticTerminalTitle(auto.terminalOutcome)
-    setAutomaticCompletion({ title, message: auto.detail || title })
-  }, [snapshot?.automaticTest])
+    setAutomaticCompletion(auto.terminalOutcome === "succeeded" && snapshot?.safety.shutdown.confirmed
+      ? null
+      : { title, message: auto.detail || title })
+  }, [snapshot?.automaticTest, snapshot?.safety.shutdown.confirmed])
 
   const prepareNextDevice = useCallback(async () => {
     await run("automatic.nextDevice")
@@ -2676,8 +2681,11 @@ function LicensedApp({
   const activeAlertNotification = powerProtectionNotification
   const toastNotifications = visibleNotifications.filter((notification) => notification !== powerProtectionNotification && notification !== spectrumSaturationNotification)
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+    <div className="app-shell flex h-screen flex-col overflow-hidden bg-background text-foreground" data-native={TAURI_RUNTIME_AVAILABLE}>
       <AppTitlebar
+        snapshot={snapshot}
+        showPhase={page === "automatic" || automaticWorkflowActive}
+        onOpenAppearance={() => changePage("settings")}
         active={active}
         canPause={Boolean(page === "automatic" && snapshot?.automaticTest.canPause)}
         commandPending={commandPending}
@@ -2696,8 +2704,8 @@ function LicensedApp({
           </div>
         </div>
       )}
-      <div className="grid min-h-0 flex-1 grid-cols-[clamp(184px,12.7vw,212px)_minmax(0,1fr)] overflow-hidden">
-        <aside className="shell-sidebar-enter flex h-full min-h-0 flex-col border-r border-border bg-[var(--app-sidebar)] px-3 py-4 text-[var(--app-text)]">
+      <div className="app-shell__body grid min-h-0 flex-1 overflow-hidden">
+        <aside className="app-shell__sidebar shell-sidebar-enter flex h-full min-h-0 flex-col border-r border-border bg-[var(--app-sidebar)] px-3 py-4 text-[var(--app-text)]">
           <nav className="space-y-1.5">
             {navigation.map((item) => (
               <button
@@ -2712,7 +2720,7 @@ function LicensedApp({
                     ? `${item.label}功能尚未接入`
                     : manualPowerOutputActive && item.id === "automatic"
                     ? "手动电源正在输出，请先在手动配置中将电流归零"
-                    : `${item.label}（⌘/Ctrl + ${item.shortcut}）`
+                    : "shortcut" in item ? `${item.label}（⌘/Ctrl + ${item.shortcut}）` : item.label
                 }
                 type="button"
               >
@@ -2776,7 +2784,7 @@ function LicensedApp({
             data-page={page}
             key={page}
           >
-            {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={operational} controlsLocked={automaticInteractionLocked || !licenseStatus.valid} curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} pending={commandPending} run={run} saveConfiguration={saveConfiguration} testScripts={snapshot?.testScripts ?? BUILTIN_TEST_SCRIPT_OPTIONS} onScriptSelect={selectTestScript} />}
+            {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={operational} controlsLocked={automaticInteractionLocked || !licenseStatus.valid} curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} pending={commandPending} run={run} saveConfiguration={saveConfiguration} testScripts={snapshot?.testScripts ?? BUILTIN_TEST_SCRIPT_OPTIONS} onScriptSelect={selectTestScript} onNextDevice={() => void prepareNextDevice()} onViewData={() => changePage("data")} onRetryExport={() => void retryAutomaticExport()} onChooseExportDirectory={() => void chooseAutomaticExportDirectory()} onShowCompletion={() => { const auto = snapshot?.automaticTest; if (auto?.terminalOutcome) setAutomaticCompletion({ title: automaticTerminalTitle(auto.terminalOutcome), message: auto.detail }) }} />}
             {page === "manual" && <ManualPage snapshot={snapshot} config={config} update={update} active={operational} pending={commandPending} run={run} />}
             {page === "pd" && <PdPage snapshot={snapshot} active={operational} pending={commandPending} run={run} />}
             {page === "shipping" && <ShippingReportPage active={operational} controlsLocked={automaticInteractionLocked || !licenseStatus.valid} pending={commandPending} />}
@@ -2795,7 +2803,6 @@ type UpdateConfig = <K extends keyof AppConfiguration>(key: K, value: AppConfigu
 type RunCommand = (method: string, params?: Record<string, unknown>, sync?: boolean) => Promise<void>
 
 function SystemSettingsPage({ theme, accentTheme, curveLineStyle, latestPointMarkerStyle, licenseStatus, onThemeChange, onAccentThemeChange, onCurveLineStyleChange, onLatestPointMarkerStyleChange, onImportLicense }: { theme: Theme; accentTheme: AccentTheme; curveLineStyle: CurveLineStyle; latestPointMarkerStyle: LatestPointMarkerStyle; licenseStatus: LicenseStatus; onThemeChange: (theme: Theme) => void; onAccentThemeChange: (theme: AccentTheme) => void; onCurveLineStyleChange: (style: CurveLineStyle) => void; onLatestPointMarkerStyleChange: (style: LatestPointMarkerStyle) => void; onImportLicense: () => Promise<void> }) {
-  const lightMode = theme === "light"
   const [licenseBusy, setLicenseBusy] = useState(false)
   const [licenseError, setLicenseError] = useState("")
   const importLicenseFile = async () => {
@@ -2813,95 +2820,11 @@ function SystemSettingsPage({ theme, accentTheme, curveLineStyle, latestPointMar
     <section className="system-settings-page">
       <div className="system-settings-page__heading">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">系统设置</h1>
-          <p className="mt-1 text-sm text-muted-foreground">管理软件的界面显示偏好。</p>
+          <h1 className="text-xl font-semibold tracking-tight">系统设置 / 外观</h1>
+          <p className="mt-1 text-sm text-muted-foreground">选择后立即生效，自动保存。</p>
         </div>
       </div>
-      <Card className="system-settings-card overflow-visible shadow-none">
-        <CardHeader className="system-settings-card__header">
-          <div className="system-settings-card__icon"><Sun className="size-5" /></div>
-          <div>
-            <CardTitle className="text-base">外观</CardTitle>
-            <CardDescription>选择适合当前环境的界面主题。</CardDescription>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <fieldset className="theme-presets" aria-describedby="theme-presets-description">
-            <legend className="text-sm font-medium">主题配色</legend>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground" id="theme-presets-description">统一更改按钮、选中状态、读数和曲线的强调色，选择后立即生效并自动保存。</p>
-            <div className="theme-presets__grid">
-              {ACCENT_THEMES.map((preset) => (
-                <label className="theme-preset" data-accent={preset.id} data-selected={accentTheme === preset.id} key={preset.id}>
-                  <input className="sr-only" type="radio" name="accent-theme" value={preset.id} checked={accentTheme === preset.id} onChange={() => onAccentThemeChange(preset.id)} />
-                  <span aria-hidden="true" className="theme-preset__preview">
-                    <span className="theme-preset__sidebar"><i /><i /><i /></span>
-                    <span className="theme-preset__content">
-                      <span className="theme-preset__heading" />
-                      <svg viewBox="0 0 150 34" preserveAspectRatio="none"><path d="M1 29L23 25L42 27L66 14L87 18L111 8L149 3" /></svg>
-                      <span className="theme-preset__button" />
-                    </span>
-                  </span>
-                  <span className="theme-preset__caption"><span>{preset.label}</span><span className="theme-preset__check" aria-hidden="true">{accentTheme === preset.id && <Check className="size-3" />}</span></span>
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          <div className="system-settings-option">
-            <div className="system-settings-option__copy">
-              <p className="text-sm font-medium">浅色模式</p>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">开启后使用明亮背景与深色文字，设置会自动保存。</p>
-            </div>
-            <div className="system-settings-option__control">
-              <span className="text-xs text-muted-foreground">{lightMode ? "已开启" : "已关闭"}</span>
-              <button
-                aria-checked={lightMode}
-                aria-label="切换浅色模式"
-                className="theme-switch"
-                data-state={lightMode ? "checked" : "unchecked"}
-                onClick={() => onThemeChange(lightMode ? "dark" : "light")}
-                role="switch"
-                type="button"
-              >
-                <span className="theme-switch__thumb" />
-              </button>
-            </div>
-          </div>
-          <div className="system-settings-option">
-            <div className="system-settings-option__copy">
-              <p className="text-sm font-medium">曲线线型</p>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">设置自动测试功率实时曲线的实线、虚线或点线显示，数据连接方式保持不变。</p>
-            </div>
-            <div className="system-settings-option__control">
-              <NativeSelect
-                ariaLabel="自动测试功率实时曲线线型"
-                value={curveLineStyle}
-                onChange={(value) => onCurveLineStyleChange(value as CurveLineStyle)}
-              >
-                <option value="solid">实线</option>
-                <option value="dashed">虚线</option>
-                <option value="dotted">点线</option>
-              </NativeSelect>
-            </div>
-          </div>
-          <div className="system-settings-option">
-            <div className="system-settings-option__copy">
-              <p className="text-sm font-medium">末端样式</p>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">标识自动测试功率实时曲线的最新采样点；纸飞机沿曲线旋转，爪印保持正立。</p>
-            </div>
-            <div className="system-settings-option__control">
-              <NativeSelect
-                ariaLabel="自动测试功率实时曲线末端样式"
-                value={latestPointMarkerStyle}
-                onChange={(value) => onLatestPointMarkerStyleChange(value as LatestPointMarkerStyle)}
-              >
-                <option value="point">圆点</option>
-                <option value="paper-plane">纸飞机</option>
-                <option value="paw">爪印</option>
-              </NativeSelect>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      <AppearanceSettings theme={theme} accentTheme={accentTheme} curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} onThemeChange={onThemeChange} onAccentThemeChange={onAccentThemeChange} onCurveLineStyleChange={onCurveLineStyleChange} onLatestPointMarkerStyleChange={onLatestPointMarkerStyleChange} />
       <Card className="system-settings-card mt-4 overflow-visible shadow-none">
         <CardHeader className="system-settings-card__header">
           <div className="system-settings-card__icon"><KeyRound className="size-5" /></div>
@@ -3934,6 +3857,11 @@ const AutomaticPage = memo(function AutomaticPage({
   saveConfiguration,
   testScripts,
   onScriptSelect,
+  onNextDevice,
+  onViewData,
+  onRetryExport,
+  onChooseExportDirectory,
+  onShowCompletion,
 }: {
   snapshot: BackendSnapshot | null
   config: AppConfiguration
@@ -3947,8 +3875,14 @@ const AutomaticPage = memo(function AutomaticPage({
   saveConfiguration: () => Promise<void>
   testScripts: TestScript[]
   onScriptSelect: (scriptId: string) => void
+  onNextDevice: () => void
+  onViewData: () => void
+  onRetryExport: () => void
+  onChooseExportDirectory: () => void
+  onShowCompletion: () => void
 }) {
   const auto = snapshot?.automaticTest
+  const completed = auto?.state === "completed" && Boolean(auto.terminalOutcome)
   const availableTestScripts = testScripts.filter((script) => (
     !script.powerSupplyKinds || script.powerSupplyKinds.includes(config.powerSupplyKind)
   ))
@@ -3974,7 +3908,7 @@ const AutomaticPage = memo(function AutomaticPage({
     ? (config.powerSupplyKind === "tdk" ? powerSupply.outputCurrentA : powerSupply.activeCurrentA)
     : null
   const spectrometer = snapshot?.devices.spectrometer
-  const useSpectrometer = Boolean(spectrometer?.running)
+  const useSpectrometer = Boolean(spectrometer?.running || (completed && snapshot?.measurements?.spectrum.wavelengthNm.length))
   const spectrometerSummary = useSpectrometer
     ? `${config.integrationTimeUs} μs · PIB ${config.pibCenterWavelengthNm}±${config.pibHalfRangeNm}nm`
     : "未开启光谱采集"
@@ -3998,29 +3932,22 @@ const AutomaticPage = memo(function AutomaticPage({
 
   return (
     <>
-      <div className="automatic-setup-panel relative z-20 shrink-0 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-[minmax(160px,0.82fr)_minmax(160px,0.82fr)_minmax(120px,0.55fr)_minmax(190px,1fr)_minmax(280px,1.3fr)] items-end gap-3 rounded-lg border border-border/70 bg-card/40 p-3 shadow-none">
-        <div className="space-y-1">
+      {completed && snapshot ? <AutomaticCompletionSummary snapshot={snapshot} config={config} active={active} pending={pending} onNextDevice={onNextDevice} onViewData={onViewData} onRetryExport={onRetryExport} onChooseExportDirectory={onChooseExportDirectory} onShowDetails={onShowCompletion} /> :
+      <div className="automatic-setup-panel sample-nameplate" data-locked={controlsLocked}>
+
+        <div className="sample-nameplate__identity space-y-1">
           <Label className="text-xs text-muted-foreground" htmlFor="automatic-sn">
-            <QrCode className="mr-1 inline size-3.5" />产品 SN
+            <QrCode className="mr-1 inline size-3.5" />当前样品
           </Label>
           <Input
             className="h-9 text-[18px] md:text-[18px] leading-none font-mono rounded-lg"
             disabled={controlsLocked}
+            aria-label="产品 SN"
+            placeholder="输入产品 SN"
+            title={config.sn}
             id="automatic-sn"
             onChange={(event) => update("sn", event.target.value)}
             value={config.sn}
-          />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground" htmlFor="automatic-station">
-            <Milestone className="mr-1 inline size-3.5" />测试站别
-          </Label>
-          <Input
-            className="h-9 text-[18px] md:text-[18px] leading-none rounded-lg"
-            disabled={controlsLocked}
-            id="automatic-station"
-            onChange={(event) => update("station", event.target.value)}
-            value={config.station}
           />
         </div>
         <div className="space-y-1">
@@ -4034,6 +3961,18 @@ const AutomaticPage = memo(function AutomaticPage({
             onChange={(event) => update("testTemperatureC", event.target.value)}
             placeholder="例如：水冷25°C"
             value={config.testTemperatureC}
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground" htmlFor="automatic-station">
+            <Milestone className="mr-1 inline size-3.5" />测试站别
+          </Label>
+          <Input
+            className="h-9 text-[18px] md:text-[18px] leading-none rounded-lg"
+            disabled={controlsLocked}
+            id="automatic-station"
+            onChange={(event) => update("station", event.target.value)}
+            value={config.station}
           />
         </div>
         <div className="automatic-setup-field--large-type space-y-1 min-w-0">
@@ -4070,12 +4009,12 @@ const AutomaticPage = memo(function AutomaticPage({
             </Button>
           </div>
         </div>
-      </div>
+      </div>}
 
-      <section className="grid grid-cols-2 gap-3 shrink-0 xl:grid-cols-4">
-        <DeviceCard title="电源" icon={<Power className="size-4" />} device={snapshot?.devices.powerSupply} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("powerSupply")} summary={powerSupplySummary} />
-        <DeviceCard title="功率计" icon={<Gauge className="size-4" />} device={snapshot?.devices.powerMeter} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("powerMeter")} summary={powerMeterSummary} />
-        <DeviceCard title="光谱仪" icon={<Radio className="size-4" />} device={snapshot?.devices.spectrometer} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("spectrometer")} summary={spectrometerSummary} />
+      <section className="automatic-device-rail" aria-label="测试设备与控制">
+        <DeviceCard title="电源" icon={<Power className="size-4" />} device={snapshot?.devices.powerSupply} model={config.powerSupplyKind === "tdk" ? "TDK" : "CH341"} details={[["接口", config.powerSupplyKind === "tdk" ? config.tdkResource : config.ch341SelectedLocationPath], ["电流计划", `${config.initialCurrentA} → ${config.targetCurrentA} A`], ["目标电压", `${config.tdkVoltageV} V`]]} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("powerSupply")} summary={powerSupplySummary} />
+        <DeviceCard title="功率计" icon={<Gauge className="size-4" />} device={snapshot?.devices.powerMeter} model={config.powerMeterResource ? powerMeterResourceLabel(config.powerMeterResource, powerMeter?.resources).split("|")[0].trim().replace(/功率计$/, "") : "未选择"} details={[["接口", powerMeterResourceValue(config.powerMeterResource)], ["设备", powerMeter?.detail || "未连接"], ["校准波长", `${config.powerMeterWavelengthNm} nm`], ["软件增益", `× ${config.softwareGain}`]]} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("powerMeter")} summary={powerMeterSummary} />
+        <DeviceCard title="光谱仪" icon={<Radio className="size-4" />} device={snapshot?.devices.spectrometer} model="Ocean Insight" details={[["设备", config.spectrometerResource || spectrometer?.detail || "未选择"], ["积分时间", `${config.integrationTimeUs} μs`], ["PIB 范围", `${config.pibCenterWavelengthNm} ± ${config.pibHalfRangeNm} nm`]]} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("spectrometer")} summary={spectrometerSummary} />
         <AutomaticTestControlCard
           active={active}
           auto={auto}
@@ -4089,11 +4028,11 @@ const AutomaticPage = memo(function AutomaticPage({
       <section className={`automatic-chart-grid ${useSpectrometer ? "" : "without-spectrum"}`}>
         <div className="automatic-chart-grid__power-row">
           <div className="automatic-power-chart">
-            <PowerRealtimeChart curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} snapshot={snapshot} smoothing={config.powerSmoothing ?? true} stretch />
+            <PowerRealtimeChart automatic curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} snapshot={snapshot} smoothing={config.powerSmoothing ?? true} stretch />
             {!useSpectrometer && (
               <AutomaticMetricCard
                 className="automatic-power-chart__reading automatic-metric-card--power automatic-metric-card--title-below"
-                title="Live Power"
+                title="实时功率"
                 value={formatFixedNumber(livePowerW, 3)}
                 unit={<>W @ <span className="automatic-metric-card__current">{formatTrimmedNumber(liveCurrentA, 2)} A</span></>}
                 valueTone="warning"
@@ -4123,6 +4062,7 @@ const AutomaticPage = memo(function AutomaticPage({
 }, (previous, next) => (
   previous.active === next.active
   && previous.controlsLocked === next.controlsLocked
+  && previous.curveLineStyle === next.curveLineStyle
   && previous.latestPointMarkerStyle === next.latestPointMarkerStyle
   && previous.pending === next.pending
   && previous.testScripts === next.testScripts
@@ -4131,6 +4071,8 @@ const AutomaticPage = memo(function AutomaticPage({
   && sameDeviceSnapshot(previous.snapshot?.devices.powerSupply, next.snapshot?.devices.powerSupply)
   && sameDeviceSnapshot(previous.snapshot?.devices.powerMeter, next.snapshot?.devices.powerMeter)
   && sameDeviceSnapshot(previous.snapshot?.devices.spectrometer, next.snapshot?.devices.spectrometer)
+  && previous.snapshot?.safety.shutdown.confirmed === next.snapshot?.safety.shutdown.confirmed
+  && previous.snapshot?.safety.shutdown.measuredCurrentA === next.snapshot?.safety.shutdown.measuredCurrentA
   && sameMeasurements(previous.snapshot?.measurements, next.snapshot?.measurements)
 ))
 
@@ -4758,7 +4700,7 @@ function App() {
   if (!sessionAuthorized && !licenseStatus.valid) {
     return <ActivationView onStatusChange={(status) => { setLicenseStatus(status); if (status.valid) setSessionAuthorized(true) }} runtimeAvailable={TAURI_RUNTIME_AVAILABLE} status={licenseStatus} />
   }
-  return <LicensedApp licenseStatus={licenseStatus} onImportLicense={importLicenseFile} />
+  return <AppearanceProvider><LicensedApp licenseStatus={licenseStatus} onImportLicense={importLicenseFile} /></AppearanceProvider>
 }
 
 export default App

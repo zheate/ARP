@@ -231,6 +231,12 @@ class SnapshotBuilder:
         current_index = int(active_st.automatic.current_index)
         progress = max(0.0, min(1.0, (current_index + 1) / len(currents))) if currents else 0.0
         dwell_elapsed = None
+        run_elapsed = None
+        if active_st.automatic_started_at is not None and active_st.automatic.state != AutomaticTestState.IDLE:
+            run_end = active_st.automatic_finished_at
+            # Freeze only after the worker has actually exited. A completion
+            # snapshot during final journal/export work still has live time.
+            run_elapsed = math.floor(max(0.0, (time.monotonic() if run_end is None else run_end) - active_st.automatic_started_at))
         if active_st.automatic_hold_started_at is not None and active_st.automatic.current_dwell_s > 0.0:
             elapsed_s = min(
                 active_st.automatic.current_dwell_s,
@@ -349,6 +355,8 @@ class SnapshotBuilder:
                 "currentDwellS": active_st.automatic.current_dwell_s,
                 "currentDwellElapsedS": dwell_elapsed,
                 "samplePath": active_st.automatic_sample_path,
+                "elapsedS": run_elapsed,
+                "runContext": dict(active_st.automatic_run_context) if active_st.automatic_run_context else None,
                 "progress": progress,
                 "pauseReason": active_st.automatic.pause_reason,
                 "pauseKind": active_st.automatic_pause_kind,

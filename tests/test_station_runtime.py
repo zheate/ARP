@@ -78,6 +78,24 @@ class StationRuntimeTests(unittest.TestCase):
         for removed in ("activeStation", "stations", "configurations"):
             self.assertNotIn(removed, snapshot)
 
+    def test_run_summary_duration_is_live_then_freezes_and_context_is_copied(self) -> None:
+        station = self.backend.runtime
+        self.assertIsNone(self.backend.snapshot()["automaticTest"]["elapsedS"])
+        station.automatic.state = AutomaticTestState.WAITING_STABLE
+        station.automatic_started_at = 100.0
+        station.automatic_run_context = {"sn": "SN-TEST", "station": "站别 1"}
+        station.configuration["sn"] = "SN-EDITED"
+        with patch("tauri_bridge.snapshot_builder.time.monotonic", return_value=256.9):
+            active = self.backend.snapshot()["automaticTest"]
+        self.assertEqual(active["elapsedS"], 156)
+        self.assertEqual(active["runContext"]["sn"], "SN-TEST")
+        active["runContext"]["sn"] = "MUTATED"
+        self.assertEqual(station.automatic_run_context["sn"], "SN-TEST")
+        station.automatic.state = AutomaticTestState.COMPLETED
+        station.automatic_finished_at = 263.2
+        with patch("tauri_bridge.snapshot_builder.time.monotonic", return_value=999.0):
+            self.assertEqual(self.backend.snapshot()["automaticTest"]["elapsedS"], 163)
+
     def test_spectrum_smoothing_is_enabled_by_default_and_persists(self) -> None:
         self.assertTrue(self.backend.runtime.configuration["spectrumSmoothing"])
         self.backend.dispatch("app.configure", {"spectrumSmoothing": False})
@@ -1599,6 +1617,9 @@ class StationRuntimeTests(unittest.TestCase):
         station.shutdown_confirmed = True
         station.stable_power_points[2.0] = 5.0
         station.record_store.recorded_currents.add(2.0)
+        station.automatic_started_at = 100.0
+        station.automatic_finished_at = 200.0
+        station.automatic_run_context = {"sn": "SN-DONE"}
 
         snapshot = self.backend.dispatch("automatic.nextDevice", {"stationId": "1"})
 
@@ -1608,6 +1629,9 @@ class StationRuntimeTests(unittest.TestCase):
         self.assertEqual(snapshot["automaticTest"]["state"], "idle")
         self.assertEqual(snapshot["automaticTest"]["savedPointCount"], 0)
         self.assertEqual(snapshot["measurements"]["stable"], [])
+        self.assertIsNone(snapshot["automaticTest"]["elapsedS"])
+        self.assertIsNone(snapshot["automaticTest"]["runContext"])
+        self.assertIsNone(station.automatic_finished_at)
 
     def test_completed_test_can_restart_without_using_next_device(self) -> None:
         station = self.backend.runtime
@@ -1631,6 +1655,8 @@ class StationRuntimeTests(unittest.TestCase):
         self.assertEqual(station.configuration["sn"], "SN-RETEST")
         self.assertIsNot(station.record_store, previous_store)
         self.assertEqual(station.automatic.state, AutomaticTestState.STARTING)
+        self.assertEqual(station.automatic_run_context["sn"], "SN-RETEST")
+        self.assertIsNone(station.automatic_finished_at)
         thread_class.return_value.start.assert_called_once_with()
 
     def test_manual_output_off_unlocks_completed_test(self) -> None:

@@ -214,6 +214,9 @@ export interface BackendSnapshot {
     currentDwellS?: number | null
     currentDwellElapsedS?: number | null
     samplePath?: string
+    /** Backend monotonic duration, frozen when the worker finishes. */
+    elapsedS?: number | null
+    runContext?: Pick<AppConfiguration, "sn" | "station" | "testTemperatureC" | "selectedScriptId"> | null
     progress?: number
     pauseReason?: string
     pauseKind?: AutomaticPauseKind | null

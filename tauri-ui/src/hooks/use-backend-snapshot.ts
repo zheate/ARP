@@ -104,6 +104,11 @@ const DEMO_SNAPSHOT: BackendSnapshot = {
     currentDwellElapsedS: null,
     samplePath: "",
     progress: 0.67,
+    elapsedS: 156,
+    savedPointCount: 3,
+    journalPath: "/preview/test-records/DEMO-001.jsonl",
+    exportStatus: "recording",
+    runContext: { sn: "DEMO-001", station: "站别 1", testTemperatureC: "水冷25°C", selectedScriptId: "standard" },
     reference: {
       sourcePath: "/preview/DEMO-001/老化站 1/2026_07_18_14_30.xlsx",
       station: "老化站 1",
@@ -170,12 +175,14 @@ export function useBackendSnapshot(view: SnapshotView) {
   const commandPendingRef = useRef(false)
   const latestViewRef = useRef(view)
   const snapshotRef = useRef<BackendSnapshot | null>(null)
+  const demoSnapshotRef = useRef(DEMO_SNAPSHOT)
+  const demoGenerationRef = useRef(0)
   const revisionsRef = useRef<SeriesRevisions | null>(null)
   latestViewRef.current = view
 
   useEffect(() => {
     mountedRef.current = true
-    return () => { mountedRef.current = false }
+    return () => { mountedRef.current = false; demoGenerationRef.current += 1 }
   }, [])
 
   const loadSnapshot = useCallback(async (showLoading: boolean, requestedView: SnapshotView) => {
@@ -186,9 +193,9 @@ export function useBackendSnapshot(view: SnapshotView) {
     try {
       if (DEMO_PREVIEW_ENABLED) {
         if (mountedRef.current && latestViewRef.current === requestedView) {
-          snapshotRef.current = DEMO_SNAPSHOT
-          revisionsRef.current = DEMO_SNAPSHOT.seriesRevisions ?? null
-          setSnapshot(DEMO_SNAPSHOT)
+          snapshotRef.current = demoSnapshotRef.current
+          revisionsRef.current = demoSnapshotRef.current.seriesRevisions ?? null
+          setSnapshot(demoSnapshotRef.current)
           setError(null)
         }
         return
@@ -224,7 +231,7 @@ export function useBackendSnapshot(view: SnapshotView) {
   const refresh = useCallback(() => loadSnapshot(true, view), [loadSnapshot, view])
 
   const command = useCallback(async (method: string, params: Record<string, unknown> = {}) => {
-    if (method === "app.stopAll") {
+    if (method === "app.stopAll" && !DEMO_PREVIEW_ENABLED) {
       try {
         const requestedView = view
         const response = await sendBackendCommand(method, params)
@@ -251,7 +258,21 @@ export function useBackendSnapshot(view: SnapshotView) {
     setPendingCommand(method)
     try {
       if (DEMO_PREVIEW_ENABLED) {
+        const base = demoSnapshotRef.current
+        const publishDemo = (next: BackendSnapshot) => {
+          demoSnapshotRef.current = next
+          snapshotRef.current = next
+          if (mountedRef.current) setSnapshot(next)
+          setError(null)
+          return next
+        }
+        if (method === "app.configure") {
+          return publishDemo({ ...base, configuration: { ...base.configuration!, ...params } })
+        }
         if (method === "automatic.start") {
+          const runConfiguration = { ...base.configuration!, ...params }
+          const generation = ++demoGenerationRef.current
+          const startedAt = performance.now()
           let step = 0
           const stages: Array<{ state: string; currentA: number; currentIndex: number; detail: string; powerW: number; stable: boolean; stablePoint?: { currentA: number; powerW: number; efficiencyPercent: number }; terminalOutcome?: string }> = [
             { state: "setting_current", currentA: 2.0, currentIndex: 0, detail: "第 1 点：正在平滑加载电流至 2.0 A...", powerW: 0.15, stable: false },
@@ -270,23 +291,26 @@ export function useBackendSnapshot(view: SnapshotView) {
           const stablePoints: Array<{ currentA: number; powerW: number; efficiencyPercent: number }> = []
 
           const advance = () => {
-            if (step >= stages.length) return
+            if (!mountedRef.current || generation !== demoGenerationRef.current || step >= stages.length) return
             const stage = stages[step]
             step += 1
             if (stage.stablePoint) stablePoints.push(stage.stablePoint)
             const nextSnap: BackendSnapshot = {
-              ...DEMO_SNAPSHOT,
+              ...base,
+              configuration: runConfiguration,
               seriesRevisions: {
                 ...DEMO_SNAPSHOT.seriesRevisions!,
                 stable: 1 + stablePoints.length,
               },
               devices: {
                 ...DEMO_SNAPSHOT.devices,
-                powerSupply: { ...DEMO_SNAPSHOT.devices.powerSupply, activeCurrentA: stage.currentA, outputCurrentA: stage.currentA },
+                powerSupply: { ...DEMO_SNAPSHOT.devices.powerSupply, activeCurrentA: stage.currentA, outputCurrentA: stage.currentA, outputEnabled: stage.state !== "completed" },
                 powerMeter: { ...DEMO_SNAPSHOT.devices.powerMeter, powerW: stage.powerW, stable: stage.stable },
               },
               automaticTest: {
                 ...DEMO_SNAPSHOT.automaticTest,
+                elapsedS: Math.floor((performance.now() - startedAt) / 1000),
+                runContext: { sn: runConfiguration.sn, station: runConfiguration.station, testTemperatureC: runConfiguration.testTemperatureC, selectedScriptId: runConfiguration.selectedScriptId },
                 state: stage.state,
                 detail: stage.detail,
                 currentA: stage.currentA,
@@ -295,7 +319,7 @@ export function useBackendSnapshot(view: SnapshotView) {
                 canStart: stage.state === "idle",
                 canEnd: stage.state !== "completed" && stage.state !== "idle",
                 terminalOutcome: stage.terminalOutcome as BackendSnapshot["automaticTest"]["terminalOutcome"],
-                savedPointCount: stage.state === "completed" ? stablePoints.length : 0,
+                savedPointCount: stablePoints.length,
                 exportedPointCount: stage.state === "completed" ? stablePoints.length : 0,
                 journalPath: "/preview/test-records/demo-session.jsonl",
                 canNextDevice: stage.state === "completed",
@@ -322,28 +346,30 @@ export function useBackendSnapshot(view: SnapshotView) {
                 stable: [...stablePoints],
               },
             }
-            if (mountedRef.current) setSnapshot(nextSnap)
+            publishDemo(nextSnap)
             if (step < stages.length) {
               window.setTimeout(advance, 1300)
             }
           }
           advance()
-          return DEMO_SNAPSHOT
+          return demoSnapshotRef.current
         }
 
-        if (method === "automatic.end") {
+        if (method === "automatic.end" || method === "app.stopAll") {
+          demoGenerationRef.current += 1
           const nextSnap: BackendSnapshot = {
-            ...DEMO_SNAPSHOT,
+            ...base,
+            devices: { ...base.devices, powerSupply: { ...base.devices.powerSupply, outputEnabled: false, activeCurrentA: 0, outputCurrentA: 0 } },
             automaticTest: {
-              ...DEMO_SNAPSHOT.automaticTest,
+              ...base.automaticTest,
               state: "completed",
               detail: "测试已手动终止并安全下电",
               canStart: false,
               canEnd: false,
               canNextDevice: true,
               terminalOutcome: "stopped_shutdown_confirmed",
-              savedPointCount: 3,
-              exportedPointCount: 3,
+              savedPointCount: base.measurements?.stable.length ?? 0,
+              exportedPointCount: base.measurements?.stable.length ?? 0,
               journalPath: "/preview/test-records/DEMO-001.jsonl",
               canRetryExport: false,
               exportStatus: "completed",
@@ -362,17 +388,19 @@ export function useBackendSnapshot(view: SnapshotView) {
               },
             },
           }
-          if (mountedRef.current) setSnapshot(nextSnap)
-          return nextSnap
+          return publishDemo(nextSnap)
         }
 
         if (method === "automatic.nextDevice") {
+          demoGenerationRef.current += 1
           const nextSnap: BackendSnapshot = {
-            ...DEMO_SNAPSHOT,
-            configuration: { ...DEMO_SNAPSHOT.configuration!, sn: "" },
+            ...base,
+            configuration: { ...base.configuration!, sn: "" },
             automaticTest: {
               ...DEMO_SNAPSHOT.automaticTest,
               state: "idle",
+              elapsedS: null,
+              runContext: null,
               detail: "请输入下一台产品 SN",
               canStart: true,
               canEnd: false,
@@ -392,13 +420,10 @@ export function useBackendSnapshot(view: SnapshotView) {
               spectrumPeaks: [],
             },
           }
-          if (mountedRef.current) setSnapshot(nextSnap)
-          return nextSnap
+          return publishDemo(nextSnap)
         }
 
-        setSnapshot(DEMO_SNAPSHOT)
-        setError(null)
-        return DEMO_SNAPSHOT
+        return publishDemo(base)
       }
       const requestedView = view
       const response = await sendBackendCommand(method, params)
