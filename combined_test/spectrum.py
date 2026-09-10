@@ -7,7 +7,7 @@ from collections import deque
 from typing import Any, Iterable
 
 from .models import SpectrumPeakAnnotation, SpectrumSaturationResult
-from .spectrum_math import SmsrResult, calculate_smsr
+from .spectrum_math import PIB_ANALYSIS_LOWER_NM, PIB_ANALYSIS_UPPER_NM, SmsrResult, calculate_smsr
 
 
 SPECTRUM_CENTER_LOCK_REQUIRED_SAMPLES = 5
@@ -178,11 +178,25 @@ def find_spectrum_peak_annotations(
         if math.isfinite(x) and math.isfinite(y):
             clean_points.append((x, y))
     clean_points.sort(key=lambda item: item[0])
-    if len(clean_points) < 3 or limit <= 0:
+    if len(clean_points) < 3 or limit <= 0 or clean_points[0][0] >= clean_points[-1][0]:
         return []
     wavelength = [item[0] for item in clean_points]
     intensity = [item[1] for item in clean_points]
-    mode_result = smsr_result or calculate_smsr(wavelength, intensity)
+    strongest_wavelength = wavelength[max(range(len(intensity)), key=intensity.__getitem__)]
+    mode_result = smsr_result
+    # The measurement SMSR uses a fixed 956-996 nm band. Display markers must
+    # follow the actual signal, including visible and narrow-range instruments.
+    if (
+        mode_result is None
+        or not mode_result.peaks
+        or not PIB_ANALYSIS_LOWER_NM <= strongest_wavelength <= PIB_ANALYSIS_UPPER_NM
+    ):
+        mode_result = calculate_smsr(
+            wavelength,
+            intensity,
+            analysis_lower_nm=max(wavelength[0], strongest_wavelength - SPECTRUM_CENTER_LOCK_HALF_RANGE_NM),
+            analysis_upper_nm=min(wavelength[-1], strongest_wavelength + SPECTRUM_CENTER_LOCK_HALF_RANGE_NM),
+        )
     annotation_limit = min(
         limit,
         len(SPECTRUM_PEAK_ORDINAL_LABELS),

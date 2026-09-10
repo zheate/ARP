@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "./appearance.css";
 
 @font-face {
   font-family: "ARP Interface";
@@ -439,12 +440,13 @@ body {
   width: 1rem;
   height: 1rem;
   border-radius: 999px;
-  background: var(--primary-foreground);
+  background: var(--foreground);
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.24);
   transition: transform 160ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 .theme-switch[data-state="checked"] .theme-switch__thumb {
+  background: var(--primary-foreground);
   transform: translateX(1.25rem);
 }
 
@@ -686,7 +688,7 @@ body {
 }
 
 .automatic-metric-card--power .automatic-metric-card__number {
-  color: #ff7a1a;
+  color: var(--app-accent);
 }
 
 .automatic-metric-card--power .automatic-metric-card__unit {
@@ -826,7 +828,7 @@ body {
 .manual-device-readback .is-blue::before { background: #4ca4ff; }
 .manual-device-readback .is-green::before { background: var(--app-success); }
 .manual-device-readback .is-sky::before { background: #4ca4ff; }
-.manual-device-readback .is-orange::before { background: var(--app-warning); }
+.manual-device-readback .is-accent::before { background: var(--app-accent); }
 
 .manual-device-grid {
   display: grid;
@@ -1497,13 +1499,13 @@ body {
   --app-text-secondary: #4f5863;
   --app-text-tertiary: #737d89;
 
-  --app-accent: #e66d18;
-  --app-accent-strong: #cf5e0e;
-  --app-accent-soft: rgb(230 109 24 / 0.12);
+  --app-accent: var(--theme-accent-light, #b65310);
+  --app-accent-strong: color-mix(in srgb, var(--app-accent) 88%, black);
+  --app-accent-soft: color-mix(in srgb, var(--app-accent) 12%, transparent);
   --app-hover-soft: rgb(30 36 42 / 0.055);
-  --app-selected-soft: rgb(230 109 24 / 0.1);
-  --app-focus-ring: rgb(230 109 24 / 0.24);
-  --app-focus-outline: rgb(207 94 14 / 0.58);
+  --app-selected-soft: color-mix(in srgb, var(--app-accent) 10%, transparent);
+  --app-focus-ring: color-mix(in srgb, var(--app-accent) 24%, transparent);
+  --app-focus-outline: color-mix(in srgb, var(--app-accent) 58%, transparent);
   --app-header-bg: rgb(255 255 255 / 0.94);
 
   --app-success: hsl(142.1 70.6% 35%);
@@ -1523,7 +1525,7 @@ body {
   --plm-flat-border: rgb(197 203 211 / 0.78);
   --plm-flat-border-strong: rgb(166 175 186 / 0.92);
   --plm-flat-text-soft: rgb(115 125 137 / 0.9);
-  --plm-flat-accent-line: rgb(230 109 24 / 0.62);
+  --plm-flat-accent-line: color-mix(in srgb, var(--app-accent) 62%, transparent);
   --chart-grid: rgb(155 163 173 / 0.34);
 
   --background: var(--app-bg);
@@ -1533,7 +1535,7 @@ body {
   --popover: var(--app-surface);
   --popover-foreground: var(--app-text);
   --primary: var(--app-accent);
-  --primary-foreground: #fffaf6;
+  --primary-foreground: #ffffff;
   --secondary: var(--app-surface-muted);
   --secondary-foreground: var(--app-text);
   --muted: var(--app-surface-muted);
@@ -1544,7 +1546,7 @@ body {
   --border: var(--app-border);
   --input: #cbd2da;
   --ring: var(--app-accent);
-  --chart-1: #e66d18;
+  --chart-1: var(--app-accent);
   --chart-2: #ad7653;
   --chart-3: #8b7463;
   --chart-4: #4f8f6d;
@@ -1552,7 +1554,7 @@ body {
   --sidebar: var(--app-sidebar);
   --sidebar-foreground: var(--app-text);
   --sidebar-primary: var(--app-accent);
-  --sidebar-primary-foreground: #fffaf6;
+  --sidebar-primary-foreground: var(--primary-foreground);
   --sidebar-accent: var(--app-selected-soft);
   --sidebar-accent-foreground: var(--app-text);
   --sidebar-border: var(--app-border);
@@ -1574,13 +1576,13 @@ body {
   --app-text-secondary: #c2c4c6;
   --app-text-tertiary: #94989c;
 
-  --app-accent: #ff7a1a;
-  --app-accent-strong: #ff8d3a;
-  --app-accent-soft: rgb(255 122 26 / 0.13);
+  --app-accent: var(--theme-accent-dark, #ff7a1a);
+  --app-accent-strong: color-mix(in srgb, var(--app-accent) 85%, white);
+  --app-accent-soft: color-mix(in srgb, var(--app-accent) 13%, transparent);
   --app-hover-soft: rgb(255 255 255 / 0.05);
-  --app-selected-soft: rgb(255 122 26 / 0.1);
-  --app-focus-ring: hsl(0 0% 55.6% / 0.32);
-  --app-focus-outline: hsl(0 0% 55.6% / 0.46);
+  --app-selected-soft: color-mix(in srgb, var(--app-accent) 10%, transparent);
+  --app-focus-ring: color-mix(in srgb, var(--app-accent) 32%, transparent);
+  --app-focus-outline: color-mix(in srgb, var(--app-accent) 46%, transparent);
   --app-header-bg: rgb(15 17 18 / 0.94);
 
   --app-success: hsl(142.1 70.6% 45.3%);
@@ -1600,7 +1602,7 @@ body {
   --plm-flat-border: rgb(71 75 78 / 0.58);
   --plm-flat-border-strong: rgb(91 96 100 / 0.9);
   --plm-flat-text-soft: rgb(148 152 156 / 0.72);
-  --plm-flat-accent-line: rgb(255 122 26 / 0.58);
+  --plm-flat-accent-line: color-mix(in srgb, var(--app-accent) 58%, transparent);
   --chart-grid: rgb(71 75 78 / 0.42);
 
   --background: var(--app-bg);
@@ -1610,7 +1612,7 @@ body {
   --popover: var(--app-surface-muted);
   --popover-foreground: var(--app-text);
   --primary: var(--app-accent);
-  --primary-foreground: #fff8f2;
+  --primary-foreground: #0f1112;
   --secondary: var(--app-surface-muted);
   --secondary-foreground: var(--app-text);
   --muted: var(--app-surface-muted);
@@ -1621,7 +1623,7 @@ body {
   --border: var(--app-border);
   --input: #34383a;
   --ring: var(--app-accent);
-  --chart-1: #ff7a1a;
+  --chart-1: var(--app-accent);
   --chart-2: #d5a98b;
   --chart-3: #9a907c;
   --chart-4: #70a58a;
@@ -1629,7 +1631,7 @@ body {
   --sidebar: var(--app-sidebar);
   --sidebar-foreground: var(--app-text);
   --sidebar-primary: var(--app-accent);
-  --sidebar-primary-foreground: #fff8f2;
+  --sidebar-primary-foreground: var(--primary-foreground);
   --sidebar-accent: var(--app-selected-soft);
   --sidebar-accent-foreground: var(--app-text);
   --sidebar-border: var(--app-border);

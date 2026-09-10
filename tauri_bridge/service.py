@@ -18,6 +18,8 @@ _LOGGER = get_runtime_logger("bridge_service")
 
 BACKGROUND_FILE_TASK_METHODS = frozenset(
     {
+        "dataBrowser.list",
+        "dataBrowser.inspect",
         "shippingReport.inspect",
         "shippingReport.batchInspect",
         "shippingReport.preview",

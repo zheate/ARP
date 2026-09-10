@@ -26,6 +26,24 @@ class SpectrumBackendRegressions(unittest.TestCase):
         self.backend.export_worker.graceful_stop()
         self.directory.cleanup()
 
+    def test_visible_spectrum_reader_publishes_peak_markers_in_snapshot(self) -> None:
+        reader = SpectrometerReaderThread(SpectrometerSettings(10_000, 100, average_frames=1))
+        self.station.spectrometer_reader = reader
+        reader.reading.connect(self.station._on_spectrometer_reading)
+        wavelength = [420.0 + index * 0.1 for index in range(501)]
+        intensity = [float((index % 5) - 2) for index in range(501)]
+        intensity[299:302] = [360.0, 600.0, 360.0]
+        reader._publish_averaged_spectrum(wavelength, intensity)
+
+        measurements = self.backend.snapshot({"stationId": "1", "view": "manual"})["measurements"]
+        self.assertEqual(measurements["spectrum"]["wavelengthNm"], wavelength)
+        self.assertEqual(measurements["spectrum"]["intensity"], intensity)
+        self.assertEqual(measurements["spectrumPeaks"], [
+            {"label": "P1", "peakWavelengthNm": 450.0, "peakIntensity": 600.0},
+        ])
+        # Restoring the display annotation does not alter fixed-band SMSR.
+        self.assertTrue(math.isnan(self.station.latest_spectrum.smsr.smsr_db))
+
     def test_clipped_raw_frame_pauses_automatic_test_even_when_average_is_below_full_scale(self) -> None:
         station = self.station
         reader = SpectrometerReaderThread(SpectrometerSettings(10_000, 50, average_frames=3))

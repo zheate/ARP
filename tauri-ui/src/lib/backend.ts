@@ -10,7 +10,7 @@ export type AutomaticTerminalOutcome = "succeeded" | "stopped_shutdown_confirmed
 export type ControlOwner = "automatic" | "manual" | "none"
 export type AutomaticPauseKind = "operator" | "spectrum_saturated" | "power_meter_disconnected" | "spectrometer_disconnected" | "record_persistence_failed" | "measurement_timeout" | "device_error"
 export type AutomaticPauseAction = "resume" | "adjust_spectrum" | "recover_power_meter" | "recover_spectrometer" | "retry_persist" | "retry_point" | "safe_end"
-export type SnapshotView = "automatic" | "automatic_1" | "automatic_2" | "manual" | "manual_1" | "manual_2" | "pd" | "pd_1" | "pd_2" | "shipping"
+export type SnapshotView = "automatic" | "automatic_1" | "automatic_2" | "manual" | "manual_1" | "manual_2" | "pd" | "pd_1" | "pd_2" | "shipping" | "data"
 export type SeriesRevisions = { power: number; stable: number; aging: number; spectrum: number; pd: number }
 export type SeriesCursors = { power?: number; pd?: number }
 export type { SpectrumColumns } from "@/lib/spectrum-columns"
@@ -122,6 +122,7 @@ export interface AppConfiguration {
   autoIntegration: boolean
   spectrometerIntervalMs: number
   spectrumAverageFrames: number
+  spectrumSmoothing: boolean
   pibCenterWavelengthNm: number
   pibHalfRangeNm: number
   centerWavelengthSpecNm: number

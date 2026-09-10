@@ -51,10 +51,20 @@ import { openResultFile } from "@/lib/result-file"
 import { automaticTerminalTitle, shutdownPresentation } from "@/lib/safety-state"
 import { spectrumPeakAnnotations, spectrumPeakLegend } from "@/lib/spectrum-annotations"
 import { ActivationView } from "@/components/license/ActivationView"
+import { DataBrowserPage } from "@/components/data-browser-page"
 import { formatLicenseDate, getLicenseStatus, installLicense, licenseReasonLabels, type LicenseStatus } from "@/lib/license"
 
-type Page = "automatic" | "manual" | "pd" | "shipping" | "settings"
+type Page = "automatic" | "manual" | "pd" | "data" | "shipping" | "settings"
 type Theme = "dark" | "light"
+const ACCENT_THEMES = [
+  { id: "orange", label: "经典橙" },
+  { id: "blue", label: "极光蓝" },
+  { id: "green", label: "森林绿" },
+  { id: "purple", label: "鸢尾紫" },
+  { id: "rose", label: "玫瑰" },
+  { id: "graphite", label: "石墨" },
+] as const
+type AccentTheme = typeof ACCENT_THEMES[number]["id"]
 type CurveLineStyle = "solid" | "dashed" | "dotted"
 type LatestPointMarkerStyle = "point" | "paper-plane" | "paw"
 
@@ -75,10 +85,11 @@ const SHIPPING_PRODUCT_NAME_STORAGE_KEY = "power-test.shipping-report.product-na
 const SHIPPING_REPORT_SPLIT_LAYOUT = "grid min-w-0 gap-6 xl:grid-cols-[minmax(380px,0.72fr)_minmax(560px,1.28fr)]"
 const DEFAULT_ENCIRCLED_ENERGY_NA = "0.17"
 const THEME_STORAGE_KEY = "power-test.theme"
+const ACCENT_THEME_STORAGE_KEY = "power-test.accent-theme"
 const CURVE_LINE_STYLE_STORAGE_KEY = "power-test.automatic-curve-line-style"
 const LATEST_POINT_MARKER_STORAGE_KEY = "power-test.latest-point-marker"
 const PLM_CHART_SERIES = {
-  clay: "#ff7a1a",
+  accent: "var(--chart-1)",
   tan: "#d5a98b",
   olive: "#9a907c",
   green: "#70a58a",
@@ -92,12 +103,12 @@ const navigation = [
   { id: "automatic" as const, label: "自动测试", icon: CircleGauge, shortcut: 1 },
   { id: "manual" as const, label: "手动配置", icon: Hand, shortcut: 2 },
   { id: "pd" as const, label: "PD 采集", icon: BarChart3, shortcut: 3 },
-  { id: "data" as const, label: "数据浏览", icon: FileText, unavailable: true },
+  { id: "data" as const, label: "数据浏览", icon: FileText, shortcut: 5 },
   { id: "shipping" as const, label: "出货报告", icon: FileText, shortcut: 4 },
   { id: "settings" as const, label: "系统设置", icon: Settings },
 ]
 
-const pageShortcuts: Page[] = ["automatic", "manual", "pd", "shipping"]
+const pageShortcuts: Page[] = ["automatic", "manual", "pd", "shipping", "data"]
 const INFO_TOAST_DURATION_MS = 3000
 const MAX_CUSTOM_CURRENT_POINTS = 50
 const TAURI_RUNTIME_AVAILABLE = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
@@ -146,6 +157,18 @@ function getStoredTheme(): Theme {
   return document.documentElement.dataset.theme === "light" ? "light" : "dark"
 }
 
+function getStoredAccentTheme(): AccentTheme {
+  if (typeof window === "undefined") return "orange"
+  try {
+    const stored = window.localStorage.getItem(ACCENT_THEME_STORAGE_KEY)
+    const preset = ACCENT_THEMES.find((item) => item.id === stored)
+    if (preset) return preset.id
+  } catch {
+    // Use the startup preference if local storage is unavailable.
+  }
+  return ACCENT_THEMES.find((item) => item.id === document.documentElement.dataset.accent)?.id ?? "orange"
+}
+
 function getStoredLatestPointMarkerStyle(): LatestPointMarkerStyle {
   if (typeof window === "undefined") return "point"
   try {
@@ -174,10 +197,11 @@ function curveLineDash(style: CurveLineStyle): number[] {
   return []
 }
 
-function applyTheme(theme: Theme): void {
+function applyTheme(theme: Theme, accentTheme: AccentTheme): void {
   const root = document.documentElement
   root.classList.toggle("dark", theme === "dark")
   root.dataset.theme = theme
+  root.dataset.accent = accentTheme
   root.style.background = theme === "dark" ? "#0f1112" : "#f4f6f8"
   root.style.colorScheme = theme
   document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#0f1112" : "#f4f6f8")
@@ -257,6 +281,7 @@ const emptyConfig: AppConfiguration = {
   autoIntegration: false,
   spectrometerIntervalMs: 100,
   spectrumAverageFrames: 5,
+  spectrumSmoothing: true,
   pibCenterWavelengthNm: 976,
   pibHalfRangeNm: 1.5,
   centerWavelengthSpecNm: 976,
@@ -967,6 +992,10 @@ function SpectrometerSettingsForm({ snapshot, config, update, active, pending, r
         <Field label="采集模式"><label className="device-settings-checkbox"><input checked={config.autoIntegration} onChange={(e) => update("autoIntegration", e.target.checked)} type="checkbox" />自动积分</label></Field>
         <NumberField label="PIB 中心波长 (nm)" step="0.1" value={config.pibCenterWavelengthNm} onChange={(v) => update("pibCenterWavelengthNm", v)} />
         <NumberField label="PIB 半带宽 (nm)" step="0.1" value={config.pibHalfRangeNm} onChange={(v) => update("pibHalfRangeNm", v)} />
+      </div>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <label className="device-settings-checkbox"><input checked={config.spectrumSmoothing ?? true} onChange={(e) => update("spectrumSmoothing", e.target.checked)} type="checkbox" />光谱曲线平滑</label>
+        <span className="text-xs text-muted-foreground">仅影响显示，不改变测量数据</span>
       </div>
       <Button className={`w-full transition-all ${spectrum?.running ? "btn-running-pulse" : ""}`} disabled={!active || pending || spectrum?.detecting || (!spectrum?.running && !selectedResourceAvailable)} onClick={() => void run(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
       <p className="text-xs text-muted-foreground">{measurementSummary}</p>
@@ -1877,6 +1906,7 @@ const ChartPanel = memo(function ChartPanel({ title, data = [], columns, xKey, l
         && line.pointStyle === other.pointStyle
         && line.pointSize === other.pointSize
         && line.lineWidth === other.lineWidth
+        && line.interpolation === other.interpolation
         && line.hideLegend === other.hideLegend
         && sameNumberArray(line.dash, other.dash)
     })
@@ -1929,7 +1959,7 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, curveLin
     { length: Math.floor((powerTimeDomain[1] - firstPowerTickS) / POWER_TIME_TICK_INTERVAL_S) + 1 },
     (_, index) => firstPowerTickS + index * POWER_TIME_TICK_INTERVAL_S,
   )
-  const powerStabilityColor = PLM_CHART_SERIES.clay
+  const powerStabilityColor = PLM_CHART_SERIES.accent
   const powerYDomain = powerYAxisDomain(powerData.flatMap((row) => (
     typeof row.elapsedS === "number" && row.elapsedS >= powerTimeDomain[0]
       ? [row.powerW]
@@ -1965,7 +1995,7 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, curveLin
 })
 
 const agingPowerLines: CanvasChartLine[] = [
-  { key: "powerW", label: "功率 (W)", color: PLM_CHART_SERIES.clay, axisColor: PLM_CHART_SERIES.clay, showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 7, lineWidth: 2.4 },
+  { key: "powerW", label: "功率 (W)", color: PLM_CHART_SERIES.accent, axisColor: PLM_CHART_SERIES.accent, showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 7, lineWidth: 2.4 },
 ]
 
 const agingPowerTimeDomain: [number, number] = [0, 120]
@@ -2000,7 +2030,7 @@ const AgingPowerChart = memo(function AgingPowerChart({ snapshot, stretch = fals
   && sameRows(previous.snapshot?.measurements?.agingPower, next.snapshot?.measurements?.agingPower, ["elapsedMinutes", "powerW"]))
 
 const powerEfficiencyLines: CanvasChartLine[] = [
-  { key: "powerW", label: "功率 (W)", color: PLM_CHART_SERIES.clay, axisColor: PLM_CHART_SERIES.clay, showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 2.4, connectNulls: true },
+  { key: "powerW", label: "功率 (W)", color: PLM_CHART_SERIES.accent, axisColor: PLM_CHART_SERIES.accent, showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 2.4, connectNulls: true },
   { key: "efficiencyPercent", label: "效率 (%)", color: PLM_CHART_SERIES.blue, axisColor: PLM_CHART_SERIES.blue, yAxisId: "right", showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 2.4, connectNulls: true },
 ]
 
@@ -2071,10 +2101,7 @@ const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, stre
   && previous.snapshot?.automaticTest.reference?.sourcePath === next.snapshot?.automaticTest.reference?.sourcePath
   && sameRows(previous.snapshot?.automaticTest.reference?.points, next.snapshot?.automaticTest.reference?.points, ["currentA", "powerW"]))
 
-const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; stretch?: boolean; heightClassName?: string }) {
-  const [lightTheme, setLightTheme] = useState(() => (
-    typeof document !== "undefined" && document.documentElement.dataset.theme === "light"
-  ))
+const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, smoothing = true, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; smoothing?: boolean; stretch?: boolean; heightClassName?: string }) {
   const spectrumSource = snapshot?.measurements?.spectrum
   const spectrumData = spectrumSource
     ? { wavelengthNm: spectrumSource.wavelengthNm, intensity: spectrumSource.intensity }
@@ -2083,13 +2110,6 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
   const spectrumPeaks = snapshot?.measurements?.spectrumPeaks ?? []
   const peakAnnotations = spectrumPeakAnnotations(spectrumPeaks)
   const spectrumYAxisStateRef = useRef<SpectrumYAxisState | null>(null)
-  useEffect(() => {
-    const root = document.documentElement
-    const syncTheme = () => setLightTheme(root.dataset.theme === "light")
-    const observer = new MutationObserver(syncTheme)
-    observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] })
-    return () => observer.disconnect()
-  }, [])
   const spectrumXDomain = useMemo<[number, number] | undefined>(() => {
     const spectrumWindow = spectrum?.spectrumWindow
     if (
@@ -2143,7 +2163,7 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
       yDomain={spectrumYDomain}
       yMinimumLimit={SPECTRUM_Y_AXIS_MINIMUM_LIMIT}
       preserveAllPoints
-      lines={[{ key: "intensity", label: "光谱（实时）", color: lightTheme ? "#000000" : "#f5f5f5" }]}
+      lines={[{ key: "intensity", label: "光谱（实时）", color: PLM_CHART_SERIES.accent, interpolation: smoothing ? "monotone" : "linear" }]}
       stretch={stretch}
       heightClassName={heightClassName}
       annotations={peakAnnotations}
@@ -2156,6 +2176,7 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, st
   const previousSpectrum = previous.snapshot?.devices.spectrometer
   const nextSpectrum = next.snapshot?.devices.spectrometer
   return previous.stretch === next.stretch
+    && previous.smoothing === next.smoothing
     && previous.heightClassName === next.heightClassName
     && sameNumberArray(previousMeasurements?.spectrum.wavelengthNm, nextMeasurements?.spectrum.wavelengthNm)
     && sameNumberArray(previousMeasurements?.spectrum.intensity, nextMeasurements?.spectrum.intensity)
@@ -2339,6 +2360,7 @@ function LicensedApp({
   const [page, setPage] = useState<Page>(() => (typeof window !== "undefined" && (new URLSearchParams(window.location.search).get("page") as Page)) || "automatic")
   const [stationId, setStationId] = useState<"1" | "2">("1")
   const [theme, setTheme] = useState<Theme>(getStoredTheme)
+  const [accentTheme, setAccentTheme] = useState<AccentTheme>(getStoredAccentTheme)
   const [curveLineStyle, setCurveLineStyle] = useState<CurveLineStyle>(getStoredCurveLineStyle)
   const [latestPointMarkerStyle, setLatestPointMarkerStyle] = useState<LatestPointMarkerStyle>(getStoredLatestPointMarkerStyle)
   const currentView: SnapshotView = page === "automatic"
@@ -2363,7 +2385,7 @@ function LicensedApp({
   const [closeRequestPending, setCloseRequestPending] = useState(false)
   const closeRequestInFlightRef = useRef(false)
   const automaticRunSeenRef = useRef(false)
-  const pageScrollPositionsRef = useRef<Record<Page, number>>({ automatic: 0, manual: 0, pd: 0, shipping: 0, settings: 0 })
+  const pageScrollPositionsRef = useRef<Record<Page, number>>({ automatic: 0, manual: 0, pd: 0, data: 0, shipping: 0, settings: 0 })
   const active = snapshot?.backend.mode === "active"
   const operational = active && licenseStatus.valid
   const automaticWorkflowActive = Boolean(snapshot && !["idle", "completed"].includes(snapshot.automaticTest.state))
@@ -2504,13 +2526,14 @@ function LicensedApp({
   }, [snapshot?.testScripts])
 
   useEffect(() => {
-    applyTheme(theme)
+    applyTheme(theme, accentTheme)
     try {
       window.localStorage.setItem(THEME_STORAGE_KEY, theme)
+      window.localStorage.setItem(ACCENT_THEME_STORAGE_KEY, accentTheme)
     } catch {
       // The theme remains active for this session if storage is unavailable.
     }
-  }, [theme])
+  }, [theme, accentTheme])
 
   useEffect(() => {
     try {
@@ -2754,6 +2777,7 @@ function LicensedApp({
 
           <div
             className={`page-enter flex flex-1 min-h-0 flex-col overflow-y-auto ${page === "automatic" ? "gap-2 px-3 py-0" : page === "manual" ? "gap-3 p-4" : "space-y-4 p-4"}`}
+            style={page === "data" ? { display: "none" } : undefined}
             data-page={page}
             key={page}
           >
@@ -2761,7 +2785,10 @@ function LicensedApp({
             {page === "manual" && <ManualPage snapshot={snapshot} config={config} update={update} active={operational} pending={commandPending} run={run} stationId={stationId} />}
             {page === "pd" && <PdPage snapshot={snapshot} active={operational} pending={commandPending} run={run} />}
             {page === "shipping" && <ShippingReportPage active={operational} controlsLocked={automaticInteractionLocked || !licenseStatus.valid} pending={commandPending} />}
-            {page === "settings" && <SystemSettingsPage curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} licenseStatus={licenseStatus} onCurveLineStyleChange={setCurveLineStyle} onImportLicense={onImportLicense} onLatestPointMarkerStyleChange={setLatestPointMarkerStyle} theme={theme} onThemeChange={setTheme} />}
+            {page === "settings" && <SystemSettingsPage curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} licenseStatus={licenseStatus} onCurveLineStyleChange={setCurveLineStyle} onImportLicense={onImportLicense} onLatestPointMarkerStyleChange={setLatestPointMarkerStyle} theme={theme} onThemeChange={setTheme} accentTheme={accentTheme} onAccentThemeChange={setAccentTheme} />}
+          </div>
+          <div className="min-h-0 flex-1 p-3" style={{ display: page === "data" ? "flex" : "none", flexDirection: "column" }}>
+            <DataBrowserPage visible={page === "data"} defaultDirectory={config.outputDir} enabled={operational && !automaticInteractionLocked} />
           </div>
         </main>
       </div>
@@ -2772,7 +2799,7 @@ function LicensedApp({
 type UpdateConfig = <K extends keyof AppConfiguration>(key: K, value: AppConfiguration[K]) => void
 type RunCommand = (method: string, params?: Record<string, unknown>, sync?: boolean) => Promise<void>
 
-function SystemSettingsPage({ theme, curveLineStyle, latestPointMarkerStyle, licenseStatus, onThemeChange, onCurveLineStyleChange, onLatestPointMarkerStyleChange, onImportLicense }: { theme: Theme; curveLineStyle: CurveLineStyle; latestPointMarkerStyle: LatestPointMarkerStyle; licenseStatus: LicenseStatus; onThemeChange: (theme: Theme) => void; onCurveLineStyleChange: (style: CurveLineStyle) => void; onLatestPointMarkerStyleChange: (style: LatestPointMarkerStyle) => void; onImportLicense: () => Promise<void> }) {
+function SystemSettingsPage({ theme, accentTheme, curveLineStyle, latestPointMarkerStyle, licenseStatus, onThemeChange, onAccentThemeChange, onCurveLineStyleChange, onLatestPointMarkerStyleChange, onImportLicense }: { theme: Theme; accentTheme: AccentTheme; curveLineStyle: CurveLineStyle; latestPointMarkerStyle: LatestPointMarkerStyle; licenseStatus: LicenseStatus; onThemeChange: (theme: Theme) => void; onAccentThemeChange: (theme: AccentTheme) => void; onCurveLineStyleChange: (style: CurveLineStyle) => void; onLatestPointMarkerStyleChange: (style: LatestPointMarkerStyle) => void; onImportLicense: () => Promise<void> }) {
   const lightMode = theme === "light"
   const [licenseBusy, setLicenseBusy] = useState(false)
   const [licenseError, setLicenseError] = useState("")
@@ -2804,6 +2831,26 @@ function SystemSettingsPage({ theme, curveLineStyle, latestPointMarkerStyle, lic
           </div>
         </CardHeader>
         <CardContent>
+          <fieldset className="theme-presets" aria-describedby="theme-presets-description">
+            <legend className="text-sm font-medium">主题配色</legend>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground" id="theme-presets-description">统一更改按钮、选中状态、读数和曲线的强调色，选择后立即生效并自动保存。</p>
+            <div className="theme-presets__grid">
+              {ACCENT_THEMES.map((preset) => (
+                <label className="theme-preset" data-accent={preset.id} data-selected={accentTheme === preset.id} key={preset.id}>
+                  <input className="sr-only" type="radio" name="accent-theme" value={preset.id} checked={accentTheme === preset.id} onChange={() => onAccentThemeChange(preset.id)} />
+                  <span aria-hidden="true" className="theme-preset__preview">
+                    <span className="theme-preset__sidebar"><i /><i /><i /></span>
+                    <span className="theme-preset__content">
+                      <span className="theme-preset__heading" />
+                      <svg viewBox="0 0 150 34" preserveAspectRatio="none"><path d="M1 29L23 25L42 27L66 14L87 18L111 8L149 3" /></svg>
+                      <span className="theme-preset__button" />
+                    </span>
+                  </span>
+                  <span className="theme-preset__caption"><span>{preset.label}</span><span className="theme-preset__check" aria-hidden="true">{accentTheme === preset.id && <Check className="size-3" />}</span></span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
           <div className="system-settings-option">
             <div className="system-settings-option__copy">
               <p className="text-sm font-medium">浅色模式</p>
@@ -4097,7 +4144,7 @@ const AutomaticPage = memo(function AutomaticPage({
             spectrometer={spectrometer}
           />
         )}
-        {useSpectrometer && <SpectrumRealtimeChart snapshot={snapshot} stretch />}
+        {useSpectrometer && <SpectrumRealtimeChart snapshot={snapshot} smoothing={config.spectrumSmoothing ?? true} stretch />}
       </section>
       {openSettings && <DeviceSettingsDialog active={active} config={config} kind={openSettings} onClose={closeSettings} onSave={saveConfiguration} open pending={pending} run={run} snapshot={snapshot} update={update} />}
       {specificationsOpen && <AutomaticSpecificationsDialog active={active} config={config} onClose={() => setSpecificationsOpen(false)} onSave={saveConfiguration} pending={pending} update={update} />}
@@ -4438,7 +4485,7 @@ const ManualPage = memo(function ManualPage({
       )}
       <fieldset aria-disabled={!manualControlsAllowed} className="contents" disabled={!manualControlsAllowed}>
       <section className="manual-device-grid shrink-0">
-        <Card size="sm" className="manual-device-card shadow-none"><CardHeader className="manual-device-card__header flex flex-row items-center justify-between"><CardTitle className="text-base">电源控制</CardTitle><Power className={`size-4 transition-colors ${isPsuActive ? "text-amber-500" : "text-muted-foreground"}`} /></CardHeader><CardContent className="manual-control-content manual-device-card__content">
+        <Card size="sm" className="manual-device-card shadow-none"><CardHeader className="manual-device-card__header flex flex-row items-center justify-between"><CardTitle className="text-base">电源控制</CardTitle><Power className={`size-4 transition-colors ${isPsuActive ? "text-primary" : "text-muted-foreground"}`} /></CardHeader><CardContent className="manual-control-content manual-device-card__content">
           <ManualSectionHeading>资源设置</ManualSectionHeading>
           {config.powerSupplyKind === "tdk" ? <>
             <div className="manual-power-source-grid">
@@ -4526,13 +4573,13 @@ const ManualPage = memo(function ManualPage({
                 <span className="is-blue">输入 {formatNumber(psu?.inputVoltageV, " V", 2)}</span>
                 <span className="is-green">输出 {formatNumber(psu?.outputVoltageV, " V", 2)}</span>
                 <span className="is-sky">电流 {formatNumber(psu?.outputCurrentA, " A", 2)}</span>
-                <span className="is-orange">温度 {formatNumber(psu?.temperatureC, " °C", 2)}</span>
+                <span className="is-accent">温度 {formatNumber(psu?.temperatureC, " °C", 2)}</span>
               </p>
             </div>
           </>}
         </CardContent></Card>
 
-        <Card size="sm" className="manual-device-card shadow-none"><CardHeader className="manual-device-card__header flex flex-row items-center justify-between"><CardTitle className="text-base">功率计</CardTitle><Gauge className={`size-4 transition-colors ${isMeterActive ? "text-amber-500" : "text-muted-foreground"}`} /></CardHeader><CardContent className="manual-control-content manual-device-card__content">
+        <Card size="sm" className="manual-device-card shadow-none"><CardHeader className="manual-device-card__header flex flex-row items-center justify-between"><CardTitle className="text-base">功率计</CardTitle><Gauge className={`size-4 transition-colors ${isMeterActive ? "text-primary" : "text-muted-foreground"}`} /></CardHeader><CardContent className="manual-control-content manual-device-card__content">
           <ManualSectionHeading>资源设置</ManualSectionHeading>
           <Field label="串口资源">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
@@ -4556,7 +4603,7 @@ const ManualPage = memo(function ManualPage({
           <Button className={`w-full transition-all ${meter?.running ? "btn-running-pulse" : ""}`} disabled={!active || meter?.detecting || (!meter?.running && !selectedPowerMeterResourceAvailable)} onClick={() => void runManualCommand(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
         </CardContent></Card>
 
-        <Card size="sm" className="manual-device-card shadow-none"><CardHeader className="manual-device-card__header flex flex-row items-center justify-between"><CardTitle className="text-base">光谱仪</CardTitle><Radio className={`size-4 transition-colors ${isSpectrumActive ? "text-amber-500" : "text-muted-foreground"}`} /></CardHeader><CardContent className="manual-control-content manual-device-card__content">
+        <Card size="sm" className="manual-device-card shadow-none"><CardHeader className="manual-device-card__header flex flex-row items-center justify-between"><CardTitle className="text-base">光谱仪</CardTitle><Radio className={`size-4 transition-colors ${isSpectrumActive ? "text-primary" : "text-muted-foreground"}`} /></CardHeader><CardContent className="manual-control-content manual-device-card__content">
           <ManualSectionHeading>资源设置</ManualSectionHeading>
           <Field label="设备资源">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
@@ -4577,6 +4624,10 @@ const ManualPage = memo(function ManualPage({
             <NumberField label="PIB 中心波长 (nm)" step="0.1" value={config.pibCenterWavelengthNm} onChange={(v) => update("pibCenterWavelengthNm", v)} />
             <NumberField label="PIB 半带宽 (nm)" step="0.1" value={config.pibHalfRangeNm} onChange={(v) => update("pibHalfRangeNm", v)} />
           </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <label className="device-settings-checkbox"><input checked={config.spectrumSmoothing ?? true} onChange={(e) => update("spectrumSmoothing", e.target.checked)} type="checkbox" />光谱曲线平滑</label>
+            <span className="text-xs text-muted-foreground">仅影响显示，不改变测量数据</span>
+          </div>
           <Button className={`w-full transition-all ${spectrum?.running ? "btn-running-pulse" : ""}`} disabled={!active || spectrum?.detecting || (!spectrum?.running && !selectedSpectrometerResourceAvailable)} onClick={() => void runManualCommand(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
         </CardContent></Card>
       </section>
@@ -4591,7 +4642,7 @@ const ManualPage = memo(function ManualPage({
           powerMeter={meter}
           spectrometer={spectrum}
         />
-        <SpectrumRealtimeChart snapshot={snapshot} stretch />
+        <SpectrumRealtimeChart snapshot={snapshot} smoothing={config.spectrumSmoothing ?? true} stretch />
       </section>
       </fieldset>
     </div>
@@ -4702,7 +4753,7 @@ const PdPage = memo(function PdPage({ snapshot, active, pending, run }: { snapsh
         </CardContent></Card>
         <div className="space-y-4">
           <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">{[["当前值", pd?.currentValue ?? "--"], ["电压", pd?.voltage ?? "--"], ["采样数", pd?.sampleCount ?? "0"]].map(([label, value]) => <Card className="py-4 shadow-none" key={label}><CardContent><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-lg font-semibold">{value}</p></CardContent></Card>)}</section>
-          <ChartPanel heightClassName="h-64" title="PD 实时趋势" data={pdData} xKey="elapsedS" xDomain={pdTimeDomain} xTicks={pdTimeTicks} lines={[{ key: "value", label: current.unit || "PD", color: PLM_CHART_SERIES.clay }]} empty="开始采集后显示实时趋势" />
+          <ChartPanel heightClassName="h-64" title="PD 实时趋势" data={pdData} xKey="elapsedS" xDomain={pdTimeDomain} xTicks={pdTimeTicks} lines={[{ key: "value", label: current.unit || "PD", color: PLM_CHART_SERIES.accent }]} empty="开始采集后显示实时趋势" />
           <Card className="py-4 shadow-none"><CardContent className="grid grid-cols-3 gap-4 text-sm"><div><p className="text-xs text-muted-foreground">批次均值</p><p className="mt-1 font-medium">{pd?.mean ?? "--"}</p></div><div><p className="text-xs text-muted-foreground">标准差</p><p className="mt-1 font-medium">{pd?.standardDeviation ?? "--"}</p></div><div><p className="text-xs text-muted-foreground">最小 / 最大</p><p className="mt-1 font-medium">{pd?.rangeText ?? "--"}</p></div></CardContent></Card>
         </div>
       </section>

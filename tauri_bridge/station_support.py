@@ -108,6 +108,7 @@ DEFAULT_CONFIGURATION: dict[str, Any] = {
     "autoIntegration": False,
     "spectrometerIntervalMs": 100,
     "spectrumAverageFrames": 1,
+    "spectrumSmoothing": True,
     "pibCenterWavelengthNm": 976.0,
     "pibHalfRangeNm": 1.5,
     "centerWavelengthSpecNm": 976.0,

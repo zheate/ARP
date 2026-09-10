@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN" class="dark" data-theme="dark" style="background: #0f1112; color-scheme: dark">
+<html lang="zh-CN" class="dark" data-theme="dark" data-accent="orange" style="background: #0f1112; color-scheme: dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -17,6 +17,8 @@
           const root = document.documentElement
           root.classList.toggle("dark", theme === "dark")
           root.dataset.theme = theme
+          const storedAccent = localStorage.getItem("power-test.accent-theme")
+          root.dataset.accent = ["orange", "blue", "green", "purple", "rose", "graphite"].includes(storedAccent) ? storedAccent : "orange"
           root.style.background = theme === "dark" ? "#0f1112" : "#f4f6f8"
           root.style.colorScheme = theme
           document.querySelector('meta[name="theme-color"]')?.setAttribute("content", root.style.background)

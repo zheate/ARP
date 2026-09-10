@@ -12,7 +12,7 @@ export type SpectrumPeakLegendItem = {
 
 const PEAK_STYLES = [
   { shortLabel: "P1", label: "Peak 1", color: "#3b82f6" },
-  { shortLabel: "P2", label: "Peak 2", color: "#f97316" },
+  { shortLabel: "P2", label: "Peak 2", color: "var(--chart-1)" },
   { shortLabel: "P3", label: "Peak 3", color: "#9ca3af" },
 ] as const
 

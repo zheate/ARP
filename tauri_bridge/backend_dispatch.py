@@ -68,6 +68,8 @@ class BackendDispatcher:
             "automatic.nextDevice": lambda _p: st.prepare_next_device(),
             "automatic.retryExport": lambda p: st.retry_automatic_export(p),
             "shippingReport.inspect": self._inspect_shipping_report,
+            "dataBrowser.list": self._list_data_records,
+            "dataBrowser.inspect": self._inspect_data_record,
             "shippingReport.batchInspect": self._inspect_shipping_report_batch,
             "shippingReport.batchGenerateItem": self._generate_shipping_report_batch_item,
             "shippingReport.preview": self._preview_shipping_report,
@@ -97,6 +99,8 @@ class BackendDispatcher:
     def dispatch_file_task(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         backend = self._backend
         actions: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+            "dataBrowser.list": self._list_data_records,
+            "dataBrowser.inspect": self._inspect_data_record,
             "shippingReport.inspect": self._inspect_shipping_report,
             "shippingReport.batchInspect": self._inspect_shipping_report_batch,
             "shippingReport.batchGenerateItem": self._generate_shipping_report_batch_item,
@@ -107,6 +111,14 @@ class BackendDispatcher:
         if action is not None:
             return action(params)
         raise KeyError(method)
+
+    def _list_data_records(self, params: dict[str, Any]) -> dict[str, Any]:
+        from combined_test.data_browser import list_data_records
+        return list_data_records(params)
+
+    def _inspect_data_record(self, params: dict[str, Any]) -> dict[str, Any]:
+        from combined_test.data_browser import inspect_data_record
+        return inspect_data_record(params)
 
     def configure(self, params: dict[str, Any]) -> None:
         backend = self._backend

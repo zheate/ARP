@@ -77,6 +77,44 @@ class SpectrumAnalysisTests(unittest.TestCase):
 
         self.assertEqual([annotation.label for annotation in annotations], ["P1"])
 
+    def test_peak_markers_follow_visible_and_narrow_range_spectra(self) -> None:
+        for lower_nm, count, peak_index in ((420.0, 501, 300), (972.0, 81, 40)):
+            with self.subTest(lower_nm=lower_nm):
+                wavelength = [lower_nm + index * 0.1 for index in range(count)]
+                intensity = [float((index % 5) - 2) for index in range(count)]
+                intensity[peak_index - 1:peak_index + 2] = [360.0, 600.0, 360.0]
+                fixed_band_smsr = calculate_smsr(wavelength, intensity)
+                self.assertEqual(fixed_band_smsr.peaks, ())
+                for supplied_result in (None, fixed_band_smsr):
+                    annotations = find_spectrum_peak_annotations(
+                        zip(wavelength, intensity), smsr_result=supplied_result,
+                    )
+                    self.assertEqual(
+                        [(item.label, item.peak_wavelength_nm) for item in annotations],
+                        [("P1", wavelength[peak_index])],
+                    )
+
+    def test_visible_peak_markers_do_not_reuse_unrelated_infrared_modes(self) -> None:
+        wavelength = [400.0 + index * 0.1 for index in range(6001)]
+        intensity = [float((index % 5) - 2) for index in range(6001)]
+        intensity[499:502] = [360.0, 600.0, 360.0]
+        intensity[599:602] = [120.0, 200.0, 120.0]
+        intensity[5759:5762] = [60.0, 100.0, 60.0]
+        fixed_band_smsr = calculate_smsr(wavelength, intensity)
+        self.assertEqual(fixed_band_smsr.main_wavelength_nm, 976.0)
+
+        annotations = find_spectrum_peak_annotations(
+            zip(wavelength, intensity), smsr_result=fixed_band_smsr,
+        )
+        self.assertEqual(
+            [(item.label, item.peak_wavelength_nm) for item in annotations],
+            [("P1", 450.0), ("P2", 460.0)],
+        )
+
+    def test_peak_markers_remain_empty_for_flat_noise_and_degenerate_axes(self) -> None:
+        self.assertEqual(find_spectrum_peak_annotations([(450.0, 0.0)] * 3), [])
+        self.assertEqual(find_spectrum_peak_annotations([(420 + i * 0.1, 2.0) for i in range(501)]), [])
+
     def test_saturation_requires_consecutive_near_peak_pixels(self) -> None:
         saturated = detect_spectrum_saturation([0.0, 64_000.0, 64_000.0, 64_000.0, 0.0])
         spike = detect_spectrum_saturation([0.0, 64_000.0, 0.0])

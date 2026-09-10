@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
+import { traceMonotoneCurve, type CurvePoint } from "@/lib/monotone-curve"
 
 export type CanvasChartLine = {
   key: string
@@ -13,6 +14,7 @@ export type CanvasChartLine = {
   pointStyle?: "solid" | "hollow"
   pointSize?: number
   lineWidth?: number
+  interpolation?: "linear" | "monotone"
   dash?: number[]
   connectNulls?: boolean
   hideLegend?: boolean
@@ -443,6 +445,12 @@ function drawPawPrint(
   context.restore()
 }
 
+// Canvas does not resolve CSS var() expressions like SVG and DOM styles do.
+function resolveChartColor(color: string, styles: CSSStyleDeclaration): string {
+  const variable = /^var\((--[\w-]+)\)$/.exec(color)
+  return variable ? styles.getPropertyValue(variable[1]).trim() || styles.getPropertyValue("--foreground").trim() : color
+}
+
 function drawBaseChart(
   canvas: HTMLCanvasElement,
   container: HTMLDivElement,
@@ -460,6 +468,11 @@ function drawBaseChart(
   const context = prepareCanvas(canvas, size)
   if (!context) return
   const styles = getComputedStyle(container)
+  lines = lines.map((line) => ({
+    ...line,
+    color: resolveChartColor(line.color, styles),
+    axisColor: line.axisColor ? resolveChartColor(line.axisColor, styles) : undefined,
+  }))
   const border = styles.getPropertyValue("--chart-grid").trim() || "hsl(42 7% 25% / 0.52)"
   const muted = styles.getPropertyValue("--muted-foreground").trim() || "hsl(40 8% 60%)"
   const chartBackground = styles.getPropertyValue("--card").trim() || "hsl(48 3% 17%)"
@@ -529,23 +542,30 @@ function drawBaseChart(
     context.lineJoin = "round"
     context.lineCap = "round"
     let drawing = false
+    const curvePoints: (CurvePoint | null)[] | null = line.interpolation === "monotone" ? [] : null
     for (const index of indexes) {
       const xValue = data.valueAt(index, xKey)
       const yValue = data.valueAt(index, line.key)
       if (xValue === null || xValue < layout.x.min || xValue > layout.x.max) {
+        curvePoints?.push(null)
         drawing = false
         continue
       }
       if (yValue === null) {
-        if (!line.connectNulls) drawing = false
+        if (!line.connectNulls) {
+          curvePoints?.push(null)
+          drawing = false
+        }
         continue
       }
       const x = mapX(xValue, layout)
       const y = mapY(yValue, scale, layout)
-      if (drawing) context.lineTo(x, y)
+      if (curvePoints) curvePoints.push({ x, y })
+      else if (drawing) context.lineTo(x, y)
       else context.moveTo(x, y)
       drawing = true
     }
+    if (curvePoints) traceMonotoneCurve(context, curvePoints)
     context.stroke()
     context.setLineDash([])
 
@@ -571,7 +591,7 @@ function drawBaseChart(
   annotations.forEach((annotation) => {
     if (!Number.isFinite(annotation.x) || !Number.isFinite(annotation.y) || annotation.x < layout.x.min || annotation.x > layout.x.max) return
     const label = annotation.label.replace(/^PEAK\s*(\d+)$/i, "P$1").toUpperCase()
-    const color = annotation.color ?? (label === "P1" ? "#3b82f6" : label === "P2" ? "#f97316" : "#9ca3af")
+    const color = resolveChartColor(annotation.color ?? (label === "P1" ? "#3b82f6" : label === "P2" ? "var(--chart-1)" : "#9ca3af"), styles)
     const x = mapX(annotation.x, layout)
     const peakY = mapY(annotation.y, layout.leftY, layout)
     const triangleTipY = Math.max(layout.top + 10, peakY - 3)
@@ -683,7 +703,7 @@ function drawHover(
       context,
       x,
       mapY(value, scale, layout),
-      line.color,
+      resolveChartColor(line.color, containerStyles),
       line.pointShape ?? "circle",
       line.showPoints ? (line.pointSize ?? 8) * 1.12 : 7,
       line.pointStyle,
@@ -711,8 +731,14 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
   const pointerRef = useRef({ x: 0, y: 0 })
   const [size, setSize] = useState<ChartSize>(EMPTY_SIZE)
   const [hover, setHover] = useState<HoverState>(null)
+  const [appearanceVersion, setAppearanceVersion] = useState(0)
   const hoverDrawnRef = useRef(false)
   const chartData = useMemo(() => chartDataFrom(data, columns), [columns, data])
+  useEffect(() => {
+    const observer = new MutationObserver(() => setAppearanceVersion((version) => version + 1))
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-accent"] })
+    return () => observer.disconnect()
+  }, [])
   const layout = useMemo(
     () => buildLayout(chartData, xKey, lines, size, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, xLabel, yLabel, tightInsets),
     [chartData, lines, rightYDomain, size, tightInsets, xDomain, xKey, xLabel, xTicks, yDomain, yLabel, yMinimumLimit],
@@ -787,7 +813,7 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     } else if (baseFrameRef.current === null) {
       baseFrameRef.current = window.requestAnimationFrame(flushBaseDraw)
     }
-  }, [annotations, chartData, displayIndexes, layout, lines, size, xKey, xLabel, xTickSuffix, yLabel, flushBaseDraw])
+  }, [annotations, appearanceVersion, chartData, displayIndexes, layout, lines, size, xKey, xLabel, xTickSuffix, yLabel, flushBaseDraw])
 
   useEffect(() => () => {
     if (baseFrameRef.current !== null) window.cancelAnimationFrame(baseFrameRef.current)
@@ -802,7 +828,7 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     if (!hoverRow && !hoverDrawnRef.current) return
     drawHover(canvas, container, size, layout, hoverRow, xKey, lines)
     hoverDrawnRef.current = Boolean(hoverRow)
-  }, [hoverRow, layout, lines, size, xKey])
+  }, [appearanceVersion, hoverRow, layout, lines, size, xKey])
 
   const positionTooltip = useCallback((pointerX: number, pointerY: number) => {
     const tooltip = tooltipRef.current

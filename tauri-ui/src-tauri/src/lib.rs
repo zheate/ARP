@@ -71,7 +71,7 @@ fn request_timeout(method: &str) -> Duration {
     let seconds = match method {
         "app.snapshot" => SNAPSHOT_REQUEST_TIMEOUT_SECS,
         "app.shutdown" => SHUTDOWN_REQUEST_TIMEOUT_SECS,
-        "shippingReport.inspect" | "shippingReport.batchInspect" => FILE_SCAN_REQUEST_TIMEOUT_SECS,
+        "shippingReport.inspect" | "shippingReport.batchInspect" | "dataBrowser.list" | "dataBrowser.inspect" => FILE_SCAN_REQUEST_TIMEOUT_SECS,
         "shippingReport.preview"
         | "shippingReport.generate"
         | "shippingReport.batchGenerateItem" => REPORT_REQUEST_TIMEOUT_SECS,
@@ -631,7 +631,7 @@ fn validate_columnar_spectrum(snapshot: &Value) -> Result<(), PythonBridgeError>
 fn snapshot_interval_ms(view: &str) -> u64 {
     match view {
         "pd" | "pd_1" | "pd_2" => PD_SNAPSHOT_INTERVAL_MS,
-        "shipping" => SHIPPING_SNAPSHOT_INTERVAL_MS,
+        "shipping" | "data" => SHIPPING_SNAPSHOT_INTERVAL_MS,
         _ => LIVE_SNAPSHOT_INTERVAL_MS,
     }
 }

@@ -81,6 +81,29 @@ class DualStationRuntimeTests(unittest.TestCase):
         self.assertEqual(st1.configuration["targetCurrentA"], 10.0)
         self.assertEqual(st2.configuration["targetCurrentA"], 15.0)
 
+    def test_spectrum_smoothing_is_enabled_by_default_and_persists_per_station(self) -> None:
+        for station in self.backend.stations.values():
+            self.assertIs(station.configuration["spectrumSmoothing"], True)
+        self.backend.dispatch("app.configure", {"stationId": "1", "spectrumSmoothing": False})
+        self.backend.dispatch("app.configure", {"stationId": "2", "spectrumSmoothing": True})
+        for station_id, expected in (("1", False), ("2", True)):
+            snapshot = self.backend.snapshot({"stationId": station_id})
+            self.assertIs(snapshot["configuration"]["spectrumSmoothing"], expected)
+
+        restarted = HeadlessBackend(JsonSettings(Path(self.temp_dir.name) / "settings.json"))
+        try:
+            self.assertIs(restarted.stations["1"].configuration["spectrumSmoothing"], False)
+            self.assertIs(restarted.stations["2"].configuration["spectrumSmoothing"], True)
+        finally:
+            restarted.export_worker.graceful_stop(timeout_s=5.0)
+
+    def test_spectrum_smoothing_rejects_non_boolean_values_without_mutating_configuration(self) -> None:
+        original = dict(self.backend.stations["1"].configuration)
+        for value in ("false", 0, None):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "spectrumSmoothing"):
+                self.backend.dispatch("app.configure", {"stationId": "1", "spectrumSmoothing": value})
+            self.assertEqual(self.backend.stations["1"].configuration, original)
+
     def test_automatic_spectrum_follows_active_acquisition(self) -> None:
         station = self.backend.stations["1"]
 
