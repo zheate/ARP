@@ -1,4 +1,4 @@
-import type { AppConfiguration, AutomaticReadinessBlocker, BackendSnapshot, SafetyShutdownResult } from "./backend"
+import type { AppConfiguration, AutomaticReadinessBlocker, BackendSnapshot, DeviceSnapshot, SafetyShutdownResult } from "./backend"
 
 type Automatic = BackendSnapshot["automaticTest"]
 
@@ -54,7 +54,34 @@ export function automaticPhase(auto: Automatic | undefined, shutdown: SafetyShut
   const total = auto?.currents?.length ?? 0
   const recorded = Math.max(0, Math.min(total, auto?.savedPointCount ?? 0))
   const point = state === "completed" ? recorded : state === "idle" ? 0 : Math.max(0, Math.min(total, (auto?.currentIndex ?? -1) + 1))
-  return { labels, activeIndex, complete, tone, terminal: state === "completed", point, total }
+  // Only a phase transition that is actually underway may animate. An idle or finished run
+  // must stay still, and a pause is waiting on the operator rather than progressing.
+  const live = !["idle", "paused", "completed"].includes(state)
+  // A dwell is the only phase with a real denominator, so its fraction is actual progress rather
+  // than a guess. The backend reports this number only while a hold is genuinely running, and
+  // quantizes it to whole seconds, so it steps once per second instead of streaming a clock.
+  const dwellElapsedS = auto?.currentDwellElapsedS
+  const dwellS = auto?.currentDwellS ?? 0
+  const dwell = live && typeof dwellElapsedS === "number" && Number.isFinite(dwellElapsedS) && Number.isFinite(dwellS) && dwellS > 0
+    ? Math.max(0, Math.min(1, dwellElapsedS / dwellS))
+    : null
+  return { labels, activeIndex, complete, dwell, live, tone, terminal: state === "completed", point, total }
+}
+
+export function powerStabilityPresentation(meter: DeviceSnapshot | undefined) {
+  const available = meter?.running !== false && meter?.connected !== false
+    && meter?.quality === "live" && typeof meter.powerW === "number" && Number.isFinite(meter.powerW)
+  if (!available) {
+    const label = meter?.running === false ? "采集已停止"
+      : meter?.quality === "stale" ? "采样中断"
+      : meter?.quality === "saturated" ? "读数饱和" : "等待采样"
+    return { label, time: "稳定时间 --", tone: "muted" }
+  }
+  if (meter?.stable !== true) return { label: "未稳定", time: "稳定时间 --", tone: "warning" }
+  const elapsed = meter.stableElapsedS
+  const time = typeof elapsed === "number" && Number.isFinite(elapsed) && elapsed >= 0
+    ? `持续 ${Math.floor(elapsed)} s` : "稳定时间待更新"
+  return { label: "已稳定", time, tone: "success" }
 }
 
 export function formatTestDuration(seconds: number | null | undefined): string {

@@ -5,8 +5,12 @@ import { fetchBackendSnapshot, mergeBackendSnapshot, sendBackendCommand, subscri
 // Acquisition remains device-owned; the native WebView2 bridge streams compact
 // snapshots without allocating a new command callback for every UI refresh.
 const DEMO_PREVIEW_ENABLED = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("demo") === "1"
+// Opt-in: the plain preview stays the static mid-run fixture that appearance captures compare
+// against. `run=1` replays the staged sequence instead, including the 停留 dwell.
+const DEMO_RUN_ENABLED = DEMO_PREVIEW_ENABLED && typeof window !== "undefined" && new URLSearchParams(window.location.search).get("run") === "1"
 
-import { DEMO_SNAPSHOT } from "@/lib/demo-snapshot"
+import { DEMO_RUN_SNAPSHOT, DEMO_SNAPSHOT, resetDemoRun } from "@/lib/demo-snapshot"
+import { demoRunSnapshot } from "@/lib/demo-run"
 
 export function useBackendSnapshot(view: SnapshotView) {
   const [snapshot, setSnapshot] = useState<BackendSnapshot | null>(null)
@@ -19,7 +23,7 @@ export function useBackendSnapshot(view: SnapshotView) {
   const commandPendingRef = useRef(false)
   const latestViewRef = useRef(view)
   const snapshotRef = useRef<BackendSnapshot | null>(null)
-  const demoSnapshotRef = useRef(DEMO_SNAPSHOT)
+  const demoSnapshotRef = useRef(DEMO_RUN_ENABLED ? DEMO_RUN_SNAPSHOT : DEMO_SNAPSHOT)
   const demoGenerationRef = useRef(0)
   const revisionsRef = useRef<SeriesRevisions | null>(null)
   latestViewRef.current = view
@@ -117,83 +121,12 @@ export function useBackendSnapshot(view: SnapshotView) {
           const runConfiguration = { ...base.configuration!, ...params }
           const generation = ++demoGenerationRef.current
           const startedAt = performance.now()
-          let step = 0
-          const stages: Array<{ state: string; currentA: number; currentIndex: number; detail: string; powerW: number; stable: boolean; stablePoint?: { currentA: number; powerW: number; efficiencyPercent: number }; terminalOutcome?: string }> = [
-            { state: "setting_current", currentA: 2.0, currentIndex: 0, detail: "第 1 点：正在平滑加载电流至 2.0 A...", powerW: 0.15, stable: false },
-            { state: "waiting_stable", currentA: 2.0, currentIndex: 0, detail: "第 1 点：正在判定功率稳态 (0.28 W)...", powerW: 0.28, stable: false },
-            { state: "waiting_voltage", currentA: 2.0, currentIndex: 0, detail: "第 1 点：稳态达成，正在读取输出电压并记录数据...", powerW: 0.28, stable: true, stablePoint: { currentA: 2, powerW: 0.28, efficiencyPercent: 6.2 } },
-            { state: "setting_current", currentA: 6.0, currentIndex: 1, detail: "第 2 点：正在平滑加载电流至 6.0 A...", powerW: 0.42, stable: false },
-            { state: "waiting_stable", currentA: 6.0, currentIndex: 1, detail: "第 2 点：正在判定功率稳态 (0.61 W)...", powerW: 0.61, stable: false },
-            { state: "waiting_voltage", currentA: 6.0, currentIndex: 1, detail: "第 2 点：稳态达成，正在读取输出电压并记录数据...", powerW: 0.61, stable: true, stablePoint: { currentA: 6, powerW: 0.61, efficiencyPercent: 8.0 } },
-            { state: "setting_current", currentA: 10.0, currentIndex: 2, detail: "第 3 点：正在平滑加载电流至 10.0 A...", powerW: 0.68, stable: false },
-            { state: "waiting_stable", currentA: 10.0, currentIndex: 2, detail: "第 3 点：正在判定功率稳态 (0.76 W)...", powerW: 0.76, stable: false },
-            { state: "waiting_voltage", currentA: 10.0, currentIndex: 2, detail: "第 3 点：稳态达成，正在读取输出电压并记录数据...", powerW: 0.76, stable: true, stablePoint: { currentA: 10, powerW: 0.76, efficiencyPercent: 8.5 } },
-            { state: "saving_point", currentA: 10.0, currentIndex: 2, detail: "全部测试点完成，正在归档数据...", powerW: 0.76, stable: true },
-            { state: "ramping_down", currentA: 2.0, currentIndex: 2, detail: "全部点完成，正在安全降电归零...", powerW: 0.05, stable: false },
-            { state: "completed", currentA: 0.0, currentIndex: 2, detail: "测试完成，数据已归档并安全下电", powerW: 0.0, stable: true, terminalOutcome: "succeeded" as const },
-          ]
-          const stablePoints: Array<{ currentA: number; powerW: number; efficiencyPercent: number }> = []
-
+          const runBase = resetDemoRun({ ...base, configuration: runConfiguration })
           const advance = () => {
-            if (!mountedRef.current || generation !== demoGenerationRef.current || step >= stages.length) return
-            const stage = stages[step]
-            step += 1
-            if (stage.stablePoint) stablePoints.push(stage.stablePoint)
-            const nextSnap: BackendSnapshot = {
-              ...base,
-              configuration: runConfiguration,
-              seriesRevisions: {
-                ...DEMO_SNAPSHOT.seriesRevisions!,
-                stable: 1 + stablePoints.length,
-              },
-              devices: {
-                ...DEMO_SNAPSHOT.devices,
-                powerSupply: { ...DEMO_SNAPSHOT.devices.powerSupply, activeCurrentA: stage.currentA, outputCurrentA: stage.currentA, outputEnabled: stage.state !== "completed" },
-                powerMeter: { ...DEMO_SNAPSHOT.devices.powerMeter, powerW: stage.powerW, stable: stage.stable },
-              },
-              automaticTest: {
-                ...DEMO_SNAPSHOT.automaticTest,
-                elapsedS: Math.floor((performance.now() - startedAt) / 1000),
-                runContext: { sn: runConfiguration.sn, station: runConfiguration.station, testTemperatureC: runConfiguration.testTemperatureC, selectedScriptId: runConfiguration.selectedScriptId },
-                state: stage.state,
-                detail: stage.detail,
-                currentA: stage.currentA,
-                currentIndex: stage.currentIndex,
-                currents: [2, 6, 10],
-                canStart: stage.state === "idle",
-                canEnd: stage.state !== "completed" && stage.state !== "idle",
-                terminalOutcome: stage.terminalOutcome as BackendSnapshot["automaticTest"]["terminalOutcome"],
-                savedPointCount: stablePoints.length,
-                exportedPointCount: stage.state === "completed" ? stablePoints.length : 0,
-                journalPath: "/preview/test-records/demo-session.jsonl",
-                canNextDevice: stage.state === "completed",
-                canRetryExport: false,
-                exportStatus: stage.state === "completed" ? "completed" : "recording",
-                exportPath: stage.state === "completed" ? "/preview/DEMO-001.xlsx" : "",
-              },
-              safety: stage.state === "completed"
-                ? {
-                    ...DEMO_SNAPSHOT.safety,
-                    controlOwner: "manual",
-                    manualControlsAllowed: true,
-                    shutdown: {
-                      requested: true,
-                      confirmed: true,
-                      measuredCurrentA: 0,
-                      outputOffConfirmed: true,
-                      reason: "示例数据已确认安全下电",
-                    },
-                  }
-                : DEMO_SNAPSHOT.safety,
-              measurements: {
-                ...DEMO_SNAPSHOT.measurements!,
-                stable: [...stablePoints],
-              },
-            }
-            publishDemo(nextSnap)
-            if (step < stages.length) {
-              window.setTimeout(advance, 1300)
-            }
+            if (!mountedRef.current || generation !== demoGenerationRef.current) return
+            const next = demoRunSnapshot(runBase, (performance.now() - startedAt) / 1000)
+            publishDemo(next)
+            if (next.automaticTest.state !== "completed") window.setTimeout(advance, 200)
           }
           advance()
           return demoSnapshotRef.current
@@ -201,23 +134,31 @@ export function useBackendSnapshot(view: SnapshotView) {
 
         if (method === "automatic.end" || method === "app.stopAll") {
           demoGenerationRef.current += 1
+          const savedPointCount = base.measurements?.stable.length ?? 0
           const nextSnap: BackendSnapshot = {
             ...base,
-            devices: { ...base.devices, powerSupply: { ...base.devices.powerSupply, outputEnabled: false, activeCurrentA: 0, outputCurrentA: 0 } },
+            devices: {
+              ...base.devices,
+              powerSupply: { ...base.devices.powerSupply, outputEnabled: false, activeCurrentA: 0, outputCurrentA: 0 },
+              powerMeter: { ...base.devices.powerMeter, powerW: 0, stable: false, stableElapsedS: null },
+            },
             automaticTest: {
               ...base.automaticTest,
               state: "completed",
               detail: "测试已手动终止并安全下电",
+              currentA: 0,
+              currentDwellS: 0,
+              currentDwellElapsedS: null,
               canStart: false,
               canEnd: false,
               canNextDevice: true,
               terminalOutcome: "stopped_shutdown_confirmed",
-              savedPointCount: base.measurements?.stable.length ?? 0,
-              exportedPointCount: base.measurements?.stable.length ?? 0,
-              journalPath: "/preview/test-records/DEMO-001.jsonl",
+              savedPointCount,
+              exportedPointCount: savedPointCount,
+              journalPath: savedPointCount ? "/preview/test-records/DEMO-001.jsonl" : "",
               canRetryExport: false,
-              exportStatus: "completed",
-              exportPath: "/preview/DEMO-001.xlsx",
+              exportStatus: savedPointCount ? "completed" : "none",
+              exportPath: savedPointCount ? "/preview/DEMO-001.xlsx" : "",
             },
             safety: {
               ...DEMO_SNAPSHOT.safety,
@@ -237,33 +178,8 @@ export function useBackendSnapshot(view: SnapshotView) {
 
         if (method === "automatic.nextDevice") {
           demoGenerationRef.current += 1
-          const nextSnap: BackendSnapshot = {
-            ...base,
-            configuration: { ...base.configuration!, sn: "" },
-            automaticTest: {
-              ...DEMO_SNAPSHOT.automaticTest,
-              state: "idle",
-              elapsedS: null,
-              runContext: null,
-              detail: "请输入下一台产品 SN",
-              canStart: true,
-              canEnd: false,
-              terminalOutcome: null,
-              savedPointCount: 0,
-              exportedPointCount: 0,
-              canNextDevice: false,
-              exportStatus: "idle",
-              exportPath: "",
-            },
-            measurements: {
-              ...DEMO_SNAPSHOT.measurements!,
-              power: [],
-              stable: [],
-              agingPower: [],
-              spectrum: { wavelengthNm: [], intensity: [] },
-              spectrumPeaks: [],
-            },
-          }
+          const nextSnap = resetDemoRun({ ...base, configuration: { ...base.configuration!, sn: "" } })
+          nextSnap.automaticTest.detail = "请输入下一台产品 SN"
           return publishDemo(nextSnap)
         }
 

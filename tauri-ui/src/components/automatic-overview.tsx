@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type CSSProperties } from "react"
 import { Check, CheckCircle2, ChevronRight, CircleAlert, Clock3, FileText, FolderOpen, Info, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { automaticPhase, automaticStoragePresentation, formatTestDuration } from "@/lib/automatic-presentation"
+import { automaticPhase, automaticStoragePresentation, formatTestDuration, powerStabilityPresentation } from "@/lib/automatic-presentation"
 import { automaticTerminalTitle, shutdownPresentation } from "@/lib/safety-state"
-import type { AppConfiguration, BackendSnapshot } from "@/lib/backend"
+import type { AppConfiguration, BackendSnapshot, DeviceSnapshot } from "@/lib/backend"
 
 export function AutomaticPhaseTrack({ snapshot }: { snapshot: BackendSnapshot | null }) {
   const auto = snapshot?.automaticTest
@@ -22,7 +22,15 @@ export function AutomaticPhaseTrack({ snapshot }: { snapshot: BackendSnapshot | 
     const timeout = window.setTimeout(() => setRecordedRecently(false), 650)
     return () => window.clearTimeout(timeout)
   }, [auto?.state, savedCount])
-  return <div className="automatic-phase-track" data-tone={phase.tone} title={auto?.detail} aria-label={`测试阶段：${phase.labels[phase.activeIndex]}，${phase.point} / ${phase.total} 测试点`}>
+  return <div
+    className="automatic-phase-track"
+    data-dwell={phase.dwell !== null}
+    data-live={phase.live}
+    data-tone={phase.tone}
+    style={phase.dwell === null ? undefined : { "--phase-progress": phase.dwell } as CSSProperties}
+    title={auto?.detail}
+    aria-label={`测试阶段：${phase.labels[phase.activeIndex]}，${phase.terminal ? "已记录" : "当前第"} ${phase.point} / ${phase.total} 点`}
+  >
     <ol>
       {phase.labels.map((label, index) => <li
         aria-current={index === phase.activeIndex ? "step" : undefined}
@@ -31,8 +39,19 @@ export function AutomaticPhaseTrack({ snapshot }: { snapshot: BackendSnapshot | 
         key={index}
       ><span className="automatic-phase-track__node" aria-hidden="true">{index === 4 && phase.complete ? <Check /> : null}</span><span>{label}</span></li>)}
     </ol>
-    <span className="automatic-phase-track__count"><strong>{phase.point} / {phase.total}</strong><span>测试点</span></span>
+    <span className="automatic-phase-track__count">
+      <strong>{phase.terminal ? "已记录 " : phase.point > 0 ? "第 " : "待测 "}{phase.point} / {phase.total}{phase.terminal ? "" : " 点"}</strong>
+      {phase.dwell !== null && <small>停留 {Math.floor(phase.dwell * (auto?.currentDwellS ?? 0))} / {auto?.currentDwellS} s</small>}
+    </span>
     <span className="automatic-phase-track__compact">{phase.labels[phase.activeIndex]}</span>
+  </div>
+}
+
+export function PowerStabilityStatus({ meter }: { meter: DeviceSnapshot | undefined }) {
+  const status = powerStabilityPresentation(meter)
+  return <div className="power-stability-status" data-tone={status.tone} aria-label={`功率稳定状态：${status.label}，${status.time}`} title="稳定时间从本轮功率读数达到稳定后计算；读数中断、失稳或重新判稳后重新计时。">
+    <span><i aria-hidden="true" />{status.label}</span>
+    <span>{status.time}</span>
   </div>
 }
 

@@ -314,6 +314,54 @@ class StationRuntimeTests(unittest.TestCase):
         start_spectrometer.assert_not_called()
         thread_class.return_value.start.assert_called_once_with()
 
+    def test_stable_duration_uses_samples_and_does_not_advance_with_snapshot_refresh(self) -> None:
+        station = self.backend.runtime
+        station.power_meter_reader = MagicMock(is_ready=True)
+        for tick in range(7):
+            elapsed = tick * 0.5
+            with patch("tauri_bridge.station_runtime.time.monotonic", return_value=100.0 + elapsed):
+                station._on_power_reading(PowerMeterReading(elapsed, 0.8, True, 0.001, 3.0, 0.8))
+        for now in (103.0, 103.9):
+            with patch("tauri_bridge.station_runtime.time.monotonic", return_value=now):
+                meter = self.backend.snapshot()["devices"]["powerMeter"]
+            self.assertEqual(meter["stableElapsedS"], 3)
+        with patch("tauri_bridge.station_runtime.time.monotonic", return_value=106.0):
+            self.assertIsNone(self.backend.snapshot()["devices"]["powerMeter"]["stableElapsedS"])
+        # A new stable sample after an acquisition gap starts a new interval.
+        with patch("tauri_bridge.station_runtime.time.monotonic", return_value=110.0):
+            station._on_power_reading(PowerMeterReading(10.0, 0.8, True, 0.001, 3.0, 0.8))
+            self.assertEqual(self.backend.snapshot()["devices"]["powerMeter"]["stableElapsedS"], 0)
+
+    def test_stable_duration_resets_on_instability_new_generation_and_reader_stop(self) -> None:
+        station = self.backend.runtime
+        station.power_meter_reader = MagicMock(is_ready=True)
+
+        def sample(elapsed: float, *, stable: bool = True, generation: int = 0) -> None:
+            with patch("tauri_bridge.station_runtime.time.monotonic", return_value=100.0 + elapsed):
+                station._on_power_reading(PowerMeterReading(elapsed, 0.8, stable, 0.001, 3.0, 0.8, generation))
+
+        sample(0)
+        sample(0.5)
+        sample(1)
+        self.assertEqual(station.power_stable_elapsed_s, 1)
+        sample(1.5, stable=False)
+        self.assertIsNone(station.power_stable_elapsed_s)
+        sample(2)
+        self.assertEqual(station.power_stable_elapsed_s, 0)
+        sample(2.5)
+        sample(3)
+        self.assertEqual(station.power_stable_elapsed_s, 1)
+        sample(3.5, generation=1)
+        self.assertEqual(station.power_stable_elapsed_s, 0)
+        sample(4, generation=1)
+        sample(4.5, generation=1)
+        self.assertEqual(station.power_stable_elapsed_s, 1)
+        sample(0, generation=1)
+        self.assertEqual(station.power_stable_elapsed_s, 0)
+        station._on_power_finished()
+        self.assertIsNone(station.power_stable_elapsed_s)
+        self.assertIsNone(station.power_stable_started_elapsed_s)
+
     def test_snapshot_marks_old_measurements_stale_then_invalid(self) -> None:
         station = self.backend.runtime
         station.latest_power = PowerMeterReading(

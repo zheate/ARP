@@ -85,3 +85,28 @@ test("memoized automatic page refreshes when only measured supply current change
   }
   assert.equal(AutomaticPage.compare(previous, next), false)
 })
+
+test("both automatic layouts display stable duration and clear it for stale readings", () => {
+  for (const spectrum of [false, true]) {
+    const props = pageProps({ spectrum, state: "waiting_voltage" })
+    Object.assign(props.snapshot.devices.powerMeter, { stable: true, stableElapsedS: 7, quality: "live" })
+    let html = renderToStaticMarkup(createElement(AutomaticPage, props))
+    assert.match(html, /功率稳定状态：已稳定，持续 7 s/)
+    props.snapshot.devices.powerMeter.quality = "stale"
+    html = renderToStaticMarkup(createElement(AutomaticPage, props))
+    assert.match(html, /功率稳定状态：采样中断，稳定时间 --/)
+    assert.doesNotMatch(html, /持续 7 s/)
+  }
+})
+
+test("memoized automatic page refreshes when only stable duration changes", () => {
+  const previous = pageProps()
+  const next = {
+    ...previous,
+    snapshot: {
+      ...previous.snapshot,
+      devices: { ...previous.snapshot.devices, powerMeter: { ...previous.snapshot.devices.powerMeter, stableElapsedS: 9 } },
+    },
+  }
+  assert.equal(AutomaticPage.compare(previous, next), false)
+})

@@ -290,6 +290,7 @@ class SnapshotBuilder:
                     "ready": bool(active_st.power_meter_reader and active_st.power_meter_reader.is_ready),
                     "powerW": power_value,
                     "stable": bool(active_st.latest_power and active_st.latest_power.stable),
+                    "stableElapsedS": active_st.power_stable_elapsed_s if power_freshness["quality"] == "live" else None,
                     "stabilityPercent": finite(
                         getattr(active_st.latest_power, "stability_percent", None)
                         if active_st.latest_power

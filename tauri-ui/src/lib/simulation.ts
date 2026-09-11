@@ -33,7 +33,7 @@ export function simulationPlan(config: SimulationConfig): { currents: number[]; 
   const count = Math.floor((end - start) / step + 1e-8) + 1
   if (count > 32) return { currents: [], error: "请增大步进，每次仿真最多 32 个测试点。" }
   const currents = Array.from({ length: count }, (_, index) => Number((start + index * step).toFixed(6)))
-  if (Math.abs(currents.at(-1)! - end) > 1e-6) currents.push(end)
+  if (Math.abs(currents[currents.length - 1]! - end) > 1e-6) currents.push(end)
   if (currents.length > 32) return { currents: [], error: "请增大步进，每次仿真最多 32 个测试点。" }
   return { currents, error: "" }
 }
@@ -157,7 +157,7 @@ export function simulationSpectrum(state: SimulationState) {
 /** Adapt only for the shared visual phase track. No runtime bridge is imported. */
 export function simulationSnapshot(state: SimulationState): BackendSnapshot {
   return { ...DEMO_SNAPSHOT, automaticTest: {
-    state: state.paused ? "paused" : state.phase, detail: state.events.at(-1)?.message ?? "",
+    state: state.paused ? "paused" : state.phase, detail: state.events[state.events.length - 1]?.message ?? "",
     controlsEnabled: !simulationActive(state), currents: state.currents, currentIndex: state.index,
     currentA: state.currentA, savedPointCount: state.points.length, elapsedS: state.elapsedS,
     runContext: { sn: state.config.sn, station: "仿真工位", testTemperatureC: "25°C", selectedScriptId: "standard" },

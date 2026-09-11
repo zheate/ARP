@@ -65,6 +65,8 @@ export interface DeviceSnapshot {
   temperatureC?: number | null
   powerW?: number | null
   stable?: boolean
+  /** Consecutive stable sample time, reported by the backend in whole seconds. */
+  stableElapsedS?: number | null
   stabilityPercent?: number | null
   stabilityLimitPercent?: number | null
   peakWavelengthNm?: number | null

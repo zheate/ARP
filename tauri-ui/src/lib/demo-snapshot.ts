@@ -81,7 +81,7 @@ export const DEMO_SNAPSHOT: BackendSnapshot = {
         connectedPort: { locationPath: "PCIROOT(0)#USB(1)", name: "1号工位", deviceIndex: 0 },
       },
     },
-    powerMeter: { state: "connected", label: "功率计", detail: "彩煌功率计 (ASRL3::INSTR)", connected: true, running: true, ready: true, stable: true, powerW: 0.86, sampledAt: "2026-07-19T12:00:00.000Z", ageMs: 0, quality: "live", resources: ["彩煌功率计 | ASRL3::INSTR | 通道 1", "Coherent功率计 | ASRL4::INSTR"] },
+    powerMeter: { state: "connected", label: "功率计", detail: "彩煌功率计 (ASRL3::INSTR)", connected: true, running: true, ready: true, stable: true, stableElapsedS: 8, powerW: 0.86, sampledAt: "2026-07-19T12:00:00.000Z", ageMs: 0, quality: "live", resources: ["彩煌功率计 | ASRL3::INSTR | 通道 1", "Coherent功率计 | ASRL4::INSTR"] },
     spectrometer: { state: "connected", label: "光谱仪", detail: "Ocean Insight · 示例", connected: true, running: true, ready: true, resources: ["自动选择第一台 Ocean Insight"], peakWavelengthNm: 976.2, centroidNm: 976.2, fwhmNm: 0.776, pib: 96.85, smsrDb: null, sampledAt: "2026-07-19T12:00:00.000Z", ageMs: 0, quality: "live", spectrumWindow: { centerNm: 976.2, halfRangeNm: 6.2 } },
   },
   automaticTest: {
@@ -158,3 +158,52 @@ export const DEMO_SNAPSHOT: BackendSnapshot = {
   },
 }
 
+/**
+ * The default preview fixture is a workbench caught mid-run, so a static capture stays populated.
+ * The runnable preview (?demo=1&run=1) needs the same fixtures at rest instead, otherwise the
+ * snapshot holds canStart=false and the staged sequence can never be replayed.
+ */
+export function resetDemoRun(base: BackendSnapshot): BackendSnapshot {
+  return {
+    ...base,
+    devices: {
+      ...base.devices,
+      powerSupply: { ...base.devices.powerSupply, outputEnabled: false, activeCurrentA: 0, outputCurrentA: 0 },
+      powerMeter: { ...base.devices.powerMeter, powerW: 0, stable: false, stableElapsedS: null },
+    },
+    automaticTest: {
+      ...base.automaticTest,
+      state: "idle",
+      detail: "示例数据预览 · 可运行",
+      canStart: true,
+      canEnd: false,
+      controlsEnabled: true,
+      canNextDevice: false,
+      canRetryExport: false,
+      currents: [2, 6, 10],
+      dwellTimesS: [0, 0, 0],
+      currentIndex: -1,
+      currentA: 0,
+      currentDwellS: 0,
+      currentDwellElapsedS: null,
+      progress: 0,
+      elapsedS: 0,
+      savedPointCount: 0,
+      exportedPointCount: 0,
+      journalPath: "",
+      exportStatus: "none",
+      exportPath: "",
+      terminalOutcome: null,
+      runContext: null,
+    },
+    measurements: { ...base.measurements!, power: [], stable: [], agingPower: [] },
+    safety: {
+      ...base.safety,
+      controlOwner: "manual",
+      manualControlsAllowed: true,
+      shutdown: { requested: false, confirmed: false, measuredCurrentA: null, outputOffConfirmed: false, reason: "" },
+    },
+  }
+}
+
+export const DEMO_RUN_SNAPSHOT = resetDemoRun(DEMO_SNAPSHOT)

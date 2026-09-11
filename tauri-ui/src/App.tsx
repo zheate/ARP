@@ -55,7 +55,7 @@ import { spectrumPeakAnnotations, spectrumPeakLegend } from "@/lib/spectrum-anno
 import { ActivationView } from "@/components/license/ActivationView"
 import { AppearanceProvider, useAppearance } from "@/hooks/use-appearance"
 import { AppearanceSettings, DisplayMenu } from "@/components/appearance-controls"
-import { AutomaticCompletionSummary, AutomaticPhaseTrack } from "@/components/automatic-overview"
+import { AutomaticCompletionSummary, AutomaticPhaseTrack, PowerStabilityStatus } from "@/components/automatic-overview"
 import { NumericReadout } from "@/components/numeric-readout"
 import { ACCENT_THEMES, type Theme, type AccentTheme, type CurveLineStyle, type LatestPointMarkerStyle } from "@/lib/appearance"
 import { DataBrowserPage } from "@/components/data-browser-page"
@@ -1714,6 +1714,7 @@ function sameDeviceSnapshot(left: DeviceSnapshot | undefined, right: DeviceSnaps
     && left.temperatureC === right.temperatureC
     && left.powerW === right.powerW
     && left.stable === right.stable
+    && left.stableElapsedS === right.stableElapsedS
     && left.sampledAt === right.sampledAt
     && left.ageMs === right.ageMs
     && left.quality === right.quality
@@ -2205,7 +2206,7 @@ function LivePowerRecordingDot() {
   return <span aria-hidden="true" className={`automatic-metric-card__recording-dot ${visible ? "is-on" : "is-off"}`} />
 }
 
-function AutomaticMetricCard({ title, value, unit, valueTone = "muted", recording = false, onClick, className = "" }: {
+function AutomaticMetricCard({ title, value, unit, valueTone = "muted", recording = false, onClick, className = "", footer }: {
   title: string
   value: string
   unit: ReactNode
@@ -2213,6 +2214,7 @@ function AutomaticMetricCard({ title, value, unit, valueTone = "muted", recordin
   recording?: boolean
   onClick?: () => void
   className?: string
+  footer?: ReactNode
 }) {
   const clickable = Boolean(onClick)
   return (
@@ -2236,6 +2238,7 @@ function AutomaticMetricCard({ title, value, unit, valueTone = "muted", recordin
         <span className={`automatic-metric-card__number is-${valueTone}`}><NumericReadout value={value} /></span>
         <span className="automatic-metric-card__unit">{unit}</span>
       </div>
+      {footer}
     </div>
   )
 }
@@ -2272,6 +2275,7 @@ function RealtimeMetricCards({
         unit={<>W @ <span className="automatic-metric-card__current">{formatTrimmedNumber(currentA, 2)} A</span></>}
         valueTone="warning"
         recording={Boolean(powerMeter?.running)}
+        footer={<PowerStabilityStatus meter={powerMeter} />}
       />
       <AutomaticMetricCard
         className="automatic-metric-card--title-below"
@@ -4047,6 +4051,7 @@ const AutomaticPage = memo(function AutomaticPage({
                 unit={<>W @ <span className="automatic-metric-card__current">{formatTrimmedNumber(liveCurrentA, 2)} A</span></>}
                 valueTone="warning"
                 recording={Boolean(powerMeter?.running)}
+                footer={<PowerStabilityStatus meter={powerMeter} />}
               />
             )}
           </div>

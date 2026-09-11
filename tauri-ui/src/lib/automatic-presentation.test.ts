@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { automaticPhase, automaticStartPresentation, automaticStoragePresentation, formatTestDuration } from "./automatic-presentation.ts"
+import { automaticPhase, automaticStartPresentation, automaticStoragePresentation, formatTestDuration, powerStabilityPresentation } from "./automatic-presentation.ts"
 import type { BackendSnapshot } from "./backend"
 
 type Automatic = BackendSnapshot["automaticTest"]
@@ -72,10 +72,53 @@ test("phase track distinguishes recording, ramp down, pause and confirmed comple
   assert.equal(automaticPhase(auto({ state: "completed", terminalOutcome: "stopped_shutdown_confirmed", savedPointCount: 1 }), shutdown(true)).labels[4], "提前结束")
 })
 
+test("only an in-flight phase animates, so the track cannot imply progress while stopped", () => {
+  for (const state of ["starting", "setting_current", "waiting_stable", "waiting_voltage", "saving_point", "ramping_down"]) {
+    assert.equal(automaticPhase(auto({ state }), undefined).live, true)
+  }
+  for (const state of ["idle", "paused", "completed"]) {
+    assert.equal(automaticPhase(auto({ state }), undefined).live, false)
+  }
+  assert.equal(automaticPhase(undefined, undefined).live, false)
+})
+
+test("a reported hold drives the light as real progress instead of a looping sweep", () => {
+  const phase = (patch: Partial<Automatic>) => automaticPhase(auto(patch), undefined)
+  assert.equal(phase({ state: "waiting_voltage", currentDwellS: 60, currentDwellElapsedS: 15 }).dwell, 0.25)
+  // The backend reports the number only while a hold runs, so its absence means "no denominator".
+  assert.equal(phase({ state: "waiting_voltage", currentDwellS: 60 }).dwell, null)
+  assert.equal(phase({ state: "waiting_voltage", currentDwellS: 60, currentDwellElapsedS: null }).dwell, null)
+  assert.equal(phase({ state: "waiting_stable", currentDwellS: 60, currentDwellElapsedS: 15 }).dwell, 0.25)
+  // A zero target cannot be divided, and the light must not run past the end of the segment.
+  assert.equal(phase({ state: "waiting_voltage", currentDwellS: 0, currentDwellElapsedS: 5 }).dwell, null)
+  assert.equal(phase({ state: "waiting_voltage", currentDwellS: 60, currentDwellElapsedS: 60 }).dwell, 1)
+  assert.equal(phase({ state: "waiting_voltage", currentDwellS: 60, currentDwellElapsedS: 75 }).dwell, 1)
+  // A stopped run never advances, however stale the reported hold is.
+  for (const state of ["idle", "paused", "completed"]) {
+    assert.equal(phase({ state, currentDwellS: 60, currentDwellElapsedS: 15 }).dwell, null)
+  }
+})
+
 test("completion uses recorded count instead of the attempted point index", () => {
   const phase = automaticPhase(auto({ state: "completed", currentIndex: 2, savedPointCount: 1 }), shutdown(true))
   assert.equal(phase.point, 1)
   assert.equal(phase.total, 3)
+})
+
+test("power stability requires a live reading and a backend duration instead of a local timer", () => {
+  const meter = { state: "connected", label: "功率计", detail: "", running: true, quality: "live", powerW: 0.8, stable: true, stableElapsedS: 6 } as const
+  assert.deepEqual(powerStabilityPresentation(meter), { label: "已稳定", time: "持续 6 s", tone: "success" })
+  assert.equal(powerStabilityPresentation({ ...meter, stableElapsedS: 0 }).time, "持续 0 s")
+  for (const stableElapsedS of [undefined, null, NaN, Infinity, -1]) {
+    assert.equal(powerStabilityPresentation({ ...meter, stableElapsedS }).time, "稳定时间待更新")
+  }
+  assert.equal(powerStabilityPresentation({ ...meter, stable: false }).label, "未稳定")
+  assert.equal(powerStabilityPresentation({ ...meter, stable: false }).time, "稳定时间 --")
+  for (const patch of [{ quality: "stale" as const }, { quality: "invalid" as const }, { running: false }, { powerW: NaN }]) {
+    const status = powerStabilityPresentation({ ...meter, ...patch })
+    assert.equal(status.tone, "muted")
+    assert.equal(status.time, "稳定时间 --")
+  }
 })
 
 test("summary keeps journal persistence separate from export failures", () => {

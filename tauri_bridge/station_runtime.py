@@ -122,6 +122,8 @@ class StationRuntime(StationAutomaticMixin):
         self.latest_power: PowerMeterReading | None = None
         self.latest_power_received_monotonic_s: float | None = None
         self.latest_power_sampled_at_utc: str | None = None
+        self.power_stable_started_elapsed_s: float | None = None
+        self.power_stable_elapsed_s: int | None = None
         self.power_points: deque[dict[str, float]] = deque(maxlen=1_200)
         self.power_drop_protection = PowerDropProtectionDetector()
         self._expected_power_meter_stop = False
@@ -847,6 +849,8 @@ class StationRuntime(StationAutomaticMixin):
             self.latest_power = None
             self.latest_power_received_monotonic_s = None
             self.latest_power_sampled_at_utc = None
+            self.power_stable_started_elapsed_s = None
+            self.power_stable_elapsed_s = None
             self.power_points.clear()
             self.series_revisions["power"] += 1
             reader.reading.connect(self._on_power_reading)
@@ -873,8 +877,28 @@ class StationRuntime(StationAutomaticMixin):
 
     def _on_power_reading(self, reading: PowerMeterReading) -> None:
         with self._lock:
+            received_at = time.monotonic()
+            previous = self.latest_power
+            # Count only observed, consecutive stable samples in the same
+            # measurement window. Snapshot refreshes never advance this clock.
+            gap_limit_s = max(1.0, float(self.configuration["powerMeterIntervalMs"]) * 3.0 / 1000.0)
+            continuous = (
+                previous is not None
+                and previous.stable
+                and previous.stability_generation == reading.stability_generation
+                and 0.0 < reading.elapsed_s - previous.elapsed_s <= gap_limit_s
+                and self.latest_power_received_monotonic_s is not None
+                and 0.0 <= received_at - self.latest_power_received_monotonic_s <= gap_limit_s
+            )
+            if not reading.stable or not math.isfinite(reading.power_w) or not math.isfinite(reading.elapsed_s):
+                self.power_stable_started_elapsed_s = None
+                self.power_stable_elapsed_s = None
+            else:
+                if not continuous or self.power_stable_started_elapsed_s is None:
+                    self.power_stable_started_elapsed_s = reading.elapsed_s
+                self.power_stable_elapsed_s = math.floor(max(0.0, reading.elapsed_s - self.power_stable_started_elapsed_s))
             self.latest_power = reading
-            self.latest_power_received_monotonic_s = time.monotonic()
+            self.latest_power_received_monotonic_s = received_at
             self.latest_power_sampled_at_utc = datetime.now(timezone.utc).isoformat(
                 timespec="milliseconds"
             )
@@ -1121,6 +1145,9 @@ class StationRuntime(StationAutomaticMixin):
         self.automatic.mark_power_meter_ready()
 
     def _on_power_failed(self, message: str) -> None:
+        with self._lock:
+            self.power_stable_started_elapsed_s = None
+            self.power_stable_elapsed_s = None
         self._invalidate_manual_power_capture()
         self.power_meter_error = str(message)
         self.notify("error", "功率计", message)
@@ -1139,6 +1166,9 @@ class StationRuntime(StationAutomaticMixin):
             )
 
     def _on_power_finished(self) -> None:
+        with self._lock:
+            self.power_stable_started_elapsed_s = None
+            self.power_stable_elapsed_s = None
         self._invalidate_manual_power_capture()
         self.power_meter_reader = None
         self.automatic.power_meter_ready = False

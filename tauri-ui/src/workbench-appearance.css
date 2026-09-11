@@ -54,9 +54,48 @@
 .automatic-phase-track[data-tone="danger"] li[aria-current="step"] .automatic-phase-track__node { border-color: var(--app-danger); box-shadow: none; }
 .automatic-phase-track[data-tone="warning"] li[aria-current="step"] { color: var(--app-warning); }
 .automatic-phase-track li[data-recent="true"] .automatic-phase-track__node { box-shadow: 0 0 0 4px var(--app-accent-soft); }
-.automatic-phase-track__count { display: flex; align-items: center; gap: 0.5rem; border-left: 1px solid var(--border); padding-left: 1.25rem; font-size: 0.75rem; white-space: nowrap; color: var(--muted-foreground); }
+.automatic-phase-track__count { display: flex; flex-direction: column; align-items: flex-start; gap: 0.2rem; border-left: 1px solid var(--border); padding-left: 1.25rem; font-size: 0.75rem; white-space: nowrap; color: var(--muted-foreground); }
+.automatic-phase-track__count small { font-size: 0.75rem; font-variant-numeric: tabular-nums; }
 .automatic-phase-track__count strong { font-family: var(--font-din); font-size: 0.9rem; font-weight: 550; color: var(--foreground); }
 .automatic-phase-track__compact { display: none; }
+
+/* A running light is only honest inside the segment leaving the active node: its extent is the
+   transition actually underway, so it cannot imply progress the phase has not made. Static
+   phases (idle, paused, completed) carry no light at all. */
+.automatic-phase-track { --phase-flow: var(--primary); --phase-halo: var(--app-accent-soft); }
+.automatic-phase-track[data-tone="warning"] { --phase-flow: var(--app-warning); --phase-halo: var(--app-warning-soft); }
+.automatic-phase-track[data-tone="danger"] { --phase-flow: var(--app-danger); --phase-halo: var(--app-danger-soft); }
+.automatic-phase-track[data-live="true"]:not([data-dwell="true"]) li[aria-current="step"] + li::before {
+  background-image: linear-gradient(90deg, transparent, var(--phase-flow), transparent), linear-gradient(var(--app-border-strong), var(--app-border-strong));
+  background-repeat: no-repeat;
+  background-size: 40% 100%, 100% 100%;
+  animation: phase-track-flow 1.8s linear infinite;
+}
+/* A dwell is the one phase with a real denominator, so the light advances with elapsed time
+   instead of looping. The backend quantizes currentDwellElapsedS to whole seconds, so the
+   transition is matched to that second rather than to the 200 ms snapshot interval: the light
+   moves continuously at the true rate, and a stall in reporting leaves it frozen in place. */
+.automatic-phase-track[data-dwell="true"] li[aria-current="step"] + li::before {
+  background-image: linear-gradient(90deg, transparent, var(--phase-flow), transparent), linear-gradient(var(--app-border-strong), var(--app-border-strong));
+  background-repeat: no-repeat;
+  background-size: 40% 100%, 100% 100%;
+  background-position: calc(-40% + var(--phase-progress, 0) * 180%) 0, 0 0;
+  transition: background-position 1s linear;
+}
+/* 完成/下电中 is the last node and owns no outgoing segment, so the light becomes a breathing ring. */
+.automatic-phase-track[data-live="true"] li[aria-current="step"]:last-child .automatic-phase-track__node { animation: phase-node-breathe 1.8s ease-in-out infinite; }
+.automatic-phase-track[data-live="true"] .automatic-phase-track__compact { position: relative; overflow: hidden; }
+.automatic-phase-track[data-live="true"] .automatic-phase-track__compact::after { content: ""; position: absolute; bottom: 0; left: 0; width: 100%; height: 1px; background: linear-gradient(90deg, transparent, var(--phase-flow), transparent); animation: running-flow 1.8s linear infinite; }
+
+@keyframes phase-track-flow {
+  from { background-position: -40% 0, 0 0; }
+  to { background-position: 140% 0, 0 0; }
+}
+
+@keyframes phase-node-breathe {
+  0%, 100% { box-shadow: 0 0 0 2px var(--phase-halo); }
+  50% { box-shadow: 0 0 0 6px var(--phase-halo); }
+}
 
 .sample-nameplate { position: relative; z-index: 20; display: grid; grid-template-columns: minmax(180px, 220px) minmax(130px, 0.85fr) minmax(120px, 0.8fr) minmax(140px, 0.95fr) minmax(200px, 1.5fr); align-items: center; flex-shrink: 0; gap: 1rem; padding: 0.75rem 1.25rem; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); }
 .sample-nameplate > div { min-width: 0; }
@@ -115,6 +154,11 @@
 .automatic-metric-card__unit, .automatic-metric-card--power .automatic-metric-card__unit { font-size: 0.8rem; font-weight: 450; white-space: nowrap; }
 .automatic-metric-card__current { margin-left: 0.15rem; }
 .automatic-metric-card__recording-dot { width: 0.4rem; height: 0.4rem; }
+.power-stability-status { order: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.7rem; width: 100%; color: var(--muted-foreground); font-size: 0.75rem; line-height: 1.35; font-variant-numeric: tabular-nums; }
+.power-stability-status > span { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
+.power-stability-status i { width: 0.35rem; height: 0.35rem; border-radius: 50%; background: currentColor; }
+.power-stability-status[data-tone="success"] > span:first-child { color: var(--app-success); }
+.power-stability-status[data-tone="warning"] > span:first-child { color: var(--app-warning); }
 .numeric-readout { display: inline-flex; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .numeric-readout__digit { display: inline-block; width: 1ch; text-align: center; }
 
@@ -302,6 +346,11 @@ fieldset.appearance-section .appearance-help { clear: both; }
 @media (prefers-reduced-motion: reduce) {
   .automatic-completion-summary { animation: none; }
   .automatic-metric-card--clickable:hover { transform: none; }
+  /* The light stops travelling but still marks the active segment: at its start when no hold is
+     reported, and at the true elapsed fraction when one is. */
+  .automatic-phase-track[data-live="true"] li[aria-current="step"] + li::before { animation: none; transition: none; }
+  .automatic-phase-track[data-live="true"] li[aria-current="step"]:last-child .automatic-phase-track__node { animation: none; }
+  .automatic-phase-track[data-live="true"] .automatic-phase-track__compact::after { animation: none; }
 }
 
 /* Large desktop workbench matches the approved instrument-style preview. */
