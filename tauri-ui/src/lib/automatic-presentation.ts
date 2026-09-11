@@ -24,7 +24,7 @@ export function automaticStartPresentation(auto: Automatic | undefined, config: 
 }
 
 export function automaticPhase(auto: Automatic | undefined, shutdown: SafetyShutdownResult | undefined) {
-  const labels = ["准备", "升流", "等稳", "记录", "完成"]
+  const labels = ["准备", "升流", "稳定", "记录", "完成"]
   const state = auto?.state ?? "idle"
   let activeIndex = 0
   let tone: "normal" | "success" | "warning" | "danger" = "normal"

@@ -2,31 +2,43 @@
 [data-accent="orange"] {
   --theme-accent-dark: #ff7a1a;
   --theme-accent-light: #b65310;
+  --theme-efficiency-dark: #f5c56b;
+  --theme-efficiency-light: #8a6818;
 }
 
 [data-accent="blue"] {
   --theme-accent-dark: #93a8ff;
   --theme-accent-light: #475ac7;
+  --theme-efficiency-dark: #65c8d0;
+  --theme-efficiency-light: #187982;
 }
 
 [data-accent="green"] {
   --theme-accent-dark: #78c9a4;
   --theme-accent-light: #267453;
+  --theme-efficiency-dark: #d5c17a;
+  --theme-efficiency-light: #80681c;
 }
 
 [data-accent="purple"] {
   --theme-accent-dark: #b79aee;
   --theme-accent-light: #8052b5;
+  --theme-efficiency-dark: #e9a3bf;
+  --theme-efficiency-light: #ab4675;
 }
 
 [data-accent="rose"] {
   --theme-accent-dark: #e7a0b0;
   --theme-accent-light: #ac4563;
+  --theme-efficiency-dark: #bca8eb;
+  --theme-efficiency-light: #7853b0;
 }
 
 [data-accent="graphite"] {
   --theme-accent-dark: #c2c8d0;
   --theme-accent-light: #535e6d;
+  --theme-efficiency-dark: #80bdb5;
+  --theme-efficiency-light: #35776e;
 }
 
 .theme-presets {

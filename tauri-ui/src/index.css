@@ -528,12 +528,25 @@ body {
 
 .automatic-power-chart .automatic-power-chart__reading {
   position: absolute;
+  isolation: isolate;
   top: 2rem;
   right: 1rem;
   width: min(18rem, calc(100% - 2rem));
   align-items: flex-end;
   border: 0;
   background: transparent;
+  pointer-events: none;
+}
+
+.automatic-power-chart__reading::before,
+.chart-inset-legend::before {
+  content: "";
+  position: absolute;
+  inset: 0 0.15rem;
+  z-index: -1;
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--card) 94%, transparent);
+  filter: blur(0.65rem);
   pointer-events: none;
 }
 
@@ -1556,6 +1569,7 @@ body {
   --input: #cbd2da;
   --ring: var(--app-accent);
   --chart-1: var(--app-accent);
+  --chart-efficiency: var(--theme-efficiency-light, #8a6818);
   --chart-2: #ad7653;
   --chart-3: #8b7463;
   --chart-4: #4f8f6d;
@@ -1633,6 +1647,7 @@ body {
   --input: #34383a;
   --ring: var(--app-accent);
   --chart-1: var(--app-accent);
+  --chart-efficiency: var(--theme-efficiency-dark, #f5c56b);
   --chart-2: #d5a98b;
   --chart-3: #9a907c;
   --chart-4: #70a58a;

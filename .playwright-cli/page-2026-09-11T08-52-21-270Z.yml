@@ -1,0 +1,166 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]: Power Test
+    - generic "测试阶段：等稳，当前第 4 / 6 点" [ref=e7]:
+      - list [ref=e8]:
+        - listitem [ref=e9]:
+          - generic [ref=e11]: 准备
+        - listitem [ref=e12]:
+          - generic [ref=e14]: 升流
+        - listitem [ref=e15]:
+          - generic [ref=e17]: 等稳
+        - listitem [ref=e18]:
+          - generic [ref=e20]: 记录
+        - listitem [ref=e21]:
+          - generic [ref=e23]: 完成
+      - strong [ref=e25]: 第 4 / 6 点
+      - generic "功率相对波动 ≤ 0.2%，判稳后连续保持 5 秒才继续；超限或采样中断后重新判稳、重新计时。功率已稳定，等待波长满足条件。" [ref=e26]:
+        - generic [ref=e27]: 等待波长稳定
+        - generic [ref=e29]:
+          - generic [ref=e30]: 稳定后保持
+          - strong [ref=e31]: 0.0 / 5 秒
+    - generic [ref=e32]:
+      - button "显示" [ref=e33] [cursor=pointer]
+      - button "保存设置" [disabled]
+      - button "急停" [ref=e35] [cursor=pointer]
+  - generic [ref=e36]:
+    - complementary [ref=e37]:
+      - navigation [ref=e38]:
+        - button "自动测试" [ref=e39] [cursor=pointer]
+        - button "手动配置" [disabled] [ref=e45]
+        - button "PD 采集" [ref=e52] [cursor=pointer]
+        - button "数据浏览" [disabled] [ref=e56]
+        - button "出货报告" [disabled] [ref=e61]
+        - button "系统设置" [ref=e66] [cursor=pointer]
+      - generic "侧栏格言 Stay True" [ref=e71]:
+        - paragraph [ref=e73]: Stay True
+    - main [ref=e74]:
+      - list:
+        - listitem [ref=e75]:
+          - status [ref=e76]:
+            - generic [ref=e80]:
+              - paragraph [ref=e81]: 示例数据
+              - paragraph [ref=e82]: 当前显示的是图表预览数据，不会连接真实仪器。
+            - button "关闭提示" [disabled] [ref=e83]
+      - generic [ref=e87]:
+        - generic [ref=e88]:
+          - generic [ref=e89]:
+            - generic [ref=e90]: 当前样品
+            - textbox "产品 SN" [disabled]:
+              - /placeholder: 输入产品 SN
+              - text: DEMO-001
+          - generic [ref=e97]:
+            - generic [ref=e98]: 测试温度
+            - textbox "测试温度" [disabled]:
+              - /placeholder: 例如：水冷25°C
+              - text: 水冷25°C
+          - generic [ref=e101]:
+            - generic [ref=e102]: 测试站别
+            - textbox "测试站别" [disabled]:
+              - /placeholder: 例如：老化 / FT
+              - text: 站别 1
+          - generic [ref=e105]:
+            - generic [ref=e106]: 脚本选择
+            - combobox [disabled] [ref=e111]:
+              - generic [ref=e112]: 标准测试
+          - generic [ref=e115]:
+            - generic [ref=e116]: 输出目录
+            - generic [ref=e119]:
+              - textbox "输出目录" [disabled]:
+                - /placeholder: 测试数据保存目录
+                - text: /data/test/DEMO-001
+              - button "选择输出目录" [disabled]
+        - region "测试设备与控制" [ref=e120]:
+          - button "电源信息，测试期间设置已锁定" [disabled] [ref=e121]:
+            - generic [ref=e125]:
+              - generic [ref=e126]:
+                - strong [ref=e127]: 电源
+                - generic "TDK" [ref=e128]
+              - generic [ref=e129]: 在线 · 输出中
+          - button "功率计信息，测试期间设置已锁定" [disabled] [ref=e131]:
+            - generic [ref=e136]:
+              - generic [ref=e137]:
+                - strong [ref=e138]: 功率计
+                - generic "彩煌" [ref=e139]
+              - generic [ref=e140]: 在线 · 测量中
+          - button "光谱仪信息，测试期间设置已锁定" [disabled] [ref=e142]:
+            - generic [ref=e150]:
+              - generic [ref=e151]:
+                - strong [ref=e152]: 光谱仪
+                - generic "Ocean Insight" [ref=e153]
+              - generic [ref=e154]: 在线 · 采集中
+          - generic [ref=e158]:
+            - button "开始" [disabled]
+            - button "停止" [ref=e159] [cursor=pointer]
+        - generic [ref=e160]:
+          - generic [ref=e161]:
+            - generic "功率实时" [ref=e163]:
+              - generic [ref=e165]:
+                - img "功率实时曲线" [ref=e166]
+                - generic [ref=e167]: 实时功率
+            - generic "功率 / 效率" [ref=e168]:
+              - generic [ref=e170]:
+                - img "功率 / 效率曲线" [ref=e171]
+                - generic [ref=e172]: 功率 (W)、效率 (%)、历史参考
+          - region "实时关键指标" [ref=e173]:
+            - generic [ref=e174]:
+              - generic "实时功率，实时记录中" [ref=e175]: 实时功率
+              - generic [ref=e178]:
+                - generic "0.860" [ref=e180]:
+                  - generic [aria-hidden] [ref=e181]: "0"
+                  - generic [aria-hidden] [ref=e182]: .
+                  - generic [aria-hidden] [ref=e183]: "8"
+                  - generic [aria-hidden] [ref=e184]: "6"
+                  - generic [aria-hidden] [ref=e185]: "0"
+                - generic [ref=e186]:
+                  - text: W @
+                  - generic [ref=e187]: 8 A
+              - generic "功率稳定状态：等待波长稳定，稳定后保持 0.0 / 5 秒" [ref=e188]:
+                - generic [ref=e189]: 等待波长稳定
+                - generic [ref=e191]: 稳定后保持 0.0 / 5 秒
+            - button "中心波长，点击设置规格" [ref=e192] [cursor=pointer]:
+              - generic [ref=e193]: 中心波长
+              - generic [ref=e195]:
+                - generic "976.200" [ref=e197]:
+                  - generic [aria-hidden] [ref=e198]: "9"
+                  - generic [aria-hidden] [ref=e199]: "7"
+                  - generic [aria-hidden] [ref=e200]: "6"
+                  - generic [aria-hidden] [ref=e201]: .
+                  - generic [aria-hidden] [ref=e202]: "2"
+                  - generic [aria-hidden] [ref=e203]: "0"
+                  - generic [aria-hidden] [ref=e204]: "0"
+                - generic [ref=e205]: nm
+            - button "FWHM，点击设置规格" [ref=e206] [cursor=pointer]:
+              - generic [ref=e207]: FWHM
+              - generic [ref=e209]:
+                - generic "0.776" [ref=e211]:
+                  - generic [aria-hidden] [ref=e212]: "0"
+                  - generic [aria-hidden] [ref=e213]: .
+                  - generic [aria-hidden] [ref=e214]: "7"
+                  - generic [aria-hidden] [ref=e215]: "7"
+                  - generic [aria-hidden] [ref=e216]: "6"
+                - generic [ref=e217]: nm
+            - button "PIB，点击设置规格" [ref=e218] [cursor=pointer]:
+              - generic [ref=e219]: PIB
+              - generic [ref=e221]:
+                - generic "96.85" [ref=e223]:
+                  - generic [aria-hidden] [ref=e224]: "9"
+                  - generic [aria-hidden] [ref=e225]: "6"
+                  - generic [aria-hidden] [ref=e226]: .
+                  - generic [aria-hidden] [ref=e227]: "8"
+                  - generic [aria-hidden] [ref=e228]: "5"
+                - generic [ref=e229]: "%"
+          - generic "光谱" [ref=e230]:
+            - generic [ref=e232]:
+              - img "光谱曲线" [ref=e233]
+              - generic "峰值图例":
+                - generic:
+                  - generic: Peak 1
+                  - generic: 976.200 nm
+                - generic:
+                  - generic: Peak 2
+                  - generic: 978.000 nm
+                - generic:
+                  - generic: Peak 3
+                  - generic: 973.000 nm
+              - generic [ref=e234]: 光谱（实时）

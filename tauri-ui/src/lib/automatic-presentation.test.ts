@@ -131,6 +131,7 @@ test("legacy settings errors remain visible when structured readiness is unavail
 test("phase track distinguishes recording, ramp down, pause and confirmed completion", () => {
   assert.equal(automaticPhase(auto({ state: "saving_point" }), undefined).activeIndex, 3)
   assert.equal(automaticPhase(auto({ state: "ramping_down" }), undefined).labels[4], "下电中")
+  assert.equal(automaticPhase(auto({ state: "waiting_stable" }), undefined).labels[2], "稳定")
   assert.equal(automaticPhase(auto({ state: "paused" }), undefined).labels[2], "已暂停")
   assert.equal(automaticPhase(auto({ state: "completed", terminalOutcome: "succeeded" }), shutdown(false)).complete, false)
   const completed = automaticPhase(auto({ state: "completed", terminalOutcome: "succeeded", savedPointCount: 3 }), shutdown(true))

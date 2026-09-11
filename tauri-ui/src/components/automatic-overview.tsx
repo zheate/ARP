@@ -5,10 +5,44 @@ import { automaticPhase, automaticStabilityPresentation, automaticStoragePresent
 import { automaticTerminalTitle, shutdownPresentation } from "@/lib/safety-state"
 import type { AppConfiguration, BackendSnapshot, DeviceSnapshot } from "@/lib/backend"
 
+function useCurrentSetNotice(auto: BackendSnapshot["automaticTest"] | undefined) {
+  const currentA = auto?.currentA ?? auto?.currents?.[auto.currentIndex ?? -1]
+  const pointKey = typeof currentA === "number" && Number.isFinite(currentA)
+    ? `${auto?.currentIndex ?? -1}:${currentA}` : null
+  const setting = auto?.state === "setting_current"
+  const active = ["setting_current", "waiting_stable", "waiting_voltage", "saving_point"].includes(auto?.state ?? "")
+  const available = auto !== undefined
+  const previous = useRef<{ pointKey: string | null; setting: boolean } | null>(null)
+  const [notice, setNotice] = useState<{ pointKey: string; label: string } | null>(null)
+
+  useEffect(() => {
+    const last = previous.current
+    previous.current = available ? { pointKey, setting } : null
+    if (!active || pointKey === null || currentA === undefined || currentA === null) {
+      setNotice(null)
+      return
+    }
+    // A fast set command can finish between snapshots. A changed test point
+    // still announces its target, while ordinary status refreshes leave it alone.
+    if ((setting && !last?.setting) || (last && last.pointKey !== pointKey)) {
+      setNotice({ pointKey, label: `set ${currentA.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 2, useGrouping: false })} A` })
+    }
+  }, [active, available, currentA, pointKey, setting])
+
+  useEffect(() => {
+    if (!notice) return
+    const timeout = window.setTimeout(() => setNotice(null), 3000)
+    return () => window.clearTimeout(timeout)
+  }, [notice])
+
+  return active && notice?.pointKey === pointKey ? notice?.label : null
+}
+
 export function AutomaticPhaseTrack({ snapshot }: { snapshot: BackendSnapshot | null }) {
   const auto = snapshot?.automaticTest
   const phase = automaticPhase(auto, snapshot?.safety.shutdown)
   const stability = automaticStabilityPresentation(auto, snapshot?.devices.powerMeter)
+  const currentNotice = useCurrentSetNotice(auto)
   const [recordedRecently, setRecordedRecently] = useState(false)
   const savedCount = auto?.savedPointCount ?? snapshot?.measurements?.stable.length ?? 0
   const previousSaved = useRef(savedCount)
@@ -45,8 +79,8 @@ export function AutomaticPhaseTrack({ snapshot }: { snapshot: BackendSnapshot | 
       {phase.dwell !== null && <small>停留 {Math.floor(phase.dwell * (auto?.currentDwellS ?? 0))} / {auto?.currentDwellS} s</small>}
     </span>
     <span className="automatic-phase-track__compact">{phase.labels[phase.activeIndex]}</span>
-    <div className="automatic-phase-track__stability" data-tone={stability.tone} title={stability.detail}>
-      <span className="automatic-phase-track__stability-state"><i aria-hidden="true" />{stability.label}</span>
+    <div className="automatic-phase-track__stability" data-tone={currentNotice ? "setting" : stability.tone} title={currentNotice ? `加电设定：${currentNotice}` : stability.detail}>
+      <span className="automatic-phase-track__stability-state"><i aria-hidden="true" />{currentNotice ?? stability.label}</span>
       <span className="automatic-phase-track__stability-time"><span>稳定后保持</span><strong>{stability.time}</strong></span>
     </div>
   </div>
@@ -58,7 +92,7 @@ export function PowerStabilityStatus({ meter, automatic }: { meter: DeviceSnapsh
     ? { ...progress, time: `稳定后保持 ${progress.time}` }
     : powerStabilityPresentation(meter)
   return <div className="power-stability-status" data-tone={status.tone} aria-label={`功率稳定状态：${status.label}，${status.time}`} title={automatic ? progress.detail : "稳定时间从本轮功率读数达到稳定后计算；读数中断、失稳或重新判稳后重新计时。"}>
-    <span><i aria-hidden="true" />{status.label}</span>
+    <span><i aria-hidden="true" /><span className="power-stability-status__label" title={status.label}>{status.label}</span></span>
     <span>{status.time}</span>
   </div>
 }

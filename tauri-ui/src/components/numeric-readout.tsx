@@ -8,16 +8,31 @@ export const NumericReadout = memo(function NumericReadout({ value }: { value: s
   const elements = useRef<Array<HTMLSpanElement | null>>([])
 
   useLayoutEffect(() => {
-    if (appearance.highlightChanges && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      for (const index of changedDigitIndexes(previous.current, value)) {
-        const element = elements.current[index]
-        if (!element) continue
-        element.getAnimations().forEach((animation) => animation.cancel())
-        const accent = getComputedStyle(element).getPropertyValue("--app-accent-strong").trim()
-        element.animate([{ color: accent, opacity: 1 }, { color: "inherit", opacity: 1 }], { duration: 180, easing: "ease-out" })
-      }
-    }
+    const changed = changedDigitIndexes(previous.current, value)
     previous.current = value
+    if (!appearance.highlightChanges || changed.length === 0) return
+
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    const animations: Animation[] = []
+    for (const index of changed) {
+      const element = elements.current[index]
+      if (!element) continue
+      const style = getComputedStyle(element)
+      // Keep the readout's hue and continuous shape while making the changed digit easier to spot.
+      const highlight = {
+        color: `color-mix(in srgb, ${style.color} 45%, ${style.getPropertyValue("--foreground").trim()} 55%)`,
+        textShadow: `0 0 0.16em color-mix(in srgb, ${style.color} 45%, transparent)`,
+      }
+      const keyframes = reducedMotion
+        ? [highlight, highlight]
+        : [
+            { ...highlight, offset: 0 },
+            { ...highlight, offset: 0.45, easing: "ease-out" },
+            { color: style.color, textShadow: style.textShadow, offset: 1 },
+          ]
+      animations.push(element.animate(keyframes, { duration: 700 }))
+    }
+    return () => animations.forEach((animation) => animation.cancel())
   }, [appearance.highlightChanges, value])
 
   return <span className="numeric-readout" aria-label={value}>

@@ -85,6 +85,7 @@ const CURVE_LINE_STYLE_STORAGE_KEY = "power-test.automatic-curve-line-style"
 const LATEST_POINT_MARKER_STORAGE_KEY = "power-test.latest-point-marker"
 const PLM_CHART_SERIES = {
   accent: "var(--chart-1)",
+  efficiency: "var(--chart-efficiency)",
   tan: "#d5a98b",
   olive: "#9a907c",
   green: "#70a58a",
@@ -168,7 +169,7 @@ function getStoredLatestPointMarkerStyle(): LatestPointMarkerStyle {
   if (typeof window === "undefined") return "point"
   try {
     const storedStyle = window.localStorage.getItem(LATEST_POINT_MARKER_STORAGE_KEY)
-    if (storedStyle === "point" || storedStyle === "paper-plane" || storedStyle === "paw") return storedStyle
+    if (storedStyle === "point" || storedStyle === "paper-plane" || storedStyle === "paw" || storedStyle === "comet" || storedStyle === "ecg") return storedStyle
   } catch {
     // Use the original point marker if storage is unavailable.
   }
@@ -1833,9 +1834,9 @@ function samePdSection(
     && left.points === right.points
 }
 
-function ChartLegend({ lines }: { lines: CanvasChartLine[] }) {
+function ChartLegend({ lines, stacked = false }: { lines: CanvasChartLine[]; stacked?: boolean }) {
   return (
-    <div aria-label="图例" className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+    <div aria-label="图例" className={`flex min-w-0 gap-x-4 gap-y-1 text-sm text-muted-foreground ${stacked ? "flex-col items-start" : "flex-wrap items-center"}`}>
       {lines.filter((line) => !line.hideLegend).map((line) => (
         <span className="flex items-center gap-1.5 whitespace-nowrap" key={line.key}>
           <svg aria-hidden="true" className="h-3.5 w-7 overflow-visible" viewBox="0 0 28 14">
@@ -1866,7 +1867,7 @@ function ChartLegend({ lines }: { lines: CanvasChartLine[] }) {
   )
 }
 
-const ChartPanel = memo(function ChartPanel({ title, subtitle, data = [], columns, xKey, lines, empty = "暂无实时数据", heightClassName, annotations, annotationLegend, stretch = false, compactHeader = false, hideHeader = false, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, preserveAllPoints = false, xLabel, xTickSuffix, yLabel }: {
+const ChartPanel = memo(function ChartPanel({ title, subtitle, data = [], columns, xKey, lines, empty = "暂无实时数据", heightClassName, annotations, annotationLegend, stretch = false, compactHeader = false, hideHeader = false, insetLegend = false, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, preserveAllPoints = false, xLabel, xTickSuffix, yLabel }: {
   title: string
   subtitle?: string
   data?: Array<Record<string, number | null>>
@@ -1880,6 +1881,7 @@ const ChartPanel = memo(function ChartPanel({ title, subtitle, data = [], column
   stretch?: boolean
   compactHeader?: boolean
   hideHeader?: boolean
+  insetLegend?: boolean
   xDomain?: [number, number]
   xTicks?: number[]
   yDomain?: [number, number]
@@ -1901,11 +1903,16 @@ const ChartPanel = memo(function ChartPanel({ title, subtitle, data = [], column
           {subtitle ? <small className="chart-panel-subtitle">{subtitle}</small> : <ChartLegend lines={lines} />}
         </CardHeader>
       )}
-      <CardContent className={`${stretch ? "min-h-0 flex-1" : heightClassName || (dataLength === 0 ? "h-40" : "h-56")} ${hideHeader ? "px-1.5 py-1.5" : "px-3 pb-1.5 pt-0"}`}>
+      <CardContent className={`relative ${stretch ? "min-h-0 flex-1" : heightClassName || (dataLength === 0 ? "h-40" : "h-56")} ${hideHeader ? "px-1.5 py-1.5" : "px-3 pb-1.5 pt-0"}`}>
         {dataLength === 0 ? (
           <div className="grid h-full min-h-[120px] place-items-center rounded-lg bg-background/30 text-xs text-muted-foreground/70">{empty}</div>
         ) : (
           <CanvasLineChart annotationLegend={annotationLegend} annotations={annotations} ariaLabel={`${title}曲线`} columns={columns} data={data} lines={lines} preserveAllPoints={preserveAllPoints} rightYDomain={rightYDomain} tightInsets={hideHeader} xDomain={xDomain} xKey={xKey} xLabel={xLabel} xTickSuffix={xTickSuffix} xTicks={xTicks} yDomain={yDomain} yLabel={yLabel} yMinimumLimit={yMinimumLimit} />
+        )}
+        {insetLegend && dataLength > 0 && (
+          <div className={`chart-inset-legend pointer-events-none absolute isolate top-5 z-[1] px-3 py-2 ${hideHeader ? "left-[70px]" : "left-[88px]"}`}>
+            <ChartLegend lines={lines} stacked />
+          </div>
         )}
       </CardContent>
     </Card>
@@ -1956,6 +1963,7 @@ const ChartPanel = memo(function ChartPanel({ title, subtitle, data = [], column
     && previous.stretch === next.stretch
     && previous.compactHeader === next.compactHeader
     && previous.hideHeader === next.hideHeader
+    && previous.insetLegend === next.insetLegend
     && previous.preserveAllPoints === next.preserveAllPoints
     && previous.xLabel === next.xLabel
     && previous.xTickSuffix === next.xTickSuffix
@@ -2059,7 +2067,7 @@ const AgingPowerChart = memo(function AgingPowerChart({ snapshot, smoothing = tr
 
 const powerEfficiencyLines: CanvasChartLine[] = [
   { key: "powerW", label: "功率 (W)", color: PLM_CHART_SERIES.accent, axisColor: PLM_CHART_SERIES.accent, showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 2.4, connectNulls: true },
-  { key: "efficiencyPercent", label: "效率 (%)", color: PLM_CHART_SERIES.blue, axisColor: PLM_CHART_SERIES.blue, yAxisId: "right", showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 2.4, connectNulls: true },
+  { key: "efficiencyPercent", label: "效率 (%)", color: PLM_CHART_SERIES.efficiency, axisColor: PLM_CHART_SERIES.efficiency, yAxisId: "right", showPoints: true, pointShape: "circle", pointStyle: "hollow", pointSize: 8, lineWidth: 2.4, connectNulls: true },
 ]
 
 const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, smoothing = true, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; smoothing?: boolean; stretch?: boolean; heightClassName?: string }) {
@@ -2081,7 +2089,7 @@ const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, smoo
       ...line,
       interpolation: line.key === "powerW" && smoothing ? "monotone" : "linear",
     })),
-    ...(referencePoints.length ? [{ key: "referencePowerW", label: "历史参考", color: HISTORY_CHART_SERIES.power, interpolation: smoothing ? "monotone" as const : "linear" as const, lineWidth: 1.2, dash: [4, 4], hideLegend: true }] : []),
+    ...(referencePoints.length ? [{ key: "referencePowerW", label: "历史参考", color: HISTORY_CHART_SERIES.power, interpolation: smoothing ? "monotone" as const : "linear" as const, lineWidth: 1.2, dash: [4, 4] }] : []),
   ]
   const currentDomain = useMemo<[number, number] | undefined>(() => {
     const currents = chartData
@@ -2115,6 +2123,7 @@ const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, smoo
       data={chartData}
       empty="完成稳定测试点后显示功率 / 效率"
       hideHeader
+      insetLegend
       lines={lines}
       stretch={stretch}
       heightClassName={heightClassName}
@@ -2228,7 +2237,7 @@ function LivePowerRecordingDot() {
   return <span aria-hidden="true" className={`automatic-metric-card__recording-dot ${visible ? "is-on" : "is-off"}`} />
 }
 
-function AutomaticMetricCard({ title, value, unit, valueTone = "muted", recording = false, onClick, className = "", footer }: {
+function AutomaticMetricCard({ title, value, unit, valueTone = "muted", recording = false, onClick, className = "", headerLeading, footer }: {
   title: string
   value: string
   unit: ReactNode
@@ -2236,6 +2245,7 @@ function AutomaticMetricCard({ title, value, unit, valueTone = "muted", recordin
   recording?: boolean
   onClick?: () => void
   className?: string
+  headerLeading?: ReactNode
   footer?: ReactNode
 }) {
   const clickable = Boolean(onClick)
@@ -2252,7 +2262,8 @@ function AutomaticMetricCard({ title, value, unit, valueTone = "muted", recordin
       role={clickable ? "button" : undefined}
       tabIndex={clickable ? 0 : undefined}
     >
-      <div aria-label={recording ? `${title}，实时记录中` : undefined} className="automatic-metric-card__title">
+      <div aria-label={recording ? `${title}，实时记录中` : undefined} className={`automatic-metric-card__title${headerLeading ? " automatic-metric-card__title--with-status" : ""}`}>
+        {headerLeading}
         {recording ? <LivePowerRecordingDot /> : null}
         <span>{title}</span>
       </div>
@@ -2267,6 +2278,7 @@ function AutomaticMetricCard({ title, value, unit, valueTone = "muted", recordin
 
 function RealtimeMetricCards({
   automatic,
+  compact = false,
   config,
   currentA,
   onOpenSpecifications,
@@ -2274,6 +2286,7 @@ function RealtimeMetricCards({
   spectrometer,
 }: {
   automatic?: BackendSnapshot["automaticTest"]
+  compact?: boolean
   config: AppConfiguration
   currentA?: number | null
   onOpenSpecifications?: () => void
@@ -2291,7 +2304,7 @@ function RealtimeMetricCards({
   const pibPass = pibPercent !== null && pibPercent >= config.pibMinimumPercent
 
   return (
-    <section className="automatic-metric-grid" aria-label="实时关键指标">
+    <section className={`automatic-metric-grid${compact ? " automatic-metric-grid--compact" : ""}`} aria-label="实时关键指标">
       <AutomaticMetricCard
         className="automatic-metric-card--power automatic-metric-card--title-below"
         title="实时功率"
@@ -2299,7 +2312,8 @@ function RealtimeMetricCards({
         unit={<>W @ <span className="automatic-metric-card__current">{formatTrimmedNumber(currentA, 2)} A</span></>}
         valueTone="warning"
         recording={Boolean(powerMeter?.running)}
-        footer={<PowerStabilityStatus automatic={automatic} meter={powerMeter} />}
+        headerLeading={compact ? <PowerStabilityStatus automatic={automatic} meter={powerMeter} /> : undefined}
+        footer={compact ? undefined : <PowerStabilityStatus automatic={automatic} meter={powerMeter} />}
       />
       <AutomaticMetricCard
         className="automatic-metric-card--title-below"
@@ -4063,7 +4077,7 @@ const AutomaticPage = memo(function AutomaticPage({
         />
       </section>
 
-      <section className={`automatic-chart-grid ${useSpectrometer ? "" : "without-spectrum"}`}>
+      <section className={`automatic-chart-grid ${useSpectrometer ? "automatic-chart-grid--compact-metrics" : "without-spectrum"}`}>
         <div className="automatic-chart-grid__power-row">
           <div className="automatic-power-chart">
             <PowerRealtimeChart automatic curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} snapshot={snapshot} smoothing={config.powerSmoothing ?? true} stretch />
@@ -4085,6 +4099,7 @@ const AutomaticPage = memo(function AutomaticPage({
         </div>
         {useSpectrometer && (
           <RealtimeMetricCards
+            compact
             automatic={snapshot?.automaticTest}
             config={config}
             currentA={liveCurrentA}

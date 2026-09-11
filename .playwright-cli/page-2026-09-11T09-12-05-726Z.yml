@@ -1,0 +1,244 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]: Power Test
+    - generic "测试阶段：稳定，当前第 4 / 6 点" [ref=e7]:
+      - list [ref=e8]:
+        - listitem [ref=e9]:
+          - generic [ref=e11]: 准备
+        - listitem [ref=e12]:
+          - generic [ref=e14]: 升流
+        - listitem [ref=e15]:
+          - generic [ref=e17]: 稳定
+        - listitem [ref=e18]:
+          - generic [ref=e20]: 记录
+        - listitem [ref=e21]:
+          - generic [ref=e23]: 完成
+      - strong [ref=e25]: 第 4 / 6 点
+      - generic "功率相对波动 ≤ 0.2%，判稳后连续保持 5 秒才继续；超限或采样中断后重新判稳、重新计时。功率已稳定，等待波长满足条件。" [ref=e26]:
+        - generic [ref=e27]: 等待波长稳定
+        - generic [ref=e29]:
+          - generic [ref=e30]: 稳定后保持
+          - strong [ref=e31]: 0.0 / 5 秒
+    - generic [ref=e32]:
+      - button "显示" [ref=e33] [cursor=pointer]
+      - button "保存设置" [disabled]
+      - button "急停" [ref=e35] [cursor=pointer]
+  - generic [ref=e36]:
+    - complementary [ref=e37]:
+      - navigation [ref=e38]:
+        - button "自动测试" [ref=e39] [cursor=pointer]
+        - button "手动配置" [disabled] [ref=e45]
+        - button "PD 采集" [ref=e52] [cursor=pointer]
+        - button "数据浏览" [disabled] [ref=e56]
+        - button "出货报告" [disabled] [ref=e61]
+        - button "系统设置" [active] [ref=e66] [cursor=pointer]
+      - generic "侧栏格言 Stay True" [ref=e71]:
+        - paragraph [ref=e73]: Stay True
+    - main [ref=e74]:
+      - generic [ref=e236]:
+        - generic [ref=e238]:
+          - heading "系统设置 / 外观" [level=1] [ref=e239]
+          - paragraph [ref=e240]: 选择后立即生效，自动保存。
+        - generic [ref=e241]:
+          - generic [ref=e242]:
+            - generic [ref=e243]:
+              - generic [ref=e244]:
+                - heading "主题配色" [level=2] [ref=e245]
+                - paragraph [ref=e246]: 选择适合当前环境的界面主题。
+              - group "界面明暗" [ref=e247]:
+                - button "深色" [pressed] [ref=e248] [cursor=pointer]
+                - button "浅色" [ref=e251] [cursor=pointer]
+            - group "主题配色" [ref=e258]:
+              - generic [ref=e260] [cursor=pointer]:
+                - radio "经典橙" [checked] [ref=e261]
+                - generic [aria-hidden] [ref=e262]:
+                  - generic [ref=e263]: "0.860"
+                  - generic [ref=e264]: W
+                - generic [ref=e265]: 经典橙
+              - generic [ref=e266] [cursor=pointer]:
+                - radio "极光蓝" [ref=e267]
+                - generic [aria-hidden] [ref=e268]:
+                  - generic [ref=e269]: "0.860"
+                  - generic [ref=e270]: W
+                - generic [ref=e271]: 极光蓝
+              - generic [ref=e272] [cursor=pointer]:
+                - radio "森林绿" [ref=e273]
+                - generic [aria-hidden] [ref=e274]:
+                  - generic [ref=e275]: "0.860"
+                  - generic [ref=e276]: W
+                - generic [ref=e277]: 森林绿
+              - generic [ref=e278] [cursor=pointer]:
+                - radio "鸢尾紫" [ref=e279]
+                - generic [aria-hidden] [ref=e280]:
+                  - generic [ref=e281]: "0.860"
+                  - generic [ref=e282]: W
+                - generic [ref=e283]: 鸢尾紫
+              - generic [ref=e284] [cursor=pointer]:
+                - radio "玫瑰" [ref=e285]
+                - generic [aria-hidden] [ref=e286]:
+                  - generic [ref=e287]: "0.860"
+                  - generic [ref=e288]: W
+                - generic [ref=e289]: 玫瑰
+              - generic [ref=e290] [cursor=pointer]:
+                - radio "石墨" [ref=e291]
+                - generic [aria-hidden] [ref=e292]:
+                  - generic [ref=e293]: "0.860"
+                  - generic [ref=e294]: W
+                - generic [ref=e295]: 石墨
+            - group "图表画布" [ref=e296]:
+              - paragraph [ref=e298]: 点击样式，右侧立即预览。
+              - generic [ref=e299]:
+                - generic [ref=e300] [cursor=pointer]:
+                  - radio "纯净" [ref=e301]
+                  - generic [aria-hidden]:
+                    - generic: 示例功率
+                  - generic [ref=e302]: 纯净
+                - generic [ref=e303] [cursor=pointer]:
+                  - radio "细网格" [checked] [ref=e304]
+                  - generic [aria-hidden]:
+                    - generic: 示例功率
+                  - generic [ref=e305]: 细网格
+                - generic [ref=e308] [cursor=pointer]:
+                  - radio "工程坐标纸" [ref=e309]
+                  - generic [aria-hidden]:
+                    - generic: 示例功率
+                  - generic [ref=e310]: 工程坐标纸
+            - generic [ref=e311]:
+              - generic [ref=e312]:
+                - generic [ref=e313]:
+                  - text: 网格浓度
+                  - status "网格浓度 30" [ref=e314]: 30%
+                - slider "网格浓度" [ref=e315] [cursor=pointer]: "30"
+              - generic [ref=e316]:
+                - generic [ref=e317]:
+                  - text: 曲线粗细
+                  - status "曲线粗细 1.8" [ref=e318]: 1.8 px
+                - slider "曲线粗细" [ref=e319] [cursor=pointer]: "1.8"
+            - generic [ref=e320]:
+              - generic [ref=e321]:
+                - generic [ref=e322]:
+                  - heading "曲线尾迹" [level=2] [ref=e323]
+                  - paragraph [ref=e324]: 自动测试最近 5 秒提亮，保留完整历史曲线。
+                - switch "曲线尾迹" [checked] [ref=e325] [cursor=pointer]
+              - generic [ref=e327]:
+                - generic [ref=e328]:
+                  - text: 尾迹时长
+                  - combobox "尾迹时长" [ref=e329]:
+                    - option "3 秒"
+                    - option "5 秒" [selected]
+                    - option "10 秒"
+                    - option "15 秒"
+                - generic [ref=e330]:
+                  - text: 曲线线型
+                  - combobox "自动测试功率实时曲线线型" [ref=e331]:
+                    - option "实线" [selected]
+                    - option "虚线"
+                    - option "点线"
+                - generic [ref=e332]:
+                  - text: 末端样式
+                  - combobox "自动测试功率实时曲线末端样式" [ref=e333]:
+                    - option "圆点" [selected]
+                    - option "纸飞机"
+                    - option "爪印"
+                    - option "彗星"
+                    - option "心电图"
+            - group "界面密度" [ref=e335]:
+              - paragraph [ref=e337]: 远看放大关键读数；顶部「显示」也可快速切换。
+              - generic [ref=e338]:
+                - generic [ref=e339] [cursor=pointer]:
+                  - radio "紧凑" [ref=e340]
+                  - generic [ref=e344]:
+                    - generic [ref=e345]: 实时功率
+                    - strong [ref=e346]: 0.860 W
+                  - generic [ref=e347]: 紧凑
+                - generic [ref=e348] [cursor=pointer]:
+                  - radio "舒展" [checked] [ref=e349]
+                  - generic [ref=e353]:
+                    - generic [ref=e354]: 实时功率
+                    - strong [ref=e355]: 0.860 W
+                  - generic [ref=e356]: 舒展
+                - generic [ref=e359] [cursor=pointer]:
+                  - radio "远看" [ref=e360]
+                  - generic [ref=e364]:
+                    - generic [ref=e365]: 实时功率
+                    - strong [ref=e366]: 0.860 W
+                  - generic [ref=e367]: 远看
+            - generic [ref=e368]:
+              - generic [ref=e369]:
+                - heading "数值变化提示" [level=2] [ref=e370]
+                - paragraph [ref=e371]: 可选 · 变化的数字短暂高亮，约 0.7 秒后恢复，位置保持不动。
+              - switch "数值变化提示" [ref=e372] [cursor=pointer]
+            - button "恢复外观默认值" [ref=e374] [cursor=pointer]
+          - complementary "外观即时预览" [ref=e378]:
+            - generic [ref=e379]:
+              - heading "即时预览" [level=2] [ref=e380]
+              - generic [ref=e381]: 示例数据
+            - generic [ref=e382]:
+              - generic [ref=e383]:
+                - strong [ref=e384]: Power Test
+                - generic [ref=e385]: 舒展
+              - generic [ref=e389]:
+                - generic [ref=e390]:
+                  - generic [ref=e391]: 当前样品
+                  - strong [ref=e392]: ARP-DEMO-001
+                - generic [ref=e393]:
+                  - generic [ref=e394]: 测试温度
+                  - generic [ref=e395]: 水冷 25°C
+              - generic [ref=e396]:
+                - strong [ref=e397]: 功率实时
+                - generic [ref=e398]: 最近 60 s · 尾迹 5 s
+              - generic [ref=e400]:
+                - img "外观示例功率曲线" [ref=e401]
+                - generic [ref=e402]: 示例功率
+              - generic [ref=e403]:
+                - generic [ref=e404]:
+                  - generic [ref=e405]: 实时功率
+                  - strong [ref=e406]:
+                    - text: "0.860"
+                    - generic [ref=e407]: W
+                - generic [ref=e408]:
+                  - generic [ref=e409]: 中心波长
+                  - strong [ref=e410]:
+                    - text: "976.200"
+                    - generic [ref=e411]: nm
+                - generic [ref=e412]:
+                  - generic [ref=e413]: FWHM
+                  - strong [ref=e414]:
+                    - text: "0.776"
+                    - generic [ref=e415]: nm
+                - generic [ref=e416]:
+                  - generic [ref=e417]: PIB
+                  - strong [ref=e418]:
+                    - text: "96.85"
+                    - generic [ref=e419]: "%"
+            - paragraph [ref=e420]: 细网格 · 舒展 · 尾迹 5 s
+            - generic [ref=e421]:
+              - generic [ref=e422]: 实时功率 · 数字变化示例
+              - strong [ref=e423]:
+                - generic "0.860" [ref=e424]:
+                  - generic [aria-hidden] [ref=e425]: "0"
+                  - generic [aria-hidden] [ref=e426]: .
+                  - generic [aria-hidden] [ref=e427]: "8"
+                  - generic [aria-hidden] [ref=e428]: "6"
+                  - generic [aria-hidden] [ref=e429]: "0"
+                - generic [ref=e430]: W
+              - paragraph [ref=e431]: 调整左侧选项，在这里查看效果。
+        - generic [ref=e432]:
+          - generic [ref=e438]:
+            - generic [ref=e439]: 软件授权
+            - generic [ref=e440]: 查看当前设备许可证及有效期。
+          - generic [ref=e442]:
+            - generic [ref=e447]:
+              - strong [ref=e448]: 许可证有效
+              - generic [ref=e449]: 演示模式
+            - generic [ref=e450]:
+              - generic [ref=e451]:
+                - term [ref=e452]: 到期日期
+                - definition [ref=e453]: 2099-12-31
+              - generic [ref=e454]:
+                - term [ref=e455]: 授权功能
+                - definition [ref=e456]: standard
+              - generic [ref=e457]:
+                - term [ref=e458]: 机器码
+                - definition [ref=e459]: ARP-DEMO-PREVIEW
+            - button "重新导入许可证" [ref=e460] [cursor=pointer]

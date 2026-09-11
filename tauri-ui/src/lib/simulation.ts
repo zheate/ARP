@@ -2,7 +2,7 @@ import type { AutomaticTerminalOutcome, BackendSnapshot } from "./backend"
 import { DEMO_SNAPSHOT } from "./demo-snapshot.ts"
 
 export const SIMULATION_SCENARIOS = [
-  { id: "normal", label: "正常测试", detail: "逐点升流、等稳、记录，完成后下电。" },
+  { id: "normal", label: "正常测试", detail: "逐点升流、稳定、记录，完成后下电。" },
   { id: "unstable", label: "功率不稳", detail: "第 2 点持续波动，等稳 8 秒后结束。" },
   { id: "saturated", label: "光谱饱和", detail: "第 2 点光谱削顶，阻止记录并结束。" },
   { id: "export-failed", label: "导出失败", detail: "完成采样后模拟导出失败，可重试。" },

@@ -63,6 +63,7 @@
 .automatic-phase-track__stability-state i { width: 0.4rem; height: 0.4rem; border-radius: 50%; background: currentColor; }
 .automatic-phase-track__stability[data-tone="success"] .automatic-phase-track__stability-state { color: var(--app-success); }
 .automatic-phase-track__stability[data-tone="warning"] .automatic-phase-track__stability-state { color: var(--app-warning); }
+.automatic-phase-track__stability[data-tone="setting"] .automatic-phase-track__stability-state { color: var(--primary); font-variant-numeric: tabular-nums; }
 .automatic-phase-track__stability-time { display: flex; align-items: baseline; gap: 0.5rem; color: var(--muted-foreground); }
 .automatic-phase-track__stability-time strong { min-width: 5rem; font-family: var(--font-din); font-variant-numeric: tabular-nums; font-size: 0.9rem; font-weight: 550; color: var(--foreground); }
 
@@ -146,6 +147,7 @@
 .device-info-tooltip__arrow { fill: var(--app-border-strong); }
 
 .automatic-chart-grid { gap: var(--workbench-gap); grid-template-rows: minmax(14rem, 0.95fr) auto minmax(20rem, 1.05fr); }
+.automatic-chart-grid--compact-metrics { grid-template-rows: minmax(14rem, 1.05fr) auto minmax(20rem, 1fr); }
 .automatic-chart-grid__power-row, .automatic-metric-grid { gap: var(--workbench-gap); }
 .automatic-chart-grid [data-slot="card-header"] { justify-content: space-between; gap: 1rem; padding: 0.75rem 0.875rem 0.25rem; }
 .chart-panel-heading { color: var(--foreground); font-size: 0.85rem; font-weight: 550; white-space: nowrap; }
@@ -161,6 +163,14 @@
 .automatic-metric-card__unit, .automatic-metric-card--power .automatic-metric-card__unit { font-size: 0.8rem; font-weight: 450; white-space: nowrap; }
 .automatic-metric-card__current { margin-left: 0.15rem; }
 .automatic-metric-card__recording-dot { width: 0.4rem; height: 0.4rem; }
+.automatic-metric-grid--compact .automatic-metric-card { gap: 0.1rem; padding-block: 0.4rem; }
+.automatic-metric-card__title--with-status { width: 100%; flex-shrink: 0; }
+.automatic-metric-card__title--with-status > span { flex-shrink: 0; }
+.automatic-metric-card__title--with-status .power-stability-status { order: 0; flex: 1 1 auto; min-width: 0; width: auto; margin-right: auto; flex-wrap: nowrap; justify-content: flex-start; gap: 0.4rem; }
+.automatic-metric-card__title--with-status .power-stability-status > span:first-child { min-width: 0; flex-shrink: 1; }
+.automatic-metric-card__title--with-status .power-stability-status > span:last-child { flex-shrink: 0; }
+.automatic-metric-card__title--with-status .power-stability-status i { flex-shrink: 0; }
+.automatic-metric-card__title--with-status .power-stability-status__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .power-stability-status { order: 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.25rem 0.7rem; width: 100%; color: var(--muted-foreground); font-size: 0.75rem; line-height: 1.35; font-variant-numeric: tabular-nums; }
 .power-stability-status > span { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
 .power-stability-status i { width: 0.35rem; height: 0.35rem; border-radius: 50%; background: currentColor; }
