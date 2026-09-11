@@ -54,7 +54,7 @@ export function AnimatedToastStack({ toasts, disabled = false, onDismiss }: Anim
   const reduce = useReducedMotion()
 
   return (
-    <ol aria-atomic="false" aria-live="polite" className="pointer-events-none fixed right-4 top-14 z-50 flex w-[min(420px,calc(100vw-2rem))] flex-col gap-2">
+    <ol aria-atomic="false" aria-live="polite" className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-[min(420px,calc(100vw-2rem))] flex-col gap-2">
       <AnimatePresence initial={false} mode="popLayout">
         {toasts.slice(-4).map((toast) => {
           const Icon = statusIcons[toast.status]

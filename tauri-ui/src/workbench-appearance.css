@@ -58,23 +58,24 @@
 .automatic-phase-track__count strong { font-family: var(--font-din); font-size: 0.9rem; font-weight: 550; color: var(--foreground); }
 .automatic-phase-track__compact { display: none; }
 
-.sample-nameplate { position: relative; z-index: 20; display: grid; grid-template-columns: minmax(210px, 1.65fr) minmax(110px, 0.8fr) minmax(100px, 0.7fr) minmax(120px, 0.9fr) minmax(170px, 1.3fr); align-items: center; flex-shrink: 0; gap: 0; padding: var(--workbench-padding) 0.5rem; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); }
-.sample-nameplate > div { min-width: 0; padding-inline: 1rem; }
-.sample-nameplate > div + div { border-left: 1px solid var(--border); }
-.sample-nameplate__identity::before { position: absolute; content: ""; top: 0.5rem; bottom: 0.5rem; left: 0.375rem; width: 3px; border-radius: 2px; background: var(--primary); }
-.sample-nameplate label { display: flex; align-items: center; gap: 0.25rem; margin-bottom: 0.4rem; font-size: 0.75rem; font-weight: 450; color: var(--muted-foreground); }
-.sample-nameplate label svg { display: none; }
-.sample-nameplate input { min-width: 0; height: 2.25rem; font-size: 1rem; padding-inline: 0.375rem; }
-.sample-nameplate .sample-nameplate__identity input { font-size: clamp(1.35rem, 1.9vw, 2rem); font-family: var(--font-din); font-weight: 600; letter-spacing: 0.015em; }
-.sample-nameplate[data-locked="true"] :is(input, button[aria-haspopup]) { opacity: 1; border-color: transparent; box-shadow: none; background: transparent; cursor: default; }
+.sample-nameplate { position: relative; z-index: 20; display: grid; grid-template-columns: minmax(180px, 220px) minmax(130px, 0.85fr) minmax(120px, 0.8fr) minmax(140px, 0.95fr) minmax(200px, 1.5fr); align-items: center; flex-shrink: 0; gap: 1rem; padding: 0.75rem 1.25rem; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); }
+.sample-nameplate > div { min-width: 0; }
+.sample-nameplate label { display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.35rem; font-size: 0.8125rem; font-weight: 500; color: var(--muted-foreground); }
+.sample-nameplate label svg { display: inline-block; }
+.sample-nameplate input,
+.sample-nameplate button[role="combobox"] { min-width: 0; height: 2.5rem; font-size: 0.95rem; padding-inline: 0.75rem; }
+.sample-nameplate input::placeholder { font-size: 0.9rem; opacity: 0.8; }
+.sample-nameplate .sample-nameplate__identity input { font-size: 1.05rem; font-family: var(--font-mono); font-weight: 600; letter-spacing: 0.02em; }
+.sample-nameplate[data-locked="true"] :is(input, button[role="combobox"]) { opacity: 1; border-color: transparent; box-shadow: none; background: transparent; cursor: default; }
 .sample-nameplate[data-locked="true"] input { padding-left: 0; }
-.sample-nameplate .automatic-setup-field--large-type button { font-size: 1rem; }
-:root[data-density="distant"] .sample-nameplate__identity input { font-size: 2.15rem; }
+.sample-nameplate .automatic-setup-field--large-type button { font-size: 0.95rem; height: 2.5rem; }
 
 .automatic-device-rail { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(165px, 0.9fr); align-items: stretch; flex-shrink: 0; gap: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); padding: 0.375rem 0; }
-.device-rail-item { display: flex; min-width: 0; align-items: center; gap: 0.9rem; text-align: left; padding: 0.625rem 1rem; background: transparent; border: 0; border-right: 1px solid var(--border); border-radius: 0; cursor: pointer; transition: background-color 140ms ease; }
-.device-rail-item:hover, .device-rail-item:focus-visible { background: var(--app-hover-soft); }
-.device-rail-item:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+.device-rail-item { position: relative; isolation: isolate; display: flex; min-width: 0; align-items: center; gap: 0.9rem; text-align: left; padding: 0.625rem 1rem; background: transparent; border: 0; border-right: 1px solid var(--border); border-radius: 0; cursor: pointer; }
+.device-rail-item::before { content: ""; position: absolute; z-index: -1; inset: 0 0.375rem; border-radius: var(--radius-md); pointer-events: none; transition: background-color 140ms ease; }
+.device-rail-item:hover::before, .device-rail-item:focus-visible::before { background: var(--app-hover-soft); }
+.device-rail-item:focus-visible { outline: none; }
+.device-rail-item:focus-visible::before { outline: 2px solid var(--primary); outline-offset: -2px; }
 .device-rail-item[aria-disabled="true"] { cursor: help; }
 .device-rail-item__icon { display: grid; place-items: center; width: 1.8rem; flex-shrink: 0; color: var(--app-text-secondary); }
 .device-rail-item__icon svg { width: 1.65rem; height: 1.65rem; }
@@ -98,7 +99,7 @@
 .device-info-tooltip p { margin: 0.75rem 0 0; font-size: 0.7rem; }
 .device-info-tooltip__arrow { fill: var(--app-border-strong); }
 
-.automatic-chart-grid { gap: var(--workbench-gap); grid-template-rows: minmax(10.5rem, 0.95fr) auto minmax(12rem, 1.05fr); }
+.automatic-chart-grid { gap: var(--workbench-gap); grid-template-rows: minmax(14rem, 0.95fr) auto minmax(20rem, 1.05fr); }
 .automatic-chart-grid__power-row, .automatic-metric-grid { gap: var(--workbench-gap); }
 .automatic-chart-grid [data-slot="card-header"] { justify-content: space-between; gap: 1rem; padding: 0.75rem 0.875rem 0.25rem; }
 .chart-panel-heading { color: var(--foreground); font-size: 0.85rem; font-weight: 550; white-space: nowrap; }
@@ -234,8 +235,8 @@ fieldset.appearance-section .appearance-help { clear: both; }
   .automatic-phase-track { gap: 0.65rem; }
   .automatic-phase-track__count { gap: 0.35rem; padding-left: 0.65rem; }
   .automatic-phase-track__count > span { display: none; }
-  .sample-nameplate { grid-template-columns: minmax(190px, 1.5fr) minmax(100px, 0.7fr) minmax(85px, 0.6fr) minmax(125px, 1fr) minmax(155px, 1.3fr); }
-  .sample-nameplate > div { padding-inline: 0.65rem; }
+  .sample-nameplate { gap: 0.85rem; }
+  .sample-nameplate > div { padding-inline: 0; }
   .device-rail-item { gap: 0.55rem; padding-inline: 0.75rem; }
   .device-rail-item__chevron { display: none; }
   .automatic-metric-card { padding-inline: 0.65rem; }
@@ -256,9 +257,7 @@ fieldset.appearance-section .appearance-help { clear: both; }
   .app-titlebar__actions [data-slot="button"] { padding-inline: 0.65rem; }
   .app-titlebar__actions .app-emergency-stop { min-width: 4.5rem; }
   .automatic-phase-track li { font-size: 0.65rem; }
-  .sample-nameplate { grid-template-columns: minmax(200px, 1.5fr) repeat(2, minmax(0, 1fr)); row-gap: 0.5rem; }
-  .sample-nameplate > div:nth-child(4) { border-left: 0; }
-  .sample-nameplate > div:last-child { grid-column: span 2; }
+  .sample-nameplate { gap: 0.75rem; }
   .automatic-device-rail { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .automatic-device-rail > .automatic-test-control-card { grid-column: 1 / -1; border-top: 1px solid var(--border); margin-top: 0.35rem; padding-block: 0.4rem; }
   .automatic-device-rail .automatic-test-control-card__content { flex-direction: row; gap: 1rem; align-items: center; }
@@ -287,10 +286,7 @@ fieldset.appearance-section .appearance-help { clear: both; }
   .automatic-device-rail { grid-template-columns: minmax(0, 1fr); }
   .device-rail-item { border-right: 0; border-bottom: 1px solid var(--border); }
   .device-rail-item__copy { flex-direction: row; justify-content: space-between; }
-  .sample-nameplate { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .sample-nameplate__identity { grid-column: 1 / -1; }
-  .sample-nameplate > div:nth-child(2), .sample-nameplate > div:nth-child(4) { border-left: 0; }
-  .sample-nameplate > div:last-child { grid-column: auto; }
+  .sample-nameplate { gap: 0.65rem; }
   .appearance-palette-heading { flex-wrap: wrap; }
   .appearance-palette { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .appearance-chart-thumbnail { height: 5rem; }
@@ -311,10 +307,10 @@ fieldset.appearance-section .appearance-help { clear: both; }
   .app-titlebar__brand { font-size: 1.4rem; }
   .app-shell .app-nav-item { font-size: 1rem; }
   .automatic-phase-track li { font-size: 0.8rem; }
-  .sample-nameplate { padding-block: 1.2rem; }
-  .sample-nameplate .sample-nameplate__identity input { font-size: 2.3rem; }
-  .sample-nameplate input, .sample-nameplate .automatic-setup-field--large-type button { font-size: 1.1rem; }
-  .sample-nameplate label { font-size: 0.85rem; }
+  .sample-nameplate { padding-block: 0.75rem; }
+  .sample-nameplate input, .sample-nameplate button[role="combobox"], .sample-nameplate .automatic-setup-field--large-type button { font-size: 0.95rem; height: 2.5rem; }
+  .sample-nameplate .sample-nameplate__identity input { font-size: 1.05rem; }
+  .sample-nameplate label { font-size: 0.8125rem; }
   .device-rail-item__copy strong { font-size: 1rem; }
   .device-rail-item__copy small, .device-rail-item__state { font-size: 0.85rem; }
   .chart-panel-heading { font-size: 1.05rem; }

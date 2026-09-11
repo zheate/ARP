@@ -1971,7 +1971,7 @@ const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, smoothin
       subtitle={automatic ? `最近 60 s${appearance.trailEnabled ? ` · 尾迹 ${appearance.trailSeconds} s` : ""}` : undefined}
       compactHeader
       data={powerData}
-      hideHeader={!automatic}
+      hideHeader
       xKey="elapsedS"
       lines={lines}
       stretch={stretch}
@@ -2089,6 +2089,7 @@ const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapshot, smoo
       compactHeader
       data={chartData}
       empty="完成稳定测试点后显示功率 / 效率"
+      hideHeader
       lines={lines}
       stretch={stretch}
       heightClassName={heightClassName}
@@ -2161,6 +2162,7 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, sm
     <ChartPanel
       title="光谱"
       compactHeader
+      hideHeader
       columns={spectrumData}
       xKey="wavelengthNm"
       xDomain={spectrumXDomain}
@@ -3935,12 +3937,12 @@ const AutomaticPage = memo(function AutomaticPage({
       {completed && snapshot ? <AutomaticCompletionSummary snapshot={snapshot} config={config} active={active} pending={pending} onNextDevice={onNextDevice} onViewData={onViewData} onRetryExport={onRetryExport} onChooseExportDirectory={onChooseExportDirectory} onShowDetails={onShowCompletion} /> :
       <div className="automatic-setup-panel sample-nameplate" data-locked={controlsLocked}>
 
-        <div className="sample-nameplate__identity space-y-1">
-          <Label className="text-xs text-muted-foreground" htmlFor="automatic-sn">
+        <div className="sample-nameplate__identity space-y-1.5 min-w-0">
+          <Label className="text-[13px] font-medium text-muted-foreground" htmlFor="automatic-sn">
             <QrCode className="mr-1 inline size-3.5" />当前样品
           </Label>
           <Input
-            className="h-9 text-[18px] md:text-[18px] leading-none font-mono rounded-lg"
+            className="h-10 text-base font-mono font-semibold rounded-lg"
             disabled={controlsLocked}
             aria-label="产品 SN"
             placeholder="输入产品 SN"
@@ -3950,12 +3952,12 @@ const AutomaticPage = memo(function AutomaticPage({
             value={config.sn}
           />
         </div>
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground" htmlFor="automatic-test-temperature">
+        <div className="space-y-1.5 min-w-0">
+          <Label className="text-[13px] font-medium text-muted-foreground" htmlFor="automatic-test-temperature">
             <Thermometer className="mr-1 inline size-3.5" />测试温度
           </Label>
           <Input
-            className="h-9 text-[18px] md:text-[18px] leading-none rounded-lg"
+            className="h-10 text-[15px] rounded-lg"
             disabled={controlsLocked}
             id="automatic-test-temperature"
             onChange={(event) => update("testTemperatureC", event.target.value)}
@@ -3963,33 +3965,34 @@ const AutomaticPage = memo(function AutomaticPage({
             value={config.testTemperatureC}
           />
         </div>
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground" htmlFor="automatic-station">
+        <div className="space-y-1.5 min-w-0">
+          <Label className="text-[13px] font-medium text-muted-foreground" htmlFor="automatic-station">
             <Milestone className="mr-1 inline size-3.5" />测试站别
           </Label>
           <Input
-            className="h-9 text-[18px] md:text-[18px] leading-none rounded-lg"
+            className="h-10 text-[15px] rounded-lg"
             disabled={controlsLocked}
             id="automatic-station"
             onChange={(event) => update("station", event.target.value)}
+            placeholder="例如：老化 / FT"
             value={config.station}
           />
         </div>
-        <div className="automatic-setup-field--large-type space-y-1 min-w-0">
-          <Label className="text-xs text-muted-foreground">
+        <div className="automatic-setup-field--large-type space-y-1.5 min-w-0">
+          <Label className="text-[13px] font-medium text-muted-foreground">
             <FileText className="mr-1 inline size-3.5" />脚本选择
           </Label>
           <NativeSelect disabled={controlsLocked || pending} value={config.selectedScriptId} onChange={onScriptSelect}>
             {availableTestScripts.map((script) => <option key={script.id} value={script.id}>{script.name}</option>)}
           </NativeSelect>
         </div>
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground" htmlFor="automatic-output-directory">
+        <div className="space-y-1.5 min-w-0">
+          <Label className="text-[13px] font-medium text-muted-foreground" htmlFor="automatic-output-directory">
             <FolderOpen className="mr-1 inline size-3.5" />输出目录
           </Label>
           <div className="flex items-center gap-1.5">
             <Input
-              className="h-9 min-w-0 flex-1 text-[18px] md:text-[18px] leading-none rounded-lg"
+              className="h-10 min-w-0 flex-1 text-[15px] rounded-lg"
               disabled={controlsLocked}
               id="automatic-output-directory"
               onChange={(event) => update("outputDir", event.target.value)}
@@ -3997,7 +4000,7 @@ const AutomaticPage = memo(function AutomaticPage({
               value={config.outputDir}
             />
             <Button
-              className="size-9 shrink-0 px-0"
+              className="size-10 shrink-0 px-0"
               disabled={controlsLocked}
               onClick={() => void chooseOutputDir()}
               size="sm"
