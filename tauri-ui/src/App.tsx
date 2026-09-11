@@ -1750,6 +1750,27 @@ function sameMeasurements(left: BackendSnapshot["measurements"], right: BackendS
     && left.spectrumPeaks === right.spectrumPeaks
 }
 
+function sameAutomaticStability(
+  left: BackendSnapshot["automaticTest"]["stability"],
+  right: BackendSnapshot["automaticTest"]["stability"],
+): boolean {
+  if (left === right) return true
+  if (!left || !right) return false
+  return left.elapsedS === right.elapsedS
+    && left.requiredS === right.requiredS
+    && left.holdElapsedS === right.holdElapsedS
+    && left.holdRequiredS === right.holdRequiredS
+    && left.powerStable === right.powerStable
+    && left.spanW === right.spanW
+    && left.spanLimitW === right.spanLimitW
+    && left.percent === right.percent
+    && left.limitPercent === right.limitPercent
+    && left.quality === right.quality
+    && left.hasReading === right.hasReading
+    && left.wavelengthRequired === right.wavelengthRequired
+    && left.wavelengthStable === right.wavelengthStable
+}
+
 function sameAutomaticTestState(
   left: BackendSnapshot["automaticTest"] | undefined,
   right: BackendSnapshot["automaticTest"] | undefined,
@@ -1759,6 +1780,7 @@ function sameAutomaticTestState(
   return left.state === right.state
     && left.detail === right.detail
     && left.elapsedS === right.elapsedS
+    && sameAutomaticStability(left.stability, right.stability)
     && left.runContext?.sn === right.runContext?.sn
     && left.runContext?.station === right.runContext?.station
     && left.runContext?.testTemperatureC === right.runContext?.testTemperatureC
@@ -2244,12 +2266,14 @@ function AutomaticMetricCard({ title, value, unit, valueTone = "muted", recordin
 }
 
 function RealtimeMetricCards({
+  automatic,
   config,
   currentA,
   onOpenSpecifications,
   powerMeter,
   spectrometer,
 }: {
+  automatic?: BackendSnapshot["automaticTest"]
   config: AppConfiguration
   currentA?: number | null
   onOpenSpecifications?: () => void
@@ -2275,7 +2299,7 @@ function RealtimeMetricCards({
         unit={<>W @ <span className="automatic-metric-card__current">{formatTrimmedNumber(currentA, 2)} A</span></>}
         valueTone="warning"
         recording={Boolean(powerMeter?.running)}
-        footer={<PowerStabilityStatus meter={powerMeter} />}
+        footer={<PowerStabilityStatus automatic={automatic} meter={powerMeter} />}
       />
       <AutomaticMetricCard
         className="automatic-metric-card--title-below"
@@ -4051,7 +4075,7 @@ const AutomaticPage = memo(function AutomaticPage({
                 unit={<>W @ <span className="automatic-metric-card__current">{formatTrimmedNumber(liveCurrentA, 2)} A</span></>}
                 valueTone="warning"
                 recording={Boolean(powerMeter?.running)}
-                footer={<PowerStabilityStatus meter={powerMeter} />}
+                footer={<PowerStabilityStatus automatic={snapshot?.automaticTest} meter={powerMeter} />}
               />
             )}
           </div>
@@ -4061,6 +4085,7 @@ const AutomaticPage = memo(function AutomaticPage({
         </div>
         {useSpectrometer && (
           <RealtimeMetricCards
+            automatic={snapshot?.automaticTest}
             config={config}
             currentA={liveCurrentA}
             onOpenSpecifications={() => setSpecificationsOpen(true)}

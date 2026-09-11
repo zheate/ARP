@@ -219,6 +219,23 @@ export interface BackendSnapshot {
     /** Backend monotonic duration, frozen when the worker finishes. */
     elapsedS?: number | null
     runContext?: Pick<AppConfiguration, "sn" | "station" | "testTemperatureC" | "selectedScriptId"> | null
+    stability?: {
+      powerStable: boolean
+      /** Continuous qualifying sample coverage, computed by the backend. */
+      elapsedS: number
+      requiredS: number
+      /** Continuous hold after stability acceptance; unavailable on older backends. */
+      holdElapsedS?: number
+      holdRequiredS?: number
+      spanW: number | null
+      spanLimitW: number | null
+      percent: number | null
+      limitPercent: number
+      quality: MeasurementQuality
+      hasReading: boolean
+      wavelengthRequired: boolean
+      wavelengthStable: boolean
+    }
     progress?: number
     pauseReason?: string
     pauseKind?: AutomaticPauseKind | null

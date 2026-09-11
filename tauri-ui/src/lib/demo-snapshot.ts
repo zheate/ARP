@@ -87,6 +87,12 @@ export const DEMO_SNAPSHOT: BackendSnapshot = {
   automaticTest: {
     state: "waiting_stable",
     detail: "示例数据预览",
+    stability: {
+      powerStable: true, elapsedS: 5, requiredS: 5, spanW: 0.003, spanLimitW: null,
+      holdElapsedS: 0, holdRequiredS: 5,
+      percent: 0.15, limitPercent: 0.2, quality: "live", hasReading: true,
+      wavelengthRequired: true, wavelengthStable: false,
+    },
     controlsEnabled: false,
     canStart: false,
     canEnd: true,
@@ -175,6 +181,7 @@ export function resetDemoRun(base: BackendSnapshot): BackendSnapshot {
       ...base.automaticTest,
       state: "idle",
       detail: "示例数据预览 · 可运行",
+      stability: undefined,
       canStart: true,
       canEnd: false,
       controlsEnabled: true,

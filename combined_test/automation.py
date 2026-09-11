@@ -11,7 +11,7 @@ from enum import Enum
 
 MAX_CURRENT_CENTIAMPS = 2000
 MIN_POWER_SUPPLY_COMMAND_INTERVAL_S = 1.1
-ORDINARY_AUTO_POST_STABLE_DELAY_S = 2.0
+ORDINARY_AUTO_POST_STABLE_DELAY_S = 5.0
 FINAL_AUTO_POST_STABLE_DELAY_S = 10.0
 CUSTOM_HOLD_RAMP_STEP_A = 0.5
 CUSTOM_HOLD_RAMP_INTERVAL_S = 0.5
@@ -20,6 +20,41 @@ MAX_CUSTOM_POINT_DWELL_S = 24.0 * 60.0 * 60.0
 POWER_DROP_PROTECTION_RELATIVE_FRACTION = 0.30
 POWER_DROP_PROTECTION_WINDOW_S = 5.0
 POWER_DROP_PROTECTION_CONFIRMATION_SAMPLES = 3
+
+
+class StableHoldTimer:
+    """Confirm stability using new samples and elapsed wall time together."""
+
+    def __init__(self, required_s: float, gap_limit_s: float) -> None:
+        self.required_s = required_s
+        self.gap_limit_s = gap_limit_s
+        self.reset()
+
+    def reset(self) -> None:
+        self.elapsed_s = 0.0
+        self._first_sample: float | None = None
+        self._started_at: float | None = None
+        self._last_sample: float | None = None
+        self._last_received: float | None = None
+
+    def observe(self, sample_s: float, received_at: float, now: float, *, stable: bool) -> float:
+        if not stable or not all(math.isfinite(value) for value in (sample_s, received_at, now)) or not 0 <= now - received_at <= self.gap_limit_s:
+            self.reset()
+            return 0.0
+        if (
+            self._last_sample is None or self._last_received is None
+            or not 0 <= sample_s - self._last_sample <= self.gap_limit_s
+            or not 0 <= received_at - self._last_received <= self.gap_limit_s
+        ):
+            self.reset()
+            self._first_sample = sample_s
+            self._started_at = now
+        elif sample_s == self._last_sample:
+            return self.elapsed_s
+        self._last_sample = sample_s
+        self._last_received = received_at
+        self.elapsed_s = min(self.required_s, max(0.0, sample_s - self._first_sample), max(0.0, now - self._started_at))
+        return self.elapsed_s
 
 
 class AutomaticTestState(str, Enum):

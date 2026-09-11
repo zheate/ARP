@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react"
 import { Check, CheckCircle2, ChevronRight, CircleAlert, Clock3, FileText, FolderOpen, Info, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { automaticPhase, automaticStoragePresentation, formatTestDuration, powerStabilityPresentation } from "@/lib/automatic-presentation"
+import { automaticPhase, automaticStabilityPresentation, automaticStoragePresentation, formatTestDuration, powerStabilityPresentation } from "@/lib/automatic-presentation"
 import { automaticTerminalTitle, shutdownPresentation } from "@/lib/safety-state"
 import type { AppConfiguration, BackendSnapshot, DeviceSnapshot } from "@/lib/backend"
 
 export function AutomaticPhaseTrack({ snapshot }: { snapshot: BackendSnapshot | null }) {
   const auto = snapshot?.automaticTest
   const phase = automaticPhase(auto, snapshot?.safety.shutdown)
+  const stability = automaticStabilityPresentation(auto, snapshot?.devices.powerMeter)
   const [recordedRecently, setRecordedRecently] = useState(false)
   const savedCount = auto?.savedPointCount ?? snapshot?.measurements?.stable.length ?? 0
   const previousSaved = useRef(savedCount)
@@ -44,12 +45,19 @@ export function AutomaticPhaseTrack({ snapshot }: { snapshot: BackendSnapshot | 
       {phase.dwell !== null && <small>停留 {Math.floor(phase.dwell * (auto?.currentDwellS ?? 0))} / {auto?.currentDwellS} s</small>}
     </span>
     <span className="automatic-phase-track__compact">{phase.labels[phase.activeIndex]}</span>
+    <div className="automatic-phase-track__stability" data-tone={stability.tone} title={stability.detail}>
+      <span className="automatic-phase-track__stability-state"><i aria-hidden="true" />{stability.label}</span>
+      <span className="automatic-phase-track__stability-time"><span>稳定后保持</span><strong>{stability.time}</strong></span>
+    </div>
   </div>
 }
 
-export function PowerStabilityStatus({ meter }: { meter: DeviceSnapshot | undefined }) {
-  const status = powerStabilityPresentation(meter)
-  return <div className="power-stability-status" data-tone={status.tone} aria-label={`功率稳定状态：${status.label}，${status.time}`} title="稳定时间从本轮功率读数达到稳定后计算；读数中断、失稳或重新判稳后重新计时。">
+export function PowerStabilityStatus({ meter, automatic }: { meter: DeviceSnapshot | undefined; automatic?: BackendSnapshot["automaticTest"] }) {
+  const progress = automaticStabilityPresentation(automatic, meter)
+  const status = automatic
+    ? { ...progress, time: `稳定后保持 ${progress.time}` }
+    : powerStabilityPresentation(meter)
+  return <div className="power-stability-status" data-tone={status.tone} aria-label={`功率稳定状态：${status.label}，${status.time}`} title={automatic ? progress.detail : "稳定时间从本轮功率读数达到稳定后计算；读数中断、失稳或重新判稳后重新计时。"}>
     <span><i aria-hidden="true" />{status.label}</span>
     <span>{status.time}</span>
   </div>

@@ -7,6 +7,7 @@ from combined_test.automation import (
     AutomaticTestSettings,
     AutomaticTestState,
     PowerDropProtectionDetector,
+    StableHoldTimer,
     automatic_post_stable_delay_s,
     build_custom_hold_ramp_currents,
     build_ramp_down_currents,
@@ -93,11 +94,36 @@ class PowerDropProtectionDetectorTests(unittest.TestCase):
         self.assertAlmostEqual(result.threshold_w, 0.015)
 
 
+class StableHoldTimerTests(unittest.TestCase):
+    def test_counts_only_fresh_stable_samples_after_acceptance(self) -> None:
+        timer = StableHoldTimer(5.0, 1.0)
+        for tick in range(11):
+            elapsed = tick / 2
+            self.assertEqual(timer.observe(elapsed, elapsed, elapsed, stable=False), 0.0)
+        for tick in range(11):
+            elapsed = 5.0 + tick / 2
+            self.assertEqual(timer.observe(elapsed, elapsed, elapsed, stable=True), tick / 2)
+            self.assertEqual(timer.observe(elapsed, elapsed, elapsed + 0.1, stable=True), tick / 2)
+
+    def test_resets_for_instability_gaps_reversed_time_and_invalid_samples(self) -> None:
+        for sample, received, now, stable in [(1.5, 1.5, 1.5, False), (4.0, 4.0, 4.0, True), (1.0, 1.0, 3.0, True), (0.0, 1.5, 1.5, True), (math.nan, 1.5, 1.5, True)]:
+            timer = StableHoldTimer(5.0, 1.0)
+            for elapsed in (0.0, 0.5, 1.0):
+                timer.observe(elapsed, elapsed, elapsed, stable=True)
+            self.assertEqual(timer.observe(sample, received, now, stable=stable), 0.0)
+
+    def test_sample_clock_cannot_fast_forward_actual_hold(self) -> None:
+        timer = StableHoldTimer(5.0, 1.0)
+        for tick in range(11):
+            self.assertEqual(timer.observe(tick / 2, 0.0, 0.0, stable=True), 0.0)
+
+
 class AutomaticCurrentSequenceTests(unittest.TestCase):
-    def test_post_stable_delay_is_two_seconds_except_for_final_point(self) -> None:
-        self.assertEqual(automatic_post_stable_delay_s(0, 3), 2.0)
-        self.assertEqual(automatic_post_stable_delay_s(1, 3), 2.0)
+    def test_final_point_requires_ten_seconds_and_other_points_require_five(self) -> None:
+        for index in range(2):
+            self.assertEqual(automatic_post_stable_delay_s(index, 3), 5.0)
         self.assertEqual(automatic_post_stable_delay_s(2, 3), 10.0)
+        self.assertEqual(automatic_post_stable_delay_s(0, 1), 10.0)
 
     def test_custom_points_preserve_currents_and_individual_dwell_times(self) -> None:
         settings = AutomaticTestSettings(

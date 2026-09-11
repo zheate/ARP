@@ -32,6 +32,7 @@ class StabilityResult:
     sample_count: int
     median_w: float
     stability_percent: float = math.nan
+    stable_duration_s: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -234,6 +235,42 @@ class PowerStabilityDetector:
     def reset(self) -> None:
         self._samples.clear()
 
+    def _stable_duration_s(self) -> float:
+        """Length of the latest qualifying sample suffix, for display only."""
+        if len(self._samples) < 2:
+            return 0.0
+        newest = self._samples[-1][0]
+        previous = newest
+        minimum = math.inf
+        maximum = -math.inf
+        mean = variance_sum = duration = 0.0
+        count = 0
+        for elapsed, power in reversed(self._samples):
+            if previous - elapsed > self.window_s * self.MAX_SAMPLE_GAP_FRACTION:
+                break
+            previous = elapsed
+            count += 1
+            minimum = min(minimum, power)
+            maximum = max(maximum, power)
+            delta = power - mean
+            mean += delta / count
+            variance_sum += delta * (power - mean)
+            if self.absolute_span_limit_w is not None:
+                limit = self.absolute_span_limit_w
+                if maximum - minimum > limit + max(1e-12, limit * 1e-12):
+                    break
+                qualifies = True
+            else:
+                percent = (
+                    2.0 * math.sqrt(max(0.0, variance_sum) / (count - 1)) / mean * 100.0
+                    if count > 1 and mean > 0.0 else math.inf
+                )
+                limit = self.stability_limit_percent
+                qualifies = percent <= limit + max(1e-12, limit * 1e-12)
+            if qualifies:
+                duration = newest - elapsed
+        return min(self.window_s, max(0.0, duration))
+
     def _result(
         self,
         *,
@@ -250,6 +287,7 @@ class PowerStabilityDetector:
             sample_count=len(self._samples),
             median_w=median_w,
             stability_percent=stability_percent,
+            stable_duration_s=self.window_s if stable else self._stable_duration_s(),
         )
 
     def add_sample(self, elapsed_s: float, power_w: float) -> StabilityResult:

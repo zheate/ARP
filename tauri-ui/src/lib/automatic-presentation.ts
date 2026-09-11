@@ -32,6 +32,7 @@ export function automaticPhase(auto: Automatic | undefined, shutdown: SafetyShut
   if (state === "setting_current") activeIndex = 1
   if (state === "waiting_stable") activeIndex = 2
   if (["waiting_voltage", "saving_point"].includes(state)) activeIndex = 3
+  if (state === "waiting_voltage" && auto?.stability?.holdRequiredS !== undefined) labels[3] = "保持"
   if (state === "waiting_voltage" && (auto?.currentDwellS ?? 0) > 0) labels[3] = "停留"
   if (state === "waiting_voltage" && auto?.runContext?.selectedScriptId === "aging") labels[3] = "老化"
   if (state === "paused") {
@@ -82,6 +83,48 @@ export function powerStabilityPresentation(meter: DeviceSnapshot | undefined) {
   const time = typeof elapsed === "number" && Number.isFinite(elapsed) && elapsed >= 0
     ? `持续 ${Math.floor(elapsed)} s` : "稳定时间待更新"
   return { label: "已稳定", time, tone: "success" }
+}
+
+export function automaticStabilityPresentation(auto: Automatic | undefined, meter?: DeviceSnapshot) {
+  const stability = auto?.stability
+  const state = auto?.state ?? "idle"
+  const result = (label: string, tone = "normal", time = "—", detail = "功率连续满足波动条件的时间") => ({ label, tone, time, detail })
+  if (state === "idle") return result("未开始")
+  if (auto?.runContext?.selectedScriptId === "aging") return result("定时老化", "normal", "—", "老化测试按设定时长运行")
+  if (!stability) {
+    const live = meter?.quality === "live" && meter.running !== false
+    return result(live ? meter.stable ? "已稳定" : "未稳定" : "等待采样", live ? meter.stable ? "success" : "warning" : "normal", "—", "当前后端未提供判稳累计时间。")
+  }
+
+  const required = stability.holdRequiredS
+  const holdElapsed = stability.holdElapsedS
+  if (typeof required !== "number" || !Number.isFinite(required) || required <= 0 || typeof holdElapsed !== "number" || !Number.isFinite(holdElapsed)) {
+    return result(stability.powerStable ? "已稳定" : "判稳中", stability.powerStable ? "success" : "warning", "—", "当前后端未提供稳定后的保持计时。")
+  }
+  const preparing = ["starting", "setting_current"].includes(state)
+  const sampling = ["waiting_stable", "waiting_voltage"].includes(state)
+  const usable = stability.hasReading && (!sampling || stability.quality === "live") && !preparing
+  const elapsed = usable && stability.powerStable ? Math.min(required, Math.max(0, holdElapsed)) : 0
+  const time = `${elapsed.toFixed(1)} / ${required} 秒`
+  const criterion = stability.spanLimitW === null
+    ? `相对波动 ≤ ${stability.limitPercent}%`
+    : `峰峰值 ≤ ${stability.spanLimitW} W`
+  const detail = `功率${criterion}，判稳后连续保持 ${required} 秒才继续；超限或采样中断后重新判稳、重新计时。`
+  if (preparing) return result("等待判稳", "normal", time, detail)
+  if (state === "paused") return result("已暂停", "warning", usable ? time : "—", detail)
+  if (["completed", "ramping_down"].includes(state)) {
+    return result(usable && stability.powerStable ? "末点已稳定" : "判稳已结束", usable && stability.powerStable ? "success" : "normal", usable ? time : "—", detail)
+  }
+  if (!usable) return result("等待采样", "warning", time, detail)
+  if (stability.powerStable) {
+    return stability.wavelengthRequired && !stability.wavelengthStable
+      ? result("等待波长稳定", "warning", time, `${detail}功率已稳定，等待波长满足条件。`)
+      : result(elapsed < required ? "稳定保持中" : "稳定保持完成", "success", time, detail)
+  }
+  const exceeds = stability.spanLimitW === null
+    ? stability.percent !== null && stability.percent > stability.limitPercent
+    : stability.spanW !== null && stability.spanW > stability.spanLimitW + 1e-12
+  return result(elapsed === 0 && exceeds ? "波动超限" : "判稳中", "warning", time, detail)
 }
 
 export function formatTestDuration(seconds: number | null | undefined): string {

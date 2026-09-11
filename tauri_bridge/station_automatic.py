@@ -14,11 +14,13 @@ from combined_test.automation import (
     AutomaticTestOrchestrator,
     AutomaticTestSettings,
     AutomaticTestState,
+    StableHoldTimer,
     FINAL_AUTO_POST_STABLE_DELAY_S,
     MIN_POWER_SUPPLY_COMMAND_INTERVAL_S,
     automatic_post_stable_delay_s,
     build_custom_hold_ramp_currents,
     build_ramp_down_currents,
+    build_test_currents,
     validate_automatic_test_settings,
 )
 from combined_test.automatic_samples import (
@@ -56,6 +58,8 @@ STANDARD_TEST_STABILITY_WINDOW_S = 5.0
 RELAXED_STABILITY_CURRENT_A = 2.0
 RELAXED_WAVELENGTH_STABILITY_TOLERANCE_NM = 0.5
 RELAXED_POWER_STABILITY_SPAN_W = 0.2
+LOW_POWER_STABILITY_SPAN_W = 0.1
+LOW_POWER_STABILITY_WINDOW_S = 10.0
 
 
 def automatic_wavelength_stability_tolerance_nm(current_a: float | None) -> float:
@@ -71,7 +75,9 @@ def automatic_wavelength_stability_tolerance_nm(current_a: float | None) -> floa
 
 
 def automatic_power_stability_span_limit_w(current_a: float | None) -> float | None:
-    """Allow up to 0.2 W peak-to-peak power movement at the 2 A point."""
+    """Use 0.1 W peak-to-peak below 2 A and 0.2 W at 2 A."""
+    if current_a is not None and 0.0 <= float(current_a) < RELAXED_STABILITY_CURRENT_A:
+        return LOW_POWER_STABILITY_SPAN_W
     if current_a is not None and math.isclose(
         float(current_a),
         RELAXED_STABILITY_CURRENT_A,
@@ -90,6 +96,17 @@ def automatic_stability_window_s(
     if str(selected_script_id).strip() == "standard":
         return STANDARD_TEST_STABILITY_WINDOW_S
     return float(configured_window_s)
+
+
+def automatic_power_stability_window_s(
+    selected_script_id: Any,
+    configured_window_s: Any,
+    current_a: float | None,
+) -> float:
+    """Require a full ten-second power window for points below 2 A."""
+    if current_a is not None and 0.0 <= float(current_a) < RELAXED_STABILITY_CURRENT_A:
+        return LOW_POWER_STABILITY_WINDOW_S
+    return automatic_stability_window_s(selected_script_id, configured_window_s)
 
 
 class StationAutomaticMixin:
@@ -571,9 +588,16 @@ class StationAutomaticMixin:
         )
         return validate_automatic_test_settings(
             settings,
-            stable_window_s=automatic_stability_window_s(
-                self.configuration.get("selectedScriptId", "standard"),
-                self.configuration["stableWindowS"],
+            stable_window_s=max(
+                automatic_stability_window_s(
+                    self.configuration.get("selectedScriptId", "standard"),
+                    self.configuration["stableWindowS"],
+                ),
+                automatic_power_stability_window_s(
+                    self.configuration.get("selectedScriptId", "standard"),
+                    self.configuration["stableWindowS"],
+                    build_test_currents(settings)[0],
+                ),
             ),
             post_stable_delay_s=FINAL_AUTO_POST_STABLE_DELAY_S,
             minimum_ramp_down_interval_s=(
@@ -763,15 +787,19 @@ class StationAutomaticMixin:
         if reader is None:
             raise RuntimeError("功率计采集线程未运行")
         reader.update_stability_settings(
-            automatic_stability_window_s(
+            automatic_power_stability_window_s(
                 self.configuration.get("selectedScriptId", "standard"),
                 self.configuration["stableWindowS"],
+                current_a,
             ),
             float(self.configuration["stabilityLimitPercent"]),
             automatic_power_stability_span_limit_w(current_a),
         )
         stability_generation = reader.reset_stability_window()
         with self._lock:
+            self.automatic_stability_generation = stability_generation
+            self.automatic_stability_reading = None
+            self.automatic_stable_hold_elapsed_s = 0.0
             spectrum_revision = self.spectrum_revision
         return stability_generation, spectrum_revision
 
@@ -782,6 +810,7 @@ class StationAutomaticMixin:
         spectrum_revision: int,
         use_spectrometer: bool,
         minimum_received_monotonic_s: float | None = None,
+        require_live: bool = False,
     ) -> tuple[PowerMeterReading, Any] | None:
         """Return a stable sample only when every input is from this setpoint."""
         with self._lock:
@@ -790,6 +819,21 @@ class StationAutomaticMixin:
             current_spectrum_revision = self.spectrum_revision
             power_received_at = self.latest_power_received_monotonic_s
             spectrum_received_at = self.latest_spectrum_received_monotonic_s
+            if require_live:
+                now = time.monotonic()
+                power_gap_s = max(1.0, float(self.configuration["powerMeterIntervalMs"]) * 3.0 / 1000.0)
+                spectrum_gap_s = max(1.0, float(self.configuration["spectrometerIntervalMs"]) * 3.0 / 1000.0)
+                if (
+                    self.power_meter_reader is None or not self.power_meter_reader.is_ready
+                    or power_received_at is None or not 0 <= now - power_received_at <= power_gap_s
+                    or reading is None or not math.isfinite(reading.power_w)
+                ):
+                    return None
+                if use_spectrometer and (
+                    self.spectrometer_reader is None or not self.spectrometer_reader.is_ready
+                    or spectrum_received_at is None or not 0 <= now - spectrum_received_at <= spectrum_gap_s
+                ):
+                    return None
 
         if (
             reading is None
@@ -854,12 +898,77 @@ class StationAutomaticMixin:
                 stability_generation=stability_generation,
                 spectrum_revision=spectrum_revision,
                 use_spectrometer=settings.use_spectrometer,
+                require_live=True,
             )
             if measurement is not None:
                 reading, frame = measurement
                 return reading, frame, stability_generation, spectrum_revision
             time.sleep(0.05)
         raise TimeoutError(f"{current_a:g} A 测试点等待稳定超时")
+
+    def _wait_for_automatic_stable_hold(
+        self,
+        settings: AutomaticTestSettings,
+        current_a: float,
+        index: int,
+        stability_generation: int,
+        spectrum_revision: int,
+    ) -> tuple[PowerMeterReading, Any]:
+        """Require an uninterrupted stable interval before reading voltage."""
+        required_s = automatic_post_stable_delay_s(index, len(self.automatic.currents))
+        dwell_s = self.automatic.current_dwell_s
+        timer = StableHoldTimer(required_s, max(1.0, float(self.configuration["powerMeterIntervalMs"]) * 3.0 / 1000.0))
+        started_at = time.monotonic()
+        self.automatic_hold_started_at = started_at
+        deadline = started_at + dwell_s + settings.point_timeout_s
+        next_sample_s = 1.0
+        while True:
+            paused_s = self._await_automatic_resume()
+            if paused_s is None or self._automatic_stop.is_set():
+                raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
+            if paused_s > 0.0:
+                timer.reset()
+                started_at += paused_s
+                deadline += paused_s
+                self.automatic_hold_started_at = started_at
+            with self._lock:
+                now = time.monotonic()
+                if self._automatic_stop.is_set():
+                    raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
+                if self.automatic.state == AutomaticTestState.PAUSED:
+                    continue
+                measurement = self._fresh_automatic_measurement(
+                    stability_generation=stability_generation,
+                    spectrum_revision=spectrum_revision,
+                    use_spectrometer=settings.use_spectrometer,
+                    require_live=True,
+                )
+                if measurement is None:
+                    timer.reset()
+                    self.automatic_stable_hold_elapsed_s = 0.0
+                    self.automatic.set_state(AutomaticTestState.WAITING_STABLE)
+                    self.automatic_detail = f"{current_a:g} A 波动超限或采样中断，重新判稳后保持 {required_s:g} 秒"
+                else:
+                    reading, frame = measurement
+                    elapsed_s = timer.observe(reading.elapsed_s, self.latest_power_received_monotonic_s, now, stable=True)
+                    self.automatic_stable_hold_elapsed_s = elapsed_s
+                    self.automatic_stability_reading = reading
+                    self.automatic.set_state(AutomaticTestState.WAITING_VOLTAGE)
+                    self.automatic_detail = f"{current_a:g} A 已稳定，保持 {elapsed_s:.1f} / {required_s:g} 秒"
+                    power_w = self._stable_power_w(reading)
+                    if self.stable_power_points.get(current_a) != power_w:
+                        self.stable_power_points[current_a] = power_w
+                        self.efficiency_points.pop(current_a, None)
+                        self.series_revisions["stable"] += 1
+                    if elapsed_s >= required_s and now - started_at >= dwell_s:
+                        return reading, frame
+            if now >= deadline:
+                raise TimeoutError(f"{current_a:g} A 测试点未能连续保持稳定 {required_s:g} 秒")
+            while self.automatic_sample_recorder is not None and dwell_s > 0 and next_sample_s <= min(dwell_s, now - started_at):
+                self._write_automatic_second_sample(point_index=index + 1, elapsed_s=next_sample_s, target_current_a=current_a)
+                next_sample_s += 1.0
+            if self._automatic_stop.wait(0.05):
+                raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
 
     @staticmethod
     def _stable_power_w(reading: PowerMeterReading) -> float:
@@ -976,107 +1085,9 @@ class StationAutomaticMixin:
         ) = self._wait_for_automatic_stability(settings, current_a)
 
         dwell_s = self.automatic.current_dwell_s
-        self.automatic_hold_started_at = time.monotonic()
-        stable_power_w = self._stable_power_w(stable_reading)
-        with self._lock:
-            self.stable_power_points[current_a] = stable_power_w
-            self.efficiency_points.pop(current_a, None)
-            self.series_revisions["stable"] += 1
-
-        def refresh_stable_point() -> None:
-            nonlocal stable_reading, stable_frame, stable_power_w
-            measurement = self._fresh_automatic_measurement(
-                stability_generation=stability_generation,
-                spectrum_revision=spectrum_revision,
-                use_spectrometer=settings.use_spectrometer,
-            )
-            if measurement is None:
-                return
-            stable_reading, stable_frame = measurement
-            next_power_w = self._stable_power_w(stable_reading)
-            if next_power_w == stable_power_w:
-                return
-            stable_power_w = next_power_w
-            with self._lock:
-                self.stable_power_points[current_a] = stable_power_w
-                self.series_revisions["stable"] += 1
-
-        self.automatic.set_state(AutomaticTestState.WAITING_VOLTAGE)
-        delay_started_at = time.monotonic()
-        with self._lock:
-            delay_spectrum_revision = self.spectrum_revision
-        if dwell_s > 0.0 and not self._wait_automatic_duration(
-            dwell_s,
-            sample_point_index=(index + 1 if self.automatic_sample_recorder is not None else None),
-            target_current_a=current_a,
-            on_tick=refresh_stable_point,
-        ):
-            raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
-        post_stable_delay_s = automatic_post_stable_delay_s(
-            index,
-            len(self.automatic.currents),
+        stable_reading, stable_frame = self._wait_for_automatic_stable_hold(
+            settings, current_a, index, stability_generation, spectrum_revision,
         )
-        remaining_post_stable_s = max(0.0, post_stable_delay_s - dwell_s)
-        if remaining_post_stable_s > 0.0 and not self._wait_automatic_duration(
-            remaining_post_stable_s,
-            on_tick=refresh_stable_point,
-        ):
-            raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
-
-        final_measurement = self._fresh_automatic_measurement(
-            stability_generation=stability_generation,
-            spectrum_revision=max(spectrum_revision, delay_spectrum_revision),
-            use_spectrometer=settings.use_spectrometer,
-            minimum_received_monotonic_s=delay_started_at,
-        )
-        if dwell_s > 0.0:
-            # Designated holds latch the first stable point, but both readers
-            # must still have produced data during the hold.
-            with self._lock:
-                power_progressed = bool(
-                    self.latest_power_received_monotonic_s is not None
-                    and self.latest_power_received_monotonic_s >= delay_started_at
-                )
-                spectrum_progressed = bool(
-                    not settings.use_spectrometer
-                    or (
-                        self.latest_spectrum_received_monotonic_s is not None
-                        and self.latest_spectrum_received_monotonic_s >= delay_started_at
-                        and self.spectrum_revision > delay_spectrum_revision
-                    )
-                )
-            if self.power_meter_reader is None or not power_progressed:
-                raise RuntimeError("读取电压前功率计数据未继续更新")
-            if settings.use_spectrometer and (self.spectrometer_reader is None or not spectrum_progressed):
-                raise RuntimeError("读取电压前光谱仪数据未继续更新")
-            if final_measurement is not None:
-                stable_reading, stable_frame = final_measurement
-        else:
-            # No designated hold: silently return to joint stability detection.
-            while final_measurement is None:
-                (
-                    stable_reading,
-                    stable_frame,
-                    stability_generation,
-                    spectrum_revision,
-                ) = self._wait_for_automatic_stability(
-                    settings,
-                    current_a,
-                    retry_reason="读取电压前测试点波动",
-                )
-                self.automatic.set_state(AutomaticTestState.WAITING_VOLTAGE)
-                delay_started_at = time.monotonic()
-                with self._lock:
-                    delay_spectrum_revision = self.spectrum_revision
-                if not self._wait_automatic_duration(post_stable_delay_s, on_tick=refresh_stable_point):
-                    raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
-                final_measurement = self._fresh_automatic_measurement(
-                    stability_generation=stability_generation,
-                    spectrum_revision=delay_spectrum_revision,
-                    use_spectrometer=settings.use_spectrometer,
-                    minimum_received_monotonic_s=delay_started_at,
-                )
-            stable_reading, stable_frame = final_measurement
 
         self._validate_automatic_spectrum(stable_frame)
         stable_power_w = self._stable_power_w(stable_reading)
@@ -1126,6 +1137,8 @@ class StationAutomaticMixin:
             test_station=str(self.configuration["station"]),
         )
         self.automatic.set_state(AutomaticTestState.SAVING_POINT)
+        with self._lock:
+            self.automatic_stability_reading = stable_reading
         while True:
             try:
                 self.record_store.queue(
@@ -1524,6 +1537,9 @@ class StationAutomaticMixin:
         self._export_generation += 1
         self.automatic = AutomaticTestOrchestrator()
         self.record_store = self._new_record_store()
+        self.automatic_stability_generation = None
+        self.automatic_stability_reading = None
+        self.automatic_stable_hold_elapsed_s = 0.0
         if clear_sn:
             self.configuration["sn"] = ""
         self.automatic_detail = "请输入下一台产品 SN" if clear_sn else "准备重新测试"

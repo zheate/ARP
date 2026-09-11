@@ -4,6 +4,7 @@ import tempfile
 import threading
 import time
 import unittest
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 from combined_test.automation import AutomaticTestSettings, AutomaticTestState
 from combined_test.concurrency import Signal
-from combined_test.core import WavelengthStabilityDetector
+from combined_test.core import PowerStabilityDetector, WavelengthStabilityDetector
 from combined_test.excel_export import ExcelTestRecord
 from combined_test.ch341_ports import Ch341DeviceDescriptor
 from combined_test.models import PowerMeterOption, PowerMeterReading, SpectrometerReading
@@ -77,6 +78,189 @@ class StationRuntimeTests(unittest.TestCase):
         self.assertFalse(hasattr(self.backend, "stations"))
         for removed in ("activeStation", "stations", "configurations"):
             self.assertNotIn(removed, snapshot)
+
+    def test_stability_snapshot_tracks_current_generation_and_survives_view_changes(self) -> None:
+        station = self.backend.runtime
+        station.automatic.currents = (0.6, 2.0)
+        station.automatic.current_index = 0
+        station.automatic.state = AutomaticTestState.WAITING_STABLE
+        station.power_meter_reader = MagicMock(is_ready=True)
+        station.power_meter_reader.reset_stability_window.return_value = 7
+        station._begin_automatic_measurement_window(0.6)
+        reading = PowerMeterReading(
+            elapsed_s=6.3, power_w=1.3, stable=False, stable_span_w=0.05,
+            stable_window_s=6.3, stable_median_w=1.3,
+            stability_generation=7, stable_duration_s=6.3,
+        )
+        station._on_power_reading(replace(reading, stability_generation=6))
+        self.assertFalse(self.backend.snapshot()["automaticTest"]["stability"]["hasReading"])
+        station._on_power_reading(reading)
+        for view in ("automatic", "manual", "automatic"):
+            progress = self.backend.snapshot({"view": view})["automaticTest"]["stability"]
+            self.assertEqual(progress["elapsedS"], 6.3)
+            self.assertEqual(progress["requiredS"], 10.0)
+            self.assertEqual(progress["spanLimitW"], 0.1)
+            self.assertEqual(progress["quality"], "live")
+            self.assertFalse(progress["powerStable"])
+        station._on_power_reading(replace(reading, stable_duration_s=9.96))
+        self.assertEqual(self.backend.snapshot()["automaticTest"]["stability"]["elapsedS"], 9.9)
+        station._on_power_reading(replace(reading, stable=True, stable_duration_s=10.0))
+        self.assertEqual(self.backend.snapshot()["automaticTest"]["stability"]["elapsedS"], 10.0)
+        station.automatic.current_index = 1
+        station.automatic.state = AutomaticTestState.SETTING_CURRENT
+        self.assertFalse(self.backend.snapshot()["automaticTest"]["stability"]["hasReading"])
+        station.power_meter_reader.reset_stability_window.return_value = 8
+        station._begin_automatic_measurement_window(2.0)
+        station.automatic.state = AutomaticTestState.WAITING_STABLE
+        station._on_power_reading(reading)
+        progress = self.backend.snapshot()["automaticTest"]["stability"]
+        self.assertEqual(progress["elapsedS"], 0.0)
+        self.assertEqual(progress["requiredS"], 5.0)
+        self.assertEqual(progress["spanLimitW"], 0.2)
+
+    def test_stability_snapshot_rejects_stale_data_and_freezes_on_pause_or_completion(self) -> None:
+        station = self.backend.runtime
+        station.automatic.currents = (0.6,)
+        station.automatic.current_index = 0
+        station.automatic.state = AutomaticTestState.WAITING_STABLE
+        station.power_meter_reader = MagicMock(is_ready=True)
+        station.power_meter_reader.reset_stability_window.return_value = 7
+        station._begin_automatic_measurement_window(0.6)
+        reading = PowerMeterReading(
+            elapsed_s=6.3, power_w=1.3, stable=False, stable_span_w=0.05,
+            stable_window_s=6.3, stable_median_w=1.3,
+            stability_generation=7, stable_duration_s=6.3,
+        )
+        station._on_power_reading(reading)
+        station.latest_power_received_monotonic_s -= 60
+        self.assertEqual(self.backend.snapshot()["automaticTest"]["stability"]["elapsedS"], 0.0)
+        station.automatic.state = AutomaticTestState.PAUSED
+        station._on_power_reading(replace(reading, stable_duration_s=0.0))
+        self.assertEqual(self.backend.snapshot()["automaticTest"]["stability"]["elapsedS"], 6.3)
+        station.automatic.state = AutomaticTestState.WAITING_STABLE
+        station._on_power_reading(replace(reading, stable=True, stable_duration_s=10.0))
+        station.automatic.state = AutomaticTestState.COMPLETED
+        station._on_power_reading(replace(reading, stable_duration_s=0.0))
+        progress = self.backend.snapshot()["automaticTest"]["stability"]
+        self.assertTrue(progress["powerStable"])
+        self.assertEqual(progress["elapsedS"], 10.0)
+
+    def _simulate_stable_hold(self, *, stable=lambda _t: True, samples=lambda _t: True, wave=lambda _t: True, spectral=False, dwell=0.0, pause=False, stop_at=None, full_point=False, point_count=2, index=0):
+        station = self.backend.runtime
+        clock = [0.0]
+        paused = [False]
+        settings = AutomaticTestSettings(use_spectrometer=spectral, point_timeout_s=20.0)
+        station.automatic.settings = settings
+        station.automatic.currents = (0.6, 2.0)[:point_count]
+        station.automatic.current_index = index
+        station.automatic.dwell_times_s = (dwell,) * point_count
+        current_a = station.automatic.current_a
+        station.automatic.state = AutomaticTestState.WAITING_VOLTAGE
+        station.automatic_stability_generation = 0
+        station.power_meter_reader = MagicMock(is_ready=True)
+        if spectral:
+            station.spectrometer_reader = MagicMock(is_ready=True)
+        voltage_times = []
+
+        def publish():
+            now = clock[0]
+            if samples(now):
+                station._on_power_reading(PowerMeterReading(now, 1.3, stable(now), 0.01, 10.0, 1.3))
+            if spectral:
+                station.latest_spectrum = SimpleNamespace(
+                    saturation=SimpleNamespace(saturated=False), stats=None, smsr=None,
+                    wavelength=[975.0, 976.0], intensity=[10.0, 20.0], peak_annotations=(),
+                )
+                station.latest_spectrum_received_monotonic_s = now
+                station.spectrum_revision += 1
+                station.latest_wavelength_stable = wave(now)
+
+        def advance(seconds):
+            clock[0] = round(clock[0] + seconds, 6)
+            publish()
+            return stop_at is not None and clock[0] >= stop_at
+
+        def resume():
+            if pause and not paused[0] and clock[0] >= 2:
+                paused[0] = True
+                clock[0] += 3
+                return 3.0
+            return 0.0
+
+        def read_voltage():
+            voltage_times.append(clock[0])
+            return 12.0
+
+        supply = MagicMock()
+        supply.read_output_voltage.side_effect = read_voltage
+        with (
+            patch("tauri_bridge.station_automatic.time.monotonic", side_effect=lambda: clock[0]),
+            patch.object(station, "_await_automatic_resume", side_effect=resume),
+            patch.object(station._automatic_stop, "wait", side_effect=advance),
+            patch.object(station, "_wait_for_automatic_acquisition"),
+            patch.object(station, "_set_automatic_current"),
+            patch.object(station, "_reserve_power_supply_command"),
+            patch.object(station, "_require_power_supply", return_value=supply),
+            patch.object(station.record_store, "queue"),
+        ):
+            publish()
+            if full_point:
+                with patch.object(station, "_wait_for_automatic_stability", return_value=(station.latest_power, None, 0, 0)):
+                    station._run_automatic_point(index, current_a, settings)
+            else:
+                station._wait_for_automatic_stable_hold(settings, current_a, index, 0, 0)
+            progress = self.backend.snapshot()["automaticTest"]["stability"]
+        return clock[0], progress, voltage_times
+
+    def test_voltage_and_record_wait_for_five_continuous_stable_seconds(self) -> None:
+        elapsed, progress, voltage_times = self._simulate_stable_hold(full_point=True)
+        self.assertEqual(elapsed, 5.0)
+        self.assertEqual(voltage_times, [5.0])
+        self.assertEqual(progress["holdElapsedS"], 5.0)
+        self.assertEqual(progress["holdRequiredS"], 5.0)
+
+    def test_final_point_waits_ten_seconds_and_reports_the_matching_target(self) -> None:
+        for point_count, index in ((1, 0), (2, 1)):
+            with self.subTest(point_count=point_count):
+                elapsed, progress, voltage_times = self._simulate_stable_hold(full_point=True, point_count=point_count, index=index)
+                self.assertEqual(elapsed, 10.0)
+                self.assertEqual(voltage_times, [10.0])
+                self.assertEqual(progress["holdElapsedS"], 10.0)
+                self.assertEqual(progress["holdRequiredS"], 10.0)
+
+    def test_final_point_instability_restarts_the_full_ten_seconds(self) -> None:
+        elapsed, progress, voltage_times = self._simulate_stable_hold(stable=lambda t: not 2 <= t < 3, full_point=True, index=1)
+        self.assertEqual(elapsed, 13.0)
+        self.assertEqual(voltage_times, [13.0])
+        self.assertEqual(progress["holdRequiredS"], 10.0)
+
+    def test_instability_during_hold_restarts_the_full_five_seconds(self) -> None:
+        elapsed, _, voltage_times = self._simulate_stable_hold(stable=lambda t: not 2 <= t < 3, full_point=True)
+        self.assertEqual(elapsed, 8.0)
+        self.assertEqual(voltage_times, [8.0])
+
+    def test_sampling_gap_during_hold_restarts_confirmation(self) -> None:
+        elapsed, _, _ = self._simulate_stable_hold(samples=lambda t: not 2 <= t < 4)
+        self.assertEqual(elapsed, 9.0)
+
+    def test_wavelength_instability_also_restarts_confirmation(self) -> None:
+        elapsed, _, _ = self._simulate_stable_hold(spectral=True, wave=lambda t: not 2 <= t < 3)
+        self.assertEqual(elapsed, 8.0)
+
+    def test_custom_dwell_must_finish_as_well_as_stability_confirmation(self) -> None:
+        elapsed, progress, _ = self._simulate_stable_hold(dwell=12.0)
+        self.assertEqual(elapsed, 12.0)
+        self.assertEqual(progress["holdElapsedS"], 5.0)
+
+    def test_pause_requires_a_new_stable_interval_after_resume(self) -> None:
+        elapsed, _, _ = self._simulate_stable_hold(pause=True)
+        self.assertGreaterEqual(elapsed, 10.0)
+
+    def test_confirmation_honors_stop_and_times_out_without_new_samples(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "自动测试已停止"):
+            self._simulate_stable_hold(stop_at=2.0)
+        with self.assertRaisesRegex(TimeoutError, "连续保持稳定 5 秒"):
+            self._simulate_stable_hold(samples=lambda t: t == 0)
 
     def test_run_summary_duration_is_live_then_freezes_and_context_is_copied(self) -> None:
         station = self.backend.runtime
@@ -169,6 +353,68 @@ class StationRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(automatic_power_stability_span_limit_w(2.0), 0.2)
         self.assertIsNone(automatic_power_stability_span_limit_w(2.01))
+
+    def test_low_current_power_stability_accepts_one_tenth_watt_after_ten_seconds(self) -> None:
+        station = self.backend.runtime
+        reader = MagicMock()
+        station.power_meter_reader = reader
+        station._begin_automatic_measurement_window(0.6)
+        detector = PowerStabilityDetector(*reader.update_stability_settings.call_args.args)
+
+        for elapsed_s in range(10):
+            power_w = 1.25 if elapsed_s % 2 == 0 else 1.35
+            self.assertFalse(detector.add_sample(float(elapsed_s), power_w).stable)
+
+        result = detector.add_sample(10.0, 1.35)
+        self.assertTrue(result.stable)
+        self.assertAlmostEqual(result.span_w, 0.1)
+        self.assertGreater(result.stability_percent, 0.2)
+        self.assertEqual(result.window_s, 10.0)
+        self.assertFalse(detector.add_sample(11.0, 1.351).stable)
+        for elapsed_s in range(12, 22):
+            self.assertFalse(detector.add_sample(float(elapsed_s), 1.25).stable)
+        self.assertTrue(detector.add_sample(22.0, 1.25).stable)
+
+    def test_point_specific_power_limits_are_reset_when_current_changes(self) -> None:
+        station = self.backend.runtime
+        reader = MagicMock()
+        station.power_meter_reader = reader
+
+        for script_id, normal_window_s in (("standard", 5.0), ("hold-points", 3.0)):
+            station.configuration["selectedScriptId"] = script_id
+            for current_a, expected_span_w, expected_window_s in (
+                (0.1, 0.1, 10.0), (0.6, 0.1, 10.0), (0.59, 0.1, 10.0),
+                (0.7, 0.1, 10.0), (1.0, 0.1, 10.0), (1.99, 0.1, 10.0),
+                (2.0, 0.2, normal_window_s), (2.01, None, normal_window_s),
+                (None, None, normal_window_s), (0.6, 0.1, 10.0),
+            ):
+                with self.subTest(script_id=script_id, current_a=current_a):
+                    reader.reset_mock()
+                    station._begin_automatic_measurement_window(current_a)
+                    reader.update_stability_settings.assert_called_once_with(
+                        expected_window_s, 0.2, expected_span_w,
+                    )
+                    reader.reset_stability_window.assert_called_once_with()
+
+    def test_low_current_point_timeout_allows_ten_second_stability_window(self) -> None:
+        station = self.backend.runtime
+        station.configuration.update({"initialCurrentA": 0.6, "pointTimeoutS": 19.9})
+        with self.assertRaisesRegex(ValueError, "单点超时不能小于 20.0 s"):
+            station._automatic_settings()
+        station.configuration["pointTimeoutS"] = 20.0
+        self.assertEqual(station._automatic_settings().point_timeout_s, 20.0)
+
+        station.configuration.update({"initialCurrentA": 2.0, "pointTimeoutS": 15.0})
+        self.assertEqual(station._automatic_settings().point_timeout_s, 15.0)
+
+        # A custom hold at 2 A only passes through low currents while ramping.
+        station.power_supply_kind = "tdk"
+        station.configuration.update({
+            "initialCurrentA": 0.6,
+            "currentPlanMode": "custom",
+            "customCurrentPoints": [{"currentA": 2.0, "dwellS": 5.0}],
+        })
+        self.assertEqual(station._automatic_settings().point_timeout_s, 15.0)
 
     def test_two_amp_monotonic_wavelength_drift_is_not_stable(self) -> None:
         detector = WavelengthStabilityDetector(

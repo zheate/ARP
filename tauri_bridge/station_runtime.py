@@ -163,6 +163,9 @@ class StationRuntime(StationAutomaticMixin):
         self._manual_voltage_timer_generation = 0
 
         self.automatic = AutomaticTestOrchestrator()
+        self.automatic_stability_generation: int | None = None
+        self.automatic_stability_reading: PowerMeterReading | None = None
+        self.automatic_stable_hold_elapsed_s = 0.0
         self.automatic_detail = "准备测试"
         self.status_message = "准备测试"
         self.automatic_started_at: float | None = None
@@ -898,6 +901,14 @@ class StationRuntime(StationAutomaticMixin):
                     self.power_stable_started_elapsed_s = reading.elapsed_s
                 self.power_stable_elapsed_s = math.floor(max(0.0, reading.elapsed_s - self.power_stable_started_elapsed_s))
             self.latest_power = reading
+            if (
+                self.automatic.state in {
+                    AutomaticTestState.WAITING_STABLE,
+                    AutomaticTestState.WAITING_VOLTAGE,
+                }
+                and reading.stability_generation == self.automatic_stability_generation
+            ):
+                self.automatic_stability_reading = reading
             self.latest_power_received_monotonic_s = received_at
             self.latest_power_sampled_at_utc = datetime.now(timezone.utc).isoformat(
                 timespec="milliseconds"

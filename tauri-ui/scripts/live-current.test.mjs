@@ -86,27 +86,46 @@ test("memoized automatic page refreshes when only measured supply current change
   assert.equal(AutomaticPage.compare(previous, next), false)
 })
 
-test("both automatic layouts display stable duration and clear it for stale readings", () => {
+const stability = {
+  powerStable: false, elapsedS: 6.3, requiredS: 10, holdElapsedS: 0, holdRequiredS: 5, spanW: 0.05, spanLimitW: 0.1,
+  percent: 2, limitPercent: 0.2, quality: "live", hasReading: true,
+  wavelengthRequired: false, wavelengthStable: false,
+}
+
+test("both automatic layouts show five seconds of confirmation after acceptance", () => {
   for (const spectrum of [false, true]) {
-    const props = pageProps({ spectrum, state: "waiting_voltage" })
-    Object.assign(props.snapshot.devices.powerMeter, { stable: true, stableElapsedS: 7, quality: "live" })
+    const props = pageProps({ spectrum, state: "waiting_stable" })
+    props.snapshot.automaticTest.stability = { ...stability }
+    Object.assign(props.snapshot.devices.powerMeter, { stable: false, stableElapsedS: null, quality: "live" })
     let html = renderToStaticMarkup(createElement(AutomaticPage, props))
-    assert.match(html, /功率稳定状态：已稳定，持续 7 s/)
+    assert.match(html, /功率稳定状态：判稳中，稳定后保持 0.0 \/ 5 秒/)
+    props.snapshot.automaticTest.state = "waiting_voltage"
+    Object.assign(props.snapshot.automaticTest.stability, { powerStable: true, elapsedS: 10, holdElapsedS: 2.3 })
+    Object.assign(props.snapshot.devices.powerMeter, { stable: true, stableElapsedS: 97 })
+    html = renderToStaticMarkup(createElement(AutomaticPage, props))
+    assert.match(html, /功率稳定状态：稳定保持中，稳定后保持 2.3 \/ 5 秒/)
+    assert.doesNotMatch(html, /持续 97 s/)
+    props.snapshot.automaticTest.stability.quality = "stale"
     props.snapshot.devices.powerMeter.quality = "stale"
     html = renderToStaticMarkup(createElement(AutomaticPage, props))
-    assert.match(html, /功率稳定状态：采样中断，稳定时间 --/)
-    assert.doesNotMatch(html, /持续 7 s/)
+    assert.match(html, /功率稳定状态：等待采样，稳定后保持 0.0 \/ 5 秒/)
+    props.snapshot.automaticTest.state = "setting_current"
+    props.snapshot.automaticTest.stability = { ...stability }
+    html = renderToStaticMarkup(createElement(AutomaticPage, props))
+    assert.match(html, /功率稳定状态：等待判稳，稳定后保持 0.0 \/ 5 秒/)
   }
 })
 
-test("memoized automatic page refreshes when only stable duration changes", () => {
+test("memoized automatic page refreshes when only qualifying stability data changes", () => {
   const previous = pageProps()
-  const next = {
-    ...previous,
-    snapshot: {
-      ...previous.snapshot,
-      devices: { ...previous.snapshot.devices, powerMeter: { ...previous.snapshot.devices.powerMeter, stableElapsedS: 9 } },
-    },
+  previous.snapshot.automaticTest.stability = { ...stability }
+  for (const patch of [{ holdElapsedS: 2.3 }, { holdRequiredS: 6 }, { elapsedS: 7.1 }, { requiredS: 5 }, { powerStable: true }, { quality: "stale" }, { hasReading: false }, { wavelengthRequired: true }, { wavelengthStable: true }]) {
+    const next = {
+      ...previous,
+      snapshot: { ...previous.snapshot, automaticTest: { ...previous.snapshot.automaticTest, stability: { ...stability, ...patch } } },
+    }
+    assert.equal(AutomaticPage.compare(previous, next), false)
   }
-  assert.equal(AutomaticPage.compare(previous, next), false)
+  const unchanged = { ...previous, snapshot: { ...previous.snapshot, automaticTest: { ...previous.snapshot.automaticTest, stability: { ...stability } } } }
+  assert.equal(AutomaticPage.compare(previous, unchanged), true)
 })

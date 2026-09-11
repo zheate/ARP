@@ -96,6 +96,7 @@ class PowerMeterReading:
     stability_generation: int = 0
     stability_percent: float = math.nan
     stability_limit_percent: float = math.nan
+    stable_duration_s: float = 0.0
 
 
 @dataclass(frozen=True)

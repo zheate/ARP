@@ -13,6 +13,40 @@ from combined_test.core import (
 
 
 class PowerStabilityDetectorTests(unittest.TestCase):
+    def test_qualifying_duration_tracks_samples_then_resets_on_excursion(self) -> None:
+        detector = PowerStabilityDetector(10.0, 0.2, absolute_span_limit_w=0.1)
+        for elapsed in (0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.3):
+            result = detector.add_sample(elapsed, 1.3)
+        self.assertFalse(result.stable)
+        self.assertAlmostEqual(result.stable_duration_s, 6.3)
+        result = detector.add_sample(7.0, 1.41)
+        self.assertFalse(result.stable)
+        self.assertEqual(result.stable_duration_s, 0.0)
+        result = detector.add_sample(8.0, 1.41)
+        self.assertEqual(result.stable_duration_s, 1.0)
+        for elapsed in range(9, 18):
+            result = detector.add_sample(float(elapsed), 1.41)
+        self.assertTrue(result.stable)
+        self.assertEqual(result.stable_duration_s, 10.0)
+
+    def test_qualifying_duration_does_not_count_sampling_gaps_or_old_clocks(self) -> None:
+        detector = PowerStabilityDetector(10.0, 0.2, absolute_span_limit_w=0.1)
+        for elapsed in (0.0, 1.0, 2.0, 8.0, 9.0):
+            result = detector.add_sample(elapsed, 1.3)
+        self.assertEqual(result.stable_duration_s, 1.0)
+        self.assertEqual(detector.add_sample(0.0, 1.3).stable_duration_s, 0.0)
+        self.assertEqual(detector.add_sample(1.0, 1.3).stable_duration_s, 1.0)
+        self.assertEqual(detector.add_sample(2.0, math.nan).stable_duration_s, 0.0)
+        self.assertEqual(detector.add_sample(3.0, 1.3).stable_duration_s, 0.0)
+
+    def test_relative_duration_uses_relative_limit_and_actual_sample_time(self) -> None:
+        detector = PowerStabilityDetector(5.0, 0.2)
+        for elapsed in (0.0, 1.0, 2.0, 3.0, 4.2):
+            result = detector.add_sample(elapsed, 10.0)
+        self.assertAlmostEqual(result.stable_duration_s, 4.2)
+        self.assertFalse(result.stable)
+        self.assertEqual(detector.add_sample(4.3, 12.0).stable_duration_s, 0.0)
+
     def test_absolute_span_mode_accepts_two_tenths_watt_peak_to_peak(self) -> None:
         detector = PowerStabilityDetector(
             window_s=5.0,

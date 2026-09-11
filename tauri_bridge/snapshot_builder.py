@@ -8,10 +8,11 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-from combined_test.automation import AutomaticTestState
+from combined_test.automation import AutomaticTestState, ORDINARY_AUTO_POST_STABLE_DELAY_S, automatic_post_stable_delay_s
 from combined_test.runtime_logging import runtime_log_path
 from combined_test.spectrum import SPECTRUM_CENTER_LOCK_HALF_RANGE_NM
 
+from .station_automatic import automatic_power_stability_span_limit_w, automatic_power_stability_window_s
 from .station_support import (
     BUILTIN_TEST_SCRIPTS,
     device_state,
@@ -129,6 +130,48 @@ class SnapshotBuilder:
             saturated=spectrum_saturated,
         )
         automatic_readiness = active_st.automatic_readiness()
+        stability_reading = active_st.automatic_stability_reading
+        auto_state = active_st.automatic.state
+        if auto_state in {AutomaticTestState.IDLE, AutomaticTestState.STARTING, AutomaticTestState.SETTING_CURRENT}:
+            stability_reading = None
+        stability_window_s = automatic_power_stability_window_s(
+            active_st.configuration.get("selectedScriptId", "standard"),
+            active_st.configuration["stableWindowS"],
+            active_st.automatic.current_a,
+        )
+        stability_quality = (
+            power_freshness["quality"]
+            if stability_reading is active_st.latest_power else "stale"
+        )
+        if auto_state in {AutomaticTestState.WAITING_STABLE, AutomaticTestState.WAITING_VOLTAGE} and stability_quality != "live":
+            stability_reading = None
+        hold_required_s = (
+            automatic_post_stable_delay_s(active_st.automatic.current_index, len(active_st.automatic.currents))
+            if 0 <= active_st.automatic.current_index < len(active_st.automatic.currents)
+            else ORDINARY_AUTO_POST_STABLE_DELAY_S
+        )
+        automatic_stability = {
+            "powerStable": bool(stability_reading and stability_reading.stable),
+            "elapsedS": (
+                stability_window_s if stability_reading and stability_reading.stable else
+                math.floor(min(stability_window_s, max(0.0, stability_reading.stable_duration_s)) * 10 + 1e-9) / 10
+                if stability_reading else 0.0
+            ),
+            "requiredS": stability_window_s,
+            "holdElapsedS": (
+                math.floor(min(hold_required_s, max(0.0, active_st.automatic_stable_hold_elapsed_s)) * 10 + 1e-9) / 10
+                if stability_reading and stability_reading.stable else 0.0
+            ),
+            "holdRequiredS": hold_required_s,
+            "spanW": finite(stability_reading.stable_span_w) if stability_reading else None,
+            "spanLimitW": automatic_power_stability_span_limit_w(active_st.automatic.current_a),
+            "percent": finite(stability_reading.stability_percent) if stability_reading else None,
+            "limitPercent": float(active_st.configuration["stabilityLimitPercent"]),
+            "quality": stability_quality,
+            "hasReading": stability_reading is not None,
+            "wavelengthRequired": bool(active_st.automatic.settings and active_st.automatic.settings.use_spectrometer),
+            "wavelengthStable": bool(active_st.latest_wavelength_stable and spectrum_freshness["quality"] == "live"),
+        }
 
         raw_since = params.get("since")
         since_revisions = raw_since if isinstance(raw_since, dict) else None
@@ -358,6 +401,7 @@ class SnapshotBuilder:
                 "samplePath": active_st.automatic_sample_path,
                 "elapsedS": run_elapsed,
                 "runContext": dict(active_st.automatic_run_context) if active_st.automatic_run_context else None,
+                "stability": automatic_stability,
                 "progress": progress,
                 "pauseReason": active_st.automatic.pause_reason,
                 "pauseKind": active_st.automatic_pause_kind,

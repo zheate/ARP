@@ -28,6 +28,10 @@ test("hold uses real elapsed seconds and records each point exactly once after i
     assert.equal(snapshot.automaticTest.currentDwellS, DEMO_DWELL_S)
     assert.equal(snapshot.automaticTest.currentDwellElapsedS, Math.floor(seconds))
     assert.equal(snapshot.devices.powerMeter.stableElapsedS, Math.floor(seconds))
+    assert.equal(snapshot.automaticTest.stability?.elapsedS, snapshot.automaticTest.stability?.requiredS)
+    assert.equal(snapshot.automaticTest.stability?.powerStable, true)
+    assert.equal(snapshot.automaticTest.stability?.holdRequiredS, 5)
+    assert.equal(snapshot.automaticTest.stability?.holdElapsedS, Math.min(5, Math.floor(seconds * 10 + 1e-9) / 10))
     assert.equal(snapshot.automaticTest.savedPointCount, 0)
   }
   const recorded = demoRunSnapshot(DEMO_RUN_SNAPSHOT, firstHold + DEMO_DWELL_S + 0.01)
@@ -43,4 +47,31 @@ test("hold uses real elapsed seconds and records each point exactly once after i
   // Slow or repeated refreshes must produce the same outcome without accumulating writes.
   assert.deepEqual(demoRunSnapshot(DEMO_RUN_SNAPSHOT, DEMO_RUN_DURATION_S + 100), final)
   assert.equal(DEMO_RUN_SNAPSHOT.automaticTest.savedPointCount, 0)
+})
+
+test("preview qualifying time advances before acceptance and resets at the next point", () => {
+  const sampling = demoRunSnapshot(DEMO_RUN_SNAPSHOT, 1.9).automaticTest.stability!
+  assert.equal(sampling.elapsedS, 0.6)
+  assert.equal(sampling.powerStable, false)
+  assert.equal(sampling.holdElapsedS, 0)
+  const nextPoint = demoRunSnapshot(DEMO_RUN_SNAPSHOT, 10).automaticTest.stability!
+  assert.equal(nextPoint.elapsedS, 0)
+  assert.equal(nextPoint.hasReading, false)
+  assert.equal(nextPoint.holdElapsedS, 0)
+})
+
+test("preview final point stays unrecorded until its full ten-second confirmation", () => {
+  const finalHoldStart = 22.4
+  for (const seconds of [0, 5, 9.9]) {
+    const snapshot = demoRunSnapshot(DEMO_RUN_SNAPSHOT, finalHoldStart + seconds)
+    assert.equal(snapshot.automaticTest.currentIndex, 2)
+    assert.equal(snapshot.automaticTest.state, "waiting_voltage")
+    assert.equal(snapshot.automaticTest.savedPointCount, 2)
+    assert.equal(snapshot.automaticTest.stability?.holdRequiredS, 10)
+    assert.equal(snapshot.automaticTest.stability?.holdElapsedS, seconds)
+    assert.equal(snapshot.automaticTest.currentDwellElapsedS, Math.min(DEMO_DWELL_S, Math.floor(seconds)))
+  }
+  const saved = demoRunSnapshot(DEMO_RUN_SNAPSHOT, finalHoldStart + 10)
+  assert.equal(saved.automaticTest.savedPointCount, 3)
+  assert.equal(saved.automaticTest.stability?.holdElapsedS, 10)
 })

@@ -672,6 +672,7 @@ class PowerMeterReaderThread(WorkerThread):
                         stability_generation=generation,
                         stability_percent=stability.stability_percent,
                         stability_limit_percent=stability_limit_percent,
+                        stable_duration_s=stability.stable_duration_s,
                     )
                 )
                 next_poll_at += poll_interval_s
