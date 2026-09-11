@@ -1,0 +1,26 @@
+- main [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - heading "光谱连接效果对比" [level=1] [ref=e5]
+      - paragraph [ref=e6]: 同一组模拟采样数据 · 每个采样点保持不变
+    - generic [ref=e7]:
+      - heading "调整前 · 直线连接" [level=2] [ref=e8]
+      - generic [ref=e10]:
+        - img "调整前 · 直线连接" [ref=e11]
+        - generic [ref=e12]: 光谱
+    - generic [ref=e13]:
+      - heading "调整后 · 保形平滑连接" [level=2] [ref=e14]
+      - generic [ref=e16]:
+        - img "调整后 · 保形平滑连接" [ref=e17]
+        - generic [ref=e18]: 光谱
+    - generic [ref=e19]:
+      - generic [ref=e20]:
+        - heading "峰顶局部 · 调整前" [level=2] [ref=e21]
+        - generic [ref=e23]:
+          - img "峰顶局部 · 调整前" [ref=e24]
+          - generic [ref=e25]: 光谱
+      - generic [ref=e26]:
+        - heading "峰顶局部 · 调整后" [level=2] [ref=e27]
+        - generic [ref=e29]:
+          - img "峰顶局部 · 调整后" [ref=e30]
+          - generic [ref=e31]: 光谱

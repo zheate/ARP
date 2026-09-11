@@ -1,0 +1,103 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]: Power Test
+    - generic [ref=e7]:
+      - button "保存设置" [disabled]
+      - button "紧急停止" [ref=e8] [cursor=pointer]
+  - generic [ref=e9]:
+    - complementary [ref=e10]:
+      - navigation [ref=e11]:
+        - button "自动测试" [active] [ref=e12] [cursor=pointer]
+        - button "手动配置" [disabled] [ref=e18]
+        - button "PD 采集" [ref=e25] [cursor=pointer]
+        - button "数据浏览" [disabled] [ref=e29]
+        - button "出货报告" [disabled] [ref=e34]
+        - button "系统设置" [ref=e39] [cursor=pointer]
+      - generic [ref=e44]: 授权信息
+    - main [ref=e45]:
+      - generic [ref=e207]:
+        - generic [ref=e208]:
+          - generic [ref=e209]:
+            - generic [ref=e210]: 测试工位
+            - generic "测试工位" [ref=e213]:
+              - button "1" [pressed] [ref=e214] [cursor=pointer]
+              - button "2" [ref=e215] [cursor=pointer]
+          - generic [ref=e216]:
+            - generic [ref=e217]: 产品 SN
+            - textbox "产品 SN" [disabled]: DEMO-001
+          - generic [ref=e224]:
+            - generic [ref=e225]: 测试站别
+            - textbox "测试站别" [disabled]: 站别 1
+          - generic [ref=e228]:
+            - generic [ref=e229]: 历史参考
+            - combobox [disabled] [ref=e235]:
+              - generic [ref=e236]: 最新记录
+          - generic [ref=e239]:
+            - generic [ref=e240]: 输出目录
+            - generic [ref=e243]:
+              - textbox "输出目录" [disabled]:
+                - /placeholder: 测试数据保存目录
+                - text: /data/test/DEMO-001
+              - button "选择输出目录" [disabled]
+        - generic [ref=e244]:
+          - button "打开电源设置" [disabled] [ref=e245]:
+            - generic [ref=e250]:
+              - generic [ref=e251]: 电源
+              - paragraph [ref=e252]:
+                - generic [ref=e254]: 在线
+                - generic [ref=e255]: ·
+                - generic [ref=e256]: 输出中
+          - button "打开功率计设置" [disabled] [ref=e257]:
+            - generic [ref=e263]:
+              - generic [ref=e264]: 功率计
+              - paragraph [ref=e265]:
+                - generic [ref=e267]: 在线
+                - generic [ref=e268]: ·
+                - generic [ref=e269]: 测量中
+          - button "打开光谱仪设置" [disabled] [ref=e270]:
+            - generic [ref=e279]:
+              - generic [ref=e280]: 光谱仪
+              - paragraph [ref=e281]:
+                - generic [ref=e283]: 在线
+                - generic [ref=e284]: ·
+                - generic [ref=e285]: 采集中
+          - generic [ref=e288]:
+            - button "开始" [disabled]
+            - button "停止" [ref=e289] [cursor=pointer]
+        - generic [ref=e290]:
+          - generic [ref=e291]:
+            - generic "功率实时" [ref=e292]:
+              - generic [ref=e294]:
+                - img "功率实时曲线" [ref=e295]
+                - generic [ref=e296]: 实时功率
+            - generic "功率 / 效率" [ref=e297]:
+              - generic [ref=e299]:
+                - img "功率 / 效率曲线" [ref=e300]
+                - generic [ref=e301]: 功率 (W)、效率 (%)、历史参考
+          - region "实时关键指标" [ref=e302]:
+            - generic [ref=e303]:
+              - generic [ref=e304]: Live Power
+              - generic [ref=e305]:
+                - generic [ref=e306]: "0.860"
+                - generic [ref=e307]:
+                  - text: W @
+                  - generic [ref=e308]: 8 A
+            - button "Centroid，点击设置规格" [ref=e309] [cursor=pointer]:
+              - generic [ref=e310]: Centroid
+              - generic [ref=e311]:
+                - generic [ref=e312]: "976.200"
+                - generic [ref=e313]: nm
+            - button "FWHM，点击设置规格" [ref=e314] [cursor=pointer]:
+              - generic [ref=e315]: FWHM
+              - generic [ref=e316]:
+                - generic [ref=e317]: "0.420"
+                - generic [ref=e318]: nm
+            - button "PIB，点击设置规格" [ref=e319] [cursor=pointer]:
+              - generic [ref=e320]: PIB
+              - generic [ref=e321]:
+                - generic [ref=e322]: "96.85"
+                - generic [ref=e323]: "%"
+          - generic "光谱" [ref=e324]:
+            - generic [ref=e326]:
+              - img "光谱曲线" [ref=e327]
+              - generic [ref=e328]: 光谱（实时）

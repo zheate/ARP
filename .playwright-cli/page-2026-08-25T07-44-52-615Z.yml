@@ -1,0 +1,144 @@
+- generic [active] [ref=f1e1]:
+  - generic [ref=f1e3]:
+    - banner [ref=f1e4]:
+      - generic [ref=f1e5]: Power Test
+      - generic [ref=f1e7]:
+        - button "保存设置" [disabled]
+        - button "全部工位急停" [ref=f1e8] [cursor=pointer]
+    - generic [ref=f1e9]:
+      - complementary [ref=f1e10]:
+        - navigation [ref=f1e11]:
+          - button "自动测试" [disabled] [ref=f1e12]
+          - button "手动配置" [ref=f1e18] [cursor=pointer]
+          - button "PD 采集" [ref=f1e25] [cursor=pointer]
+          - button "数据浏览" [disabled] [ref=f1e29]
+          - button "出货报告" [ref=f1e34] [cursor=pointer]
+          - button "系统设置" [ref=f1e39] [cursor=pointer]
+        - generic [ref=f1e44]:
+          - paragraph [ref=f1e45]: 授权状态
+          - paragraph [ref=f1e46]: 已授权
+      - main [ref=f1e47]:
+        - generic [ref=f1e48]:
+          - generic [ref=f1e49]:
+            - generic [ref=f1e50]:
+              - generic [ref=f1e51]: 测试工位
+              - generic "测试工位" [ref=f1e54]:
+                - button "1" [pressed] [ref=f1e55] [cursor=pointer]
+                - button "2" [ref=f1e56] [cursor=pointer]
+            - generic [ref=f1e57]:
+              - generic [ref=f1e58]: 产品 SN
+              - textbox "产品 SN" [ref=f1e169]: DEMO-001
+            - generic [ref=f1e65]:
+              - generic [ref=f1e66]: 测试站别
+              - textbox "测试站别" [ref=f1e170]: 站别 1
+            - generic [ref=f1e69]:
+              - generic [ref=f1e70]: 脚本选择
+              - combobox [ref=f1e75] [cursor=pointer]:
+                - generic [ref=f1e76]: 标准测试
+            - generic [ref=f1e79]:
+              - generic [ref=f1e80]: 输出目录
+              - generic [ref=f1e83]:
+                - textbox "输出目录" [ref=f1e171]:
+                  - /placeholder: 测试数据保存目录
+                  - text: /data/test/DEMO-001
+                - button "选择输出目录" [ref=f1e172] [cursor=pointer]
+          - generic [ref=f1e84]:
+            - button "打开电源设置" [ref=f1e85] [cursor=pointer]:
+              - generic [ref=f1e90]:
+                - generic [ref=f1e91]: 电源
+                - paragraph [ref=f1e92]:
+                  - generic [ref=f1e94]: 在线
+                  - generic [ref=f1e95]: ·
+                  - generic [ref=f1e96]: 输出中
+            - button "打开功率计设置" [ref=f1e97] [cursor=pointer]:
+              - generic [ref=f1e103]:
+                - generic [ref=f1e104]: 功率计
+                - paragraph [ref=f1e105]:
+                  - generic [ref=f1e107]: 在线
+                  - generic [ref=f1e108]: ·
+                  - generic [ref=f1e109]: 测量中
+            - button "打开光谱仪设置" [ref=f1e110] [cursor=pointer]:
+              - generic [ref=f1e119]:
+                - generic [ref=f1e120]: 光谱仪
+                - paragraph [ref=f1e121]:
+                  - generic [ref=f1e123]: 在线
+                  - generic [ref=f1e124]: ·
+                  - generic [ref=f1e125]: 采集中
+            - generic [ref=f1e128]:
+              - button "开始" [disabled]
+              - button "停止" [disabled]
+          - generic [ref=f1e130]:
+            - generic [ref=f1e131]:
+              - generic "功率实时" [ref=f1e132]:
+                - generic [ref=f1e134]:
+                  - img "功率实时曲线" [ref=f1e135]
+                  - generic [ref=f1e136]: 实时功率
+              - generic "功率 / 效率" [ref=f1e137]:
+                - generic [ref=f1e139]:
+                  - img "功率 / 效率曲线" [ref=f1e140]
+                  - generic [ref=f1e141]: 功率 (W)、效率 (%)、历史参考
+            - region "实时关键指标" [ref=f1e142]:
+              - generic [ref=f1e143]:
+                - generic [ref=f1e144]: Live Power
+                - generic [ref=f1e145]:
+                  - generic [ref=f1e146]: "0.860"
+                  - generic [ref=f1e147]:
+                    - text: W @
+                    - generic [ref=f1e148]: 8 A
+              - button "Centroid，点击设置规格" [ref=f1e149] [cursor=pointer]:
+                - generic [ref=f1e150]: Centroid
+                - generic [ref=f1e151]:
+                  - generic [ref=f1e152]: "976.200"
+                  - generic [ref=f1e153]: nm
+              - button "FWHM，点击设置规格" [ref=f1e154] [cursor=pointer]:
+                - generic [ref=f1e155]: FWHM
+                - generic [ref=f1e156]:
+                  - generic [ref=f1e157]: "0.776"
+                  - generic [ref=f1e158]: nm
+              - button "PIB，点击设置规格" [ref=f1e159] [cursor=pointer]:
+                - generic [ref=f1e160]: PIB
+                - generic [ref=f1e161]:
+                  - generic [ref=f1e162]: "96.85"
+                  - generic [ref=f1e163]: "%"
+            - generic "光谱" [ref=f1e164]:
+              - generic [ref=f1e166]:
+                - img "光谱曲线" [ref=f1e167]
+                - generic "峰值图例":
+                  - generic:
+                    - generic: Peak 1
+                    - generic: 976.200 nm
+                  - generic:
+                    - generic: Peak 2
+                    - generic: 978.000 nm
+                  - generic:
+                    - generic: Peak 3
+                    - generic: 973.000 nm
+                - generic [ref=f1e168]: 光谱（实时）
+  - dialog [ref=f1e174]:
+    - generic [ref=f1e175]:
+      - generic [ref=f1e182]:
+        - heading "测试已提前结束" [level=2] [ref=f1e183]
+        - paragraph [ref=f1e184]: 工位 1 · 测试由操作员终止，电源状态已确认
+      - button "关闭" [ref=f1e185] [cursor=pointer]
+    - generic [ref=f1e189]:
+      - generic [ref=f1e190]:
+        - text: 产品 SN
+        - paragraph [ref=f1e191]: DEMO-001
+      - generic [ref=f1e192]:
+        - generic [ref=f1e193]:
+          - text: 已保存测试点
+          - paragraph [ref=f1e194]: 3 / 6 点
+        - generic [ref=f1e195]:
+          - text: 下电保护状态
+          - paragraph [ref=f1e196]: 已确认安全下电 (0.00 A)
+      - generic [ref=f1e198]:
+        - text: 状态详情
+        - paragraph [ref=f1e199]: 测试已手动终止并安全下电
+      - generic [ref=f1e200]:
+        - text: 数据与结果文件
+        - paragraph [ref=f1e201]: 本地 JSONL 已保存 · Excel 已生成
+        - paragraph [ref=f1e202]: /preview/DEMO-001.xlsx
+    - generic [ref=f1e203]:
+      - button "打开结果" [ref=f1e204] [cursor=pointer]
+      - button "测试下一台" [ref=f1e205] [cursor=pointer]
+      - button "关闭" [ref=f1e206] [cursor=pointer]

@@ -43,6 +43,11 @@ from .spectrum import (
 from .spectrum_math import calculate_pib, calculate_smsr
 
 
+POWER_METER_RECONNECT_ATTEMPTS = 3
+POWER_METER_RECONNECT_DELAY_S = 0.5
+VISA_SYSTEM_ERROR_CODE = -1073807360
+
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TOOLS_ROOT = REPO_ROOT / "tools"
 POWER_METER_PROBE_TIMEOUT_MS = 250
@@ -522,27 +527,50 @@ class PowerMeterReaderThread(WorkerThread):
             if meter_class is None:
                 raise RuntimeError(f"不支持的功率计驱动类型：{self.settings.driver_kind}")
 
-            meter = meter_class(self.settings.resource)
-            if meter.test() != "OK":
-                raise RuntimeError("功率计自检未返回 OK")
             expected_serial = str(self.settings.serial_number).strip().upper()
-            actual_serial = str(
-                getattr(meter, "probe_serial_number", "")
-            ).strip().upper()
-            if expected_serial and actual_serial != expected_serial:
-                if not actual_serial:
-                    raise RuntimeError(
-                        "功率计未返回探头 SN，无法确认是否为已记住的探头；请重新识别功率计"
-                    )
-                raise RuntimeError(
-                    f"功率计探头已变化：已记住 {expected_serial}，当前 {actual_serial}；"
-                    "请重新识别功率计"
+
+            def open_configured_meter():
+                candidate = meter_class(self.settings.resource)
+                try:
+                    if candidate.test() != "OK":
+                        raise RuntimeError("功率计自检未返回 OK")
+                    actual_serial = str(
+                        getattr(candidate, "probe_serial_number", "")
+                    ).strip().upper()
+                    if expected_serial and actual_serial != expected_serial:
+                        if not actual_serial:
+                            raise RuntimeError(
+                                "功率计未返回探头 SN，无法确认是否为已记住的探头；请重新识别功率计"
+                            )
+                        raise RuntimeError(
+                            f"功率计探头已变化：已记住 {expected_serial}，当前 {actual_serial}；"
+                            "请重新识别功率计"
+                        )
+                    if self.settings.driver_kind in {"laserpoint", "coherent"}:
+                        candidate.set_power_mode()
+                    if self.settings.driver_kind == "laserpoint":
+                        candidate.set_gain_mode(3)
+                    candidate.set_wavelength(self.settings.wavelength_nm)
+                    return candidate
+                except Exception:
+                    try:
+                        candidate.close()
+                    except Exception:
+                        pass
+                    raise
+
+            def is_reconnectable_visa_error(exc: Exception) -> bool:
+                visa_error_type = getattr(
+                    getattr(power_meter_mvp, "pyvisa", None),
+                    "errors",
+                    None,
                 )
-            if self.settings.driver_kind in {"laserpoint", "coherent"}:
-                meter.set_power_mode()
-            if self.settings.driver_kind == "laserpoint":
-                meter.set_gain_mode(3)
-            meter.set_wavelength(self.settings.wavelength_nm)
+                visa_error_type = getattr(visa_error_type, "VisaIOError", ())
+                return isinstance(exc, visa_error_type) and int(
+                    getattr(exc, "error_code", 0)
+                ) == VISA_SYSTEM_ERROR_CODE
+
+            meter = open_configured_meter()
             if self._stop_requested.is_set():
                 return
             meter_name = getattr(meter, "device_type", self.settings.driver_kind)
@@ -584,7 +612,52 @@ class PowerMeterReaderThread(WorkerThread):
                     detector.stability_limit_percent = stability_limit_percent
                     detector.absolute_span_limit_w = absolute_span_limit_w
                 elapsed = time.monotonic() - start
-                power_w = meter.read_power_w() * self.settings.software_gain
+                try:
+                    power_w = meter.read_power_w() * self.settings.software_gain
+                except Exception as exc:
+                    if not is_reconnectable_visa_error(exc):
+                        raise
+
+                    _LOGGER.warning(
+                        "功率计 VISA 通信异常，开始自动重连",
+                        exc_info=True,
+                    )
+                    try:
+                        meter.close()
+                    except Exception:
+                        pass
+                    meter = None
+                    last_error: Exception = exc
+                    for attempt in range(1, POWER_METER_RECONNECT_ATTEMPTS + 1):
+                        if self._stop_requested.is_set():
+                            return
+                        if attempt > 1 and self._stop_requested.wait(
+                            POWER_METER_RECONNECT_DELAY_S
+                        ):
+                            return
+                        self.status.emit(
+                            "功率计通信异常，正在自动重连"
+                            f"（{attempt}/{POWER_METER_RECONNECT_ATTEMPTS}）"
+                        )
+                        try:
+                            meter = open_configured_meter()
+                        except Exception as reconnect_exc:
+                            last_error = reconnect_exc
+                            continue
+                        self.status.emit("功率计自动重连成功，继续采集")
+                        detector = PowerStabilityDetector(
+                            stable_window_s,
+                            stability_limit_percent,
+                            absolute_span_limit_w,
+                        )
+                        next_poll_at = time.monotonic()
+                        break
+                    else:
+                        raise RuntimeError(
+                            "功率计通信中断，自动重连 "
+                            f"{POWER_METER_RECONNECT_ATTEMPTS} 次失败：{last_error}"
+                        ) from last_error
+                    continue
                 if self._stop_requested.is_set():
                     break
                 stability = detector.add_sample(elapsed, power_w)

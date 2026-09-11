@@ -1,0 +1,112 @@
+- generic [ref=f3e3]:
+  - banner [ref=f3e4]:
+    - generic [ref=f3e5]: Power Test
+    - generic [ref=f3e7]:
+      - button "保存设置" [disabled]
+      - button "紧急停止" [ref=f3e8] [cursor=pointer]
+  - generic [ref=f3e9]:
+    - complementary [ref=f3e10]:
+      - navigation [ref=f3e11]:
+        - button "自动测试" [ref=f3e12] [cursor=pointer]
+        - button "手动配置" [disabled] [ref=f3e18]
+        - button "PD 采集" [ref=f3e25] [cursor=pointer]
+        - button "数据浏览" [disabled] [ref=f3e29]
+        - button "出货报告" [disabled] [ref=f3e34]
+        - button "系统设置" [ref=f3e39] [cursor=pointer]
+      - generic [ref=f3e44]:
+        - paragraph [ref=f3e45]: 授权状态
+        - paragraph [ref=f3e46]: 已授权
+    - main [ref=f3e47]:
+      - list:
+        - listitem [ref=f3e48]:
+          - status [ref=f3e49]:
+            - generic [ref=f3e53]:
+              - paragraph [ref=f3e54]: 示例数据
+              - paragraph [ref=f3e55]: 当前显示的是图表预览数据，不会连接真实仪器。
+            - button "关闭提示" [disabled] [ref=f3e56]
+      - generic [ref=f3e60]:
+        - generic [ref=f3e61]:
+          - generic [ref=f3e62]:
+            - generic [ref=f3e63]: 测试工位
+            - generic "测试工位" [ref=f3e66]:
+              - button "1" [pressed] [ref=f3e67] [cursor=pointer]
+              - button "2" [ref=f3e68] [cursor=pointer]
+          - generic [ref=f3e69]:
+            - generic [ref=f3e70]: 产品 SN
+            - textbox "产品 SN" [disabled]: DEMO-001
+          - generic [ref=f3e77]:
+            - generic [ref=f3e78]: 测试站别
+            - textbox "测试站别" [disabled]: 站别 1
+          - generic [ref=f3e81]:
+            - generic [ref=f3e82]: 脚本选择
+            - combobox [disabled] [ref=f3e87]:
+              - generic [ref=f3e88]: 标准测试
+          - generic [ref=f3e91]:
+            - generic [ref=f3e92]: 输出目录
+            - generic [ref=f3e95]:
+              - textbox "输出目录" [disabled]:
+                - /placeholder: 测试数据保存目录
+                - text: /data/test/DEMO-001
+              - button "选择输出目录" [disabled]
+        - generic [ref=f3e96]:
+          - button "打开电源设置" [disabled] [ref=f3e97]:
+            - generic [ref=f3e102]:
+              - generic [ref=f3e103]: 电源
+              - paragraph [ref=f3e104]:
+                - generic [ref=f3e106]: 在线
+                - generic [ref=f3e107]: ·
+                - generic [ref=f3e108]: 输出中
+          - button "打开功率计设置" [disabled] [ref=f3e109]:
+            - generic [ref=f3e115]:
+              - generic [ref=f3e116]: 功率计
+              - paragraph [ref=f3e117]:
+                - generic [ref=f3e119]: 在线
+                - generic [ref=f3e120]: ·
+                - generic [ref=f3e121]: 测量中
+          - button "打开光谱仪设置" [disabled] [ref=f3e122]:
+            - generic [ref=f3e131]:
+              - generic [ref=f3e132]: 光谱仪
+              - paragraph [ref=f3e133]:
+                - generic [ref=f3e135]: 在线
+                - generic [ref=f3e136]: ·
+                - generic [ref=f3e137]: 采集中
+          - generic [ref=f3e140]:
+            - button "开始" [disabled]
+            - button "停止" [ref=f3e141] [cursor=pointer]
+        - generic [ref=f3e142]:
+          - generic [ref=f3e143]:
+            - generic "功率实时" [ref=f3e144]:
+              - generic [ref=f3e146]:
+                - img "功率实时曲线" [ref=f3e147]
+                - generic [ref=f3e148]: 实时功率
+            - generic "功率 / 效率" [ref=f3e149]:
+              - generic [ref=f3e151]:
+                - img "功率 / 效率曲线" [ref=f3e152]
+                - generic [ref=f3e153]: 功率 (W)、效率 (%)、历史参考
+          - region "实时关键指标" [ref=f3e154]:
+            - generic [ref=f3e155]:
+              - generic [ref=f3e156]: Live Power
+              - generic [ref=f3e157]:
+                - generic [ref=f3e158]: "0.860"
+                - generic [ref=f3e159]:
+                  - text: W @
+                  - generic [ref=f3e160]: 8 A
+            - button "Centroid，点击设置规格" [ref=f3e161] [cursor=pointer]:
+              - generic [ref=f3e162]: Centroid
+              - generic [ref=f3e163]:
+                - generic [ref=f3e164]: "976.200"
+                - generic [ref=f3e165]: nm
+            - button "FWHM，点击设置规格" [ref=f3e166] [cursor=pointer]:
+              - generic [ref=f3e167]: FWHM
+              - generic [ref=f3e168]:
+                - generic [ref=f3e169]: "0.420"
+                - generic [ref=f3e170]: nm
+            - button "PIB，点击设置规格" [ref=f3e171] [cursor=pointer]:
+              - generic [ref=f3e172]: PIB
+              - generic [ref=f3e173]:
+                - generic [ref=f3e174]: "96.85"
+                - generic [ref=f3e175]: "%"
+          - generic "光谱" [ref=f3e176]:
+            - generic [ref=f3e178]:
+              - img "光谱曲线" [ref=f3e179]
+              - generic [ref=f3e180]: 光谱（实时）

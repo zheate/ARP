@@ -1,0 +1,211 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]: Power Test
+    - generic [ref=e26]:
+      - button "显示" [ref=e27] [cursor=pointer]
+      - button "保存设置" [disabled]
+      - button "急停" [ref=e29] [cursor=pointer]
+  - generic [ref=e30]:
+    - complementary [ref=e31]:
+      - navigation [ref=e32]:
+        - button "自动测试" [ref=e33] [cursor=pointer]
+        - button "手动配置" [active] [ref=e39] [cursor=pointer]
+        - button "PD 采集" [ref=e46] [cursor=pointer]
+        - button "数据浏览" [ref=e50] [cursor=pointer]
+        - button "出货报告" [ref=e55] [cursor=pointer]
+        - button "系统设置" [ref=e60] [cursor=pointer]
+      - generic "侧栏格言 Stay True" [ref=e65]:
+        - paragraph [ref=e67]: Stay True
+    - main [ref=e68]:
+      - generic [ref=e305]:
+        - generic [ref=e306]:
+          - generic [ref=e307]:
+            - generic [ref=e308]: 产品 SN
+            - textbox "产品 SN" [ref=e315]:
+              - /placeholder: 例如 HAM540001
+              - text: DEMO-001
+          - generic [ref=e316]:
+            - generic [ref=e317]: 测试站别
+            - textbox "测试站别" [ref=e320]:
+              - /placeholder: 例如 老化
+              - text: 站别 1
+          - generic [ref=e321]:
+            - generic [ref=e322]: 输出目录
+            - generic [ref=e325]:
+              - textbox "输出目录" [ref=e326]:
+                - /placeholder: 测试数据保存目录
+                - text: /data/test/DEMO-001
+              - button "选择输出目录" [ref=e327] [cursor=pointer]
+          - generic [ref=e328]:
+            - button "保存当前测试点" [disabled]
+        - group [ref=e329]:
+          - generic [ref=e330]:
+            - generic [ref=e331]:
+              - generic [ref=e332]: 电源控制
+              - generic [ref=e336]:
+                - heading "资源设置" [level=3] [ref=e337]
+                - generic [ref=e338]:
+                  - generic [ref=e339]:
+                    - generic [ref=e340]: 控制器
+                    - combobox [disabled] [ref=e342]:
+                      - generic [ref=e343]: TDK RS232
+                  - generic [ref=e346]:
+                    - generic [ref=e347]: TDK 串口
+                    - generic [ref=e348]:
+                      - combobox [disabled] [ref=e350]:
+                        - generic [ref=e351]: TDK RS232
+                      - button "识别" [disabled]
+                - heading "参数设置" [level=3] [ref=e354]
+                - generic [ref=e355]:
+                  - generic [ref=e356]:
+                    - generic [ref=e357]: 输出电压 (V)
+                    - spinbutton [ref=e358]: "12"
+                  - generic [ref=e359]:
+                    - generic [ref=e360]: 设定电流 (A)
+                    - spinbutton [ref=e361]: "8"
+                - heading "操作" [level=3] [ref=e362]
+                - generic [ref=e363]:
+                  - button "安全断开" [ref=e364] [cursor=pointer]
+                  - button "设置电流" [ref=e365] [cursor=pointer]
+                  - button "开启输出" [ref=e366] [cursor=pointer]
+                  - button "设置电压" [ref=e367] [cursor=pointer]
+                  - button "读取输出电压" [ref=e368] [cursor=pointer]
+                  - button "读取输出电流" [ref=e369] [cursor=pointer]
+                  - paragraph [ref=e370]: 回读：输出 -- · 电流 0 A
+            - generic [ref=e371]:
+              - generic [ref=e372]: 功率计
+              - generic [ref=e377]:
+                - heading "资源设置" [level=3] [ref=e378]
+                - generic [ref=e379]:
+                  - generic [ref=e380]: 串口资源
+                  - generic [ref=e381]:
+                    - combobox [disabled] [ref=e383]:
+                      - generic [ref=e384]: 彩煌功率计 | ASRL3::INSTR | 通道 1
+                    - button "识别" [disabled]
+                - heading "参数设置" [level=3] [ref=e387]
+                - generic [ref=e388]:
+                  - generic [ref=e389]:
+                    - generic [ref=e390]: 校准波长 (nm)
+                    - spinbutton [ref=e391]: "976"
+                  - generic [ref=e392]:
+                    - generic [ref=e393]: 软件增益
+                    - spinbutton [ref=e394]: "1"
+                - heading "功能操作" [level=3] [ref=e395]
+                - generic [ref=e396]:
+                  - generic [ref=e397]:
+                    - checkbox "功率曲线平滑" [checked] [ref=e398]
+                    - text: 功率曲线平滑
+                  - generic [ref=e399]: 仅影响显示，不改变测量数据
+                - generic [ref=e400]:
+                  - button "相对调零" [disabled]
+                  - button "取消调零" [disabled]
+                - heading "状态" [level=3] [ref=e401]
+                - paragraph [ref=e402]: 状态：采集中
+                - button "停止采集" [ref=e404] [cursor=pointer]
+            - generic [ref=e405]:
+              - generic [ref=e406]: 光谱仪
+              - generic [ref=e414]:
+                - heading "资源设置" [level=3] [ref=e415]
+                - generic [ref=e416]:
+                  - generic [ref=e417]: 设备资源
+                  - generic [ref=e418]:
+                    - combobox [disabled] [ref=e420]:
+                      - generic [ref=e421]: 请选择光谱仪
+                    - button "识别" [disabled]
+                - heading "参数设置" [level=3] [ref=e424]
+                - generic [ref=e425]:
+                  - generic [ref=e426]:
+                    - generic [ref=e427]: 积分时间 (μs)
+                    - spinbutton [ref=e428]: "10000"
+                  - generic [ref=e429]:
+                    - generic [ref=e430]: 刷新间隔 (ms)
+                    - spinbutton [ref=e431]: "100"
+                  - generic [ref=e432]:
+                    - generic [ref=e433]: 平均帧数
+                    - spinbutton [ref=e434]: "5"
+                  - generic [ref=e435]:
+                    - generic [ref=e436]: 采集模式
+                    - generic [ref=e437]:
+                      - checkbox "自动积分" [ref=e438]
+                      - text: 自动积分
+                  - generic [ref=e439]:
+                    - generic [ref=e440]: PIB 中心波长 (nm)
+                    - spinbutton [ref=e441]: "976"
+                  - generic [ref=e442]:
+                    - generic [ref=e443]: PIB 半带宽 (nm)
+                    - spinbutton [ref=e444]: "1.5"
+                - generic [ref=e445]:
+                  - generic [ref=e446]:
+                    - checkbox "光谱曲线平滑" [checked] [ref=e447]
+                    - text: 光谱曲线平滑
+                  - generic [ref=e448]: 仅影响显示，不改变测量数据
+                - button "停止采集" [ref=e449] [cursor=pointer]
+          - generic [ref=e450]:
+            - generic [ref=e451]:
+              - generic "功率实时" [ref=e452]:
+                - generic [ref=e454]:
+                  - img "功率实时曲线" [ref=e455]
+                  - generic [ref=e456]: 实时功率
+              - generic "功率 / 效率" [ref=e457]:
+                - generic [ref=e459]:
+                  - img "功率 / 效率曲线" [ref=e460]
+                  - generic [ref=e461]: 功率 (W)、效率 (%)、历史参考
+            - region "实时关键指标" [ref=e462]:
+              - generic [ref=e463]:
+                - generic "实时功率，实时记录中" [ref=e464]: 实时功率
+                - generic [ref=e467]:
+                  - generic "0.860" [ref=e469]:
+                    - generic [aria-hidden] [ref=e470]: "0"
+                    - generic [aria-hidden] [ref=e471]: .
+                    - generic [aria-hidden] [ref=e472]: "8"
+                    - generic [aria-hidden] [ref=e473]: "6"
+                    - generic [aria-hidden] [ref=e474]: "0"
+                  - generic [ref=e475]:
+                    - text: W @
+                    - generic [ref=e476]: 0 A
+              - generic [ref=e477]:
+                - generic [ref=e478]: 中心波长
+                - generic [ref=e480]:
+                  - generic "976.200" [ref=e482]:
+                    - generic [aria-hidden] [ref=e483]: "9"
+                    - generic [aria-hidden] [ref=e484]: "7"
+                    - generic [aria-hidden] [ref=e485]: "6"
+                    - generic [aria-hidden] [ref=e486]: .
+                    - generic [aria-hidden] [ref=e487]: "2"
+                    - generic [aria-hidden] [ref=e488]: "0"
+                    - generic [aria-hidden] [ref=e489]: "0"
+                  - generic [ref=e490]: nm
+              - generic [ref=e491]:
+                - generic [ref=e492]: FWHM
+                - generic [ref=e494]:
+                  - generic "0.776" [ref=e496]:
+                    - generic [aria-hidden] [ref=e497]: "0"
+                    - generic [aria-hidden] [ref=e498]: .
+                    - generic [aria-hidden] [ref=e499]: "7"
+                    - generic [aria-hidden] [ref=e500]: "7"
+                    - generic [aria-hidden] [ref=e501]: "6"
+                  - generic [ref=e502]: nm
+              - generic [ref=e503]:
+                - generic [ref=e504]: PIB
+                - generic [ref=e506]:
+                  - generic "96.85" [ref=e508]:
+                    - generic [aria-hidden] [ref=e509]: "9"
+                    - generic [aria-hidden] [ref=e510]: "6"
+                    - generic [aria-hidden] [ref=e511]: .
+                    - generic [aria-hidden] [ref=e512]: "8"
+                    - generic [aria-hidden] [ref=e513]: "5"
+                  - generic [ref=e514]: "%"
+            - generic "光谱" [ref=e515]:
+              - generic [ref=e517]:
+                - img "光谱曲线" [ref=e518]
+                - generic "峰值图例":
+                  - generic:
+                    - generic: Peak 1
+                    - generic: 976.200 nm
+                  - generic:
+                    - generic: Peak 2
+                    - generic: 978.000 nm
+                  - generic:
+                    - generic: Peak 3
+                    - generic: 973.000 nm
+                - generic [ref=e519]: 光谱（实时）

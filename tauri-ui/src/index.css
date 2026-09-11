@@ -285,7 +285,7 @@ body {
   justify-content: space-between;
   border-bottom: 1px solid var(--border);
   background: var(--app-header-bg);
-  padding: 0 0.75rem 0 6.5rem;
+  padding: 0 0.75rem 0 1.5rem;
   -webkit-user-select: none;
   user-select: none;
 }
@@ -528,9 +528,10 @@ body {
 
 .automatic-power-chart .automatic-power-chart__reading {
   position: absolute;
-  top: 1rem;
+  top: 2rem;
   right: 1rem;
   width: min(18rem, calc(100% - 2rem));
+  align-items: flex-end;
   border: 0;
   background: transparent;
   pointer-events: none;
@@ -799,6 +800,44 @@ body {
 .manual-device-readback .is-green::before { background: var(--app-success); }
 .manual-device-readback .is-sky::before { background: #4ca4ff; }
 .manual-device-readback .is-accent::before { background: var(--app-accent); }
+
+.manual-tdk-actions {
+  --manual-action-fill: 6%;
+}
+
+.manual-action-button--output { --manual-action-fill: 12%; }
+.manual-action-button--read-voltage,
+.manual-action-button--read-current { --manual-action-fill: 0%; }
+
+.manual-tdk-actions .manual-action-button[data-variant="outline"]:not(:disabled) {
+  border-color: var(--app-border-strong);
+  background: color-mix(in srgb, var(--foreground) var(--manual-action-fill), var(--background));
+  color: var(--foreground);
+  box-shadow: none;
+}
+
+.manual-tdk-actions .manual-action-button--disconnect[data-variant="outline"]:not(:disabled) {
+  color: color-mix(in srgb, var(--app-danger) 45%, var(--foreground));
+}
+
+.manual-tdk-actions :is(.manual-action-button--read-voltage, .manual-action-button--read-current)[data-variant="outline"]:not(:disabled) {
+  border-color: var(--border);
+  color: var(--app-text-secondary);
+}
+
+.manual-tdk-actions .manual-action-button[data-variant="outline"]:not(:disabled):hover {
+  border-color: color-mix(in srgb, var(--foreground) 25%, var(--border));
+  background: color-mix(in srgb, var(--foreground) calc(var(--manual-action-fill) + 5%), var(--background));
+}
+
+.manual-tdk-actions .manual-action-button[data-variant="outline"]:not(:disabled):active {
+  background: color-mix(in srgb, var(--foreground) calc(var(--manual-action-fill) + 9%), var(--background));
+}
+
+.manual-tdk-actions .manual-action-button[data-variant="outline"]:not(:disabled):focus-visible {
+  border-color: var(--app-text-secondary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--foreground) 16%, transparent);
+}
 
 .manual-device-grid {
   display: grid;

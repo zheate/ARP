@@ -50,6 +50,7 @@ import { powerMeterProfileForResource, powerMeterResourceValue } from "@/lib/pow
 import { automaticPauseCommand, automaticPauseCopy, pauseRemainingSeconds } from "@/lib/automatic-pause"
 import { openResultFile } from "@/lib/result-file"
 import { automaticTerminalTitle, shutdownPresentation } from "@/lib/safety-state"
+import { automaticStartPresentation } from "@/lib/automatic-presentation"
 import { spectrumPeakAnnotations, spectrumPeakLegend } from "@/lib/spectrum-annotations"
 import { ActivationView } from "@/components/license/ActivationView"
 import { AppearanceProvider, useAppearance } from "@/hooks/use-appearance"
@@ -673,6 +674,7 @@ function DeviceCard({ title, icon, device, model, details, summary, disabled = f
 function AutomaticTestControlCard({
   active,
   auto,
+  config,
   controlsLocked,
   pending,
   onStart,
@@ -680,20 +682,20 @@ function AutomaticTestControlCard({
 }: {
   active: boolean
   auto?: BackendSnapshot["automaticTest"]
+  config: Pick<AppConfiguration, "sn" | "outputDir">
   controlsLocked: boolean
   pending: boolean
   onStart: () => void
   onStop: () => void
 }) {
   const running = Boolean(auto?.canEnd)
-  const readinessMessages = auto?.readiness?.blockers.map((blocker) => blocker.message)
-    ?? (auto?.settingsError ? [auto.settingsError] : [])
+  const { canStart, messages: readinessMessages } = automaticStartPresentation(auto, config)
   return (
     <Card className="automatic-test-control-card gap-2.5 py-3 shadow-none">
       <CardContent className="automatic-test-control-card__content px-4 py-0">
         <div className="automatic-test-control-card__actions">
           <Button
-            disabled={!active || pending || controlsLocked || running || !auto?.canStart}
+            disabled={!active || pending || controlsLocked || running || !canStart}
             onClick={onStart}
             size="sm"
           >
@@ -924,7 +926,7 @@ function PowerMeterSettingsForm({ snapshot, config, update, active, pending, run
       </Field>
       <DetectionStatus detail={meter?.detail} detecting={meter?.detecting} />
       <NumberField label="校准波长 (nm)" value={config.powerMeterWavelengthNm} onChange={(v) => update("powerMeterWavelengthNm", v)} step="0.1" />
-      <NumberField label="软件增益" value={config.softwareGain} onChange={(v) => update("softwareGain", v)} step="0.01" />
+      <NumberField label="功率系数" value={config.softwareGain} onChange={(v) => update("softwareGain", v)} step="0.01" />
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
         <label className="device-settings-checkbox"><input checked={config.powerSmoothing ?? true} onChange={(e) => update("powerSmoothing", e.target.checked)} type="checkbox" />功率曲线平滑</label>
         <span className="text-xs text-muted-foreground">仅影响显示，不改变测量数据</span>
@@ -2598,15 +2600,19 @@ function LicensedApp({
     ...(!active && snapshot ? [{ key: "runtime-warning", level: "warning" as const, title: "运行环境提示", message: "当前 Python 环境未加载所需设备驱动，因此控制功能暂不可用。请使用项目指定环境启动。" }] : []),
   ]
   const [dismissedNotifications, setDismissedNotifications] = useState<Set<string>>(() => new Set())
+  const hasNotificationSnapshot = snapshot !== null
   const notificationKeys = notifications.map((notification) => notification.key)
   const notificationKey = notificationKeys.join("\n")
   useEffect(() => {
+    // Navigation clears the snapshot while the next view subscribes. Only a
+    // loaded snapshot can confirm that a dismissed notice has been removed.
+    if (!hasNotificationSnapshot) return
     const activeKeys = new Set(notificationKeys)
     setDismissedNotifications((current) => {
       const retained = new Set([...current].filter((key) => activeKeys.has(key)))
       return retained.size === current.size ? current : retained
     })
-  }, [notificationKey])
+  }, [notificationKey, hasNotificationSnapshot])
 
   const autoDismissNotificationKeys = notifications.filter((notification) => notification.level === "info").map((notification) => notification.key)
   const autoDismissNotificationKey = autoDismissNotificationKeys.join("\n")
@@ -4016,11 +4022,12 @@ const AutomaticPage = memo(function AutomaticPage({
 
       <section className="automatic-device-rail" aria-label="测试设备与控制">
         <DeviceCard title="电源" icon={<Power className="size-4" />} device={snapshot?.devices.powerSupply} model={config.powerSupplyKind === "tdk" ? "TDK" : "CH341"} details={[["接口", config.powerSupplyKind === "tdk" ? config.tdkResource : config.ch341SelectedLocationPath], ["电流计划", `${config.initialCurrentA} → ${config.targetCurrentA} A`], ["目标电压", `${config.tdkVoltageV} V`]]} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("powerSupply")} summary={powerSupplySummary} />
-        <DeviceCard title="功率计" icon={<Gauge className="size-4" />} device={snapshot?.devices.powerMeter} model={config.powerMeterResource ? powerMeterResourceLabel(config.powerMeterResource, powerMeter?.resources).split("|")[0].trim().replace(/功率计$/, "") : "未选择"} details={[["接口", powerMeterResourceValue(config.powerMeterResource)], ["设备", powerMeter?.detail || "未连接"], ["校准波长", `${config.powerMeterWavelengthNm} nm`], ["软件增益", `× ${config.softwareGain}`]]} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("powerMeter")} summary={powerMeterSummary} />
+        <DeviceCard title="功率计" icon={<Gauge className="size-4" />} device={snapshot?.devices.powerMeter} model={config.powerMeterResource ? powerMeterResourceLabel(config.powerMeterResource, powerMeter?.resources).split("|")[0].trim().replace(/功率计$/, "") : "未选择"} details={[["接口", powerMeterResourceValue(config.powerMeterResource)], ["设备", powerMeter?.detail || "未连接"], ["校准波长", `${config.powerMeterWavelengthNm} nm`], ["功率系数", `× ${config.softwareGain}`]]} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("powerMeter")} summary={powerMeterSummary} />
         <DeviceCard title="光谱仪" icon={<Radio className="size-4" />} device={snapshot?.devices.spectrometer} model="Ocean Insight" details={[["设备", config.spectrometerResource || spectrometer?.detail || "未选择"], ["积分时间", `${config.integrationTimeUs} μs`], ["PIB 范围", `${config.pibCenterWavelengthNm} ± ${config.pibHalfRangeNm} nm`]]} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("spectrometer")} summary={spectrometerSummary} />
         <AutomaticTestControlCard
           active={active}
           auto={auto}
+          config={config}
           controlsLocked={controlsLocked}
           onStart={startAutomaticTest}
           onStop={() => void run("automatic.end")}
@@ -4398,13 +4405,13 @@ const ManualPage = memo(function ManualPage({
               <NumberField label="设定电流 (A)" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
             </div>
             <ManualSectionHeading>操作</ManualSectionHeading>
-            <div className="grid grid-cols-2 gap-2">
-              <Button disabled={!active || psu?.detecting} onClick={() => void runManualCommand(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接 TDK"}</Button>
-              <Button disabled={!active || psu?.detecting || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)} variant="outline">设置电流</Button>
-              <Button className={psu?.outputEnabled ? "btn-power-active" : ""} disabled={!active || psu?.detecting || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled ? <><span className="size-2 rounded-full bg-white animate-pulse shrink-0 mr-1.5 inline-block" />关闭输出</> : "开启输出"}</Button>
-              <Button disabled={!active || psu?.detecting || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setVoltage", { voltageV: config.tdkVoltageV }, true)} variant="outline">设置电压</Button>
-              <Button className="active:bg-primary/20 transition-colors" disabled={!active || psu?.detecting || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline">读取输出电压</Button>
-              <Button className="active:bg-primary/20 transition-colors" disabled={!active || psu?.detecting || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline">读取输出电流</Button>
+            <div className="manual-tdk-actions grid grid-cols-2 gap-2">
+              <Button className="manual-action-button manual-action-button--disconnect" disabled={!active || psu?.detecting} onClick={() => void runManualCommand(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接 TDK"}</Button>
+              <Button className="manual-action-button manual-action-button--current" disabled={!active || psu?.detecting || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)} variant="outline">设置电流</Button>
+              <Button className={`manual-action-button manual-action-button--output${psu?.outputEnabled ? " btn-power-active" : ""}`} disabled={!active || psu?.detecting || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled ? <><span className="size-2 rounded-full bg-white animate-pulse shrink-0 mr-1.5 inline-block" />关闭输出</> : "开启输出"}</Button>
+              <Button className="manual-action-button manual-action-button--voltage" disabled={!active || psu?.detecting || !psu?.connected} onClick={() => void runManualCommand("powerSupply.setVoltage", { voltageV: config.tdkVoltageV }, true)} variant="outline">设置电压</Button>
+              <Button className="manual-action-button manual-action-button--read-voltage" disabled={!active || psu?.detecting || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline">读取输出电压</Button>
+              <Button className="manual-action-button manual-action-button--read-current" disabled={!active || psu?.detecting || !psu?.connected} onClick={() => void runManualCommand("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline">读取输出电流</Button>
               <p className="col-span-2 text-xs text-muted-foreground">
                 回读：输出 {formatNumber(psu?.outputVoltageV, " V", 2)} · 电流 {formatNumber(psu?.outputCurrentA, " A", 2)}
               </p>
@@ -4484,7 +4491,7 @@ const ManualPage = memo(function ManualPage({
           <ManualSectionHeading>参数设置</ManualSectionHeading>
           <div className="device-settings-field-grid">
             <NumberField label="校准波长 (nm)" value={config.powerMeterWavelengthNm} onChange={(v) => update("powerMeterWavelengthNm", v)} step="0.1" />
-            <NumberField label="软件增益" value={config.softwareGain} onChange={(v) => update("softwareGain", v)} step="0.01" />
+            <NumberField label="功率系数" value={config.softwareGain} onChange={(v) => update("softwareGain", v)} step="0.01" />
           </div>
           <ManualSectionHeading>功能操作</ManualSectionHeading>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">

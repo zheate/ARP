@@ -1,0 +1,167 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]: Power Test
+    - generic [ref=e7]:
+      - button "保存设置" [disabled]
+      - button "紧急停止" [disabled]
+  - generic [ref=e8]:
+    - complementary [ref=e9]:
+      - navigation [ref=e10]:
+        - button "自动测试" [ref=e11] [cursor=pointer]
+        - button "手动配置" [ref=e17] [cursor=pointer]
+        - button "PD 采集" [ref=e24] [cursor=pointer]
+        - button "数据浏览" [disabled] [ref=e28]
+        - button "出货报告" [ref=e33] [cursor=pointer]
+        - button "系统设置" [disabled] [ref=e38]
+    - main [ref=e43]:
+      - alert [ref=e44]:
+        - generic [ref=e47]:
+          - paragraph [ref=e48]: 系统错误
+          - paragraph [ref=e49]: 浏览器预览模式不会启动 Python 后端
+        - button "关闭提示" [ref=e50] [cursor=pointer]
+      - generic [ref=e54]:
+        - generic [ref=e55]:
+          - generic [ref=e56]:
+            - generic [ref=e57]: 输出目录
+            - generic [ref=e60]:
+              - textbox "输出目录" [ref=e61]:
+                - /placeholder: 测试数据保存目录
+              - button "选择输出目录" [ref=e62] [cursor=pointer]
+          - generic [ref=e63]:
+            - generic [ref=e64]: 产品 SN
+            - textbox "产品 SN" [ref=e71]
+          - generic [ref=e72]:
+            - generic [ref=e73]: 测试站别
+            - generic [ref=e76]:
+              - textbox "测试站别" [ref=e77]
+              - generic "测试工位" [ref=e78]:
+                - button "1" [pressed] [ref=e79] [cursor=pointer]
+                - button "2" [ref=e80] [cursor=pointer]
+          - generic [ref=e81]:
+            - generic [ref=e82]: 历史参考
+            - combobox [ref=e88] [cursor=pointer]:
+              - generic [ref=e89]: 最新记录
+          - generic [ref=e92]:
+            - generic [ref=e93]: 光谱采集
+            - button "开启" [ref=e100] [cursor=pointer]
+        - generic [ref=e104]:
+          - button "打开电源设置" [ref=e105] [cursor=pointer]:
+            - generic [ref=e110]:
+              - generic [ref=e111]: 电源
+              - paragraph [ref=e112]:
+                - generic [ref=e114]: 未连接
+          - button "打开功率计设置" [ref=e115] [cursor=pointer]:
+            - generic [ref=e121]:
+              - generic [ref=e122]: 功率计
+              - paragraph [ref=e123]:
+                - generic [ref=e125]: 未连接
+          - button "打开光谱仪设置" [ref=e126] [cursor=pointer]:
+            - generic [ref=e135]:
+              - generic [ref=e136]: 光谱仪
+              - paragraph [ref=e137]:
+                - generic [ref=e139]: 未连接
+        - generic [ref=e141]:
+          - generic [ref=e142]:
+            - paragraph [ref=e143]: 0 / 3 台设备就绪
+            - paragraph [ref=e144]: 1 → 20 A · 间隔 3 A
+            - generic [ref=e145]:
+              - button "开始测试" [disabled]
+          - list "自动测试流程，当前第 0 点，共 0 个测试点" [ref=e147]:
+            - listitem [ref=e148]:
+              - generic [ref=e149]: "1"
+              - generic [ref=e151]: 就绪检查
+            - listitem [ref=e152]:
+              - generic [ref=e153]: "2"
+              - generic [ref=e155]: 加载电流
+            - listitem [ref=e156]:
+              - generic [ref=e157]: "3"
+              - generic [ref=e159]: 稳态判定
+            - listitem [ref=e160]:
+              - generic [ref=e161]: "4"
+              - generic [ref=e163]: 采集数据
+            - listitem [ref=e164]:
+              - generic [ref=e165]: "5"
+              - generic [ref=e167]: 保存本点
+            - listitem [ref=e168]:
+              - generic [ref=e169]: "6"
+              - generic [ref=e171]: 下一点
+          - generic [ref=e173]:
+            - paragraph [ref=e174]: 等待功率采集
+            - generic [ref=e175]:
+              - generic [ref=e176]:
+                - term [ref=e177]: 实时功率
+                - definition [ref=e178]: "-- W"
+              - generic [ref=e179]:
+                - term [ref=e180]: 窗口波动
+                - definition [ref=e181]: "-- W"
+              - generic [ref=e182]:
+                - term [ref=e183]: 稳定窗口
+                - definition [ref=e184]: 0.0 / 3.0 s
+            - paragraph [ref=e185]: 允许波动 ≤ 0.150 W
+        - generic [ref=e186]:
+          - generic "功率实时" [ref=e187]:
+            - generic [ref=e188]:
+              - generic [ref=e189]: 实时功率 (W)
+              - generic "图例" [ref=e191]: 实时功率
+            - generic [ref=e195]: 暂无实时数据
+          - generic "功率 / 效率" [ref=e198]:
+            - generic [ref=e199]:
+              - generic [ref=e200]: 功率 (W) & 效率 (%) vs 电流 (A)
+              - generic "图例" [ref=e202]:
+                - generic [ref=e203]: 功率 (W)
+                - generic [ref=e207]: 效率 (%)
+            - generic [ref=e211]: 完成稳定测试点后显示功率 / 效率
+          - generic "光谱" [ref=e214]:
+            - generic "图例" [ref=e217]: 光谱（实时）
+            - generic [ref=e221]:
+              - generic [ref=e222]: 暂无实时数据
+              - generic [ref=e225]:
+                - generic [ref=e226]:
+                  - term [ref=e227]: 中心波长
+                  - definition [ref=e228]: "-- nm"
+                - generic [ref=e229]:
+                  - term [ref=e230]: FWHM
+                  - definition [ref=e231]: "-- nm"
+                - generic [ref=e232]:
+                  - term [ref=e233]: PIB
+                  - definition [ref=e234]: "-- %"
+        - region "自动测试关键指标" [ref=e235]:
+          - generic [ref=e236]:
+            - paragraph [ref=e237]: 当前点功率
+            - generic [ref=e238]:
+              - generic [ref=e239]: "--"
+              - generic [ref=e240]: W
+            - paragraph [ref=e241]: 尚无稳态记录
+            - paragraph [ref=e242]: 等待测试
+          - generic [ref=e243]:
+            - paragraph [ref=e244]: 中心波长
+            - generic [ref=e245]:
+              - generic [ref=e246]: "--"
+              - generic [ref=e247]: nm
+            - paragraph [ref=e248]: 规格 976.0 ± 1.5 nm
+            - paragraph [ref=e249]: 等待光谱
+          - generic [ref=e250]:
+            - paragraph [ref=e251]: FWHM
+            - generic [ref=e252]:
+              - generic [ref=e253]: "--"
+              - generic [ref=e254]: nm
+            - paragraph [ref=e255]: 规格 ≤ 0.60 nm
+            - paragraph [ref=e256]: 等待光谱
+          - generic [ref=e257]:
+            - paragraph [ref=e258]: PIB
+            - generic [ref=e259]:
+              - generic [ref=e260]: "--"
+              - generic [ref=e261]: "%"
+            - paragraph [ref=e262]: 规格 ≥ 95 %
+            - paragraph [ref=e263]: 等待光谱
+          - generic [ref=e264]:
+            - paragraph [ref=e265]: 斜率效率（2–8 A）
+            - generic [ref=e266]:
+              - generic [ref=e267]: "--"
+              - generic [ref=e268]: W/A
+            - paragraph [ref=e269]: 规格 ≥ 0.08 W/A
+            - paragraph [ref=e270]: 至少需要 2 个点
+  - contentinfo "应用状态" [ref=e271]:
+    - generic [ref=e272]: 软件版本 v0.1.2
+    - generic [ref=e273]: 2026-08-18 13:42:23
+    - generic [ref=e277]: 测试提示：保持光纤清洁，避免弯折以确保测量稳定性。

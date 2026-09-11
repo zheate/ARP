@@ -1,0 +1,126 @@
+- generic [ref=f1e3]:
+  - banner [ref=f1e4]:
+    - generic [ref=f1e5]: Power Test
+    - generic [ref=f1e7]:
+      - button "保存设置" [disabled]
+      - button "全部工位急停" [ref=f1e8] [cursor=pointer]
+  - generic [ref=f1e9]:
+    - complementary [ref=f1e10]:
+      - navigation [ref=f1e11]:
+        - button "自动测试" [ref=f1e12] [cursor=pointer]
+        - button "手动配置" [disabled] [ref=f1e18]
+        - button "PD 采集" [ref=f1e25] [cursor=pointer]
+        - button "数据浏览" [disabled] [ref=f1e29]
+        - button "出货报告" [disabled] [ref=f1e34]
+        - button "系统设置" [ref=f1e39] [cursor=pointer]
+      - generic "侧栏格言 Stay True" [ref=f1e44]:
+        - paragraph [ref=f1e46]: Stay True
+    - main [ref=f1e47]:
+      - list:
+        - listitem [ref=f1e48]:
+          - status [ref=f1e49]:
+            - generic [ref=f1e53]:
+              - paragraph [ref=f1e54]: 示例数据
+              - paragraph [ref=f1e55]: 当前显示的是图表预览数据，不会连接真实仪器。
+            - button "关闭提示" [disabled] [ref=f1e56]
+      - generic [ref=f1e60]:
+        - generic [ref=f1e61]:
+          - generic [ref=f1e62]:
+            - generic [ref=f1e63]: 测试工位
+            - generic "测试工位" [ref=f1e66]:
+              - button "1" [pressed] [ref=f1e67] [cursor=pointer]
+              - button "2" [ref=f1e68] [cursor=pointer]
+          - generic [ref=f1e69]:
+            - generic [ref=f1e70]: 产品 SN
+            - textbox "产品 SN" [disabled]: DEMO-001
+          - generic [ref=f1e77]:
+            - generic [ref=f1e78]: 测试站别
+            - textbox "测试站别" [disabled]: 站别 1
+          - generic [ref=f1e81]:
+            - generic [ref=f1e82]: 测试温度
+            - textbox "测试温度" [disabled]:
+              - /placeholder: 例如：水冷25°C
+              - text: 水冷25°C
+          - generic [ref=f1e85]:
+            - generic [ref=f1e86]: 脚本选择
+            - combobox [disabled] [ref=f1e91]:
+              - generic [ref=f1e92]: 标准测试
+          - generic [ref=f1e95]:
+            - generic [ref=f1e96]: 输出目录
+            - generic [ref=f1e99]:
+              - textbox "输出目录" [disabled]:
+                - /placeholder: 测试数据保存目录
+                - text: /data/test/DEMO-001
+              - button "选择输出目录" [disabled]
+        - generic [ref=f1e100]:
+          - button "打开电源设置" [disabled] [ref=f1e101]:
+            - generic [ref=f1e106]:
+              - generic [ref=f1e107]: 电源
+              - paragraph [ref=f1e108]:
+                - generic [ref=f1e110]: 在线
+                - generic [ref=f1e111]: ·
+                - generic [ref=f1e112]: 输出中
+          - button "打开功率计设置" [disabled] [ref=f1e113]:
+            - generic [ref=f1e119]:
+              - generic [ref=f1e120]: 功率计
+              - paragraph [ref=f1e121]:
+                - generic [ref=f1e123]: 在线
+                - generic [ref=f1e124]: ·
+                - generic [ref=f1e125]: 测量中
+          - button "打开光谱仪设置" [disabled] [ref=f1e126]:
+            - generic [ref=f1e135]:
+              - generic [ref=f1e136]: 光谱仪
+              - paragraph [ref=f1e137]:
+                - generic [ref=f1e139]: 在线
+                - generic [ref=f1e140]: ·
+                - generic [ref=f1e141]: 采集中
+          - generic [ref=f1e144]:
+            - button "开始" [disabled]
+            - button "停止" [ref=f1e145] [cursor=pointer]
+        - generic [ref=f1e146]:
+          - generic [ref=f1e147]:
+            - generic "功率实时" [ref=f1e148]:
+              - generic [ref=f1e150]:
+                - img "功率实时曲线" [ref=f1e151]
+                - generic [ref=f1e152]: 实时功率
+            - generic "功率 / 效率" [ref=f1e153]:
+              - generic [ref=f1e155]:
+                - img "功率 / 效率曲线" [ref=f1e156]
+                - generic [ref=f1e157]: 功率 (W)、效率 (%)、历史参考
+          - region "实时关键指标" [ref=f1e158]:
+            - generic [ref=f1e159]:
+              - generic "Live Power，实时记录中" [ref=f1e160]: Live Power
+              - generic [ref=f1e163]:
+                - generic [ref=f1e164]: "0.860"
+                - generic [ref=f1e165]:
+                  - text: W @
+                  - generic [ref=f1e166]: 8 A
+            - button "Center Wavelength，点击设置规格" [ref=f1e167] [cursor=pointer]:
+              - generic [ref=f1e168]: Center Wavelength
+              - generic [ref=f1e170]:
+                - generic [ref=f1e171]: "976.200"
+                - generic [ref=f1e172]: nm
+            - button "FWHM，点击设置规格" [ref=f1e173] [cursor=pointer]:
+              - generic [ref=f1e174]: FWHM
+              - generic [ref=f1e176]:
+                - generic [ref=f1e177]: "0.776"
+                - generic [ref=f1e178]: nm
+            - button "PIB，点击设置规格" [ref=f1e179] [cursor=pointer]:
+              - generic [ref=f1e180]: PIB
+              - generic [ref=f1e182]:
+                - generic [ref=f1e183]: "96.85"
+                - generic [ref=f1e184]: "%"
+          - generic "光谱" [ref=f1e185]:
+            - generic [ref=f1e187]:
+              - img "光谱曲线" [ref=f1e188]
+              - generic "峰值图例":
+                - generic:
+                  - generic: Peak 1
+                  - generic: 976.200 nm
+                - generic:
+                  - generic: Peak 2
+                  - generic: 978.000 nm
+                - generic:
+                  - generic: Peak 3
+                  - generic: 973.000 nm
+              - generic [ref=f1e189]: 光谱（实时）

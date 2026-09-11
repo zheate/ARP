@@ -1,0 +1,166 @@
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e5]: Power Test
+      - generic [ref=e7]:
+        - button "保存设置" [disabled]
+        - button "全部工位急停" [ref=e8] [cursor=pointer]
+    - generic [ref=e9]:
+      - complementary [ref=e10]:
+        - navigation [ref=e11]:
+          - button "自动测试" [disabled] [ref=e12]
+          - button "手动配置" [ref=e18] [cursor=pointer]
+          - button "PD 采集" [ref=e25] [cursor=pointer]
+          - button "数据浏览" [ref=e29] [cursor=pointer]
+          - button "出货报告" [ref=e34] [cursor=pointer]
+          - button "系统设置" [ref=e39] [cursor=pointer]
+        - generic "侧栏格言 Stay True" [ref=e44]:
+          - paragraph [ref=e46]: Stay True
+      - main [ref=e47]:
+        - generic [ref=e60]:
+          - generic [ref=e61]:
+            - generic [ref=e62]:
+              - generic [ref=e63]: 测试工位
+              - generic "测试工位" [ref=e66]:
+                - button "1" [pressed] [ref=e67] [cursor=pointer]
+                - button "2" [ref=e68] [cursor=pointer]
+            - generic [ref=e69]:
+              - generic [ref=e70]: 产品 SN
+              - textbox "产品 SN" [ref=e191]: DEMO-001
+            - generic [ref=e77]:
+              - generic [ref=e78]: 测试站别
+              - textbox "测试站别" [ref=e192]: 站别 1
+            - generic [ref=e81]:
+              - generic [ref=e82]: 测试温度
+              - textbox "测试温度" [ref=e193]:
+                - /placeholder: 例如：水冷25°C
+                - text: 水冷25°C
+            - generic [ref=e85]:
+              - generic [ref=e86]: 脚本选择
+              - combobox [ref=e91] [cursor=pointer]:
+                - generic [ref=e92]: 标准测试
+            - generic [ref=e95]:
+              - generic [ref=e96]: 输出目录
+              - generic [ref=e99]:
+                - textbox "输出目录" [ref=e194]:
+                  - /placeholder: 测试数据保存目录
+                  - text: /data/test/DEMO-001
+                - button "选择输出目录" [ref=e195] [cursor=pointer]
+          - generic [ref=e100]:
+            - button "打开电源设置" [ref=e101] [cursor=pointer]:
+              - generic [ref=e106]:
+                - generic [ref=e107]: 电源
+                - paragraph [ref=e108]:
+                  - generic [ref=e110]: 在线
+                  - generic [aria-hidden] [ref=e111]: ·
+                  - generic [ref=e112]: 输出中
+            - button "打开功率计设置" [ref=e113] [cursor=pointer]:
+              - generic [ref=e119]:
+                - generic [ref=e120]: 功率计
+                - paragraph [ref=e121]:
+                  - generic [ref=e123]: 在线
+                  - generic [aria-hidden] [ref=e124]: ·
+                  - generic [ref=e125]: 测量中
+            - button "打开光谱仪设置" [ref=e126] [cursor=pointer]:
+              - generic [ref=e135]:
+                - generic [ref=e136]: 光谱仪
+                - paragraph [ref=e137]:
+                  - generic [ref=e139]: 在线
+                  - generic [aria-hidden] [ref=e140]: ·
+                  - generic [ref=e141]: 采集中
+            - generic [ref=e144]:
+              - button "开始" [disabled]
+              - button "停止" [disabled]
+          - generic [ref=e146]:
+            - generic [ref=e147]:
+              - generic "功率实时" [ref=e149]:
+                - generic [ref=e151]:
+                  - img "功率实时曲线" [ref=e152]
+                  - generic [ref=e153]: 实时功率
+              - generic "功率 / 效率" [ref=e154]:
+                - generic [ref=e156]:
+                  - img "功率 / 效率曲线" [ref=e157]
+                  - generic [ref=e158]: 功率 (W)、效率 (%)、历史参考
+            - region "实时关键指标" [ref=e159]:
+              - generic [ref=e160]:
+                - generic "Live Power，实时记录中" [ref=e161]: Live Power
+                - generic [ref=e164]:
+                  - generic [ref=e165]: "0.860"
+                  - generic [ref=e166]:
+                    - text: W @
+                    - generic [ref=e167]: 8 A
+              - button "Center Wavelength，点击设置规格" [ref=e168] [cursor=pointer]:
+                - generic [ref=e169]: Center Wavelength
+                - generic [ref=e171]:
+                  - generic [ref=e172]: "976.200"
+                  - generic [ref=e173]: nm
+              - button "FWHM，点击设置规格" [ref=e174] [cursor=pointer]:
+                - generic [ref=e175]: FWHM
+                - generic [ref=e177]:
+                  - generic [ref=e178]: "0.776"
+                  - generic [ref=e179]: nm
+              - button "PIB，点击设置规格" [ref=e180] [cursor=pointer]:
+                - generic [ref=e181]: PIB
+                - generic [ref=e183]:
+                  - generic [ref=e184]: "96.85"
+                  - generic [ref=e185]: "%"
+            - generic "光谱" [ref=e186]:
+              - generic [ref=e188]:
+                - img "光谱曲线" [ref=e189]
+                - generic "峰值图例":
+                  - generic:
+                    - generic: Peak 1
+                    - generic: 976.200 nm
+                  - generic:
+                    - generic: Peak 2
+                    - generic: 978.000 nm
+                  - generic:
+                    - generic: Peak 3
+                    - generic: 973.000 nm
+                - generic [ref=e190]: 光谱（实时）
+  - dialog [ref=e231]:
+    - generic [ref=e232]:
+      - generic [ref=e241]:
+        - heading "光谱仪设置" [level=2] [ref=e242]
+        - paragraph [ref=e243]: 配置光谱仪硬件资源与光谱采集参数
+      - button "关闭设置弹窗" [active] [ref=e244] [cursor=pointer]
+    - generic [ref=e249]:
+      - generic [ref=e250]:
+        - generic [ref=e251]: 设备资源
+        - generic [ref=e252]:
+          - combobox [disabled] [ref=e254]:
+            - generic [ref=e255]: 请选择光谱仪
+          - button "识别" [disabled]
+      - generic [ref=e258]:
+        - generic [ref=e259]:
+          - generic [ref=e260]: 积分时间 (μs)
+          - spinbutton [ref=e261]: "10000"
+        - generic [ref=e262]:
+          - generic [ref=e263]: 刷新间隔 (ms)
+          - spinbutton [ref=e264]: "100"
+        - generic [ref=e265]:
+          - generic [ref=e266]: 平均帧数
+          - spinbutton [ref=e267]: "5"
+        - generic [ref=e268]:
+          - generic [ref=e269]: 采集模式
+          - generic [ref=e270]:
+            - checkbox "自动积分" [ref=e271]
+            - text: 自动积分
+        - generic [ref=e272]:
+          - generic [ref=e273]: PIB 中心波长 (nm)
+          - spinbutton [ref=e274]: "976"
+        - generic [ref=e275]:
+          - generic [ref=e276]: PIB 半带宽 (nm)
+          - spinbutton [ref=e277]: "1.5"
+      - generic [ref=e278]:
+        - generic [ref=e279]:
+          - checkbox "光谱曲线平滑" [checked] [ref=e280]
+          - text: 光谱曲线平滑
+        - generic [ref=e281]: 仅影响显示，不改变测量数据
+      - button "停止采集" [ref=e282] [cursor=pointer]
+      - paragraph [ref=e283]: 中心 976.2 nm · FWHM 0.776 nm
+    - generic [ref=e284]:
+      - paragraph [ref=e285]: 修改内容将保存到当前测试配置
+      - generic [ref=e286]:
+        - button "关闭" [ref=e287] [cursor=pointer]
+        - button "保存设置" [ref=e288] [cursor=pointer]

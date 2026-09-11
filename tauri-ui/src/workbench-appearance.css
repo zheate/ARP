@@ -109,9 +109,12 @@
 .automatic-metric-card--title-below .automatic-metric-card__title { order: 0; }
 .automatic-metric-card--title-below .automatic-metric-card__value { order: 1; }
 .automatic-metric-card__value, .automatic-metric-card--power .automatic-metric-card__value { min-width: 0; font-size: var(--workbench-metric-size); line-height: 1.25; font-weight: 600; gap: 0.4rem; }
+.automatic-metric-grid .automatic-metric-card { align-items: stretch; }
+.automatic-metric-grid .automatic-metric-card .automatic-metric-card__title { justify-content: flex-end; }
+.automatic-metric-grid .automatic-metric-card .automatic-metric-card__value { width: 100%; justify-content: center; }
 .automatic-metric-card__unit, .automatic-metric-card--power .automatic-metric-card__unit { font-size: 0.8rem; font-weight: 450; white-space: nowrap; }
 .automatic-metric-card__current { margin-left: 0.15rem; }
-.automatic-metric-card__recording-dot { width: 0.4rem; height: 0.4rem; background: var(--primary); }
+.automatic-metric-card__recording-dot { width: 0.4rem; height: 0.4rem; }
 .numeric-readout { display: inline-flex; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .numeric-readout__digit { display: inline-block; width: 1ch; text-align: center; }
 

@@ -1,0 +1,519 @@
+{
+  "phase": "baseline",
+  "renderer": {
+    "ProcessId": 29952,
+    "ExecutablePath": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\152.0.4191.62\\msedgewebview2.exe"
+  },
+  "state": {
+    "url": "http://localhost:1420/?demo=1",
+    "count": 43,
+    "commits": 64,
+    "canvases": 6
+  },
+  "samples": [
+    {
+      "at": 1788759108563,
+      "heap": {
+        "usedSize": 16292692,
+        "totalSize": 25247744,
+        "embedderHeapUsedSize": 5842960,
+        "backingStorageSize": 8748104
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 477
+      },
+      "progress": {
+        "count": 48,
+        "commits": 71,
+        "canvases": 6
+      },
+      "memory": {
+        "PrivateMemorySize64": 91230208,
+        "WorkingSet64": 145559552,
+        "CPU": 0.984375
+      }
+    },
+    {
+      "at": 1788759124332,
+      "heap": {
+        "usedSize": 14140444,
+        "totalSize": 20529152,
+        "embedderHeapUsedSize": 5822080,
+        "backingStorageSize": 8748564
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 375,
+        "jsEventListeners": 717
+      },
+      "progress": {
+        "count": 127,
+        "commits": 188,
+        "canvases": 6
+      },
+      "memory": {
+        "PrivateMemorySize64": 93028352,
+        "WorkingSet64": 149086208,
+        "CPU": 1.484375
+      }
+    },
+    {
+      "at": 1788759140136,
+      "heap": {
+        "usedSize": 15080644,
+        "totalSize": 27344896,
+        "embedderHeapUsedSize": 3891336,
+        "backingStorageSize": 8748534
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 257
+      },
+      "progress": {
+        "count": 206,
+        "commits": 379,
+        "canvases": 6
+      },
+      "memory": {
+        "PrivateMemorySize64": 101969920,
+        "WorkingSet64": 158371840,
+        "CPU": 2
+      }
+    },
+    {
+      "at": 1788759155964,
+      "heap": {
+        "usedSize": 13260556,
+        "totalSize": 27607040,
+        "embedderHeapUsedSize": 8380784,
+        "backingStorageSize": 8748534
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 1837
+      },
+      "progress": {
+        "count": 285,
+        "commits": 490,
+        "canvases": 6
+      },
+      "memory": {
+        "PrivateMemorySize64": 101548032,
+        "WorkingSet64": 158040064,
+        "CPU": 2.53125
+      }
+    },
+    {
+      "at": 1788759171815,
+      "heap": {
+        "usedSize": 12738640,
+        "totalSize": 27607040,
+        "embedderHeapUsedSize": 5217208,
+        "backingStorageSize": 8748534
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 757
+      },
+      "progress": {
+        "count": 364,
+        "commits": 600,
+        "canvases": 6
+      },
+      "memory": {
+        "PrivateMemorySize64": 103563264,
+        "WorkingSet64": 160473088,
+        "CPU": 2.96875
+      }
+    },
+    {
+      "at": 1788759187618,
+      "heap": {
+        "usedSize": 19230656,
+        "totalSize": 41762816,
+        "embedderHeapUsedSize": 7634296,
+        "backingStorageSize": 8748534
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 1597
+      },
+      "progress": {
+        "count": 444,
+        "commits": 712,
+        "canvases": 6
+      },
+      "memory": {
+        "PrivateMemorySize64": 118128640,
+        "WorkingSet64": 175108096,
+        "CPU": 3.265625
+      }
+    },
+    {
+      "at": 1788759203422,
+      "heap": {
+        "usedSize": 12996816,
+        "totalSize": 41500672,
+        "embedderHeapUsedSize": 4707136,
+        "backingStorageSize": 8748534
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 577
+      },
+      "progress": {
+        "count": 523,
+        "commits": 823,
+        "canvases": 6
+      },
+      "memory": {
+        "PrivateMemorySize64": 118161408,
+        "WorkingSet64": 175128576,
+        "CPU": 3.578125
+      }
+    },
+    {
+      "at": 1788759219446,
+      "heap": {
+        "usedSize": 24473032,
+        "totalSize": 41762816,
+        "embedderHeapUsedSize": 9239616,
+        "backingStorageSize": 8748534
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 2157
+      },
+      "progress": {
+        "count": 602,
+        "commits": 933,
+        "canvases": 6
+      },
+      "memory": {
+        "PrivateMemorySize64": 117833728,
+        "WorkingSet64": 174800896,
+        "CPU": 3.96875
+      }
+    },
+    {
+      "at": 1788759235440,
+      "heap": {
+        "usedSize": 16418084,
+        "totalSize": 41762816,
+        "embedderHeapUsedSize": 6061760,
+        "backingStorageSize": 8748534
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 1077
+      },
+      "progress": {
+        "count": 682,
+        "commits": 1045,
+        "canvases": 6
+      },
+      "memory": {
+        "PrivateMemorySize64": 117551104,
+        "WorkingSet64": 174616576,
+        "CPU": 4.453125
+      }
+    },
+    {
+      "at": 1788759251259,
+      "heap": {
+        "usedSize": 14307676,
+        "totalSize": 41762816,
+        "embedderHeapUsedSize": 10695184,
+        "backingStorageSize": 8748534
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 2677
+      },
+      "progress": {
+        "count": 762,
+        "commits": 1157,
+        "canvases": 6
+      },
+      "memory": {
+        "PrivateMemorySize64": 117637120,
+        "WorkingSet64": 174718976,
+        "CPU": 4.78125
+      }
+    },
+    {
+      "at": 1788759267109,
+      "heap": {
+        "usedSize": 18999072,
+        "totalSize": 41762816,
+        "embedderHeapUsedSize": 7494768,
+        "backingStorageSize": 8748534
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 1557
+      },
+      "progress": {
+        "count": 841,
+        "commits": 1268,
+        "canvases": 6
+      },
+      "memory": {
+        "PrivateMemorySize64": 118382592,
+        "WorkingSet64": 175570944,
+        "CPU": 5.21875
+      }
+    },
+    {
+      "at": 1788759282903,
+      "heap": {
+        "usedSize": 21806316,
+        "totalSize": 41762816,
+        "embedderHeapUsedSize": 4411152,
+        "backingStorageSize": 8747966
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 437
+      },
+      "progress": {
+        "count": 920,
+        "commits": 1379,
+        "canvases": 6
+      },
+      "memory": {
+        "PrivateMemorySize64": 118329344,
+        "WorkingSet64": 175800320,
+        "CPU": 5.640625
+      }
+    },
+    {
+      "at": 1788759298685,
+      "heap": {
+        "usedSize": 19965324,
+        "totalSize": 41762816,
+        "embedderHeapUsedSize": 8805656,
+        "backingStorageSize": 8747966
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 2017
+      },
+      "progress": {
+        "count": 999,
+        "commits": 1489,
+        "canvases": 6
+      },
+      "memory": {
+        "PrivateMemorySize64": 117612544,
+        "WorkingSet64": 175153152,
+        "CPU": 5.921875
+      }
+    },
+    {
+      "at": 1788759314472,
+      "heap": {
+        "usedSize": 21696812,
+        "totalSize": 41762816,
+        "embedderHeapUsedSize": 5483968,
+        "backingStorageSize": 8747760
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 837
+      },
+      "progress": {
+        "count": 1078,
+        "commits": 1600,
+        "canvases": 6
+      },
+      "memory": {
+        "PrivateMemorySize64": 118063104,
+        "WorkingSet64": 175534080,
+        "CPU": 6.265625
+      }
+    },
+    {
+      "at": 1788759330258,
+      "heap": {
+        "usedSize": 19232380,
+        "totalSize": 41762816,
+        "embedderHeapUsedSize": 9927048,
+        "backingStorageSize": 8747760
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 2417
+      },
+      "progress": {
+        "count": 1157,
+        "commits": 1710,
+        "canvases": 6
+      },
+      "memory": {
+        "PrivateMemorySize64": 117678080,
+        "WorkingSet64": 175259648,
+        "CPU": 6.578125
+      }
+    },
+    {
+      "at": 1788759346031,
+      "heap": {
+        "usedSize": 22308296,
+        "totalSize": 41762816,
+        "embedderHeapUsedSize": 6608328,
+        "backingStorageSize": 8746983
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 1257
+      },
+      "progress": {
+        "count": 1236,
+        "commits": 1821,
+        "canvases": 6
+      },
+      "memory": {
+        "PrivateMemorySize64": 117616640,
+        "WorkingSet64": 175329280,
+        "CPU": 7.046875
+      }
+    },
+    {
+      "at": 1788759361871,
+      "heap": {
+        "usedSize": 19182840,
+        "totalSize": 41762816,
+        "embedderHeapUsedSize": 11232080,
+        "backingStorageSize": 8746983
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 2837
+      },
+      "progress": {
+        "count": 1315,
+        "commits": 1931,
+        "canvases": 6
+      },
+      "memory": {
+        "PrivateMemorySize64": 117800960,
+        "WorkingSet64": 175525888,
+        "CPU": 7.359375
+      }
+    },
+    {
+      "at": 1788759377629,
+      "heap": {
+        "usedSize": 36630260,
+        "totalSize": 52772864,
+        "embedderHeapUsedSize": 5534024,
+        "backingStorageSize": 8746983
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 877
+      },
+      "progress": {
+        "count": 1394,
+        "commits": 2042,
+        "canvases": 6
+      },
+      "memory": {
+        "PrivateMemorySize64": 130506752,
+        "WorkingSet64": 188194816,
+        "CPU": 7.703125
+      }
+    },
+    {
+      "at": 1788759393401,
+      "heap": {
+        "usedSize": 33776028,
+        "totalSize": 69025792,
+        "embedderHeapUsedSize": 10263640,
+        "backingStorageSize": 8746983
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 2457
+      },
+      "progress": {
+        "count": 1473,
+        "commits": 2153,
+        "canvases": 6
+      },
+      "memory": {
+        "PrivateMemorySize64": 146178048,
+        "WorkingSet64": 203644928,
+        "CPU": 8.03125
+      }
+    },
+    {
+      "at": 1788759409213,
+      "heap": {
+        "usedSize": 24968524,
+        "totalSize": 69025792,
+        "embedderHeapUsedSize": 6731320,
+        "backingStorageSize": 8746983
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 1317
+      },
+      "progress": {
+        "count": 1552,
+        "commits": 2263,
+        "canvases": 6
+      },
+      "memory": {
+        "PrivateMemorySize64": 146087936,
+        "WorkingSet64": 203608064,
+        "CPU": 8.40625
+      }
+    },
+    {
+      "at": 1788759425003,
+      "heap": {
+        "usedSize": 19742648,
+        "totalSize": 69025792,
+        "embedderHeapUsedSize": 6003824,
+        "backingStorageSize": 8747046
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 377
+      },
+      "progress": {
+        "count": 1631,
+        "commits": 2423,
+        "canvases": 6
+      },
+      "memory": {
+        "PrivateMemorySize64": 147775488,
+        "WorkingSet64": 206073856,
+        "CPU": 8.75
+      }
+    }
+  ]
+}

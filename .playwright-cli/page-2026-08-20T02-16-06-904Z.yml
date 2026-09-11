@@ -1,0 +1,212 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]: Power Test
+    - generic [ref=e7]:
+      - button "保存设置" [disabled]
+      - button "紧急停止" [ref=e8] [cursor=pointer]
+  - generic [ref=e9]:
+    - complementary [ref=e10]:
+      - navigation [ref=e11]:
+        - button "自动测试" [ref=e12] [cursor=pointer]
+        - button "手动配置" [disabled] [ref=e18]
+        - button "PD 监测" [ref=e25] [cursor=pointer]
+        - button "数据浏览" [disabled] [ref=e29]
+        - button "出货报告" [disabled] [ref=e34]
+        - button "系统设置" [disabled] [ref=e39]
+    - main [ref=e44]:
+      - list:
+        - listitem [ref=e45]:
+          - status [ref=e46]:
+            - generic [ref=e50]:
+              - paragraph [ref=e51]: 示例数据
+              - paragraph [ref=e52]: 当前显示的是图表预览数据，不会连接真实仪器。
+            - button "关闭提示" [disabled] [ref=e53]
+      - generic [ref=e58]:
+        - generic [ref=e59]:
+          - generic [ref=e60]:
+            - paragraph [ref=e61]: 实时采集工作区
+            - heading "双 PD 监测" [level=1] [ref=e63]
+            - paragraph [ref=e64]: 同时观察两个工位的光电探测器信号，独立配置采样参数并保存原始波形。
+          - generic "双 PD 监测状态" [ref=e65]:
+            - generic [ref=e66]:
+              - generic [ref=e67]: 监测通道
+              - strong [ref=e68]: "2"
+            - generic [ref=e69]:
+              - generic [ref=e70]: 运行中
+              - strong [ref=e71]: 0/ 2
+            - generic [ref=e72]:
+              - generic [ref=e73]: 刷新周期
+              - strong [ref=e74]: 500 ms
+        - region "双 PD 通道" [ref=e75]:
+          - region [ref=e76]:
+            - generic [ref=e78]:
+              - generic [ref=e79]: "01"
+              - generic [ref=e80]:
+                - generic [ref=e81]:
+                  - heading "PD-1" [level=2] [ref=e82]
+                  - generic [ref=e83]: 待机
+                - paragraph [ref=e85]: 工位 1 · 未选择输入通道
+            - generic [ref=e88]:
+              - generic [ref=e89]:
+                - generic [ref=e90]:
+                  - paragraph [ref=e91]: 实时信号
+                  - paragraph [ref=e92]: —
+                - generic [ref=e93]:
+                  - text: 电压
+                  - strong [ref=e94]: —
+                - generic [ref=e95]:
+                  - text: 采样数
+                  - strong [ref=e96]: "0"
+              - generic [ref=e97]:
+                - generic [ref=e98]:
+                  - generic [ref=e99]:
+                    - generic [ref=e100]: 采集配置
+                    - generic [ref=e101]: 通道 1
+                  - generic [ref=e102]:
+                    - generic [ref=e103]: 采集卡：
+                    - generic [ref=e105]:
+                      - combobox [ref=e107] [cursor=pointer]:
+                        - generic [ref=e108]: 请选择
+                      - button "识别" [ref=e111] [cursor=pointer]
+                  - generic [ref=e112]:
+                    - generic [ref=e113]:
+                      - generic [ref=e114]: 输入通道
+                      - combobox [ref=e116] [cursor=pointer]:
+                        - generic [ref=e117]: 请选择
+                    - generic [ref=e120]:
+                      - generic [ref=e121]: 接线方式
+                      - combobox [ref=e123] [cursor=pointer]:
+                        - generic [ref=e124]: 差分 DIFF
+                    - generic [ref=e127]:
+                      - generic [ref=e128]: 输入量程
+                      - combobox [ref=e130] [cursor=pointer]:
+                        - generic [ref=e131]: "10"
+                    - generic [ref=e134]:
+                      - generic [ref=e135]: 采样率 (S/s)
+                      - spinbutton [ref=e136]: "1000"
+                    - generic [ref=e137]:
+                      - generic [ref=e138]: 每批点数
+                      - spinbutton [ref=e139]: "100"
+                    - generic [ref=e140]:
+                      - generic [ref=e141]: 显示单位
+                      - textbox [ref=e142]: V
+                    - generic [ref=e143]:
+                      - generic [ref=e144]: 标定比例
+                      - spinbutton [ref=e145]: "1"
+                    - generic [ref=e146]:
+                      - generic [ref=e147]: 标定偏置
+                      - spinbutton [ref=e148]: "0"
+                  - generic [ref=e149]:
+                    - generic [ref=e150]:
+                      - paragraph [ref=e151]: 保存原始数据
+                      - paragraph [ref=e152]: 停止采集时写入 CSV
+                    - generic [ref=e153]:
+                      - checkbox "启用" [checked] [ref=e154]
+                      - text: 启用
+                  - generic [ref=e155]:
+                    - textbox "留空则使用默认目录" [ref=e156]
+                    - button "选择保存目录" [ref=e157] [cursor=pointer]
+                  - button "开始监测 PD-1" [disabled]
+                - generic [ref=e158]:
+                  - generic [ref=e159]:
+                    - generic [ref=e160]: 实时趋势
+                    - generic [ref=e161]: 最近 60s
+                  - generic "PD-1 实时趋势" [ref=e162]:
+                    - generic "图例" [ref=e164]: V
+                    - generic [ref=e168]: 开始监测后显示实时趋势
+                  - generic [ref=e170]:
+                    - generic [ref=e171]:
+                      - generic [ref=e172]: 批次均值
+                      - strong [ref=e173]: —
+                    - generic [ref=e174]:
+                      - generic [ref=e175]: 标准差
+                      - strong [ref=e176]: —
+                    - generic [ref=e177]:
+                      - generic [ref=e178]: 最小 / 最大
+                      - strong [ref=e179]: —
+          - region [ref=e180]:
+            - generic [ref=e182]:
+              - generic [ref=e183]: "02"
+              - generic [ref=e184]:
+                - generic [ref=e185]:
+                  - heading "PD-2" [level=2] [ref=e186]
+                  - generic [ref=e187]: 待机
+                - paragraph [ref=e189]: 工位 2 · 未选择输入通道
+            - generic [ref=e192]:
+              - generic [ref=e193]:
+                - generic [ref=e194]:
+                  - paragraph [ref=e195]: 实时信号
+                  - paragraph [ref=e196]: —
+                - generic [ref=e197]:
+                  - text: 电压
+                  - strong [ref=e198]: —
+                - generic [ref=e199]:
+                  - text: 采样数
+                  - strong [ref=e200]: "0"
+              - generic [ref=e201]:
+                - generic [ref=e202]:
+                  - generic [ref=e203]:
+                    - generic [ref=e204]: 采集配置
+                    - generic [ref=e205]: 通道 2
+                  - generic [ref=e206]:
+                    - generic [ref=e207]: 采集卡：
+                    - generic [ref=e209]:
+                      - combobox [ref=e211] [cursor=pointer]:
+                        - generic [ref=e212]: 请选择
+                      - button "识别" [ref=e215] [cursor=pointer]
+                  - generic [ref=e216]:
+                    - generic [ref=e217]:
+                      - generic [ref=e218]: 输入通道
+                      - combobox [ref=e220] [cursor=pointer]:
+                        - generic [ref=e221]: 请选择
+                    - generic [ref=e224]:
+                      - generic [ref=e225]: 接线方式
+                      - combobox [ref=e227] [cursor=pointer]:
+                        - generic [ref=e228]: 差分 DIFF
+                    - generic [ref=e231]:
+                      - generic [ref=e232]: 输入量程
+                      - combobox [ref=e234] [cursor=pointer]:
+                        - generic [ref=e235]: "10"
+                    - generic [ref=e238]:
+                      - generic [ref=e239]: 采样率 (S/s)
+                      - spinbutton [ref=e240]: "1000"
+                    - generic [ref=e241]:
+                      - generic [ref=e242]: 每批点数
+                      - spinbutton [ref=e243]: "100"
+                    - generic [ref=e244]:
+                      - generic [ref=e245]: 显示单位
+                      - textbox [ref=e246]: V
+                    - generic [ref=e247]:
+                      - generic [ref=e248]: 标定比例
+                      - spinbutton [ref=e249]: "1"
+                    - generic [ref=e250]:
+                      - generic [ref=e251]: 标定偏置
+                      - spinbutton [ref=e252]: "0"
+                  - generic [ref=e253]:
+                    - generic [ref=e254]:
+                      - paragraph [ref=e255]: 保存原始数据
+                      - paragraph [ref=e256]: 停止采集时写入 CSV
+                    - generic [ref=e257]:
+                      - checkbox "启用" [checked] [ref=e258]
+                      - text: 启用
+                  - generic [ref=e259]:
+                    - textbox "留空则使用默认目录" [ref=e260]
+                    - button "选择保存目录" [ref=e261] [cursor=pointer]
+                  - button "开始监测 PD-2" [disabled]
+                - generic [ref=e262]:
+                  - generic [ref=e263]:
+                    - generic [ref=e264]: 实时趋势
+                    - generic [ref=e265]: 最近 60s
+                  - generic "PD-2 实时趋势" [ref=e266]:
+                    - generic "图例" [ref=e268]: V
+                    - generic [ref=e272]: 开始监测后显示实时趋势
+                  - generic [ref=e274]:
+                    - generic [ref=e275]:
+                      - generic [ref=e276]: 批次均值
+                      - strong [ref=e277]: —
+                    - generic [ref=e278]:
+                      - generic [ref=e279]: 标准差
+                      - strong [ref=e280]: —
+                    - generic [ref=e281]:
+                      - generic [ref=e282]: 最小 / 最大
+                      - strong [ref=e283]: —

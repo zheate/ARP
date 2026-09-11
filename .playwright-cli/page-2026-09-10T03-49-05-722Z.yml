@@ -1,0 +1,86 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]: Power Test
+    - generic [ref=e7]:
+      - button "保存设置" [disabled]
+      - button "全部工位急停" [ref=e8] [cursor=pointer]
+  - generic [ref=e9]:
+    - complementary [ref=e10]:
+      - navigation [ref=e11]:
+        - button "自动测试" [ref=e12] [cursor=pointer]
+        - button "手动配置" [disabled] [ref=e18]
+        - button "PD 采集" [ref=e25] [cursor=pointer]
+        - button "数据浏览" [disabled] [ref=e29]
+        - button "出货报告" [disabled] [ref=e34]
+        - button "系统设置" [active] [ref=e39] [cursor=pointer]
+      - generic "侧栏格言 Stay True" [ref=e44]:
+        - paragraph [ref=e46]: Stay True
+    - main [ref=e47]:
+      - generic [ref=e192]:
+        - generic [ref=e194]:
+          - heading "系统设置" [level=1] [ref=e195]
+          - paragraph [ref=e196]: 管理软件的界面显示偏好。
+        - generic [ref=e197]:
+          - generic [ref=e206]:
+            - generic [ref=e207]: 外观
+            - generic [ref=e208]: 选择适合当前环境的界面主题。
+          - generic [ref=e209]:
+            - group "主题配色" [ref=e210]:
+              - paragraph [ref=e212]: 统一更改按钮、选中状态、读数和曲线的强调色，选择后立即生效并自动保存。
+              - generic [ref=e213]:
+                - generic [ref=e214] [cursor=pointer]:
+                  - radio "经典橙" [checked] [ref=e215]
+                  - generic [ref=e226]: 经典橙
+                - generic [ref=e231] [cursor=pointer]:
+                  - radio "极光蓝" [ref=e232]
+                  - generic [ref=e243]: 极光蓝
+                - generic [ref=e246] [cursor=pointer]:
+                  - radio "森林绿" [ref=e247]
+                  - generic [ref=e258]: 森林绿
+                - generic [ref=e261] [cursor=pointer]:
+                  - radio "鸢尾紫" [ref=e262]
+                  - generic [ref=e273]: 鸢尾紫
+                - generic [ref=e276] [cursor=pointer]:
+                  - radio "玫瑰" [ref=e277]
+                  - generic [ref=e288]: 玫瑰
+                - generic [ref=e291] [cursor=pointer]:
+                  - radio "石墨" [ref=e292]
+                  - generic [ref=e303]: 石墨
+            - generic [ref=e306]:
+              - generic [ref=e307]:
+                - paragraph [ref=e308]: 浅色模式
+                - paragraph [ref=e309]: 开启后使用明亮背景与深色文字，设置会自动保存。
+              - generic [ref=e310]:
+                - generic [ref=e311]: 已关闭
+                - switch "切换浅色模式" [ref=e312] [cursor=pointer]
+            - generic [ref=e314]:
+              - generic [ref=e315]:
+                - paragraph [ref=e316]: 曲线线型
+                - paragraph [ref=e317]: 设置自动测试功率实时曲线的实线、虚线或点线显示，数据连接方式保持不变。
+              - combobox "自动测试功率实时曲线线型" [ref=e320] [cursor=pointer]:
+                - generic [ref=e321]: 实线
+            - generic [ref=e324]:
+              - generic [ref=e325]:
+                - paragraph [ref=e326]: 末端样式
+                - paragraph [ref=e327]: 标识自动测试功率实时曲线的最新采样点；纸飞机沿曲线旋转，爪印保持正立。
+              - combobox "自动测试功率实时曲线末端样式" [ref=e330] [cursor=pointer]:
+                - generic [ref=e331]: 圆点
+        - generic [ref=e334]:
+          - generic [ref=e340]:
+            - generic [ref=e341]: 软件授权
+            - generic [ref=e342]: 查看当前设备许可证及有效期。
+          - generic [ref=e344]:
+            - generic [ref=e349]:
+              - strong [ref=e350]: 许可证有效
+              - generic [ref=e351]: 演示模式
+            - generic [ref=e352]:
+              - generic [ref=e353]:
+                - term [ref=e354]: 到期日期
+                - definition [ref=e355]: 2099-12-31
+              - generic [ref=e356]:
+                - term [ref=e357]: 授权功能
+                - definition [ref=e358]: standard
+              - generic [ref=e359]:
+                - term [ref=e360]: 机器码
+                - definition [ref=e361]: ARP-DEMO-PREVIEW
+            - button "重新导入许可证" [ref=e362] [cursor=pointer]

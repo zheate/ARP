@@ -1,0 +1,69 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]: Power Test
+    - generic [ref=e7]:
+      - button "保存设置" [disabled]
+      - button "紧急停止" [disabled]
+  - generic [ref=e8]:
+    - complementary [ref=e9]:
+      - navigation [ref=e10]:
+        - button "自动测试" [ref=e11] [cursor=pointer]
+        - button "手动配置" [ref=e17] [cursor=pointer]
+        - button "PD 采集" [ref=e24] [cursor=pointer]
+        - button "数据浏览" [disabled] [ref=e28]
+        - button "出货报告" [ref=e33] [cursor=pointer]
+        - button "系统设置" [ref=e38] [cursor=pointer]
+      - generic [ref=e43]: 授权信息
+    - main [ref=e44]:
+      - list:
+        - listitem [ref=e45]:
+          - alert [ref=e46]:
+            - generic [ref=e50]:
+              - paragraph [ref=e51]: 系统错误
+              - paragraph [ref=e52]: 浏览器预览模式不会启动 Python 后端
+            - button "关闭提示" [ref=e53] [cursor=pointer]
+      - generic [ref=e57]:
+        - generic [ref=e58]:
+          - generic [ref=e59]:
+            - generic [ref=e60]: 测试工位
+            - generic "测试工位" [ref=e63]:
+              - button "1" [pressed] [ref=e64] [cursor=pointer]
+              - button "2" [ref=e65] [cursor=pointer]
+          - generic [ref=e66]:
+            - generic [ref=e67]: 产品 SN
+            - textbox "产品 SN" [ref=e74]
+          - generic [ref=e75]:
+            - generic [ref=e76]: 测试站别
+            - textbox "测试站别" [ref=e79]
+          - generic [ref=e80]:
+            - generic [ref=e81]: 历史参考
+            - combobox [ref=e87] [cursor=pointer]:
+              - generic [ref=e88]: 最新记录
+          - generic [ref=e91]:
+            - generic [ref=e92]: 输出目录
+            - generic [ref=e95]:
+              - textbox "输出目录" [ref=e96]:
+                - /placeholder: 测试数据保存目录
+              - button "选择输出目录" [ref=e97] [cursor=pointer]
+        - generic [ref=e98]:
+          - button "打开电源设置" [ref=e99] [cursor=pointer]:
+            - generic [ref=e104]:
+              - generic [ref=e105]: 电源
+              - paragraph [ref=e106]:
+                - generic [ref=e108]: 未连接
+          - button "打开功率计设置" [ref=e109] [cursor=pointer]:
+            - generic [ref=e115]:
+              - generic [ref=e116]: 功率计
+              - paragraph [ref=e117]:
+                - generic [ref=e119]: 未连接
+          - button "打开光谱仪设置" [ref=e120] [cursor=pointer]:
+            - generic [ref=e129]:
+              - generic [ref=e130]: 光谱仪
+              - paragraph [ref=e131]:
+                - generic [ref=e133]: 未连接
+          - generic [ref=e136]:
+            - button "开始" [disabled]
+            - button "停止" [disabled]
+        - generic [ref=e138]:
+          - generic "功率实时" [ref=e139]: 暂无实时数据
+          - generic "功率 / 效率" [ref=e142]: 完成稳定测试点后显示功率 / 效率

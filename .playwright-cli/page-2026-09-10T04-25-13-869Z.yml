@@ -1,0 +1,23 @@
+- main [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e4]:
+      - heading "450 nm 光谱 · 峰值标记已恢复" [level=1] [ref=e5]
+      - paragraph [ref=e6]: 模拟数据经过实际采集发布与后端快照链路
+    - generic [ref=e7]:
+      - heading "平滑开启 · 峰值标记与图例" [level=2] [ref=e8]
+      - generic [ref=e10]:
+        - img "monotone" [ref=e11]
+        - generic "峰值图例":
+          - generic:
+            - generic: Peak 1
+            - generic: 450.271 nm
+        - generic [ref=e12]: 光谱
+    - generic [ref=e13]:
+      - heading "平滑关闭 · 峰值标记与图例" [level=2] [ref=e14]
+      - generic [ref=e16]:
+        - img "linear" [ref=e17]
+        - generic "峰值图例":
+          - generic:
+            - generic: Peak 1
+            - generic: 450.271 nm
+        - generic [ref=e18]: 光谱

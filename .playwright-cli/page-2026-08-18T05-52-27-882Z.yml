@@ -1,0 +1,172 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]: Power Test
+    - generic [ref=e7]:
+      - button "结束测试" [ref=e8] [cursor=pointer]
+      - button "保存设置" [disabled]
+      - button "紧急停止" [ref=e9] [cursor=pointer]
+  - generic [ref=e10]:
+    - complementary [ref=e11]:
+      - navigation [ref=e12]:
+        - button "自动测试" [ref=e13] [cursor=pointer]
+        - button "手动配置" [disabled] [ref=e19]
+        - button "PD 采集" [ref=e26] [cursor=pointer]
+        - button "数据浏览" [disabled] [ref=e30]
+        - button "出货报告" [disabled] [ref=e35]
+        - button "系统设置" [disabled] [ref=e40]
+    - main [ref=e45]:
+      - alert [ref=e46]:
+        - generic [ref=e49]:
+          - paragraph [ref=e50]: 示例数据
+          - paragraph [ref=e51]: 当前显示的是图表预览数据，不会连接真实仪器。
+        - button "关闭提示" [disabled] [ref=e52]
+      - generic [ref=e56]:
+        - generic [ref=e57]:
+          - generic [ref=e58]:
+            - generic [ref=e59]: 输出目录
+            - generic [ref=e62]:
+              - textbox "输出目录" [disabled]:
+                - /placeholder: 测试数据保存目录
+                - text: /data/test/DEMO-001
+              - button "选择输出目录" [disabled]
+          - generic [ref=e63]:
+            - generic [ref=e64]: 产品 SN
+            - textbox "产品 SN" [disabled]: DEMO-001
+          - generic [ref=e71]:
+            - generic [ref=e72]: 测试站别
+            - generic [ref=e75]:
+              - textbox "测试站别" [disabled]: 站别 1
+              - generic "测试工位" [ref=e76]:
+                - button "1" [pressed] [ref=e77] [cursor=pointer]
+                - button "2" [ref=e78] [cursor=pointer]
+          - generic [ref=e79]:
+            - generic [ref=e80]: 历史参考
+            - combobox [disabled] [ref=e86]:
+              - generic [ref=e87]: 最新记录
+          - generic [ref=e90]:
+            - generic [ref=e91]: 光谱采集
+            - button "开启" [disabled] [ref=e98]
+        - generic [ref=e102]:
+          - button "打开电源设置" [disabled] [ref=e103]:
+            - generic [ref=e108]:
+              - generic [ref=e109]: 电源
+              - paragraph [ref=e110]:
+                - generic [ref=e112]: 在线
+                - generic [ref=e113]: ·
+                - generic [ref=e114]: 输出中
+          - button "打开功率计设置" [disabled] [ref=e115]:
+            - generic [ref=e121]:
+              - generic [ref=e122]: 功率计
+              - paragraph [ref=e123]:
+                - generic [ref=e125]: 在线
+                - generic [ref=e126]: ·
+                - generic [ref=e127]: 测量中
+          - button "打开光谱仪设置" [disabled] [ref=e128]:
+            - generic [ref=e137]:
+              - generic [ref=e138]: 光谱仪
+              - paragraph [ref=e139]:
+                - generic [ref=e141]: 在线
+                - generic [ref=e142]: ·
+                - generic [ref=e143]: 采集中
+        - generic [ref=e145]:
+          - generic [ref=e146]:
+            - generic [ref=e147]:
+              - generic [ref=e148]: "8.00"
+              - generic [ref=e149]: A
+            - paragraph [ref=e150]: 当前第 4 / 6 点
+            - paragraph [ref=e151]: 已完成 3 / 6
+          - list "自动测试流程，当前第 4 点，共 6 个测试点" [ref=e153]:
+            - listitem [ref=e154]:
+              - generic [ref=e158]: 就绪检查
+            - listitem [ref=e159]:
+              - generic [ref=e163]: 加载电流
+            - listitem [ref=e164]:
+              - generic [ref=e168]: 稳态判定
+            - listitem [ref=e169]:
+              - generic [ref=e170]: "4"
+              - generic [ref=e172]: 采集数据
+            - listitem [ref=e173]:
+              - generic [ref=e174]: "5"
+              - generic [ref=e176]: 保存本点
+            - listitem [ref=e177]:
+              - generic [ref=e178]: "6"
+              - generic [ref=e180]: 下一点
+              - generic [ref=e181]: 10 A
+          - generic [ref=e183]:
+            - paragraph [ref=e184]: 稳态判定中
+            - generic [ref=e185]:
+              - generic [ref=e186]:
+                - term [ref=e187]: 实时功率
+                - definition [ref=e188]: 0.860 W
+              - generic [ref=e189]:
+                - term [ref=e190]: 窗口波动
+                - definition [ref=e191]: 0.003 W
+              - generic [ref=e192]:
+                - term [ref=e193]: 稳定窗口
+                - definition [ref=e194]: 3.0 / 3.0 s
+            - paragraph [ref=e195]: 允许波动 ≤ 0.150 W
+        - generic [ref=e196]:
+          - generic "功率实时" [ref=e197]:
+            - generic "图例" [ref=e200]: 实时功率
+            - generic [ref=e206]:
+              - img "功率实时曲线" [ref=e207]
+              - generic [ref=e208]: 实时功率
+          - generic "功率 / 效率" [ref=e209]:
+            - generic "图例" [ref=e212]:
+              - generic [ref=e213]: 功率 (W)
+              - generic [ref=e217]: 效率 (%)
+            - generic [ref=e223]:
+              - img "功率 / 效率曲线" [ref=e224]
+              - generic [ref=e225]: 功率 (W)、效率 (%)、历史参考
+          - generic "光谱" [ref=e226]:
+            - generic "图例" [ref=e229]: 光谱（实时）
+            - generic [ref=e233]:
+              - generic [ref=e235]:
+                - img "光谱曲线" [ref=e236]
+                - generic [ref=e237]: 光谱（实时）
+              - generic [ref=e239]:
+                - generic [ref=e240]:
+                  - term [ref=e241]: 中心波长
+                  - definition [ref=e242]: 976.20 nm
+                - generic [ref=e243]:
+                  - term [ref=e244]: FWHM
+                  - definition [ref=e245]: 0.42 nm
+                - generic [ref=e246]:
+                  - term [ref=e247]: PIB
+                  - definition [ref=e248]: 96.85 %
+        - region "自动测试关键指标" [ref=e249]:
+          - generic [ref=e250]:
+            - generic [ref=e251]: 当前点功率 @ 8 A
+            - generic [ref=e253]:
+              - generic [ref=e254]: "0.860"
+              - generic [ref=e255]: W
+            - paragraph [ref=e256]: 稳定范围 0.859 ~ 0.862 W
+            - paragraph [ref=e257]: 当前点判定：进行中
+          - button "中心波长，点击设置规格" [ref=e258] [cursor=pointer]:
+            - generic [ref=e259]: 中心波长
+            - generic [ref=e264]:
+              - generic [ref=e265]: "976.20"
+              - generic [ref=e266]: nm
+            - paragraph [ref=e267]: 规格 976.0 ± 1.5 nm
+            - paragraph [ref=e268]: PASS
+          - button "FWHM，点击设置规格" [ref=e271] [cursor=pointer]:
+            - generic [ref=e272]: FWHM
+            - generic [ref=e277]:
+              - generic [ref=e278]: "0.42"
+              - generic [ref=e279]: nm
+            - paragraph [ref=e280]: 规格 ≤ 0.60 nm
+            - paragraph [ref=e281]: PASS
+          - button "PIB，点击设置规格" [ref=e284] [cursor=pointer]:
+            - generic [ref=e285]: PIB
+            - generic [ref=e290]:
+              - generic [ref=e291]: "96.85"
+              - generic [ref=e292]: "%"
+            - paragraph [ref=e293]: 规格 ≥ 95 %
+            - paragraph [ref=e294]: PASS
+          - generic [ref=e297]:
+            - generic [ref=e298]: 斜率效率（2–8 A）
+            - generic [ref=e300]:
+              - generic [ref=e301]: "0.102"
+              - generic [ref=e302]: W/A
+            - paragraph [ref=e303]: 仅统计，不设规格
+            - paragraph [ref=e304]: 已统计

@@ -1,0 +1,231 @@
+- generic:
+  - generic:
+    - generic:
+      - banner [aria-hidden]:
+        - generic: Power Test
+        - generic:
+          - button [expanded]:
+            - generic: 显示
+          - button [disabled]: 保存设置
+          - button: 急停
+      - generic:
+        - complementary [aria-hidden]:
+          - navigation:
+            - button:
+              - generic: 自动测试
+            - button:
+              - generic: 手动配置
+            - button:
+              - generic: PD 采集
+            - button:
+              - generic: 数据浏览
+            - button:
+              - generic: 出货报告
+            - button:
+              - generic: 系统设置
+          - generic:
+            - paragraph: Stay True
+        - main:
+          - generic [aria-hidden]:
+            - generic:
+              - generic:
+                - generic:
+                  - generic: 产品 SN
+                  - textbox:
+                    - /placeholder: 例如 HAM540001
+                    - text: DEMO-001
+                - generic:
+                  - generic: 测试站别
+                  - textbox:
+                    - /placeholder: 例如 老化
+                    - text: 站别 1
+                - generic:
+                  - generic: 输出目录
+                  - generic:
+                    - textbox:
+                      - /placeholder: 测试数据保存目录
+                      - text: /data/test/DEMO-001
+                    - button
+                - generic:
+                  - button [disabled]: 保存当前测试点
+              - group:
+                - generic:
+                  - generic:
+                    - generic: 电源控制
+                    - generic:
+                      - heading [level=3]: 资源设置
+                      - generic:
+                        - generic:
+                          - generic: 控制器
+                          - generic:
+                            - combobox [disabled]:
+                              - generic: TDK RS232
+                        - generic:
+                          - generic: TDK 串口
+                          - generic:
+                            - generic:
+                              - combobox [disabled]:
+                                - generic: TDK RS232
+                            - button [disabled]: 识别
+                      - heading [level=3]: 参数设置
+                      - generic:
+                        - generic:
+                          - generic: 输出电压 (V)
+                          - spinbutton: "12"
+                        - generic:
+                          - generic: 设定电流 (A)
+                          - spinbutton: "8"
+                      - heading [level=3]: 操作
+                      - generic:
+                        - button: 安全断开
+                        - button: 设置电流
+                        - button: 开启输出
+                        - button: 设置电压
+                        - button: 读取输出电压
+                        - button: 读取输出电流
+                        - paragraph: 回读：输出 -- · 电流 0 A
+                  - generic:
+                    - generic: 功率计
+                    - generic:
+                      - heading [level=3]: 资源设置
+                      - generic:
+                        - generic: 串口资源
+                        - generic:
+                          - generic:
+                            - combobox [disabled]:
+                              - generic: 彩煌功率计 | ASRL3::INSTR | 通道 1
+                          - button [disabled]: 识别
+                      - heading [level=3]: 参数设置
+                      - generic:
+                        - generic:
+                          - generic: 校准波长 (nm)
+                          - spinbutton: "976"
+                        - generic:
+                          - generic: 软件增益
+                          - spinbutton: "1"
+                      - heading [level=3]: 功能操作
+                      - generic:
+                        - generic:
+                          - checkbox [checked]
+                          - text: 功率曲线平滑
+                        - generic: 仅影响显示，不改变测量数据
+                      - generic:
+                        - button [disabled]: 相对调零
+                        - button [disabled]: 取消调零
+                      - heading [level=3]: 状态
+                      - paragraph: 状态：采集中
+                      - button: 停止采集
+                  - generic:
+                    - generic: 光谱仪
+                    - generic:
+                      - heading [level=3]: 资源设置
+                      - generic:
+                        - generic: 设备资源
+                        - generic:
+                          - generic:
+                            - combobox [disabled]:
+                              - generic: 请选择光谱仪
+                          - button [disabled]: 识别
+                      - heading [level=3]: 参数设置
+                      - generic:
+                        - generic:
+                          - generic: 积分时间 (μs)
+                          - spinbutton: "10000"
+                        - generic:
+                          - generic: 刷新间隔 (ms)
+                          - spinbutton: "100"
+                        - generic:
+                          - generic: 平均帧数
+                          - spinbutton: "5"
+                        - generic:
+                          - generic: 采集模式
+                          - generic:
+                            - checkbox
+                            - text: 自动积分
+                        - generic:
+                          - generic: PIB 中心波长 (nm)
+                          - spinbutton: "976"
+                        - generic:
+                          - generic: PIB 半带宽 (nm)
+                          - spinbutton: "1.5"
+                      - generic:
+                        - generic:
+                          - checkbox [checked]
+                          - text: 光谱曲线平滑
+                        - generic: 仅影响显示，不改变测量数据
+                      - button: 停止采集
+                - generic:
+                  - generic:
+                    - generic: 实时功率
+                    - generic: 功率 (W)、效率 (%)、历史参考
+                  - region:
+                    - generic:
+                      - generic: 实时功率
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic [aria-hidden]: "0"
+                            - generic [aria-hidden]: .
+                            - generic [aria-hidden]: "8"
+                            - generic [aria-hidden]: "6"
+                            - generic [aria-hidden]: "0"
+                        - generic:
+                          - text: W @
+                          - generic: 0 A
+                    - generic:
+                      - generic: 中心波长
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic [aria-hidden]: "9"
+                            - generic [aria-hidden]: "7"
+                            - generic [aria-hidden]: "6"
+                            - generic [aria-hidden]: .
+                            - generic [aria-hidden]: "2"
+                            - generic [aria-hidden]: "0"
+                            - generic [aria-hidden]: "0"
+                        - generic: nm
+                    - generic:
+                      - generic: FWHM
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic [aria-hidden]: "0"
+                            - generic [aria-hidden]: .
+                            - generic [aria-hidden]: "7"
+                            - generic [aria-hidden]: "7"
+                            - generic [aria-hidden]: "6"
+                        - generic: nm
+                    - generic:
+                      - generic: PIB
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic [aria-hidden]: "9"
+                            - generic [aria-hidden]: "6"
+                            - generic [aria-hidden]: .
+                            - generic [aria-hidden]: "8"
+                            - generic [aria-hidden]: "5"
+                        - generic: "%"
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic:
+                          - generic:
+                            - generic: Peak 1
+                            - generic: 976.200 nm
+                          - generic:
+                            - generic: Peak 2
+                            - generic: 978.000 nm
+                          - generic:
+                            - generic: Peak 3
+                            - generic: 973.000 nm
+                        - generic: 光谱（实时）
+  - menu "显示" [active] [ref=e520]:
+    - generic [ref=e521]: 界面密度
+    - group [ref=e522]:
+      - menuitemradio "紧凑更多内容同屏" [ref=e523] [cursor=pointer]
+      - menuitemradio "舒展更宽松的间距" [checked] [ref=e527] [cursor=pointer]
+      - menuitemradio "远看放大关键读数" [ref=e534] [cursor=pointer]
+    - separator [ref=e538]
+    - menuitem "打开外观设置" [ref=e539] [cursor=pointer]

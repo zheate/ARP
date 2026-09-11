@@ -1,0 +1,607 @@
+{
+  "phase": "after-stable",
+  "renderer": {
+    "ProcessId": 30116,
+    "ExecutablePath": "C:\\Program Files (x86)\\Microsoft\\EdgeWebView\\Application\\152.0.4191.62\\msedgewebview2.exe"
+  },
+  "state": {
+    "url": "http://localhost:1420/?demo=1",
+    "count": 48,
+    "commits": 71,
+    "canvases": 6,
+    "width": 2400,
+    "height": 1500,
+    "dpr": 0.6000000357522595,
+    "theme": "dark"
+  },
+  "samples": [
+    {
+      "at": 1788760093318,
+      "heap": {
+        "usedSize": 15563496,
+        "totalSize": 40943616,
+        "embedderHeapUsedSize": 6150792,
+        "backingStorageSize": 4677882
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 657
+      },
+      "progress": {
+        "count": 53,
+        "commits": 78,
+        "canvases": 6,
+        "width": 2400,
+        "height": 1500,
+        "dpr": 0.6000000357522595,
+        "theme": "dark"
+      },
+      "memory": {
+        "PrivateMemorySize64": 118247424,
+        "WorkingSet64": 174948352,
+        "CPU": 10.21875
+      }
+    },
+    {
+      "at": 1788760109138,
+      "heap": {
+        "usedSize": 15718456,
+        "totalSize": 42254336,
+        "embedderHeapUsedSize": 6970104,
+        "backingStorageSize": 4677882
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 1017
+      },
+      "progress": {
+        "count": 132,
+        "commits": 187,
+        "canvases": 6,
+        "width": 2400,
+        "height": 1500,
+        "dpr": 0.6000000357522595,
+        "theme": "dark"
+      },
+      "memory": {
+        "PrivateMemorySize64": 118620160,
+        "WorkingSet64": 175562752,
+        "CPU": 10.453125
+      }
+    },
+    {
+      "at": 1788760124941,
+      "heap": {
+        "usedSize": 12249096,
+        "totalSize": 20758528,
+        "embedderHeapUsedSize": 4952144,
+        "backingStorageSize": 4677882
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 617
+      },
+      "progress": {
+        "count": 211,
+        "commits": 294,
+        "canvases": 6,
+        "width": 2400,
+        "height": 1500,
+        "dpr": 0.6000000357522595,
+        "theme": "dark"
+      },
+      "memory": {
+        "PrivateMemorySize64": 91451392,
+        "WorkingSet64": 147968000,
+        "CPU": 10.96875
+      }
+    },
+    {
+      "at": 1788760140910,
+      "heap": {
+        "usedSize": 13456040,
+        "totalSize": 21544960,
+        "embedderHeapUsedSize": 5518944,
+        "backingStorageSize": 4677882
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 837
+      },
+      "progress": {
+        "count": 290,
+        "commits": 402,
+        "canvases": 6,
+        "width": 2400,
+        "height": 1500,
+        "dpr": 0.6000000357522595,
+        "theme": "dark"
+      },
+      "memory": {
+        "PrivateMemorySize64": 93483008,
+        "WorkingSet64": 150487040,
+        "CPU": 11.34375
+      }
+    },
+    {
+      "at": 1788760156794,
+      "heap": {
+        "usedSize": 14432984,
+        "totalSize": 27836416,
+        "embedderHeapUsedSize": 4052768,
+        "backingStorageSize": 4677882
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 297
+      },
+      "progress": {
+        "count": 370,
+        "commits": 510,
+        "canvases": 6,
+        "width": 2400,
+        "height": 1500,
+        "dpr": 0.6000000357522595,
+        "theme": "dark"
+      },
+      "memory": {
+        "PrivateMemorySize64": 101957632,
+        "WorkingSet64": 158425088,
+        "CPU": 11.53125
+      }
+    },
+    {
+      "at": 1788760172614,
+      "heap": {
+        "usedSize": 14049572,
+        "totalSize": 28098560,
+        "embedderHeapUsedSize": 4542816,
+        "backingStorageSize": 4677882
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 477
+      },
+      "progress": {
+        "count": 450,
+        "commits": 619,
+        "canvases": 6,
+        "width": 2400,
+        "height": 1500,
+        "dpr": 0.6000000357522595,
+        "theme": "dark"
+      },
+      "memory": {
+        "PrivateMemorySize64": 101953536,
+        "WorkingSet64": 158638080,
+        "CPU": 11.90625
+      }
+    },
+    {
+      "at": 1788760188422,
+      "heap": {
+        "usedSize": 15738988,
+        "totalSize": 27836416,
+        "embedderHeapUsedSize": 5174248,
+        "backingStorageSize": 4677882
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 717
+      },
+      "progress": {
+        "count": 529,
+        "commits": 726,
+        "canvases": 6,
+        "width": 2400,
+        "height": 1500,
+        "dpr": 0.6000000357522595,
+        "theme": "dark"
+      },
+      "memory": {
+        "PrivateMemorySize64": 101367808,
+        "WorkingSet64": 158085120,
+        "CPU": 12.15625
+      }
+    },
+    {
+      "at": 1788760204304,
+      "heap": {
+        "usedSize": 14936904,
+        "totalSize": 28360704,
+        "embedderHeapUsedSize": 5676496,
+        "backingStorageSize": 4677882
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 897
+      },
+      "progress": {
+        "count": 608,
+        "commits": 834,
+        "canvases": 6,
+        "width": 2400,
+        "height": 1500,
+        "dpr": 0.6000000357522595,
+        "theme": "dark"
+      },
+      "memory": {
+        "PrivateMemorySize64": 101425152,
+        "WorkingSet64": 158306304,
+        "CPU": 12.453125
+      }
+    },
+    {
+      "at": 1788760220122,
+      "heap": {
+        "usedSize": 12208156,
+        "totalSize": 27312128,
+        "embedderHeapUsedSize": 3919568,
+        "backingStorageSize": 4677882
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 237
+      },
+      "progress": {
+        "count": 687,
+        "commits": 942,
+        "canvases": 6,
+        "width": 2400,
+        "height": 1500,
+        "dpr": 0.6000000357522595,
+        "theme": "dark"
+      },
+      "memory": {
+        "PrivateMemorySize64": 100864000,
+        "WorkingSet64": 157757440,
+        "CPU": 12.6875
+      }
+    },
+    {
+      "at": 1788760235951,
+      "heap": {
+        "usedSize": 20296312,
+        "totalSize": 40419328,
+        "embedderHeapUsedSize": 4382016,
+        "backingStorageSize": 4677882
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 457
+      },
+      "progress": {
+        "count": 766,
+        "commits": 1048,
+        "canvases": 6,
+        "width": 2400,
+        "height": 1500,
+        "dpr": 0.6000000357522595,
+        "theme": "dark"
+      },
+      "memory": {
+        "PrivateMemorySize64": 114188288,
+        "WorkingSet64": 170995712,
+        "CPU": 12.9375
+      }
+    },
+    {
+      "at": 1788760251785,
+      "heap": {
+        "usedSize": 13049088,
+        "totalSize": 41730048,
+        "embedderHeapUsedSize": 4942768,
+        "backingStorageSize": 4677882
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 637
+      },
+      "progress": {
+        "count": 845,
+        "commits": 1157,
+        "canvases": 6,
+        "width": 2400,
+        "height": 1500,
+        "dpr": 0.6000000357522595,
+        "theme": "dark"
+      },
+      "memory": {
+        "PrivateMemorySize64": 115359744,
+        "WorkingSet64": 172298240,
+        "CPU": 13.109375
+      }
+    },
+    {
+      "at": 1788760267671,
+      "heap": {
+        "usedSize": 19918132,
+        "totalSize": 41992192,
+        "embedderHeapUsedSize": 5524536,
+        "backingStorageSize": 4677882
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 837
+      },
+      "progress": {
+        "count": 925,
+        "commits": 1264,
+        "canvases": 6,
+        "width": 2400,
+        "height": 1500,
+        "dpr": 0.6000000357522595,
+        "theme": "dark"
+      },
+      "memory": {
+        "PrivateMemorySize64": 115138560,
+        "WorkingSet64": 172249088,
+        "CPU": 13.328125
+      }
+    },
+    {
+      "at": 1788760283524,
+      "heap": {
+        "usedSize": 12652220,
+        "totalSize": 42516480,
+        "embedderHeapUsedSize": 5978928,
+        "backingStorageSize": 4677628
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 1017
+      },
+      "progress": {
+        "count": 1004,
+        "commits": 1368,
+        "canvases": 6,
+        "width": 2400,
+        "height": 1500,
+        "dpr": 0.6000000357522595,
+        "theme": "dark"
+      },
+      "memory": {
+        "PrivateMemorySize64": 116547584,
+        "WorkingSet64": 173510656,
+        "CPU": 13.421875
+      }
+    },
+    {
+      "at": 1788760299361,
+      "heap": {
+        "usedSize": 18660512,
+        "totalSize": 42254336,
+        "embedderHeapUsedSize": 6616216,
+        "backingStorageSize": 4676950
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 1197
+      },
+      "progress": {
+        "count": 1083,
+        "commits": 1476,
+        "canvases": 6,
+        "width": 2400,
+        "height": 1500,
+        "dpr": 0.6000000357522595,
+        "theme": "dark"
+      },
+      "memory": {
+        "PrivateMemorySize64": 116211712,
+        "WorkingSet64": 173391872,
+        "CPU": 13.671875
+      }
+    },
+    {
+      "at": 1788760315262,
+      "heap": {
+        "usedSize": 26158996,
+        "totalSize": 42516480,
+        "embedderHeapUsedSize": 7218584,
+        "backingStorageSize": 4676950
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 1417
+      },
+      "progress": {
+        "count": 1163,
+        "commits": 1584,
+        "canvases": 6,
+        "width": 2400,
+        "height": 1500,
+        "dpr": 0.6000000357522595,
+        "theme": "dark"
+      },
+      "memory": {
+        "PrivateMemorySize64": 116137984,
+        "WorkingSet64": 173281280,
+        "CPU": 13.828125
+      }
+    },
+    {
+      "at": 1788760331076,
+      "heap": {
+        "usedSize": 17639764,
+        "totalSize": 42516480,
+        "embedderHeapUsedSize": 7652416,
+        "backingStorageSize": 4676950
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 1577
+      },
+      "progress": {
+        "count": 1242,
+        "commits": 1693,
+        "canvases": 6,
+        "width": 2400,
+        "height": 1500,
+        "dpr": 0.6000000357522595,
+        "theme": "dark"
+      },
+      "memory": {
+        "PrivateMemorySize64": 116875264,
+        "WorkingSet64": 173973504,
+        "CPU": 14.0625
+      }
+    },
+    {
+      "at": 1788760346917,
+      "heap": {
+        "usedSize": 14987388,
+        "totalSize": 42516480,
+        "embedderHeapUsedSize": 3984816,
+        "backingStorageSize": 4676950
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 317
+      },
+      "progress": {
+        "count": 1321,
+        "commits": 1800,
+        "canvases": 6,
+        "width": 2400,
+        "height": 1500,
+        "dpr": 0.6000000357522595,
+        "theme": "dark"
+      },
+      "memory": {
+        "PrivateMemorySize64": 115822592,
+        "WorkingSet64": 173092864,
+        "CPU": 14.296875
+      }
+    },
+    {
+      "at": 1788760362769,
+      "heap": {
+        "usedSize": 20137208,
+        "totalSize": 42516480,
+        "embedderHeapUsedSize": 4405096,
+        "backingStorageSize": 4676950
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 457
+      },
+      "progress": {
+        "count": 1400,
+        "commits": 1910,
+        "canvases": 6,
+        "width": 2400,
+        "height": 1500,
+        "dpr": 0.6000000357522595,
+        "theme": "dark"
+      },
+      "memory": {
+        "PrivateMemorySize64": 115593216,
+        "WorkingSet64": 172920832,
+        "CPU": 14.734375
+      }
+    },
+    {
+      "at": 1788760378641,
+      "heap": {
+        "usedSize": 12832592,
+        "totalSize": 42516480,
+        "embedderHeapUsedSize": 4887416,
+        "backingStorageSize": 4676950
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 637
+      },
+      "progress": {
+        "count": 1480,
+        "commits": 2017,
+        "canvases": 6,
+        "width": 2400,
+        "height": 1500,
+        "dpr": 0.6000000357522595,
+        "theme": "dark"
+      },
+      "memory": {
+        "PrivateMemorySize64": 115216384,
+        "WorkingSet64": 172658688,
+        "CPU": 14.90625
+      }
+    },
+    {
+      "at": 1788760394438,
+      "heap": {
+        "usedSize": 18973992,
+        "totalSize": 42516480,
+        "embedderHeapUsedSize": 5426056,
+        "backingStorageSize": 4676950
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 817
+      },
+      "progress": {
+        "count": 1559,
+        "commits": 2127,
+        "canvases": 6,
+        "width": 2400,
+        "height": 1500,
+        "dpr": 0.6000000357522595,
+        "theme": "dark"
+      },
+      "memory": {
+        "PrivateMemorySize64": 115056640,
+        "WorkingSet64": 172539904,
+        "CPU": 15.296875
+      }
+    },
+    {
+      "at": 1788760410272,
+      "heap": {
+        "usedSize": 25104480,
+        "totalSize": 42516480,
+        "embedderHeapUsedSize": 6059048,
+        "backingStorageSize": 4676950
+      },
+      "dom": {
+        "documents": 1,
+        "nodes": 352,
+        "jsEventListeners": 997
+      },
+      "progress": {
+        "count": 1638,
+        "commits": 2232,
+        "canvases": 6,
+        "width": 2400,
+        "height": 1500,
+        "dpr": 0.6000000357522595,
+        "theme": "dark"
+      },
+      "memory": {
+        "PrivateMemorySize64": 116027392,
+        "WorkingSet64": 173432832,
+        "CPU": 15.359375
+      }
+    }
+  ]
+}

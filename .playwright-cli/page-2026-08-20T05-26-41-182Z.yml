@@ -1,0 +1,50 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]: Power Test
+    - generic [ref=e7]:
+      - button "保存设置" [disabled]
+      - button "紧急停止" [disabled]
+  - generic [ref=e8]:
+    - complementary [ref=e9]:
+      - navigation [ref=e10]:
+        - button "自动测试" [ref=e11] [cursor=pointer]
+        - button "手动配置" [ref=e17] [cursor=pointer]
+        - button "PD 采集" [ref=e24] [cursor=pointer]
+        - button "数据浏览" [disabled] [ref=e28]
+        - button "出货报告" [ref=e33] [cursor=pointer]
+        - button "系统设置" [ref=e38] [cursor=pointer]
+      - generic [ref=e43]: 授权信息
+    - main [ref=e44]:
+      - list:
+        - listitem [ref=e45]:
+          - alert [ref=e46]:
+            - generic [ref=e50]:
+              - paragraph [ref=e51]: 系统错误
+              - paragraph [ref=e52]: 浏览器预览模式不会启动 Python 后端
+            - button "关闭提示" [ref=e53] [cursor=pointer]
+      - generic [ref=e58]:
+        - generic [ref=e60]:
+          - generic [ref=e61]:
+            - generic [ref=e62]: 出货报告
+            - generic [ref=e63]: 填写测试 Excel 和本地 PDF 保存文件夹，再配置报告参数并导出。
+          - generic [ref=e64]:
+            - button "单个生成" [disabled] [ref=e65]
+            - button "批量生成" [disabled] [ref=e66]
+        - generic [ref=e68]:
+          - generic [ref=e69]: 步骤 1 · 选择数据源与输出目录
+          - generic [ref=e71]:
+            - generic [ref=e72]:
+              - generic [ref=e73]: Excel 测试数据路径
+              - generic [ref=e74]:
+                - textbox "Excel 测试数据路径" [disabled]:
+                  - /placeholder: 选择自动测试生成的 .xlsx 文件
+                - button "浏览" [disabled]
+            - generic [ref=e75]:
+              - generic [ref=e76]: 本地 PDF 保存文件夹
+              - generic [ref=e77]:
+                - textbox "本地 PDF 保存文件夹" [disabled]:
+                  - /placeholder: 选择 PDF 保存文件夹，文件名将自动生成
+                - button "选择文件夹" [disabled]
+          - generic [ref=e78]:
+            - paragraph [ref=e80]: 填写数据路径与输出目录后，点击“读取数据”开始配置报告。
+            - button "读取并配置报告" [disabled]

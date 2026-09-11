@@ -1,6 +1,27 @@
-import type { BackendSnapshot, SafetyShutdownResult } from "./backend"
+import type { AppConfiguration, AutomaticReadinessBlocker, BackendSnapshot, SafetyShutdownResult } from "./backend"
 
 type Automatic = BackendSnapshot["automaticTest"]
+
+export function automaticStartPresentation(auto: Automatic | undefined, config: Pick<AppConfiguration, "sn" | "outputDir">) {
+  if (!auto) return { canStart: false, messages: [] as string[] }
+
+  // automatic.start submits the current form before the backend checks readiness.
+  // Reconcile only these required text fields; retain every other backend blocker.
+  const isFormBlocker = (blocker: AutomaticReadinessBlocker) => blocker.code === "missing_sn" || blocker.code === "missing_output_dir"
+  const backendBlockers = auto.readiness?.blockers
+  const messages = [
+    ...(!config.sn.trim() ? ["请填写产品 SN"] : []),
+    ...(!config.outputDir.trim() ? ["请选择测试数据输出目录"] : []),
+    ...(backendBlockers
+      ? backendBlockers.filter((blocker) => !isFormBlocker(blocker)).map((blocker) => blocker.message)
+      : auto.settingsError ? [auto.settingsError] : []),
+  ]
+  const canSubmit = auto.canStart === true || Boolean(backendBlockers?.some(isFormBlocker))
+  return {
+    canStart: canSubmit && ["idle", "completed"].includes(auto.state) && !auto.canEnd && messages.length === 0,
+    messages,
+  }
+}
 
 export function automaticPhase(auto: Automatic | undefined, shutdown: SafetyShutdownResult | undefined) {
   const labels = ["准备", "升流", "等稳", "记录", "完成"]

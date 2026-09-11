@@ -1,0 +1,40 @@
+{
+  "automatic": {
+    "before": {
+      "p50_us": 107.3,
+      "p95_us": 120.5,
+      "samples": 5000
+    },
+    "after": {
+      "p50_us": 81.0,
+      "p95_us": 90.0,
+      "samples": 5000
+    },
+    "wire_bytes": 8359,
+    "wire_payload_unchanged": true
+  },
+  "pd": {
+    "before": {
+      "p50_us": 102.7,
+      "p95_us": 130.0,
+      "samples": 5000
+    },
+    "after": {
+      "p50_us": 79.3,
+      "p95_us": 91.9,
+      "samples": 5000
+    },
+    "wire_bytes": 8359,
+    "wire_payload_unchanged": true
+  },
+  "changed_configuration": {
+    "before": {
+      "p50_us": 3397.05,
+      "p95_us": 7138.0
+    },
+    "after": {
+      "p50_us": 829.3,
+      "p95_us": 2606.9
+    }
+  }
+}
