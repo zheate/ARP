@@ -28,6 +28,7 @@ export function SaveScriptDialog({ onClose, onSave }: {
     }
     input.current?.focus()
     const handleKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return
       if (event.key === "Escape" && !lock.current) {
         event.preventDefault()
         close.current()
