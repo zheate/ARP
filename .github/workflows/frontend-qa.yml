@@ -1,0 +1,87 @@
+name: Frontend design QA
+
+on:
+  push:
+    branches: [audit/arp-ui-20260914]
+  pull_request:
+    paths:
+      - 'tauri-ui/**'
+      - 'DESIGN.md'
+      - 'design-qa.md'
+      - '.github/workflows/frontend-qa.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-qa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser-demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: tauri-ui/package-lock.json
+      - name: Archive review inputs (no records, device drivers, or browser profiles)
+        run: |
+          mkdir -p qa-evidence
+          git rev-parse HEAD > qa-evidence/commit.txt
+          git archive --format=tar.gz --output=qa-evidence/frontend-source.tar.gz HEAD DESIGN.md design-qa.md AGENTS.md README.md tauri-ui/src tauri-ui/scripts tauri-ui/package.json tauri-ui/package-lock.json tauri-ui/index.html tauri-ui/tsconfig.json tauri-ui/tsconfig.node.json tauri-ui/vite.config.ts scripts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arp-ui-review-inputs-${{ github.sha }}
+          path: qa-evidence/frontend-source.tar.gz
+          retention-days: 1
+      - name: Install locked frontend dependencies
+        working-directory: tauri-ui
+        run: npm ci --no-audit --no-fund
+      - name: Existing frontend tests
+        id: tests
+        continue-on-error: true
+        working-directory: tauri-ui
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee ../qa-evidence/tests.txt
+      - name: TypeScript and production build
+        id: build
+        working-directory: tauri-ui
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee ../qa-evidence/build.txt
+      - name: Install isolated browser QA tools (not a product dependency)
+        run: |
+          npm install --prefix /tmp/arp-playwright --no-package-lock --no-audit --no-fund playwright@1.56.1
+          node /tmp/arp-playwright/node_modules/playwright/cli.js install --with-deps chromium
+      - name: Capture existing demo pages and logical-DPI layouts
+        working-directory: tauri-ui
+        env:
+          ARP_PLAYWRIGHT_MODULE: /tmp/arp-playwright/node_modules/playwright/index.mjs
+        run: |
+          npm run preview -- --host 127.0.0.1 --port 1420 > ../qa-evidence/preview.txt 2>&1 &
+          preview_pid=$!
+          trap 'kill "$preview_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:1420/ > /dev/null; then break; fi
+            sleep 1
+          done
+          node scripts/ui-audit.mjs 2>&1 | tee ../qa-evidence/capture.txt
+      - name: Upload evidence even when a check fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: arp-ui-qa-${{ github.sha }}
+          path: |
+            qa-evidence/
+            tauri-ui/dist/
+          retention-days: 7
+      - name: Preserve frontend test failure as a failing check
+        if: steps.tests.outcome == 'failure'
+        run: exit 1
