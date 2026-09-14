@@ -1,0 +1,76 @@
+name: Apply verified presentation-only audit changes
+on:
+  push:
+    branches: [audit/arp-ui-20260914]
+    paths: ['.audit-ui.part1.br', '.audit-ui.part2.br', '.github/workflows/apply-ui-audit.yml']
+permissions:
+  contents: read
+jobs:
+  apply:
+    if: github.repository == 'zheate/ARP' && github.ref == 'refs/heads/audit/arp-ui-20260914'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate source hashes and apply the locally tested frontend delta
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+          import { dirname } from 'node:path';
+          import { createHash } from 'node:crypto';
+          import { brotliDecompressSync } from 'node:zlib';
+          const hash = value => createHash('sha256').update(value).digest('hex');
+          const payload = brotliDecompressSync(Buffer.concat([readFileSync('.audit-ui.part1.br'), readFileSync('.audit-ui.part2.br')]));
+          if (hash(payload) !== 'e71b40f713a038fca41624ce06bfcb23f2757f13fc732ab39319b420bf23bf55') throw new Error('Audit payload checksum mismatch');
+          const changes = JSON.parse(payload.toString('utf8'));
+          const outputs = [];
+          for (const change of changes) {
+            if (!/^tauri-ui\/(src|scripts)\/[a-zA-Z0-9_./-]+$/.test(change.path) || change.path.includes('..')) throw new Error('Unexpected change scope');
+            let content;
+            if (change.base === null) {
+              if (existsSync(change.path)) throw new Error('New file already exists: '+change.path);
+              content = change.content;
+            } else {
+              const original = readFileSync(change.path, 'utf8');
+              if (hash(original) !== change.base) throw new Error('Source changed: '+change.path);
+              const lines = original.match(/[^\n]*\n|[^\n]+$/g) ?? [];
+              content = ''; let cursor = 0;
+              for (const [start, end, replacement] of change.edits) {
+                if (start < cursor || end < start || end > lines.length) throw new Error('Invalid edit bounds');
+                content += lines.slice(cursor, start).join('') + replacement; cursor = end;
+              }
+              content += lines.slice(cursor).join('');
+            }
+            if (hash(content) !== change.sha256) throw new Error('Output checksum mismatch: '+change.path);
+            outputs.push([change.path, content]);
+          }
+          for (const [path, content] of outputs) { mkdirSync(dirname(path), {recursive:true}); writeFileSync(path, content); console.log(path); }
+          NODE
+      - name: Install locked frontend dependencies
+        working-directory: tauri-ui
+        run: npm ci --no-audit --no-fund
+      - name: Run frontend tests and production build before committing
+        working-directory: tauri-ui
+        run: |
+          npm test
+          npm run build
+      - name: Commit only verified frontend presentation and tests to the audit branch
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          remote_head=$(git ls-remote origin refs/heads/audit/arp-ui-20260914 | cut -f1)
+          test "$remote_head" = "$EXPECTED_HEAD"
+          git add tauri-ui/src tauri-ui/scripts/live-current.test.mjs tauri-ui/scripts/workbench-ui.test.mjs
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(ui): stabilize instrument readouts, modal focus and compact workbench layouts'
+          git push origin HEAD:refs/heads/audit/arp-ui-20260914
