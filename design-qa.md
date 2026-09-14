@@ -42,3 +42,15 @@ No remaining P0, P1, or P2 visual mismatches for the requested card alignment.
 - Browser console errors: none.
 
 final result: passed
+
+---
+
+## 2026-09-14 — Full-workbench audit
+
+The result above describes the earlier **card-alignment task only**. It must not be interpreted as whole-application or physical-device safety acceptance.
+
+See [ARP UI / UX / Frontend Audit](docs/arp-ui-audit-2026-09-14.md) for prioritized findings, implementation changes, measured viewport improvements, source revisions and remaining acceptance gates.
+
+The broader verification uses `tauri-ui/scripts/ui-audit.mjs` and `.github/workflows/frontend-qa.yml`, preserving the browser demo and adding real-component state fixtures with inert callbacks. Evidence from run `34849750054`: 97 frontend tests passed; TypeScript/build passed; 78 screenshots and 233 browser assertions passed with no console/page errors.
+
+The viewport matrix includes 1920×1080, 1366×768 and 2560×1440 plus reduced logical viewports at DPR 1.25, 1.5 and 2. This is browser emulation, **not native Windows/WebView2 DPI or hardware acceptance**. The detailed report explicitly identifies native file/report flows, physical shutdown verification and populated-table scenarios that remain unverified.
