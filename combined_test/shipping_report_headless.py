@@ -6,6 +6,7 @@ import base64
 import io
 import math
 import os
+import re
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -15,6 +16,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
+from matplotlib.offsetbox import AnnotationBbox, HPacker, TextArea
 from matplotlib.patches import PathPatch, Rectangle
 from matplotlib.path import Path as MatplotlibPath
 from matplotlib.ticker import FixedLocator
@@ -175,9 +177,25 @@ def _draw_text(
     horizontal: str = "left",
     vertical: str = "center",
     linespacing: float = 1.0,
+    letter_spacing_pt: float = 0.0,
 ) -> None:
     x_position = x if horizontal == "left" else x + width if horizontal == "right" else x + width / 2.0
     y_position = y if vertical == "top" else y + height if vertical == "bottom" else y + height / 2.0
+    if letter_spacing_pt > 0 and text:
+        properties = {"color": color, "fontproperties": _font(size, bold=bold, chart=chart, chinese=chinese)}
+        letters = HPacker(
+            children=[TextArea(character, textprops=properties) for character in text],
+            align="baseline", pad=0, sep=letter_spacing_pt,
+        )
+        figure.add_artist(AnnotationBbox(
+            letters, _point(x_position, y_position), xycoords=figure.transFigure,
+            box_alignment=(
+                {"left": 0, "center": 0.5, "right": 1}[horizontal],
+                {"bottom": 0, "center": 0.5, "top": 1}[vertical],
+            ),
+            frameon=False, pad=0, annotation_clip=False,
+        ))
+        return
     figure.text(
         x_position / A4_WIDTH_MM,
         1.0 - y_position / A4_HEIGHT_MM,
@@ -306,6 +324,10 @@ class _HeadlessShippingReportRenderer:
     def __init__(self, inspection: Any, request: Any) -> None:
         self.inspection = inspection
         self.request = request
+        operating_point = inspection.point_for_current(request.operating_current_a)
+        self.chart_points = tuple(
+            point for point in inspection.points if point.current_a <= operating_point.current_a
+        )
         self.figures: list[Figure] = []
 
     @property
@@ -361,11 +383,12 @@ class _HeadlessShippingReportRenderer:
             )
         )
         company_row_height = 3.3
+        company_row_spacing = 4.3
         for index, (line, bold) in enumerate(company_lines):
             _draw_text(
                 figure,
                 company_x,
-                HEADER_ARTWORK_TOP_MM - 0.3 + index * company_row_height,
+                HEADER_ARTWORK_TOP_MM - 0.3 + index * company_row_spacing,
                 company_width,
                 company_row_height,
                 line,
@@ -392,7 +415,7 @@ class _HeadlessShippingReportRenderer:
             "声明：长光华芯持续改进产品，为客户提供卓越的质量与可靠性。产品规格和说明可能随时变更，恕不另行通知。\n"
             "我们提供质保支持以确保客户满意。如需完整信息，请联系销售代表。",
         )
-        _draw_text(figure, CONTENT_LEFT_MM, 269.0, 142.0, 20.0, notice, size=8.0, color="#1a1a1a", chinese=self._chinese, linespacing=1.0)
+        _draw_text(figure, CONTENT_LEFT_MM, 269.0, 142.0, 20.0, notice, size=8.0, color="#1a1a1a", chinese=self._chinese, linespacing=1.5)
         warning = _image_array("assets/report/laser_warning_reference.png")
         warning_height = 18.0
         warning_width = warning_height * warning.shape[1] / warning.shape[0]
@@ -503,20 +526,32 @@ class _HeadlessShippingReportRenderer:
         row_count = max(len(left), len(right), 1)
         row_height = min(6.1, 36.0 / row_count)
         height = row_count * row_height
-        x, width = 21.0, 168.0
+        width = 152.0
+        x = (A4_WIDTH_MM - width) / 2.0
+        half_width = width / 2.0
+        cell_padding, column_gap = 2.0, 2.0
+        value_width, unit_width = 18.0, 13.0
+        label_width = half_width - cell_padding - value_width - unit_width - 2 * column_gap
+        value_offset = label_width + column_gap
+        unit_offset = value_offset + value_width + column_gap
         _draw_line(figure, x, top, x + width, top, color="#333333", width_mm=0.2)
         _draw_line(figure, x, top + height, x + width, top + height, color="#333333", width_mm=0.2)
-        _draw_line(figure, 105.0, top, 105.0, top + height, color="#333333", width_mm=0.2)
-        for side_x, values in ((23.0, left), (107.0, right)):
+        _draw_line(figure, x + half_width, top, x + half_width, top + height, color="#333333", width_mm=0.2)
+        for side_x, values in ((x + cell_padding, left), (x + half_width + cell_padding, right)):
             for index, (definition, value) in enumerate(values):
                 y = top + index * row_height
-                _draw_text(figure, side_x, y, 43.0, row_height, definition.label, size=8.5, bold=True, chinese=self._chinese)
-                _draw_text(figure, side_x + 47.0, y, 20.0, row_height, value, size=8.6, bold=True, horizontal="right")
-                _draw_text(figure, side_x + 69.0, y, 13.0, row_height, definition.unit, size=8.2)
+                # A hair space loosens adjacent Chinese glyphs without spacing Latin abbreviations.
+                label = re.sub(r"(?<=[\u3400-\u9fff])(?=[\u3400-\u9fff])", "\u200a", definition.label) if self._chinese else definition.label
+                _draw_text(figure, side_x, y, label_width, row_height, label, size=8.5, bold=True, chinese=self._chinese)
+                if re.fullmatch(r"[+-]?\d+\.\d+", value):
+                    value = value.rstrip("0").rstrip(".")
+                spacing = 0.35 if re.fullmatch(r"[+-]?\d+(?:\.\d+)?", value) else 0.0
+                _draw_text(figure, side_x + value_offset, y, value_width, row_height, value, size=8.6, bold=True, horizontal="right", letter_spacing_pt=spacing)
+                _draw_text(figure, side_x + unit_offset, y, unit_width, row_height, definition.unit, size=8.2)
         return height
 
     def _draw_power_efficiency_chart(self, figure: Figure, x: float, y: float, width: float, height: float) -> None:
-        points = list(self.inspection.points)
+        points = self.chart_points
         currents = [point.current_a for point in points]
         powers = [point.power_w for point in points]
         efficiencies = [point.efficiency * 100.0 for point in points]
@@ -639,7 +674,7 @@ class _HeadlessShippingReportRenderer:
         )
         lines: list[Line2D] = []
         labels: list[str] = []
-        for index, point in enumerate(self.inspection.points):
+        for index, point in enumerate(self.chart_points):
             values = list(point.intensity)
             if axis.mode is SpectrumAxisMode.RELATIVE_DB:
                 peak = max(values)

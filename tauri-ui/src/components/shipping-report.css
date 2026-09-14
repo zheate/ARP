@@ -1,0 +1,68 @@
+.shipping-report-page {
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.shipping-report-page :is(.text-xs, [data-slot="badge"]) {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.shipping-report-page :is(.text-sm, [data-slot="label"], [data-slot="input"], button) {
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.shipping-report-page :is(h2, h3, [data-slot="card-title"]) {
+  font-size: 1.125rem;
+  line-height: 1.5;
+}
+
+.shipping-report-page :is([data-slot="input"], button[role="combobox"], [data-slot="button"]) {
+  min-height: 2.375rem;
+}
+
+/* Choose columns from the actual editor width, including desktop zoom. */
+.shipping-report-parameters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 1rem 1.5rem;
+}
+
+.shipping-report-parameter-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(90px, 0.65fr) 3rem;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.shipping-report-parameter-row label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.shipping-report-parameter-row > input[data-slot="input"] {
+  text-align: right;
+}
+
+/* Keep the compact NA field's text area free of native stepper space. */
+.shipping-report-parameter-row input[type="number"] {
+  appearance: textfield;
+}
+
+.shipping-report-parameter-row input[type="number"]::-webkit-inner-spin-button,
+.shipping-report-parameter-row input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.shipping-report-page input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+}
+
+.shipping-report-custom-row {
+  grid-column: 1 / -1;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 0.8fr) minmax(48px, 0.4fr) auto;
+}

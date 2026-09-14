@@ -1,0 +1,39 @@
+{
+  "metadata": {
+    "RecordType": "metadata",
+    "AppPid": 38880,
+    "RendererPid": 39048,
+    "Mode": "debug",
+    "ExecutablePath": "E:\\工作\\长光华芯\\软件\\泵驱一体\\auto_run_Lpowe2\\tauri-ui\\src-tauri\\target\\debug\\tauri-ui.exe",
+    "Heap64": false,
+    "ExposeGc": false,
+    "RemoteDebug": false
+  },
+  "sampleCount": 21,
+  "startedAt": "2026-09-14T17:38:30",
+  "endedAt": "2026-09-14T17:43:31",
+  "PrivateMB": {
+    "min": 151.4,
+    "max": 219.2,
+    "first": 171.8,
+    "last": 162.6
+  },
+  "WorkingSetMB": {
+    "min": 217.3,
+    "max": 286.1,
+    "first": 238.2,
+    "last": 250.8
+  },
+  "GpuPrivateMB": {
+    "min": 197.9,
+    "max": 498.1,
+    "first": 327.6,
+    "last": 364.0
+  },
+  "GpuWorkingSetMB": {
+    "min": 226.7,
+    "max": 526.4,
+    "first": 356.1,
+    "last": 404.0
+  }
+}

@@ -39,7 +39,10 @@ from combined_test.shipping_report import (
     suggested_field_values,
     validate_shipping_report_request,
 )
-from combined_test.shipping_report_headless import _spectrum_legend_column_count
+from combined_test.shipping_report_headless import (
+    _HeadlessShippingReportRenderer,
+    _spectrum_legend_column_count,
+)
 from tauri_bridge.settings import JsonSettings
 
 
@@ -153,6 +156,38 @@ class ShippingReportTests(unittest.TestCase):
                 else None
             ),
         )
+
+    def test_report_charts_stop_at_selected_operating_current(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "current-limit.xlsx"
+            currents = list(range(2, 21, 2))
+            save_test_records(source, [self._record(current) for current in currents], session=self._session())
+            inspection = inspect_shipping_workbook(source)
+            for report_type in (ShippingReportType.SPECTRUM, ShippingReportType.POLE):
+                for selected in (2.0, 18.0, 20.0, 18.0 - 5e-10):
+                    with self.subTest(report_type=report_type, selected=selected):
+                        request = replace(self._request(report_type), operating_current_a=selected)
+                        expected = [current for current in currents if current <= round(selected)]
+                        figures = _HeadlessShippingReportRenderer(inspection, request).build()
+                        try:
+                            axes = [axis for figure in figures for axis in figure.axes]
+                            power_axis = next(axis for axis in axes if axis.get_xlabel() == "Drive current (A)")
+                            efficiency_axis = next(axis for axis in axes if axis.get_ylabel() == "E-O efficiency (%)")
+                            for axis in (power_axis, efficiency_axis):
+                                self.assertEqual(list(axis.lines[0].get_xdata()), expected)
+                            if selected == 18.0:
+                                self.assertEqual(max(power_axis.get_xticks()), 18.0)
+                            if report_type is ShippingReportType.SPECTRUM:
+                                spectrum_axis = next(axis for axis in axes if axis.get_xlabel() == "Wavelength (nm)")
+                                self.assertEqual(len(spectrum_axis.lines), len(expected))
+                                self.assertEqual(
+                                    [text.get_text() for text in spectrum_axis.get_legend().get_texts()],
+                                    [f"{current} A" for current in expected],
+                                )
+                        finally:
+                            for figure in figures:
+                                figure.clear()
+            self.assertEqual([point.current_a for point in inspection.points], currents)
 
     def test_approved_report_artwork_is_unchanged(self) -> None:
         assets = Path(__file__).resolve().parents[1] / "assets" / "report"
@@ -507,7 +542,7 @@ class ShippingReportTests(unittest.TestCase):
 
         self.assertEqual(definitions["power"].label, "输出功率（CW）")
         self.assertEqual(definitions["electroOpticalEfficiency"].label, "电光效率")
-        self.assertEqual(definitions["na017Energy"].label, "NA 0.22 能量")
+        self.assertEqual(definitions["na017Energy"].label, "0.22 NA 能量占比")
         self.assertEqual(
             _format_performance_parameters_title(7.0, ShippingReportLanguage.CHINESE),
             "性能参数 @7A",

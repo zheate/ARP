@@ -533,7 +533,7 @@ def _report_definitions(
     for field in standard:
         if field.key == "na017Energy":
             label = (
-                f"NA {encircled_energy_na} 能量"
+                f"{encircled_energy_na} NA 能量占比"
                 if report_language is ShippingReportLanguage.CHINESE
                 else f"NA {encircled_energy_na} Encircled Energy"
             )
