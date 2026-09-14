@@ -16,6 +16,7 @@ import {
   Milestone,
   OctagonAlert,
   Pause,
+  Pencil,
   Play,
   Power,
   Plus,
@@ -64,6 +65,8 @@ import { DataBrowserPage } from "@/components/data-browser-page"
 import { formatLicenseDate, getLicenseStatus, installLicense, licenseReasonLabels, type LicenseStatus } from "@/lib/license"
 import { cn } from "@/lib/utils"
 import { normalizeNumericInput, stepNumericValue } from "@/lib/number-input"
+import { applyScriptPreset, captureScriptParameters, scriptPresetCompatible } from "@/lib/test-script-presets"
+import { SaveScriptDialog } from "@/components/save-script-dialog"
 
 type Page = "automatic" | "manual" | "pd" | "data" | "shipping" | "settings"
 
@@ -321,6 +324,8 @@ function configurationPayload(config: AppConfiguration): Record<string, unknown>
 }
 
 function configurationsEqual(left: AppConfiguration, right: AppConfiguration): boolean {
+  if ((left.selectedScriptPresetId ?? "") !== (right.selectedScriptPresetId ?? "")) return false
+  if (JSON.stringify(left.testScriptPresets ?? []) !== JSON.stringify(right.testScriptPresets ?? [])) return false
   if (!sameRows(left.customCurrentPoints, right.customCurrentPoints, ["currentA", "dwellS"])) return false
   if (!sameRows(left.ch341PortBindings, right.ch341PortBindings, ["locationPath", "name"])) return false
   return configurationKeys.every((key) => (
@@ -797,8 +802,64 @@ function CustomCurrentPlanEditor({ config, update, disabled, maximumCurrentA }: 
   )
 }
 
-function PowerSupplySettingsForm({ snapshot, config, update, active, pending, run }: {
+function TestScriptSettingsForm({ snapshot, config, update, active, pending, onScriptSelect }: {
+  snapshot: BackendSnapshot | null; config: AppConfiguration; update: UpdateConfig; active: boolean; pending: boolean
+  onScriptSelect?: (id: string) => void
+}) {
+  const agingMode = config.selectedScriptId === "aging"
+  return (
+    <section className="power-settings-section power-settings-section--automatic">
+      <div className="power-settings-section-heading">
+        <p className="power-settings-section-title">测试脚本参数</p>
+        <p className="power-settings-section-description">选择参数脚本，修改升流节拍和安全下电参数后保存</p>
+      </div>
+      <div className="power-settings-fields">
+        <Field label="参数脚本">
+          <NativeSelect
+            aria-label="参数脚本"
+            disabled={!active || pending}
+            value={config.selectedScriptId}
+            onChange={(scriptId) => {
+              if (onScriptSelect) {
+                onScriptSelect(scriptId)
+              } else {
+                const scripts = snapshot?.testScripts ?? BUILTIN_TEST_SCRIPT_OPTIONS
+                const script = scripts.find((item) => item.id === scriptId)
+                if (script) {
+                  const next = applyTestScript(config, script)
+                  for (const [key, val] of Object.entries(next)) {
+                    update(key as keyof AppConfiguration, val as never)
+                  }
+                }
+              }
+            }}
+          >
+            {(snapshot?.testScripts ?? BUILTIN_TEST_SCRIPT_OPTIONS)
+              .filter((script) => !script.powerSupplyKinds || script.powerSupplyKinds.includes(config.powerSupplyKind))
+              .map((script) => <option key={script.id} value={script.id}>{script.name}</option>)}
+          </NativeSelect>
+        </Field>
+        <div className="power-settings-parameter-grid">
+          <NumberField disabled={agingMode} label="起始电流 (A)" value={config.initialCurrentA} onChange={(v) => update("initialCurrentA", v)} max={currentInputMaximum(config, snapshot)} />
+          <NumberField disabled={agingMode} label="目标电流 (A)" value={config.targetCurrentA} onChange={(v) => update("targetCurrentA", v)} max={currentInputMaximum(config, snapshot)} />
+          <NumberField disabled={agingMode} label="电流间隔 (A)" value={config.currentStepA} onChange={(v) => update("currentStepA", v)} max={currentInputMaximum(config, snapshot)} />
+        </div>
+        {agingMode ? <div className="custom-current-plan">
+          <p className="custom-current-plan__hint">CH341 从 2 A 开始，每步增加 2 A；每步等待 1 s，硬件命令保护下实际下发间隔不短于 1.1 s。到达 20 A 后不判稳，立即开始 2 小时老化计时。</p>
+        </div> : config.currentPlanMode === "custom" && <CustomCurrentPlanEditor config={config} disabled={pending} maximumCurrentA={currentInputMaximum(config, snapshot)} update={update} />}
+        <div className="power-settings-parameter-grid power-settings-parameter-grid--safety">
+          <NumberField label="单点超时 (s)" value={config.pointTimeoutS} onChange={(v) => update("pointTimeoutS", v)} />
+          <NumberField label="下电步长 (A)" value={config.rampDownStepA} onChange={(v) => update("rampDownStepA", v)} max={currentInputMaximum(config, snapshot)} />
+          <NumberField label="下电间隔 (s)" value={config.rampDownIntervalS} onChange={(v) => update("rampDownIntervalS", v)} step="0.1" />
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function PowerSupplySettingsForm({ snapshot, config, update, active, pending, run, onScriptSelect }: {
   snapshot: BackendSnapshot | null; config: AppConfiguration; update: UpdateConfig; active: boolean; pending: boolean; run: RunCommand
+  onScriptSelect?: (id: string) => void
 }) {
   const psu = snapshot?.devices.powerSupply
   const resources = psu?.resources ?? []
@@ -876,25 +937,7 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
           </div>}
         </div>
       </section>
-      <section className="power-settings-section power-settings-section--automatic">
-        <div className="power-settings-section-heading">
-          <p className="power-settings-section-title">测试脚本参数</p>
-          <p className="power-settings-section-description">顶部选择脚本；这里查看升流节拍和设置安全下电参数</p>
-        </div>
-        <div className="power-settings-parameter-grid">
-          <NumberField disabled={agingMode} label="起始电流 (A)" value={config.initialCurrentA} onChange={(v) => update("initialCurrentA", v)} max={currentInputMaximum(config, snapshot)} />
-          <NumberField disabled={agingMode} label="目标电流 (A)" value={config.targetCurrentA} onChange={(v) => update("targetCurrentA", v)} max={currentInputMaximum(config, snapshot)} />
-          <NumberField disabled={agingMode} label="电流间隔 (A)" value={config.currentStepA} onChange={(v) => update("currentStepA", v)} max={currentInputMaximum(config, snapshot)} />
-        </div>
-        {agingMode ? <div className="custom-current-plan">
-          <p className="custom-current-plan__hint">CH341 从 2 A 开始，每步增加 2 A；每步等待 1 s，硬件命令保护下实际下发间隔不短于 1.1 s。到达 20 A 后不判稳，立即开始 2 小时老化计时。</p>
-        </div> : config.currentPlanMode === "custom" && <CustomCurrentPlanEditor config={config} disabled={pending} maximumCurrentA={currentInputMaximum(config, snapshot)} update={update} />}
-        <div className="power-settings-parameter-grid power-settings-parameter-grid--safety">
-          <NumberField label="单点超时 (s)" value={config.pointTimeoutS} onChange={(v) => update("pointTimeoutS", v)} />
-          <NumberField label="下电步长 (A)" value={config.rampDownStepA} onChange={(v) => update("rampDownStepA", v)} max={currentInputMaximum(config, snapshot)} />
-          <NumberField label="下电间隔 (s)" value={config.rampDownIntervalS} onChange={(v) => update("rampDownIntervalS", v)} step="0.1" />
-        </div>
-      </section>
+      <TestScriptSettingsForm snapshot={snapshot} config={config} update={update} active={active} pending={pending} onScriptSelect={onScriptSelect} />
     </div>
   )
 }
@@ -1232,7 +1275,6 @@ function SpectrometerSettingsForm({ snapshot, config, update, active, pending, r
         <NumberField label="平均帧数" min={1} max={20} value={config.spectrumAverageFrames} onChange={(v) => update("spectrumAverageFrames", Math.max(1, Math.min(20, Math.round(v))))} />
         <Field label="采集模式"><label className="device-settings-checkbox"><input checked={config.autoIntegration} onChange={(e) => update("autoIntegration", e.target.checked)} type="checkbox" />自动积分</label></Field>
         <NumberField label="PIB 中心波长 (nm)" step="0.1" value={config.pibCenterWavelengthNm} onChange={(v) => update("pibCenterWavelengthNm", v)} />
-        <NumberField label="PIB 半带宽 (nm)" step="0.1" value={config.pibHalfRangeNm} onChange={(v) => update("pibHalfRangeNm", v)} />
       </div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
         <label className="device-settings-checkbox"><input checked={config.spectrumSmoothing ?? true} onChange={(e) => update("spectrumSmoothing", e.target.checked)} type="checkbox" />光谱曲线平滑</label>
@@ -1244,8 +1286,8 @@ function SpectrometerSettingsForm({ snapshot, config, update, active, pending, r
   )
 }
 
-function DeviceSettingsDialog({ kind, open, onClose, onSave, snapshot, config, update, active, pending, run }: {
-  kind: DeviceSettingsKind; open: boolean; onClose: () => void; onSave: () => Promise<void>; snapshot: BackendSnapshot | null; config: AppConfiguration; update: UpdateConfig; active: boolean; pending: boolean; run: RunCommand
+function DeviceSettingsDialog({ kind, open, onClose, onSave, onScriptSelect, snapshot, config, update, active, pending, run }: {
+  kind: DeviceSettingsKind; open: boolean; onClose: () => void; onSave: () => Promise<void>; onScriptSelect?: (id: string) => void; snapshot: BackendSnapshot | null; config: AppConfiguration; update: UpdateConfig; active: boolean; pending: boolean; run: RunCommand
 }) {
   const [saving, setSaving] = useState(false)
   const commandLockRef = useRef(false)
@@ -1319,7 +1361,7 @@ function DeviceSettingsDialog({ kind, open, onClose, onSave, snapshot, config, u
             <button aria-label="关闭设置弹窗" className="device-settings-dialog__close" onClick={onClose} ref={closeButtonRef} type="button"><X className="size-[18px]" /></button>
           </div>
           <div className="device-settings-dialog__body">
-            {kind === "powerSupply" && <PowerSupplySettingsForm active={active} config={config} pending={false} run={runDialogCommand} snapshot={snapshot} update={update} />}
+            {kind === "powerSupply" && <PowerSupplySettingsForm active={active} config={config} onScriptSelect={onScriptSelect} pending={false} run={runDialogCommand} snapshot={snapshot} update={update} />}
             {kind === "powerMeter" && <PowerMeterSettingsForm active={active} config={config} pending={false} run={runDialogCommand} snapshot={snapshot} update={update} />}
             {kind === "spectrometer" && <SpectrometerSettingsForm active={active} config={config} pending={false} run={runDialogCommand} snapshot={snapshot} update={update} />}
           </div>
@@ -1456,24 +1498,23 @@ function PowerMeterProfileDialog({
   )
 }
 
-function AutomaticSpecificationsDialog({ config, update, active, pending, onClose, onSave }: {
+function AutomaticSpecificationsDialog({ config, update, active, pending, onClose, onSave, editScript = false, snapshot = null }: {
   config: AppConfiguration
   update: UpdateConfig
   active: boolean
   pending: boolean
   onClose: () => void
   onSave: () => Promise<void>
+  editScript?: boolean
+  snapshot?: BackendSnapshot | null
 }) {
   const closeButtonRef = useRef<HTMLButtonElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const saveLockRef = useRef(false)
   const onCloseRef = useRef(onClose)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
-  const [draft, setDraft] = useState({
-    centerWavelengthSpecNm: config.centerWavelengthSpecNm,
-    centerWavelengthToleranceNm: config.centerWavelengthToleranceNm,
-    fwhmMaximumNm: config.fwhmMaximumNm,
-    pibMinimumPercent: config.pibMinimumPercent,
-  })
+  const [draft, setDraft] = useState(() => ({ ...config }))
   onCloseRef.current = onClose
 
   useEffect(() => {
@@ -1483,9 +1524,23 @@ function AutomaticSpecificationsDialog({ config, update, active, pending, onClos
     const previousPaddingRight = body.style.paddingRight
     const focusFrame = window.requestAnimationFrame(() => closeButtonRef.current?.focus())
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || saving) return
-      event.preventDefault()
-      onCloseRef.current()
+      if (event.defaultPrevented) return
+      if (event.key === "Escape" && !saveLockRef.current) {
+        event.preventDefault()
+        onCloseRef.current()
+      }
+      if (event.key === "Tab") {
+        const controls = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]') ?? []).filter((element) => element.getClientRects().length > 0)
+        const first = controls[0]
+        const last = controls[controls.length - 1]
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault()
+          last?.focus()
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault()
+          first?.focus()
+        }
+      }
     }
     const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth
     body.style.overflow = "hidden"
@@ -1499,26 +1554,36 @@ function AutomaticSpecificationsDialog({ config, update, active, pending, onClos
       previousFocus?.focus()
       document.removeEventListener("keydown", handleKeyDown)
     }
-  }, [saving])
+  }, [])
 
   const updateDraft = <K extends keyof typeof draft>(key: K, value: (typeof draft)[K]) => {
     setDraft((current) => ({ ...current, [key]: value }))
   }
 
   const handleSave = async () => {
-    if (saving || pending || !active) return
+    if (saveLockRef.current || pending || !active) return
+    saveLockRef.current = true
     setError("")
     setSaving(true)
     try {
+      if (!Number.isFinite(draft.pibHalfRangeNm) || draft.pibHalfRangeNm <= 0) {
+        throw new Error("PIB 半带宽必须大于 0")
+      }
+      if (editScript) {
+        const keys = ["selectedScriptId", "currentPlanMode", "initialCurrentA", "targetCurrentA", "currentStepA", "customCurrentPoints", "pointTimeoutS", "rampDownStepA", "rampDownIntervalS"] as const
+        for (const key of keys) update(key, draft[key])
+      }
       update("centerWavelengthSpecNm", Math.max(0, draft.centerWavelengthSpecNm))
       update("centerWavelengthToleranceNm", Math.max(0, draft.centerWavelengthToleranceNm))
       update("fwhmMaximumNm", Math.max(0, draft.fwhmMaximumNm))
       update("pibMinimumPercent", Math.max(0, Math.min(100, draft.pibMinimumPercent)))
+      update("pibHalfRangeNm", draft.pibHalfRangeNm)
       await onSave()
       onClose()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
+      saveLockRef.current = false
       setSaving(false)
     }
   }
@@ -1526,40 +1591,44 @@ function AutomaticSpecificationsDialog({ config, update, active, pending, onClos
   return (
     <DialogPortal>
       <div className="dialog-overlay motion-overlay-enter" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) onClose() }}>
-        <div aria-labelledby="automatic-specifications-title" aria-modal="true" className="device-settings-dialog automatic-specification-dialog motion-dialog-enter" role="dialog">
+        <div aria-labelledby="automatic-specifications-title" aria-modal="true" className={`device-settings-dialog automatic-specification-dialog motion-dialog-enter${editScript ? " test-configuration-dialog" : ""}`} ref={dialogRef} role="dialog">
           <div className="device-settings-dialog__header">
             <div className="device-settings-dialog__identity">
               <div className="device-settings-dialog__icon"><Settings className="size-5" /></div>
               <div className="min-w-0">
-                <h2 className="device-settings-dialog__title" id="automatic-specifications-title">设置测试规格</h2>
-                <p className="device-settings-dialog__description">配置自动测试指标的判定范围，保存后应用于当前工位</p>
+                <h2 className="device-settings-dialog__title" id="automatic-specifications-title">{editScript ? "编辑测试设置" : "设置测试规格"}</h2>
+                <p className="device-settings-dialog__description">{editScript ? "编辑测试脚本参数与测试规格，保存后应用于当前测试配置" : "配置自动测试指标的判定范围，保存后应用于当前工位"}</p>
               </div>
             </div>
-            <button aria-label="关闭规格设置弹窗" className="device-settings-dialog__close" onClick={onClose} ref={closeButtonRef} type="button"><X className="size-[18px]" /></button>
+            <button aria-label="关闭设置弹窗" className="device-settings-dialog__close" disabled={saving} onClick={onClose} ref={closeButtonRef} type="button"><X className="size-[18px]" /></button>
           </div>
           <div className="device-settings-dialog__body">
-            <div className="automatic-specification-form">
-              <div className="automatic-specification-form__intro">
-                <div>
-                  <p className="text-sm font-semibold">光谱指标</p>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">点击指标卡即可再次打开此设置。</p>
+            <fieldset className={editScript ? "test-configuration-layout" : "min-w-0"} disabled={saving}>
+              {editScript && <TestScriptSettingsForm active={active} config={draft} pending={pending || saving} snapshot={snapshot} update={updateDraft} />}
+              <div className={`automatic-specification-form${editScript ? " power-settings-section" : ""}`}>
+                <div className="automatic-specification-form__intro">
+                  <div>
+                    <p className={editScript ? "power-settings-section-title" : "text-sm font-semibold"}>{editScript ? "测试规格" : "光谱指标"}</p>
+                    <p className={editScript ? "power-settings-section-description" : "mt-1 text-xs leading-5 text-muted-foreground"}>{editScript ? "设置光谱指标的合格判定范围" : "点击指标卡即可再次打开此设置。"}</p>
+                  </div>
+                  <Badge variant="outline">当前工位</Badge>
                 </div>
-                <Badge variant="outline">当前工位</Badge>
+                <div className="device-settings-field-grid">
+                  <NumberField label="中心波长规格 (nm)" step="0.1" value={draft.centerWavelengthSpecNm} onChange={(value) => updateDraft("centerWavelengthSpecNm", value)} />
+                  <NumberField label="中心波长允许偏差 (± nm)" min={0} step="0.1" value={draft.centerWavelengthToleranceNm} onChange={(value) => updateDraft("centerWavelengthToleranceNm", value)} />
+                  <NumberField label="FWHM 上限 (nm)" min={0} step="0.01" value={draft.fwhmMaximumNm} onChange={(value) => updateDraft("fwhmMaximumNm", value)} />
+                  <NumberField label="PIB 下限 (%)" min={0} max={100} step="0.1" value={draft.pibMinimumPercent} onChange={(value) => updateDraft("pibMinimumPercent", value)} />
+                  <NumberField label="PIB 半带宽 (nm)" min={0} step="0.1" value={draft.pibHalfRangeNm} onChange={(value) => updateDraft("pibHalfRangeNm", value)} />
+                </div>
               </div>
-              <div className="device-settings-field-grid">
-                <NumberField label="中心波长规格 (nm)" step="0.1" value={draft.centerWavelengthSpecNm} onChange={(value) => updateDraft("centerWavelengthSpecNm", value)} />
-                <NumberField label="中心波长允许偏差 (± nm)" min={0} step="0.1" value={draft.centerWavelengthToleranceNm} onChange={(value) => updateDraft("centerWavelengthToleranceNm", value)} />
-                <NumberField label="FWHM 上限 (nm)" min={0} step="0.01" value={draft.fwhmMaximumNm} onChange={(value) => updateDraft("fwhmMaximumNm", value)} />
-                <NumberField label="PIB 下限 (%)" min={0} max={100} step="0.1" value={draft.pibMinimumPercent} onChange={(value) => updateDraft("pibMinimumPercent", value)} />
-              </div>
-              {error && <p className="text-xs text-destructive">保存失败：{error}</p>}
-            </div>
+            </fieldset>
+            {error && <p className="mt-3 text-xs text-destructive" role="alert">保存失败：{error}</p>}
           </div>
           <div className="device-settings-dialog__footer">
-            <p className="device-settings-dialog__hint">规格保存到当前工位配置</p>
+            <p className="device-settings-dialog__hint">{editScript ? "脚本参数和测试规格统一保存到当前测试配置" : "规格保存到当前工位配置"}</p>
             <div className="device-settings-dialog__actions">
               <Button className="device-settings-dialog__cancel" disabled={saving} onClick={onClose} variant="outline">取消</Button>
-              <Button aria-busy={saving} className="device-settings-dialog__save" disabled={!active || pending || saving} onClick={() => void handleSave()}>{saving ? "保存中…" : "保存规格"}</Button>
+              <Button aria-busy={saving} className="device-settings-dialog__save" disabled={!active || pending || saving} onClick={() => void handleSave()}>{saving ? "保存中…" : editScript ? "保存设置" : "保存规格"}</Button>
             </div>
           </div>
         </div>
@@ -2273,7 +2342,7 @@ const ChartPanel = memo(function ChartPanel({ title, subtitle, data = [], column
       )}
       <CardContent className={`relative ${stretch ? "min-h-0 flex-1" : heightClassName || (dataLength === 0 ? "h-40" : "h-56")} ${hideHeader ? "px-1.5 py-1.5" : "px-3 pb-1.5 pt-0"}`}>
         {dataLength === 0 ? (
-          <div className="grid h-full min-h-[120px] place-items-center rounded-lg bg-background/30 text-xs text-muted-foreground/70">{empty}</div>
+          <div className="grid h-full min-h-[120px] place-items-center rounded-lg bg-background/30 px-4 text-center text-base text-muted-foreground/70">{empty}</div>
         ) : (
           <CanvasLineChart annotationLegend={annotationLegend} annotations={annotations} ariaLabel={`${title}曲线`} columns={columns} data={data} lines={lines} preserveAllPoints={preserveAllPoints} rightYDomain={rightYDomain} tightInsets={hideHeader} xDomain={xDomain} xKey={xKey} xLabel={xLabel} xTickSuffix={xTickSuffix} xTicks={xTicks} yDomain={yDomain} yLabel={yLabel} yMinimumLimit={yMinimumLimit} />
         )}
@@ -2702,6 +2771,7 @@ function RealtimeMetricCards({
 function AppTitlebar({
   snapshot,
   showPhase,
+  showSave,
   onOpenAppearance,
   active,
   canPause,
@@ -2714,6 +2784,7 @@ function AppTitlebar({
 }: {
   snapshot: BackendSnapshot | null
   showPhase: boolean
+  showSave: boolean
   onOpenAppearance: () => void
   active: boolean
   canPause: boolean
@@ -2743,14 +2814,14 @@ function AppTitlebar({
             <Pause className="size-4" />暂停测试
           </Button>
         )}
-        <Button
+        {showSave && <Button
           disabled={!dirty || !active || commandPending || controlsLocked}
           onClick={() => void saveConfiguration()}
           size="sm"
           variant="outline"
         >
           <Save className="size-4" />保存设置
-        </Button>
+        </Button>}
         <Button
           className="app-emergency-stop"
           disabled={!active}
@@ -2890,9 +2961,15 @@ function LicensedApp({
     if (!operational) return
     const revision = configRevisionRef.current
     await automaticSaveFlightRef.current.catch(() => undefined)
+    const current = configRef.current
+    const configuration = current.selectedScriptPresetId ? {
+      ...current,
+      testScriptPresets: (current.testScriptPresets ?? []).map((preset) => preset.id === current.selectedScriptPresetId
+        ? { ...preset, parameters: captureScriptParameters(current) } : preset),
+    } : current
     const savedSnapshot = await command(
       "app.configure",
-      configurationPayload(configRef.current),
+      configurationPayload(configuration),
     )
     if (configRevisionRef.current === revision) {
       const persisted = savedSnapshot.configuration ?? configRef.current
@@ -2902,6 +2979,27 @@ function LicensedApp({
       setDirty(false)
     }
   }, [command, operational])
+
+  const createTestScript = useCallback(async (name: string) => {
+    if (!operational) throw new Error("当前无法保存脚本，请检查后端连接和软件授权")
+    await automaticSaveFlightRef.current.catch(() => undefined)
+    const current = configRef.current
+    const presets = current.testScriptPresets ?? []
+    const normalizedName = name.trim()
+    if (!normalizedName || normalizedName.length > 60) throw new Error("脚本名称不能为空或超过 60 个字符")
+    if ([...presets, ...(snapshot?.testScripts ?? BUILTIN_TEST_SCRIPT_OPTIONS)].some((item) => item.name.toLocaleLowerCase() === normalizedName.toLocaleLowerCase())) {
+      throw new Error("已有同名脚本，请换一个名称")
+    }
+    const preset = { id: `preset-${crypto.randomUUID()}`, name: normalizedName, parameters: captureScriptParameters(current) }
+    const next = { ...current, testScriptPresets: [...presets, preset], selectedScriptPresetId: preset.id }
+    const saved = await command("app.configure", configurationPayload(next))
+    const persisted = saved.configuration ?? next
+    configRevisionRef.current += 1
+    pendingPersistedConfigRef.current = persisted
+    configRef.current = persisted
+    setConfig(persisted)
+    setDirty(false)
+  }, [command, operational, snapshot?.testScripts])
 
   const run: RunCommand = useCallback(async (method, params, sync) => {
     if (!active) return
@@ -2929,10 +3027,12 @@ function LicensedApp({
   }, [])
 
   const selectTestScript = useCallback((scriptId: string) => {
+    const current = configRef.current
+    const preset = current.testScriptPresets?.find((item) => item.id === scriptId)
     const script = (snapshot?.testScripts ?? BUILTIN_TEST_SCRIPT_OPTIONS).find((item) => item.id === scriptId)
-    if (!script) return
+    if (preset ? !scriptPresetCompatible(current, preset) : !script) return
     configRevisionRef.current += 1
-    const next = applyTestScript(configRef.current, script)
+    const next = preset ? applyScriptPreset(current, preset) : { ...applyTestScript(current, script!), selectedScriptPresetId: "" }
     configRef.current = next
     setConfig(next)
     setDirty(true)
@@ -3167,6 +3267,7 @@ function LicensedApp({
       <AppTitlebar
         snapshot={snapshot}
         showPhase={page === "automatic" || automaticWorkflowActive}
+        showSave={page !== "automatic"}
         onOpenAppearance={() => changePage("settings")}
         active={active}
         canPause={Boolean(page === "automatic" && snapshot?.automaticTest.canPause)}
@@ -3267,7 +3368,7 @@ function LicensedApp({
             data-page={page}
             key={page}
           >
-            {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={operational} controlsLocked={automaticInteractionLocked || !licenseStatus.valid} curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} pending={commandPending} run={run} saveConfiguration={saveConfiguration} testScripts={snapshot?.testScripts ?? BUILTIN_TEST_SCRIPT_OPTIONS} onScriptSelect={selectTestScript} onNextDevice={() => void prepareNextDevice()} onViewData={() => changePage("data")} onRetryExport={() => void retryAutomaticExport()} onChooseExportDirectory={() => void chooseAutomaticExportDirectory()} onShowCompletion={() => { const auto = snapshot?.automaticTest; if (auto?.terminalOutcome) setAutomaticCompletion({ title: automaticTerminalTitle(auto.terminalOutcome), message: auto.detail }) }} onNotify={notify} />}
+            {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={operational} dirty={dirty} controlsLocked={automaticInteractionLocked || !licenseStatus.valid} curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} pending={commandPending} run={run} saveConfiguration={saveConfiguration} testScripts={snapshot?.testScripts ?? BUILTIN_TEST_SCRIPT_OPTIONS} onScriptSelect={selectTestScript} onCreateScript={createTestScript} onNextDevice={() => void prepareNextDevice()} onViewData={() => changePage("data")} onRetryExport={() => void retryAutomaticExport()} onChooseExportDirectory={() => void chooseAutomaticExportDirectory()} onShowCompletion={() => { const auto = snapshot?.automaticTest; if (auto?.terminalOutcome) setAutomaticCompletion({ title: automaticTerminalTitle(auto.terminalOutcome), message: auto.detail }) }} onNotify={notify} />}
             {page === "manual" && <ManualPage snapshot={snapshot} config={config} update={update} active={operational} pending={commandPending} run={run} />}
             {page === "pd" && <PdPage snapshot={snapshot} active={operational} pending={commandPending} run={run} />}
             {page === "shipping" && <ShippingReportPage active={operational} controlsLocked={automaticInteractionLocked || !licenseStatus.valid} pending={commandPending} />}
@@ -4341,6 +4442,7 @@ const AutomaticPage = memo(function AutomaticPage({
   config,
   update,
   active,
+  dirty,
   controlsLocked,
   curveLineStyle,
   latestPointMarkerStyle,
@@ -4349,6 +4451,7 @@ const AutomaticPage = memo(function AutomaticPage({
   saveConfiguration,
   testScripts,
   onScriptSelect,
+  onCreateScript,
   onNextDevice,
   onViewData,
   onRetryExport,
@@ -4360,6 +4463,7 @@ const AutomaticPage = memo(function AutomaticPage({
   config: AppConfiguration
   update: UpdateConfig
   active: boolean
+  dirty: boolean
   controlsLocked: boolean
   curveLineStyle: CurveLineStyle
   latestPointMarkerStyle: LatestPointMarkerStyle
@@ -4368,6 +4472,7 @@ const AutomaticPage = memo(function AutomaticPage({
   saveConfiguration: () => Promise<void>
   testScripts: TestScript[]
   onScriptSelect: (scriptId: string) => void
+  onCreateScript: (name: string) => Promise<void>
   onNextDevice: () => void
   onViewData: () => void
   onRetryExport: () => void
@@ -4382,9 +4487,15 @@ const AutomaticPage = memo(function AutomaticPage({
   ))
   const [openSettings, setOpenSettings] = useState<DeviceSettingsKind | null>(null)
   const [specificationsOpen, setSpecificationsOpen] = useState(false)
+  const [testSettingsOpen, setTestSettingsOpen] = useState(false)
+  const [newScriptOpen, setNewScriptOpen] = useState(false)
   const closeSettings = () => setOpenSettings(null)
   useEffect(() => {
-    if (controlsLocked) setOpenSettings(null)
+    if (controlsLocked) {
+      setOpenSettings(null)
+      setTestSettingsOpen(false)
+      setNewScriptOpen(false)
+    }
   }, [controlsLocked])
   const { canStart, messages: readinessMessages } = automaticStartPresentation(auto, config)
   const startAutomaticTest = () => {
@@ -4401,12 +4512,18 @@ const AutomaticPage = memo(function AutomaticPage({
   const powerSupplySummary = config.powerSupplyKind === "ch341"
     ? `CH341 · ${config.initialCurrentA}A → ${config.targetCurrentA}A (${config.currentStepA}A)`
     : `TDK · ${config.initialCurrentA}A → ${config.targetCurrentA}A (${config.tdkVoltageV}V)`
+  const currentPlanSummary = config.currentPlanMode === "custom"
+    ? (config.customCurrentPoints.length
+      ? `${config.customCurrentPoints.map((point) => formatTrimmedNumber(point.currentA, 3)).join(" → ")} A`
+      : "未设置电流点")
+    : `${formatTrimmedNumber(config.initialCurrentA, 3)} → ${formatTrimmedNumber(config.targetCurrentA, 3)} A · 步进 ${formatTrimmedNumber(config.currentStepA, 3)} A`
+  const powerSupplyVisibleSummary = `${config.powerSupplyKind === "tdk" ? `电压 ${formatTrimmedNumber(config.tdkVoltageV, 3)} V · ` : ""}电流 ${currentPlanSummary}`
   const appliedPowerMeterConfig = snapshot?.configuration ?? config
   const powerMeterProfileLabel = appliedPowerMeterConfig.powerMeterProfileName
     ? `${appliedPowerMeterConfig.powerMeterProfileName}${appliedPowerMeterConfig.powerMeterProfileVersion ? ` · v${appliedPowerMeterConfig.powerMeterProfileVersion}` : ""}`
     : "未绑定方案"
   const powerMeterSummary = `${appliedPowerMeterConfig.powerMeterResource ? powerMeterResourceLabel(appliedPowerMeterConfig.powerMeterResource, snapshot?.devices.powerMeter?.resources) : "未选串口"} · ${powerMeterProfileLabel} · ${appliedPowerMeterConfig.powerMeterWavelengthNm} nm (×${appliedPowerMeterConfig.softwareGain})`
-  const powerMeterVisibleSummary = `${powerMeterProfileLabel} / ×${formatTrimmedNumber(appliedPowerMeterConfig.softwareGain, 6)} · ${formatTrimmedNumber(appliedPowerMeterConfig.powerMeterWavelengthNm, 3)} nm`
+  const powerMeterVisibleSummary = `${powerMeterProfileLabel} / 系数 ×${formatTrimmedNumber(appliedPowerMeterConfig.softwareGain, 6)} · ${formatTrimmedNumber(appliedPowerMeterConfig.powerMeterWavelengthNm, 3)} nm`
   const powerMeter = snapshot?.devices.powerMeter
   const livePowerW = powerMeter?.quality === "live" ? powerMeter.powerW : null
   const powerSupply = snapshot?.devices.powerSupply
@@ -4420,6 +4537,7 @@ const AutomaticPage = memo(function AutomaticPage({
   const spectrometerSummary = useSpectrometer
     ? `${config.integrationTimeUs} μs · PIB ${config.pibCenterWavelengthNm}±${config.pibHalfRangeNm}nm`
     : "未开启光谱采集"
+  const spectrometerVisibleSummary = `中心波长 ${formatTrimmedNumber(config.centerWavelengthSpecNm, 3)} nm · FWHM ≤ ${formatTrimmedNumber(config.fwhmMaximumNm, 3)} nm`
 
   const chooseOutputDir = async () => {
     if (controlsLocked) return
@@ -4484,13 +4602,19 @@ const AutomaticPage = memo(function AutomaticPage({
             value={config.station}
           />
         </div>
-        <div className="automatic-setup-field--large-type space-y-1.5 min-w-0">
+        <div className="sample-nameplate__script automatic-setup-field--large-type space-y-1.5 min-w-0">
           <Label className="text-[13px] font-medium text-muted-foreground">
             <FileText className="mr-1 inline size-3.5" />脚本选择
           </Label>
-          <NativeSelect disabled={controlsLocked || pending} value={config.selectedScriptId} onChange={onScriptSelect}>
-            {availableTestScripts.map((script) => <option key={script.id} value={script.id}>{script.name}</option>)}
-          </NativeSelect>
+          <div className="sample-nameplate__script-controls">
+            <NativeSelect aria-label="脚本选择" disabled={controlsLocked || pending} value={config.selectedScriptPresetId || config.selectedScriptId} onChange={onScriptSelect}>
+              {availableTestScripts.map((script) => <option key={script.id} value={script.id}>{script.name}</option>)}
+              {(config.testScriptPresets ?? []).map((preset) => <option disabled={!scriptPresetCompatible(config, preset)} key={preset.id} value={preset.id}>{preset.name}</option>)}
+            </NativeSelect>
+            <Button aria-haspopup="dialog" disabled={!active || pending || controlsLocked} onClick={() => setNewScriptOpen(true)} title="另存为新脚本" variant="outline"><Plus className="size-4" />添加</Button>
+            <Button disabled={!dirty || !active || pending || controlsLocked} onClick={() => void saveConfiguration().catch((reason) => onNotify?.({ level: "error", title: "保存失败", message: reason instanceof Error ? reason.message : String(reason) }))} variant="outline"><Save className="size-4" />保存</Button>
+            <Button aria-haspopup="dialog" disabled={!active || pending || controlsLocked} onClick={() => setTestSettingsOpen(true)} variant="outline"><Pencil className="size-4" />编辑</Button>
+          </div>
         </div>
         <div className="space-y-1.5 min-w-0">
           <Label className="text-[13px] font-medium text-muted-foreground" htmlFor="automatic-output-directory">
@@ -4521,9 +4645,9 @@ const AutomaticPage = memo(function AutomaticPage({
       </div>}
 
       <section className="automatic-device-rail" aria-label="测试设备与控制">
-        <DeviceCard title="电源" icon={<Power className="size-4" />} device={snapshot?.devices.powerSupply} model={config.powerSupplyKind === "tdk" ? "TDK" : "CH341"} details={[["接口", config.powerSupplyKind === "tdk" ? config.tdkResource : config.ch341SelectedLocationPath], ["电流计划", `${config.initialCurrentA} → ${config.targetCurrentA} A`], ["目标电压", `${config.tdkVoltageV} V`]]} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("powerSupply")} summary={powerSupplySummary} />
+        <DeviceCard title="电源" icon={<Power className="size-4" />} device={snapshot?.devices.powerSupply} model={config.powerSupplyKind === "tdk" ? "TDK" : "CH341"} details={[["接口", config.powerSupplyKind === "tdk" ? config.tdkResource : config.ch341SelectedLocationPath], ["电流计划", currentPlanSummary], ["目标电压", config.powerSupplyKind === "tdk" ? `${config.tdkVoltageV} V` : "不适用"]]} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("powerSupply")} summary={powerSupplySummary} visibleSummary={powerSupplyVisibleSummary} />
         <DeviceCard title="功率计" icon={<Gauge className="size-4" />} device={snapshot?.devices.powerMeter} model={appliedPowerMeterConfig.powerMeterResource ? powerMeterResourceLabel(appliedPowerMeterConfig.powerMeterResource, powerMeter?.resources).split("|")[0].trim().replace(/功率计$/, "") : "未选择"} details={[["接口", powerMeterResourceValue(appliedPowerMeterConfig.powerMeterResource)], ["设备", powerMeter?.detail || "未连接"], ["系数方案", powerMeterProfileLabel], ["校准波长", `${appliedPowerMeterConfig.powerMeterWavelengthNm} nm`], ["功率系数", `× ${appliedPowerMeterConfig.softwareGain}`]]} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("powerMeter")} summary={powerMeterSummary} visibleSummary={powerMeterVisibleSummary} />
-        <DeviceCard title="光谱仪" icon={<Radio className="size-4" />} device={snapshot?.devices.spectrometer} model="Ocean Insight" details={[["设备", config.spectrometerResource || spectrometer?.detail || "未选择"], ["积分时间", `${config.integrationTimeUs} μs`], ["PIB 范围", `${config.pibCenterWavelengthNm} ± ${config.pibHalfRangeNm} nm`]]} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("spectrometer")} summary={spectrometerSummary} />
+        <DeviceCard title="光谱仪" icon={<Radio className="size-4" />} device={snapshot?.devices.spectrometer} model="Ocean Insight" details={[["设备", config.spectrometerResource || spectrometer?.detail || "未选择"], ["积分时间", `${config.integrationTimeUs} μs`], ["PIB 范围", `${config.pibCenterWavelengthNm} ± ${config.pibHalfRangeNm} nm`], ["FWHM 上限", `${config.fwhmMaximumNm} nm`]]} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("spectrometer")} summary={spectrometerSummary} visibleSummary={spectrometerVisibleSummary} />
         <AutomaticTestControlCard
           active={active}
           auto={auto}
@@ -4567,12 +4691,15 @@ const AutomaticPage = memo(function AutomaticPage({
         )}
         {useSpectrometer && <SpectrumRealtimeChart snapshot={snapshot} smoothing={config.spectrumSmoothing ?? true} stretch />}
       </section>
-      {openSettings && <DeviceSettingsDialog active={active} config={config} kind={openSettings} onClose={closeSettings} onSave={saveConfiguration} open pending={pending} run={run} snapshot={snapshot} update={update} />}
+      {openSettings && <DeviceSettingsDialog active={active} config={config} kind={openSettings} onClose={closeSettings} onSave={saveConfiguration} onScriptSelect={onScriptSelect} open pending={pending} run={run} snapshot={snapshot} update={update} />}
       {specificationsOpen && <AutomaticSpecificationsDialog active={active} config={config} onClose={() => setSpecificationsOpen(false)} onSave={saveConfiguration} pending={pending} update={update} />}
+      {testSettingsOpen && <AutomaticSpecificationsDialog active={active && !controlsLocked} config={config} editScript onClose={() => setTestSettingsOpen(false)} onSave={saveConfiguration} pending={pending} snapshot={snapshot} update={update} />}
+      {newScriptOpen && <SaveScriptDialog onClose={() => setNewScriptOpen(false)} onSave={onCreateScript} />}
     </>
   )
 }, (previous, next) => (
   previous.active === next.active
+  && previous.dirty === next.dirty
   && previous.controlsLocked === next.controlsLocked
   && previous.curveLineStyle === next.curveLineStyle
   && previous.latestPointMarkerStyle === next.latestPointMarkerStyle

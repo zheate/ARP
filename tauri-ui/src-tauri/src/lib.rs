@@ -5,7 +5,7 @@ use license::{license_get_status, license_install, LicenseState};
 use serde_json::{json, Value};
 use snapshot_stream::{run_snapshot_stream, wait_for_generation, StreamRequestError};
 
-const LIVE_SNAPSHOT_INTERVAL_MS: u64 = 200;
+const LIVE_SNAPSHOT_INTERVAL_MS: u64 = 100;
 const PD_SNAPSHOT_INTERVAL_MS: u64 = 500;
 const SHIPPING_SNAPSHOT_INTERVAL_MS: u64 = 500;
 const SNAPSHOT_REQUEST_TIMEOUT_SECS: u64 = 15;
@@ -1007,8 +1007,8 @@ mod tests {
 
     #[test]
     fn snapshot_intervals_keep_shipping_and_pd_at_500_ms() {
-        assert_eq!(snapshot_interval_ms("automatic"), 200);
-        assert_eq!(snapshot_interval_ms("manual"), 200);
+        assert_eq!(snapshot_interval_ms("automatic"), 100);
+        assert_eq!(snapshot_interval_ms("manual"), 100);
         assert_eq!(snapshot_interval_ms("pd"), 500);
         assert_eq!(snapshot_interval_ms("shipping"), 500);
     }

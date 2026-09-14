@@ -1,0 +1,190 @@
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e5]: Power Test
+      - generic "测试阶段：提前结束，已记录 3 / 6 点" [ref=e229]:
+        - list [ref=e8]:
+          - listitem [ref=e9]:
+            - generic [ref=e11]: 准备
+          - listitem [ref=e12]:
+            - generic [ref=e14]: 升流
+          - listitem [ref=e15]:
+            - generic [ref=e17]: 稳定
+          - listitem [ref=e18]:
+            - generic [ref=e20]: 记录
+          - listitem [ref=e21]:
+            - generic [ref=e23]: 提前结束
+        - strong [ref=e25]: 已记录 3 / 6
+      - generic [ref=e26]:
+        - button "显示" [ref=e27] [cursor=pointer]
+        - button "保存设置" [disabled]
+        - button "急停" [ref=e29] [cursor=pointer]
+    - generic [ref=e30]:
+      - complementary [ref=e31]:
+        - navigation [ref=e32]:
+          - button "自动测试" [ref=e33] [cursor=pointer]
+          - button "手动配置" [ref=e39] [cursor=pointer]
+          - button "PD 采集" [ref=e46] [cursor=pointer]
+          - button "数据浏览" [ref=e50] [cursor=pointer]
+          - button "出货报告" [ref=e55] [cursor=pointer]
+          - button "系统设置" [ref=e60] [cursor=pointer]
+        - generic "侧栏格言 Stay True" [ref=e65]:
+          - paragraph [ref=e67]: Stay True
+      - main [ref=e68]:
+        - generic [ref=e81]:
+          - region "测试结果摘要" [ref=e230]:
+            - generic [ref=e231]:
+              - generic [ref=e236]:
+                - generic [ref=e237]:
+                  - strong [ref=e238]: 测试已提前结束
+                  - button "详情" [ref=e239] [cursor=pointer]
+                - status "测试已手动终止并安全下电" [ref=e242]
+              - generic [ref=e243]:
+                - generic [ref=e244]: 当前样品
+                - strong [ref=e245]: DEMO-001
+                - generic [ref=e246]: 水冷25°C · 站别 1
+              - generic [ref=e247]:
+                - generic [ref=e248]:
+                  - term [ref=e249]: 耗时
+                  - definition [ref=e253]: 02:36
+                - generic [ref=e254]:
+                  - term [ref=e255]: 测试点
+                  - definition [ref=e256]: 3 / 6
+                - generic [ref=e257]:
+                  - term [ref=e258]: 数据
+                  - definition [ref=e259]: 本地已保存
+                  - text: Excel 已生成
+                - generic [ref=e260]:
+                  - term [ref=e261]: 安全下电
+                  - definition [ref=e262]: 已确认
+              - generic [ref=e263]:
+                - button "查看数据" [ref=e264] [cursor=pointer]
+                - button "下一颗" [ref=e265] [cursor=pointer]
+          - region "测试设备与控制" [ref=e114]:
+            - button "电源信息，点击打开设置" [ref=e266] [cursor=pointer]:
+              - generic [ref=e119]:
+                - generic [ref=e120]:
+                  - strong [ref=e121]: 电源
+                  - generic "TDK" [ref=e122]
+                - generic [ref=e123]: 在线
+            - button "功率计信息，点击打开设置" [ref=e269] [cursor=pointer]:
+              - generic [ref=e130]:
+                - generic [ref=e131]:
+                  - strong [ref=e132]: 功率计
+                  - generic "Caihuang CHLP-P" [ref=e133]
+                - generic [ref=e134]: 在线
+                - generic "976nm 生产光路 · v2 / ×1.018 · 976 nm" [ref=e136]
+            - button "光谱仪信息，点击打开设置" [ref=e272] [cursor=pointer]:
+              - generic [ref=e145]:
+                - generic [ref=e146]:
+                  - strong [ref=e147]: 光谱仪
+                  - generic "Ocean Insight" [ref=e148]
+                - generic [ref=e149]: 在线 · 采集中
+            - generic [ref=e153]:
+              - button "开始" [ref=e275] [cursor=pointer]
+              - button "停止" [disabled]
+          - generic [ref=e155]:
+            - generic [ref=e156]:
+              - generic "功率实时" [ref=e158]:
+                - generic [ref=e160]:
+                  - img "功率实时曲线" [ref=e161]
+                  - generic [ref=e162]: 实时功率
+              - generic "功率 / 效率" [ref=e163]:
+                - generic [ref=e164]:
+                  - generic [ref=e165]:
+                    - img "功率 / 效率曲线" [ref=e166]
+                    - generic [ref=e167]: 功率 (W)、效率 (%)、历史参考
+                  - generic:
+                    - generic "图例":
+                      - generic: 功率 (W)
+                      - generic: 效率 (%)
+                      - generic: 历史参考
+            - region "实时关键指标" [ref=e168]:
+              - generic [ref=e169]:
+                - generic "功率稳定状态：末点已稳定，0.0 / 5 秒" [ref=e277]:
+                  - generic "末点已稳定" [ref=e278]
+                  - generic [ref=e175]: 0.0 / 5 秒
+                - generic [ref=e176]:
+                  - generic "0.000" [ref=e279]:
+                    - generic [aria-hidden] [ref=e179]: "0"
+                    - generic [aria-hidden] [ref=e180]: .
+                    - generic [aria-hidden] [ref=e181]: "0"
+                    - generic [aria-hidden] [ref=e182]: "0"
+                    - generic [aria-hidden] [ref=e183]: "0"
+                  - generic [ref=e184]:
+                    - text: W @
+                    - generic [ref=e185]: 0 A
+              - button "中心波长，点击设置规格" [ref=e186] [cursor=pointer]:
+                - generic [ref=e187]: 中心波长
+                - generic [ref=e189]:
+                  - generic "976.200" [ref=e191]:
+                    - generic [aria-hidden] [ref=e192]: "9"
+                    - generic [aria-hidden] [ref=e193]: "7"
+                    - generic [aria-hidden] [ref=e194]: "6"
+                    - generic [aria-hidden] [ref=e195]: .
+                    - generic [aria-hidden] [ref=e196]: "2"
+                    - generic [aria-hidden] [ref=e197]: "0"
+                    - generic [aria-hidden] [ref=e198]: "0"
+                  - generic [ref=e199]: nm
+              - button "FWHM，点击设置规格" [ref=e200] [cursor=pointer]:
+                - generic [ref=e201]: FWHM
+                - generic [ref=e203]:
+                  - generic "0.776" [ref=e205]:
+                    - generic [aria-hidden] [ref=e206]: "0"
+                    - generic [aria-hidden] [ref=e207]: .
+                    - generic [aria-hidden] [ref=e208]: "7"
+                    - generic [aria-hidden] [ref=e209]: "7"
+                    - generic [aria-hidden] [ref=e210]: "6"
+                  - generic [ref=e211]: nm
+              - button "PIB，点击设置规格" [ref=e212] [cursor=pointer]:
+                - generic [ref=e213]: PIB
+                - generic [ref=e215]:
+                  - generic "96.85" [ref=e217]:
+                    - generic [aria-hidden] [ref=e218]: "9"
+                    - generic [aria-hidden] [ref=e219]: "6"
+                    - generic [aria-hidden] [ref=e220]: .
+                    - generic [aria-hidden] [ref=e221]: "8"
+                    - generic [aria-hidden] [ref=e222]: "5"
+                  - generic [ref=e223]: "%"
+            - generic "光谱" [ref=e224]:
+              - generic [ref=e226]:
+                - img "光谱曲线" [ref=e227]
+                - generic "峰值图例":
+                  - generic:
+                    - generic: Peak 1
+                    - generic: 976.200 nm
+                  - generic:
+                    - generic: Peak 2
+                    - generic: 978.000 nm
+                  - generic:
+                    - generic: Peak 3
+                    - generic: 973.000 nm
+                - generic [ref=e228]: 光谱（实时）
+  - dialog [ref=e281]:
+    - generic [ref=e282]:
+      - generic [ref=e289]:
+        - heading "测试已提前结束" [level=2] [ref=e290]
+        - paragraph [ref=e291]: 测试由操作员终止，电源状态已确认
+      - button "关闭" [ref=e292] [cursor=pointer]
+    - generic [ref=e296]:
+      - generic [ref=e297]:
+        - text: 产品 SN
+        - paragraph [ref=e298]: DEMO-001
+      - generic [ref=e299]:
+        - generic [ref=e300]:
+          - text: 已保存测试点
+          - paragraph [ref=e301]: 3 / 6 点
+        - generic [ref=e302]:
+          - text: 下电保护状态
+          - paragraph [ref=e303]: 已确认安全下电 (0.00 A)
+      - generic [ref=e305]:
+        - text: 状态详情
+        - paragraph [ref=e306]: 测试已手动终止并安全下电
+      - generic [ref=e307]:
+        - text: 数据与结果文件
+        - paragraph [ref=e308]: 本地 JSONL 已保存 · Excel 已生成
+        - paragraph [ref=e309]: /preview/DEMO-001.xlsx
+    - generic [ref=e310]:
+      - button "打开结果" [ref=e311] [cursor=pointer]
+      - button "测试下一台" [ref=e312] [cursor=pointer]
+      - button "关闭" [active] [ref=e313] [cursor=pointer]

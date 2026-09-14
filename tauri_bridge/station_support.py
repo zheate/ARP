@@ -127,6 +127,8 @@ DEFAULT_CONFIGURATION: dict[str, Any] = {
     "targetCurrentA": 20.0,
     "currentStepA": 3.0,
     "selectedScriptId": "standard",
+    "selectedScriptPresetId": "",
+    "testScriptPresets": [],
     "currentPlanMode": "range",
     "customCurrentPoints": [],
     "pointTimeoutS": 120.0,

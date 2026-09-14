@@ -126,6 +126,8 @@ export interface AutomaticReadiness {
 }
 
 export interface AppConfiguration {
+  testScriptPresets?: import("./test-script-presets").TestScriptPreset[]
+  selectedScriptPresetId?: string
   sn: string
   productModel: string
   batch: string

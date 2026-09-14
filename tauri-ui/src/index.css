@@ -712,6 +712,12 @@ body {
   gap: 1rem;
 }
 
+.automatic-specification-form .device-settings-field-grid > div {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
 .automatic-specification-form__intro {
   display: flex;
   align-items: flex-start;
@@ -977,6 +983,26 @@ body {
   width: min(68rem, calc(100vw - 2rem));
 }
 
+.device-settings-dialog.test-configuration-dialog {
+  width: min(68rem, calc(100vw - 2rem));
+}
+
+.test-configuration-layout {
+  display: grid;
+  min-width: 0;
+  gap: 1rem;
+}
+
+.test-configuration-layout .automatic-specification-form {
+  display: block;
+}
+
+.test-configuration-layout .automatic-specification-form__intro {
+  margin-bottom: 0.875rem;
+  padding: 0 0 0.5rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
 .device-settings-dialog__header {
   display: flex;
   align-items: center;
@@ -1007,17 +1033,17 @@ body {
 }
 
 .device-settings-dialog__title {
-  font-size: 1.125rem;
+  font-size: 1.25rem;
   font-weight: 700;
-  line-height: 1.5rem;
+  line-height: 1.75rem;
   letter-spacing: -0.01em;
 }
 
 .device-settings-dialog__description {
   margin-top: 0.125rem;
   color: var(--muted-foreground);
-  font-size: 0.8125rem;
-  line-height: 1.125rem;
+  font-size: 0.875rem;
+  line-height: 1.375rem;
 }
 
 .device-settings-dialog__close {
@@ -1060,8 +1086,8 @@ body {
 
 .device-settings-dialog__hint {
   color: var(--muted-foreground);
-  font-size: 0.75rem;
-  line-height: 1rem;
+  font-size: 0.875rem;
+  line-height: 1.375rem;
 }
 
 .device-settings-dialog__actions {
@@ -1075,8 +1101,20 @@ body {
 .device-settings-dialog [role="combobox"],
 .device-settings-dialog [role="option"],
 .device-settings-dialog [data-slot="button"] {
+  font-size: 1rem;
+  line-height: 1.5rem;
+}
+
+.device-settings-dialog .power-settings-section-title {
+  font-size: 1.0625rem;
+  line-height: 1.5rem;
+}
+
+.device-settings-dialog .power-settings-section-description,
+.device-settings-dialog .text-xs,
+.device-settings-dialog .device-settings-checkbox {
   font-size: 0.875rem;
-  line-height: 1.25rem;
+  line-height: 1.375rem;
 }
 
 .device-settings-dialog [data-slot="label"] {
@@ -1192,6 +1230,16 @@ body {
   font-size: 0.875rem;
   font-weight: 650;
   line-height: 1.25rem;
+}
+
+.device-settings-dialog .power-meter-profile__summary dt {
+  font-size: 1rem;
+  line-height: 1.5rem;
+}
+
+.device-settings-dialog .power-meter-profile__summary dd {
+  font-size: 1.125rem;
+  line-height: 1.625rem;
 }
 
 .power-meter-profile__summary p {
@@ -1509,6 +1557,10 @@ body {
 }
 
 @container (min-width: 40rem) {
+  .test-configuration-layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .power-settings-layout {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1rem;

@@ -100,7 +100,7 @@
   50% { box-shadow: 0 0 0 6px var(--phase-halo); }
 }
 
-.sample-nameplate { position: relative; z-index: 20; display: grid; grid-template-columns: minmax(180px, 220px) minmax(130px, 0.85fr) minmax(120px, 0.8fr) minmax(140px, 0.95fr) minmax(200px, 1.5fr); align-items: center; flex-shrink: 0; gap: 1rem; padding: 0.75rem 1.25rem; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); }
+.sample-nameplate { position: relative; z-index: 20; display: grid; grid-template-columns: repeat(3, minmax(100px, 0.766667fr)) minmax(350px, 1.8fr) minmax(200px, 1.5fr); align-items: center; flex-shrink: 0; gap: 1rem; padding: 0.75rem 1.25rem; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); }
 .sample-nameplate > div { min-width: 0; }
 .sample-nameplate label { display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.35rem; font-size: 0.8125rem; font-weight: 500; color: var(--muted-foreground); }
 .sample-nameplate label svg { display: inline-block; }
@@ -111,6 +111,18 @@
 .sample-nameplate[data-locked="true"] :is(input, button[role="combobox"]) { opacity: 1; border-color: transparent; box-shadow: none; background: transparent; cursor: default; }
 .sample-nameplate[data-locked="true"] input { padding-left: 0; }
 .sample-nameplate .automatic-setup-field--large-type button { font-size: 0.95rem; height: 2.5rem; }
+.sample-nameplate__script-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 0.5rem; }
+.sample-nameplate__script-controls > [data-slot="button"] { padding-inline: 0.75rem; white-space: nowrap; }
+
+@media (max-width: 1400px) {
+  .sample-nameplate { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .sample-nameplate > div { grid-column: span 2; }
+  .sample-nameplate > .sample-nameplate__script, .sample-nameplate > div:last-child { grid-column: span 3; }
+}
+
+@media (max-width: 900px) {
+  .sample-nameplate > .sample-nameplate__script, .sample-nameplate > div:last-child { grid-column: 1 / -1; }
+}
 
 .automatic-device-rail { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(165px, 0.9fr); align-items: stretch; flex-shrink: 0; gap: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); padding: 0.375rem 0; }
 .device-rail-item { position: relative; isolation: isolate; display: flex; min-width: 0; align-items: center; gap: 0.9rem; text-align: left; padding: 0.625rem 1rem; background: transparent; border: 0; border-right: 1px solid var(--border); border-radius: 0; cursor: pointer; }
@@ -157,7 +169,7 @@
 .automatic-metric-grid .automatic-metric-card .automatic-metric-card__title { justify-content: flex-end; }
 .automatic-metric-grid .automatic-metric-card .automatic-metric-card__value { width: 100%; justify-content: center; }
 .automatic-metric-card__unit, .automatic-metric-card--power .automatic-metric-card__unit { font-size: 0.8rem; font-weight: 450; white-space: nowrap; }
-.automatic-metric-card__current { margin-left: 0.2rem; font-size: 1.125rem; font-weight: 600; color: var(--foreground); }
+.automatic-metric-card__current { margin-left: 0.2rem; font-size: 1.375rem; font-weight: 600; color: var(--foreground); }
 .automatic-metric-card__recording-dot { width: 0.4rem; height: 0.4rem; }
 .automatic-metric-grid--compact .automatic-metric-card { gap: 0.1rem; padding-block: 0.4rem; }
 .automatic-metric-card__title .power-stability-status { width: 100%; flex-wrap: nowrap; justify-content: flex-end; font-size: inherit; line-height: inherit; gap: 0.25rem 0.6rem; }
@@ -382,7 +394,7 @@ fieldset.appearance-section .appearance-help { clear: both; }
   .chart-panel-heading { font-size: 1.05rem; }
   .chart-panel-subtitle { font-size: 0.8rem; }
   .automatic-metric-card__title, .automatic-metric-card--power .automatic-metric-card__title { font-size: 0.85rem; }
-  .automatic-metric-card__current { font-size: 1.25rem; }
+  .automatic-metric-card__current { font-size: 1.5rem; }
   .automatic-completion-summary__facts dd { font-size: 1.15rem; }
   .automatic-completion-summary__sample > strong { font-size: 1.25rem; }
   .automatic-completion-summary__actions [data-slot="button"] { height: 2.25rem; font-size: 0.85rem; }

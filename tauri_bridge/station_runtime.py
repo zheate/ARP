@@ -57,6 +57,7 @@ from combined_test.tdk_power_supply import (
 
 
 from .command_safety import CommandSafetyGate, finite_number
+from .test_script_presets import normalize_script_presets
 from .station_automatic import StationAutomaticMixin
 from .power_meter_profiles import MEASUREMENT_CONFIGURATION_KEYS
 from .station_support import (
@@ -453,6 +454,13 @@ class StationRuntime(StationAutomaticMixin):
                     candidate[key] = params[key]
             if selected_script_id == AGING_TEST_SCRIPT_ID:
                 _apply_aging_script_configuration(candidate)
+
+            candidate["testScriptPresets"] = normalize_script_presets(candidate["testScriptPresets"])
+            preset_id = candidate["selectedScriptPresetId"]
+            if not isinstance(preset_id, str) or (preset_id and not any(
+                preset["id"] == preset_id for preset in candidate["testScriptPresets"]
+            )):
+                raise ValueError("所选参数脚本不存在")
 
             if "powerMeterResource" in params or "powerMeterDriverKind" in params:
                 _normalize_power_meter_configuration(

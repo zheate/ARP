@@ -46,3 +46,32 @@ test("an unchanged series keeps its reference and an empty delta can trim histor
   assert.equal(mergeSnapshotSeries(points, undefined, undefined, x), points)
   assert.deepEqual(mergeSnapshotSeries(points, undefined, { startX: 2, points: [] }, x), [points[1]])
 })
+
+test("ordered power updates trim to 1200 points without mutating snapshots", () => {
+  const previous = Object.freeze(Array.from({ length: 1200 }, (_, i) => Object.freeze({ elapsedS: i, powerW: i / 10 })))
+  const appended = Object.freeze([{ elapsedS: 1200, powerW: 120 }, { elapsedS: 1201, powerW: 121 }])
+  const result = mergeSnapshotSeries(previous as unknown as typeof appended[number][], undefined, {
+    startX: 2, points: appended as unknown as typeof appended[number][],
+  }, x)!
+  assert.equal(result.length, 1200)
+  assert.equal(result[0], previous[2])
+  assert.equal(result[1197], previous[1199])
+  assert.equal(result[1198], appended[0])
+  assert.equal(result[1199], appended[1])
+  assert.equal(previous.length, 1200)
+  assert.equal(previous[0].elapsedS, 0)
+})
+
+test("unordered histories and duplicate appended timestamps retain last-write-wins ordering", () => {
+  const previous = [{ elapsedS: 3, value: 30 }, { elapsedS: 1, value: 10 }, { elapsedS: 1, value: 11 }]
+  assert.deepEqual(mergeSnapshotSeries(previous, undefined, {
+    startX: 1, points: [{ elapsedS: 4, value: 40 }, { elapsedS: 4, value: 41 }],
+  }, x), [{ elapsedS: 1, value: 11 }, { elapsedS: 3, value: 30 }, { elapsedS: 4, value: 41 }])
+})
+
+test("an empty ordered patch preserves identity when nothing expired", () => {
+  const previous = [{ elapsedS: 2, value: 2 }, { elapsedS: 3, value: 3 }]
+  assert.equal(mergeSnapshotSeries(previous, undefined, { startX: 2, points: [] }, x), previous)
+  assert.deepEqual(mergeSnapshotSeries(previous, undefined, { startX: 4, points: [] }, x), [])
+  assert.deepEqual(mergeSnapshotSeries(undefined, undefined, { startX: 0, points: previous }, x), previous)
+})
