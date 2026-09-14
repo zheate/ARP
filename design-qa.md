@@ -42,3 +42,17 @@ No remaining P0, P1, or P2 visual mismatches for the requested card alignment.
 - Browser console errors: none.
 
 final result: passed
+
+---
+
+## 2026-09-14 — Full workbench review
+
+The record above is the historical card-alignment review, not a claim that every workspace or safety state was validated. The current systematic audit, findings, priority decisions, measured geometry and limitations are in [the workbench audit](docs/ui-audit-2026-09-14.md). `DESIGN.md` remains the design baseline.
+
+The reusable entry point is `tauri-ui/scripts/ui-audit.mjs`; CI is `.github/workflows/frontend-qa.yml`. Run the existing tests and production build before browser review. Use a loopback demo only; the QA refuses external hosts and does not start Tauri or communicate with hardware.
+
+Evidence includes screenshots plus JSON checks for six logical-viewport/DPR combinations, real numeric updates, modal focus/background isolation, local dropdown geometry, failed/pending saves, long diagnostic text, safe-exit guards and PD running controls. Real React components and the production CSS are used in synthetic state fixtures. No product dependency was added for browser QA.
+
+The first accepted source revision passed 97 frontend tests and 455 browser checks with 120 screenshots. Consult the artifact's commit.txt for the exact source revision of every subsequent run; build success alone is not visual acceptance.
+
+Windows/WebView2 native 100/125/150/200% DPI, physical devices and real report/export data remain explicit release-validation requirements. At a 960×540 logical viewport, intentional vertical scrolling is retained; DPR emulation is not native Windows certification.

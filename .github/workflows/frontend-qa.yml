@@ -1,7 +1,7 @@
 name: Frontend design QA
 on:
   push:
-    branches: [audit/arp-ui-20260914]
+    branches: [main, 'audit/arp-ui-*']
     paths: ['tauri-ui/**', 'DESIGN.md', 'design-qa.md', '.github/workflows/frontend-qa.yml']
   pull_request:
     paths: ['tauri-ui/**', 'DESIGN.md', 'design-qa.md', '.github/workflows/frontend-qa.yml']
@@ -45,7 +45,7 @@ jobs:
         run: |
           npm install --prefix /tmp/arp-playwright --no-package-lock --no-audit --no-fund playwright@1.56.1
           node /tmp/arp-playwright/node_modules/playwright/cli.js install --with-deps chromium
-      - name: Verify demo workspaces, modal focus and viewport geometry
+      - name: Verify workspaces, instrument states and dialog geometry
         working-directory: tauri-ui
         env:
           ARP_PLAYWRIGHT_MODULE: /tmp/arp-playwright/node_modules/playwright/index.mjs
