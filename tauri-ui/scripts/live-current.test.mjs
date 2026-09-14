@@ -17,6 +17,7 @@ const bundled = await build({
   },
   tsconfig: `${root}/tsconfig.json`,
   bundle: true, write: false, format: "cjs", platform: "node",
+  loader: { ".css": "empty" },
   external: ["react", "react-dom", "react-dom/*"],
   plugins: [{
     name: "expose-page-fixtures",

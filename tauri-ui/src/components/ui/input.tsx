@@ -1,10 +1,14 @@
 import * as React from "react"
 
+import { useFieldLabel } from "@/components/field"
+
 import { cn } from "@/lib/utils"
 
 function Input({ className, type, onWheel, onFocus, ...props }: React.ComponentProps<"input">) {
+  const fieldLabel = useFieldLabel()
   return (
     <input
+      aria-labelledby={props["aria-label"] ? undefined : fieldLabel}
       type={type}
       data-slot="input"
       onWheel={(event) => {

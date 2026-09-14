@@ -1,11 +1,9 @@
 import { shippingReportFieldLabel } from "@/lib/shipping-report-labels"
-import { Children, isValidElement, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react"
-import { createPortal } from "react-dom"
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { Tooltip } from "radix-ui"
 import {
   BarChart3,
   Check,
-  ChevronDown,
   ChevronRight,
   CircleGauge,
   FileText,
@@ -70,12 +68,14 @@ import { cn } from "@/lib/utils"
 import { normalizeNumericInput, stepNumericValue } from "@/lib/number-input"
 import { applyScriptPreset, captureScriptParameters, scriptPresetCompatible } from "@/lib/test-script-presets"
 import { SaveScriptDialog } from "@/components/save-script-dialog"
+import { DialogPortal, isModalOpen } from "@/components/dialog-portal"
+import { Field } from "@/components/field"
+import { NativeSelect } from "@/components/native-select"
+import { MeasurementState } from "@/components/measurement-state"
+import { measurementVerdict } from "@/lib/measurement-verdict"
 
 type Page = "automatic" | "manual" | "pd" | "data" | "shipping" | "settings"
 
-function DialogPortal({ children }: { children: ReactNode }) {
-  return createPortal(children, document.body)
-}
 
 const I2C_CURRENT_LIMIT_A = 20
 const POWER_PLOT_HISTORY_S = 60
@@ -432,154 +432,11 @@ function pendingCommandLabel(method: string | null): string {
 
 type FieldLayout = "stacked" | "inline"
 
-function Field({ label, children, className = "", layout = "stacked" }: { label: string; children: ReactNode; className?: string; layout?: FieldLayout }) {
-  if (layout === "inline") {
-    return (
-      <div className={`manual-inline-field ${className}`}>
-        <Label className="manual-inline-field-label">{label}：</Label>
-        <div className="manual-inline-field-control">{children}</div>
-      </div>
-    )
-  }
-  return (
-    <div className={`space-y-1.5 ${className}`}>
-      <Label>{label}</Label>
-      {children}
-    </div>
-  )
-}
 
 function ManualSectionHeading({ children }: { children: ReactNode }) {
   return <h3 className="manual-device-section-heading">{children}</h3>
 }
 
-function NativeSelect({ value, onChange, children, disabled, ariaLabel }: {
-  value: string
-  onChange: (value: string) => void
-  children: ReactNode
-  disabled?: boolean
-  ariaLabel?: string
-}) {
-  const emptyValue = "__empty__"
-  const options = Children.toArray(children).filter((child): child is ReactElement<{ value?: string; children?: ReactNode; disabled?: boolean }> => isValidElement(child))
-  const [open, setOpen] = useState(false)
-  const rootRef = useRef<HTMLDivElement>(null)
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const optionRefs = useRef<Array<HTMLButtonElement | null>>([])
-  const selectedValue = value || emptyValue
-  const selectedOption = options.find((option) => (String(option.props.value ?? "") || emptyValue) === selectedValue)
-  const selectedIndex = options.findIndex((option) => (String(option.props.value ?? "") || emptyValue) === selectedValue)
-  const displayValue = selectedOption?.props.children ?? (value || "请选择")
-
-  useEffect(() => {
-    if (!open) return
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
-    }
-    document.addEventListener("pointerdown", handlePointerDown)
-    return () => document.removeEventListener("pointerdown", handlePointerDown)
-  }, [open])
-
-  useEffect(() => {
-    if (!open || options.length === 0) return
-    const initialIndex = selectedIndex >= 0 && !options[selectedIndex]?.props.disabled
-      ? selectedIndex
-      : options.findIndex((option) => !option.props.disabled)
-    const frame = window.requestAnimationFrame(() => optionRefs.current[Math.max(0, initialIndex)]?.focus())
-    return () => window.cancelAnimationFrame(frame)
-  }, [open, options.length, selectedIndex])
-
-  const closeAndRestoreFocus = () => {
-    setOpen(false)
-    window.requestAnimationFrame(() => triggerRef.current?.focus())
-  }
-
-  const moveOptionFocus = (currentIndex: number, offset: number) => {
-    for (let distance = 1; distance <= options.length; distance += 1) {
-      const nextIndex = (currentIndex + offset * distance + options.length) % options.length
-      if (!options[nextIndex]?.props.disabled) {
-        optionRefs.current[nextIndex]?.focus()
-        return
-      }
-    }
-  }
-
-  const focusBoundaryOption = (fromEnd: boolean) => {
-    const indices = options.map((_option, index) => index)
-    if (fromEnd) indices.reverse()
-    const index = indices.find((candidate) => !options[candidate]?.props.disabled)
-    if (index !== undefined) optionRefs.current[index]?.focus()
-  }
-
-  return (
-    <div className="relative w-full" ref={rootRef}>
-      <button
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        aria-label={ariaLabel}
-        className="flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-input bg-background px-3 text-left text-sm outline-none transition-[color,background-color,border-color,box-shadow] duration-150 hover:border-[var(--app-border-strong)] hover:bg-muted/25 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 disabled:cursor-not-allowed disabled:border-border disabled:bg-muted/30 disabled:text-muted-foreground/55"
-        disabled={disabled}
-        onClick={() => setOpen((current) => !current)}
-        onKeyDown={(event) => {
-          if (event.key === "Escape" && open) {
-            event.stopPropagation()
-            event.preventDefault()
-            setOpen(false)
-          } else if (event.key === "Enter" || event.key === " " || event.key === "ArrowDown" || event.key === "ArrowUp") {
-            event.preventDefault()
-            setOpen(true)
-          }
-        }}
-        role="combobox"
-        ref={triggerRef}
-        type="button"
-      >
-        <span className="min-w-0 truncate">{displayValue}</span>
-        <ChevronDown className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`} />
-      </button>
-      {open && <div className="menu-enter absolute left-0 top-full z-[80] mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-[var(--plm-flat-border-strong)] bg-popover p-1 shadow-lg shadow-black/30" role="listbox">
-        {options.map((option, index) => {
-          const optionValue = String(option.props.value ?? "") || emptyValue
-          const selected = optionValue === selectedValue
-          const optionDisabled = Boolean(option.props.disabled)
-          return <button
-            aria-disabled={optionDisabled}
-            aria-selected={selected}
-            className={`relative flex w-full items-center rounded-md px-3 py-2 text-left text-sm outline-none transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-45 ${optionDisabled ? "" : "hover:bg-[var(--plm-flat-hover)] hover:text-foreground focus-visible:bg-[var(--plm-flat-hover)] focus-visible:text-foreground"} ${selected ? "bg-[var(--app-selected-soft)] pl-4 text-foreground before:absolute before:inset-y-2 before:left-1.5 before:w-0.5 before:rounded-full before:bg-primary" : "text-muted-foreground"}`}
-            disabled={optionDisabled}
-            key={`${optionValue}-${index}`}
-            onClick={() => {
-              onChange(optionValue === emptyValue ? "" : optionValue)
-              closeAndRestoreFocus()
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "ArrowDown") {
-                event.preventDefault()
-                moveOptionFocus(index, 1)
-              } else if (event.key === "ArrowUp") {
-                event.preventDefault()
-                moveOptionFocus(index, -1)
-              } else if (event.key === "Home") {
-                event.preventDefault()
-                focusBoundaryOption(false)
-              } else if (event.key === "End") {
-                event.preventDefault()
-                focusBoundaryOption(true)
-              } else if (event.key === "Escape") {
-                event.stopPropagation()
-                event.preventDefault()
-                closeAndRestoreFocus()
-              }
-            }}
-            ref={(element) => { optionRefs.current[index] = element }}
-            role="option"
-            type="button"
-          >{option.props.children}</button>
-        })}
-      </div>}
-    </div>
-  )
-}
 
 function Ch341PortSelector({
   config,
@@ -2663,22 +2520,23 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, sm
     && previousSpectrum?.spectrumWindow?.halfRangeNm === nextSpectrum?.spectrumWindow?.halfRangeNm
 })
 
-function AutomaticMetricCard({ title, value, unit, valueTone = "muted", recording = false, onClick, className = "", headerLeading, footer }: {
+function AutomaticMetricCard({ title, value, unit, valueTone = "muted", recording = false, onClick, className = "", headerLeading, footer, verdictLabel }: {
   title: ReactNode
   value: string
   unit: ReactNode
-  valueTone?: "success" | "danger" | "warning" | "muted"
+  valueTone?: "success" | "danger" | "warning" | "muted" | "primary"
   recording?: boolean
   onClick?: () => void
   className?: string
   headerLeading?: ReactNode
   footer?: ReactNode
+  verdictLabel?: string
 }) {
   const clickable = Boolean(onClick)
   const isStringTitle = typeof title === "string"
   return (
     <div
-      aria-label={clickable ? `${isStringTitle ? title : "实时功率"}，点击设置规格` : undefined}
+      aria-label={clickable ? `${isStringTitle ? title : "实时功率"} ${value} ${typeof unit === "string" ? unit : ""}，${verdictLabel ?? ""}，点击设置规格` : undefined}
       className={`automatic-metric-card ${className} ${clickable ? "automatic-metric-card--clickable" : ""}`}
       onClick={onClick}
       onKeyDown={(event) => {
@@ -2725,10 +2583,13 @@ function RealtimeMetricCards({
   const pibValue = liveSpectrometer?.pib ?? liveSpectrometer?.pibPercent
   const pibPercent = typeof pibValue === "number" && Number.isFinite(pibValue) ? (pibValue <= 1 ? pibValue * 100 : pibValue) : null
   const centerWavelengthValue = liveSpectrometer?.peakWavelengthNm
-  const hasSpectrumMetrics = typeof centerWavelengthValue === "number"
+  const hasSpectrumMetrics = typeof centerWavelengthValue === "number" && Number.isFinite(centerWavelengthValue)
   const centerWavelengthPass = hasSpectrumMetrics && Math.abs((centerWavelengthValue ?? 0) - config.centerWavelengthSpecNm) <= config.centerWavelengthToleranceNm
   const fwhmPass = typeof liveSpectrometer?.fwhmNm === "number" && liveSpectrometer.fwhmNm <= config.fwhmMaximumNm
   const pibPass = pibPercent !== null && pibPercent >= config.pibMinimumPercent
+  const wavelengthVerdict = measurementVerdict(centerWavelengthValue, spectrometer?.quality, centerWavelengthPass)
+  const fwhmVerdict = measurementVerdict(liveSpectrometer?.fwhmNm, spectrometer?.quality, fwhmPass)
+  const pibVerdict = measurementVerdict(pibValue, spectrometer?.quality, pibPass)
 
   return (
     <section className={`automatic-metric-grid${compact ? " automatic-metric-grid--compact" : ""}`} aria-label="实时关键指标">
@@ -2737,7 +2598,7 @@ function RealtimeMetricCards({
         title={<PowerStabilityStatus automatic={automatic} meter={powerMeter} />}
         value={formatFixedNumber(livePowerW, 3)}
         unit={<>W @ <span className="automatic-metric-card__current">{formatTrimmedNumber(currentA, 2)} A</span></>}
-        valueTone="warning"
+        valueTone={powerMeter?.quality === "live" ? "primary" : "muted"}
         recording={Boolean(powerMeter?.running || (automatic && !["idle", "paused", "completed"].includes(automatic.state)))}
       />
       <AutomaticMetricCard
@@ -2745,7 +2606,9 @@ function RealtimeMetricCards({
         title="中心波长"
         value={formatFixedNumber(centerWavelengthValue, 3)}
         unit="nm"
-        valueTone={hasSpectrumMetrics ? (centerWavelengthPass ? "success" : "danger") : "muted"}
+        valueTone={wavelengthVerdict.tone === "success" ? "primary" : wavelengthVerdict.tone}
+        verdictLabel={wavelengthVerdict.label}
+        headerLeading={<MeasurementState verdict={wavelengthVerdict} limit={`规格 ${config.centerWavelengthSpecNm} ± ${config.centerWavelengthToleranceNm} nm`} />}
         onClick={onOpenSpecifications}
       />
       <AutomaticMetricCard
@@ -2753,7 +2616,9 @@ function RealtimeMetricCards({
         title="FWHM"
         value={formatFixedNumber(liveSpectrometer?.fwhmNm, 3)}
         unit="nm"
-        valueTone={typeof liveSpectrometer?.fwhmNm === "number" ? (fwhmPass ? "success" : "danger") : "muted"}
+        valueTone={fwhmVerdict.tone === "success" ? "primary" : fwhmVerdict.tone}
+        verdictLabel={fwhmVerdict.label}
+        headerLeading={<MeasurementState verdict={fwhmVerdict} limit={`上限 ${config.fwhmMaximumNm} nm`} />}
         onClick={onOpenSpecifications}
       />
       <AutomaticMetricCard
@@ -2761,7 +2626,9 @@ function RealtimeMetricCards({
         title="PIB"
         value={formatFixedNumber(pibPercent, 2)}
         unit="%"
-        valueTone={pibPercent !== null ? (pibPass ? "success" : "danger") : "muted"}
+        valueTone={pibVerdict.tone === "success" ? "primary" : pibVerdict.tone}
+        verdictLabel={pibVerdict.label}
+        headerLeading={<MeasurementState verdict={pibVerdict} limit={`下限 ${config.pibMinimumPercent}%`} />}
         onClick={onOpenSpecifications}
       />
     </section>
@@ -3099,7 +2966,7 @@ function LicensedApp({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
+      if (isModalOpen() || !(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return
       const numericKey = Number(event.key)
       if (!Number.isInteger(numericKey) || numericKey < 1 || numericKey > pageShortcuts.length) return
       const targetPage = pageShortcuts[numericKey - 1]
@@ -4668,7 +4535,7 @@ const AutomaticPage = memo(function AutomaticPage({
                 title={<PowerStabilityStatus automatic={snapshot?.automaticTest} meter={powerMeter} />}
                 value={formatFixedNumber(livePowerW, 3)}
                 unit={<>W @ <span className="automatic-metric-card__current">{formatTrimmedNumber(liveCurrentA, 2)} A</span></>}
-                valueTone="warning"
+                valueTone={snapshot?.devices.powerMeter?.quality === "live" ? "primary" : "muted"}
                 recording={Boolean(powerMeter?.running || (snapshot?.automaticTest && !["idle", "paused", "completed"].includes(snapshot.automaticTest.state)))}
               />
             )}
@@ -4720,7 +4587,7 @@ const ShippingReportPage = memo(function ShippingReportPage({ active, controlsLo
   return (
     <Card className="shipping-report-page mb-6 shrink-0 shadow-none">
       <CardHeader>
-        <div className="flex flex-wrap items-start justify-between gap-4"><div><CardTitle className="text-base">出货报告</CardTitle><CardDescription>{mode === "single" ? "填写测试 Excel 和本地 PDF 保存文件夹，再配置报告参数并导出。" : "递归扫描同一批次 Excel，一次配置并逐份生成出货报告。"}</CardDescription></div><div className="inline-flex rounded-md border border-border bg-muted/30 p-1"><button className={`rounded px-3 py-1.5 text-xs font-medium ${mode === "single" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}`} disabled={disabled} onClick={() => setMode("single")} type="button">单个生成</button><button className={`rounded px-3 py-1.5 text-xs font-medium ${mode === "batch" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}`} disabled={disabled} onClick={() => setMode("batch")} type="button">批量生成</button></div></div>
+        <div className="flex flex-wrap items-start justify-between gap-4"><div><CardTitle className="text-base">出货报告</CardTitle><CardDescription>{mode === "single" ? "填写测试 Excel 和本地 PDF 保存文件夹，再配置报告参数并导出。" : "递归扫描同一批次 Excel，一次配置并逐份生成出货报告。"}</CardDescription></div><div aria-label="报告生成方式" role="group" className="inline-flex rounded-md border border-border bg-muted/30 p-1"><button aria-pressed={mode === "single"} className={`rounded px-3 py-1.5 text-xs font-medium ${mode === "single" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}`} disabled={disabled} onClick={() => setMode("single")} type="button">单个生成</button><button aria-pressed={mode === "batch"} className={`rounded px-3 py-1.5 text-xs font-medium ${mode === "batch" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground"}`} disabled={disabled} onClick={() => setMode("batch")} type="button">批量生成</button></div></div>
       </CardHeader>
       <CardContent>
         {mode === "single" ? <ShippingReportWorkflow disabled={disabled} /> : <BatchShippingReportWorkflow disabled={disabled} />}
@@ -5324,8 +5191,13 @@ const PdPage = memo(function PdPage({ snapshot, active, pending, run }: { snapsh
   }
   return (
     <>
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(360px,380px)_minmax(0,1fr)]">
-        <Card className="pd-settings-card shadow-none"><CardHeader><CardTitle className="text-base">NI-DAQ 采集设置</CardTitle><CardDescription>PD 采集可在电源加电期间独立启动或停止</CardDescription></CardHeader><CardContent className="pd-settings-grid grid grid-cols-2 gap-3">
+      <section className="pd-workspace grid grid-cols-1 gap-4">
+        <Card className="pd-settings-card shadow-none"><CardHeader><CardTitle className="text-base">NI-DAQ 采集设置</CardTitle><CardDescription>PD 采集可在电源加电期间独立启动或停止</CardDescription></CardHeader>          <div className="pd-acquisition-actions space-y-2">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className="grid size-5 place-items-center rounded-full bg-primary/15 font-semibold text-primary">1</span><span>先识别采集卡，再开始采集</span></div>
+            <Button className="w-full" disabled={!active || pending || pd?.detecting || (pd?.state !== "running" && !current.device)} onClick={() => void run(pd?.state === "running" ? "pd.stop" : "pd.start", current as unknown as Record<string, unknown>)}>{pd?.state === "running" ? <><Square className="size-4" />停止并保存</> : <><Play className="size-4" />开始采集</>}</Button>
+          </div>
+          <p className="pd-acquisition-status text-xs text-muted-foreground" role="status">{pd?.status || "等待识别采集卡"}</p>
+<CardContent className="pd-settings-grid grid grid-cols-2 gap-3"><fieldset className="contents" disabled={!active || pending || pd?.state === "running"}>
           <div className="col-span-2 pt-1"><p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">采集参数</p></div>
           <Field label="采集卡" className="pd-inline-field col-span-2" layout="inline">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
@@ -5371,14 +5243,9 @@ const PdPage = memo(function PdPage({ snapshot, active, pending, run }: { snapsh
               </div>
             </Field>
           </div>
-          <div className="col-span-2 space-y-2">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className="grid size-5 place-items-center rounded-full bg-primary/15 font-semibold text-primary">1</span><span>先识别采集卡，再开始采集</span></div>
-            <Button className="w-full" disabled={!active || pending || pd?.detecting || (pd?.state !== "running" && !current.device)} onClick={() => void run(pd?.state === "running" ? "pd.stop" : "pd.start", current as unknown as Record<string, unknown>)}>{pd?.state === "running" ? <><Square className="size-4" />停止并保存</> : <><Play className="size-4" />开始采集</>}</Button>
-          </div>
-          <p className="col-span-2 text-xs text-muted-foreground">{pd?.status || "等待识别采集卡"}</p>
-        </CardContent></Card>
-        <div className="space-y-4">
-          <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">{[["当前值", pd?.currentValue ?? "--"], ["电压", pd?.voltage ?? "--"], ["采样数", pd?.sampleCount ?? "0"]].map(([label, value]) => <Card className="py-4 shadow-none" key={label}><CardContent><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 text-lg font-semibold">{value}</p></CardContent></Card>)}</section>
+        </fieldset></CardContent></Card>
+        <div className="pd-monitor space-y-4">
+          <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">{[["当前值", pd?.currentValue ?? "--"], ["电压", pd?.voltage ?? "--"], ["采样数", pd?.sampleCount ?? "0"]].map(([label, value]) => <Card className="py-4 shadow-none" key={label}><CardContent><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 font-din tabular-nums text-2xl font-semibold">{value}</p></CardContent></Card>)}</section>
           <ChartPanel heightClassName="h-64" title="PD 实时趋势" data={pdData} xKey="elapsedS" xDomain={pdTimeDomain} xTicks={pdTimeTicks} lines={[{ key: "value", label: current.unit || "PD", color: PLM_CHART_SERIES.accent }]} empty="开始采集后显示实时趋势" />
           <Card className="py-4 shadow-none"><CardContent className="grid grid-cols-3 gap-4 text-sm"><div><p className="text-xs text-muted-foreground">批次均值</p><p className="mt-1 font-medium">{pd?.mean ?? "--"}</p></div><div><p className="text-xs text-muted-foreground">标准差</p><p className="mt-1 font-medium">{pd?.standardDeviation ?? "--"}</p></div><div><p className="text-xs text-muted-foreground">最小 / 最大</p><p className="mt-1 font-medium">{pd?.rangeText ?? "--"}</p></div></CardContent></Card>
         </div>

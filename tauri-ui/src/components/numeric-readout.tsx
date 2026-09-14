@@ -13,6 +13,7 @@ export const NumericReadout = memo(function NumericReadout({ value }: { value: s
     if (!appearance.highlightChanges || changed.length === 0) return
 
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    if (reducedMotion) return
     const animations: Animation[] = []
     for (const index of changed) {
       const element = elements.current[index]
@@ -21,16 +22,13 @@ export const NumericReadout = memo(function NumericReadout({ value }: { value: s
       // Keep the readout's hue and continuous shape while making the changed digit easier to spot.
       const highlight = {
         color: `color-mix(in srgb, ${style.color} 45%, ${style.getPropertyValue("--foreground").trim()} 55%)`,
-        textShadow: `0 0 0.16em color-mix(in srgb, ${style.color} 45%, transparent)`,
       }
-      const keyframes = reducedMotion
-        ? [highlight, highlight]
-        : [
-            { ...highlight, offset: 0 },
-            { ...highlight, offset: 0.45, easing: "ease-out" },
-            { color: style.color, textShadow: style.textShadow, offset: 1 },
-          ]
-      animations.push(element.animate(keyframes, { duration: 700 }))
+      const keyframes = [
+        { ...highlight, offset: 0 },
+        { ...highlight, offset: 0.45, easing: "ease-out" },
+        { color: style.color, offset: 1 },
+      ]
+      animations.push(element.animate(keyframes, { duration: 160 }))
     }
     return () => animations.forEach((animation) => animation.cancel())
   }, [appearance.highlightChanges, value])
