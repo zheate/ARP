@@ -22,6 +22,10 @@ export interface DataRecord {
   maximumCurrentA: number | null
 }
 
+/** Unavailable reads as an em dash, never as a zero or a bare placeholder (DESIGN §6). */
+export const UNAVAILABLE = "—"
+
+
 export interface DataPoint {
   rowId: number
   currentA: number
@@ -62,16 +66,25 @@ const FLOW_LABELS: Record<string, string> = {
   aborted_safely: "安全中止", shutdown_unconfirmed: "下电未确认",
   failed: "测试失败", error: "测试失败", unknown: "完成情况未知",
 }
-export function flowLabel(status: string): string {
+export function flowLabel(status: string | null | undefined): string {
+  if (!status) return FLOW_LABELS.unknown
   return FLOW_LABELS[status] ?? `未知状态（${status}）`
 }
 export function numberText(value: number | null | undefined, digits = 3): string {
-  if (value == null || !Number.isFinite(value)) return "--"
+  if (value == null || !Number.isFinite(value)) return UNAVAILABLE
   const text = value.toFixed(digits)
   return Number(text) === 0 ? (0).toFixed(digits) : text
 }
+/** One sortable stamp for every surface: `YYYY-MM-DD HH:mm:ss` (DESIGN §15). */
+export function timeText(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "时间未记录"
+  const date = new Date(value)
+  const pad = (part: number) => String(part).padStart(2, "0")
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} `
+    + `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+}
 export function recordLabel(record: DataRecord): string {
-  return `${record.sn || record.fileName} · ${record.station || "站别未记录"} · ${new Date(record.timeMs).toLocaleString()}`
+  return `${record.sn || record.fileName} · ${record.station || "站别未记录"} · ${timeText(record.timeMs)}`
 }
 
 export function comparisonRows(base: DataPoint[], other: DataPoint[]) {
@@ -128,4 +141,64 @@ export function dateBounds(mode: string, from: string, to: string, now = new Dat
     return { fromMs: first.getTime(), toMs: last.getTime() }
   }
   return { fromMs: start.getTime(), toMs: end.getTime() }
+}
+
+export interface SummaryMetrics {
+  maxPowerPoint: DataPoint | null
+  maxEfficiencyPoint: DataPoint | null
+  primaryWavelengthNm: number | null
+}
+
+export function extractSummaryMetrics(points: DataPoint[]): SummaryMetrics {
+  let maxPowerPoint: DataPoint | null = null
+  let maxEfficiencyPoint: DataPoint | null = null
+
+  for (const point of points) {
+    if (point.powerW != null && Number.isFinite(point.powerW)) {
+      if (!maxPowerPoint || point.powerW > maxPowerPoint.powerW!) {
+        maxPowerPoint = point
+      }
+    }
+    if (point.efficiencyPercent != null && Number.isFinite(point.efficiencyPercent)) {
+      if (!maxEfficiencyPoint || point.efficiencyPercent > maxEfficiencyPoint.efficiencyPercent!) {
+        maxEfficiencyPoint = point
+      }
+    }
+  }
+
+  const primaryWavelengthNm = maxPowerPoint?.peakWavelengthNm ?? maxPowerPoint?.centroidNm ?? null
+
+  return { maxPowerPoint, maxEfficiencyPoint, primaryWavelengthNm }
+}
+
+export interface ComparisonSummary {
+  baseMaxPowerW: number | null
+  baseMaxCurrentA: number | null
+  otherMaxPowerW: number | null
+  otherMaxCurrentA: number | null
+  deltaMaxPowerW: number | null
+  deltaMaxPowerPercent: number | null
+  sharedPointCount: number
+}
+
+export function extractComparisonSummary(basePoints: DataPoint[], otherPoints: DataPoint[]): ComparisonSummary {
+  const baseSummary = extractSummaryMetrics(basePoints)
+  const otherSummary = extractSummaryMetrics(otherPoints)
+  const diffs = comparisonRows(basePoints, otherPoints)
+  const sharedPointCount = diffs.filter((d) => !d.ambiguous && d.deltaW !== null).length
+
+  const baseMax = baseSummary.maxPowerPoint?.powerW ?? null
+  const otherMax = otherSummary.maxPowerPoint?.powerW ?? null
+  const deltaMaxPowerW = baseMax != null && otherMax != null ? otherMax - baseMax : null
+  const deltaMaxPowerPercent = deltaMaxPowerW != null && baseMax != null && baseMax > 0 ? (deltaMaxPowerW / baseMax) * 100 : null
+
+  return {
+    baseMaxPowerW: baseMax,
+    baseMaxCurrentA: baseSummary.maxPowerPoint?.currentA ?? null,
+    otherMaxPowerW: otherMax,
+    otherMaxCurrentA: otherSummary.maxPowerPoint?.currentA ?? null,
+    deltaMaxPowerW,
+    deltaMaxPowerPercent,
+    sharedPointCount,
+  }
 }

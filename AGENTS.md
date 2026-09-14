@@ -6,10 +6,10 @@
 
 ## Verification Policy
 
-- Only run relevant tests automatically for important or high-risk changes.
-- For explanations, analysis, code inspection, and small low-risk changes, do not run tests unless the user explicitly asks for them.
-- Before running the full test suite, packaging, or any long-running build or verification command, obtain the user's consent.
-- When tests are skipped under this policy, state briefly that the change has not been test-verified.
+- Run focused local tests and builds when needed to verify the behavior changed by the task. Explanations, read-only reviews, and edits that do not affect behavior do not need tests by default.
+- When the task includes implementation, running, or verification, complete the relevant local checks and fix failures caused by the change without asking again at each step.
+- Full test suites, packaging, and connecting to or controlling real devices require authorization for that scope. Reuse authorization already given in the task; ask before adding an operation outside it. Task duration alone is not a reason to request approval again.
+- State what was verified and any remaining limits. A build or simulated check does not establish real-device acceptance.
 
 ## Power Test App
 

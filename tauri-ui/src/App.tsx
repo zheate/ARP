@@ -99,12 +99,12 @@ const navigation = [
   { id: "automatic" as const, label: "自动测试", icon: CircleGauge, shortcut: 1 },
   { id: "manual" as const, label: "手动配置", icon: Hand, shortcut: 2 },
   { id: "pd" as const, label: "PD 采集", icon: BarChart3, shortcut: 3 },
-  { id: "data" as const, label: "数据浏览", icon: FileText, shortcut: 5 },
-  { id: "shipping" as const, label: "出货报告", icon: FileText, shortcut: 4 },
+  { id: "data" as const, label: "数据浏览", icon: FileText, shortcut: 4 },
+  { id: "shipping" as const, label: "出货报告", icon: FileText, shortcut: 5 },
   { id: "settings" as const, label: "系统设置", icon: Settings },
 ]
 
-const pageShortcuts: Page[] = ["automatic", "manual", "pd", "shipping", "data"]
+const pageShortcuts: Page[] = ["automatic", "manual", "pd", "data", "shipping"]
 const INFO_TOAST_DURATION_MS = 3000
 const MAX_CUSTOM_CURRENT_POINTS = 50
 const TAURI_RUNTIME_AVAILABLE = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
@@ -2604,10 +2604,23 @@ function LicensedApp({
   const pageIsBlocked = useCallback((targetPage: Page): boolean => {
     if (targetPage === "settings") return false
     if (!licenseStatus.valid) return true
+    // The data browser stays reachable while a run is active: the page keeps
+    // its own read-only lock and states the reason, instead of leaving a dead
+    // navigation button that explains nothing.
+    if (targetPage === "data") return false
     if (targetPage === "pd") return false
     if (targetPage === "automatic") return manualPowerOutputActive
     if (targetPage === "manual") return automaticWorkflowActive && !automaticPaused
     return automaticInteractionLocked
+  }, [automaticInteractionLocked, automaticPaused, automaticWorkflowActive, licenseStatus.valid, manualPowerOutputActive])
+
+  /** Blocked navigation explains itself in the tooltip of the disabled item. */
+  const pageBlockedReason = useCallback((targetPage: Page): string => {
+    if (!licenseStatus.valid) return "软件尚未激活，激活后可继续。"
+    if (targetPage === "automatic") return manualPowerOutputActive ? "手动电源正在输出，请先在手动配置中将电流归零" : ""
+    if (targetPage === "manual") return automaticWorkflowActive && !automaticPaused ? "自动测试执行中，手动配置已锁定；执行“结束并安全下电”后可继续。" : ""
+    if (targetPage === "shipping") return automaticInteractionLocked ? "自动测试执行中，出货报告已锁定；执行“结束并安全下电”后可继续。" : ""
+    return ""
   }, [automaticInteractionLocked, automaticPaused, automaticWorkflowActive, licenseStatus.valid, manualPowerOutputActive])
 
   const changePage = useCallback((nextPage: Page) => {
@@ -2768,9 +2781,7 @@ function LicensedApp({
                 title={
                   "unavailable" in item
                     ? `${item.label}功能尚未接入`
-                    : manualPowerOutputActive && item.id === "automatic"
-                    ? "手动电源正在输出，请先在手动配置中将电流归零"
-                    : "shortcut" in item ? `${item.label}（⌘/Ctrl + ${item.shortcut}）` : item.label
+                    : pageBlockedReason(item.id) || ("shortcut" in item ? `${item.label}（⌘/Ctrl + ${item.shortcut}）` : item.label)
                 }
                 type="button"
               >
@@ -2840,8 +2851,17 @@ function LicensedApp({
             {page === "shipping" && <ShippingReportPage active={operational} controlsLocked={automaticInteractionLocked || !licenseStatus.valid} pending={commandPending} />}
             {page === "settings" && <SystemSettingsPage curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} licenseStatus={licenseStatus} onCurveLineStyleChange={setCurveLineStyle} onImportLicense={onImportLicense} onLatestPointMarkerStyleChange={setLatestPointMarkerStyle} theme={theme} onThemeChange={setTheme} accentTheme={accentTheme} onAccentThemeChange={setAccentTheme} />}
           </div>
-          <div className="min-h-0 flex-1 p-3" style={{ display: page === "data" ? "flex" : "none", flexDirection: "column" }}>
-            <DataBrowserPage visible={page === "data"} defaultDirectory={config.outputDir} enabled={operational && !automaticInteractionLocked} />
+          <div className="db-page-host min-h-0 flex-1" style={{ display: page === "data" ? "flex" : "none", flexDirection: "column" }}>
+            <DataBrowserPage
+              visible={page === "data"}
+              defaultDirectory={config.outputDir}
+              enabled={operational && !automaticInteractionLocked}
+              disabledReason={
+                !licenseStatus.valid ? "软件尚未激活，激活后可浏览测试数据。"
+                  : !active ? "正在连接后端服务，连接完成后即可浏览测试数据。"
+                    : automaticInteractionLocked ? "自动测试执行中，数据浏览已锁定；执行“结束并安全下电”后可继续。" : undefined
+              }
+            />
           </div>
         </main>
       </div>

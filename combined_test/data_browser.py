@@ -166,6 +166,46 @@ def _read_workbook(path: Path, version: str, modified: float) -> dict[str, Any]:
         workbook.close()
 
 
+def _describe_read_error(exc: Exception) -> str:
+    """One user-facing reason for a workbook that cannot be read.
+
+    The index and the detail request must describe the same failure the same
+    way, and never surface a raw library exception to the operator.
+    """
+    if isinstance(exc, (FileNotFoundError, IsADirectoryError)):
+        return "文件已移动或删除，请刷新目录"
+    if isinstance(exc, PermissionError):
+        return "文件无法访问，请检查权限或占用状态"
+    if isinstance(exc, ValueError):
+        return str(exc) or "无法读取 Excel"
+    return f"无法读取 Excel：{exc}"
+
+
+def _read_detail(path: Path, version: str, modified: float) -> dict[str, Any]:
+    """Read a workbook through the shared detail cache.
+
+    Returns the cached entry itself rather than a copy, so the directory scan
+    can read a single record without cloning every test point. Callers must
+    copy before handing the value out and must never mutate it in place.
+    """
+    cache_key = (_key(path), version)
+    with _LOCK:
+        cached = _DETAILS.get(cache_key)
+        if cached is not None:
+            _DETAILS.move_to_end(cache_key)
+            return cached
+    result = _read_workbook(path, version, modified)
+    if _version(path)[0] != version:
+        raise ValueError("文件正在更新，请稍后刷新重试")
+    with _LOCK:
+        for old in [key for key in _DETAILS if key[0] == cache_key[0]]:
+            del _DETAILS[old]
+        _DETAILS[cache_key] = result
+        while len(_DETAILS) > MAX_DETAIL_CACHE:
+            _DETAILS.popitem(last=False)
+    return result
+
+
 def inspect_data_record(params: dict[str, Any]) -> dict[str, Any]:
     raw = str(params.get("path", "")).strip()
     if not raw:
@@ -175,30 +215,9 @@ def inspect_data_record(params: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("仅支持 .xlsx 测试文件")
     try:
         version, modified = _version(path)
-        cache_key = (_key(path), version)
-        with _LOCK:
-            cached = _DETAILS.get(cache_key)
-            if cached is not None:
-                _DETAILS.move_to_end(cache_key)
-                return copy.deepcopy(cached)
-        result = _read_workbook(path, version, modified)
-        if _version(path)[0] != version:
-            raise ValueError("文件正在更新，请稍后刷新重试")
-        with _LOCK:
-            for old in [key for key in _DETAILS if key[0] == cache_key[0]]:
-                del _DETAILS[old]
-            _DETAILS[cache_key] = result
-            while len(_DETAILS) > MAX_DETAIL_CACHE:
-                _DETAILS.popitem(last=False)
-        return copy.deepcopy(result)
-    except (FileNotFoundError, IsADirectoryError) as exc:
-        raise ValueError("文件已移动或删除，请刷新目录") from exc
-    except PermissionError as exc:
-        raise ValueError("文件无法访问，请检查权限或占用状态") from exc
-    except ValueError:
-        raise
+        return copy.deepcopy(_read_detail(path, version, modified))
     except Exception as exc:
-        raise ValueError(f"无法读取 Excel：{exc}") from exc
+        raise ValueError(_describe_read_error(exc)) from exc
 
 
 def _scan(root: Path, previous: dict[str, Any] | None) -> dict[str, Any]:
@@ -211,7 +230,13 @@ def _scan(root: Path, previous: dict[str, Any] | None) -> dict[str, Any]:
         directories[:] = [d for d in directories if not Path(parent, d).is_symlink()
                           and not getattr(Path(parent, d), "is_junction", lambda: False)()]
         for name in sorted(files):
-            if not name.lower().endswith(".xlsx") or name.startswith("~$"):
+            lower_name = name.lower()
+            if (
+                not lower_name.endswith(".xlsx")
+                or name.startswith("~$")
+                or name.startswith("._")
+                or lower_name.endswith(".tmp")
+            ):
                 continue
             path = Path(parent, name)
             if path.is_symlink():
@@ -227,10 +252,12 @@ def _scan(root: Path, previous: dict[str, Any] | None) -> dict[str, Any]:
                 if old and old["version"] == version and old["readStatus"] == "readable":
                     record = old
                 else:
-                    record = inspect_data_record({"path": str(path)})["record"]
+                    # Indexing only needs the summary; taking it from the cache
+                    # entry avoids cloning every test point of every file.
+                    record = dict(_read_detail(path, version, modified)["record"])
             except Exception as exc:
                 record = _empty_summary(path, version, modified)
-                record.update(readStatus="error", error=str(exc))
+                record.update(readStatus="error", error=_describe_read_error(exc))
             records.append(record)
     return {"records": records, "indexedAtMs": time.time() * 1000, "warnings": errors}
 

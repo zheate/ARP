@@ -41,7 +41,7 @@ npm run test:realtime
 npm run build
 ```
 
-Python 测试统一使用标准库 `unittest`，不需要额外测试框架。`npm test` 依次执行全部测试，`npm run check` 再追加前端生产构建。运行完整测试、打包或长时间验证前，遵循 `agent.md` 的授权要求。
+Python 测试统一使用标准库 `unittest`，不需要额外测试框架。`npm test` 依次执行全部测试，`npm run check` 再追加前端生产构建。按变更影响运行相关本地检查；完整测试、打包和真实设备操作遵循 [AGENTS.md](AGENTS.md) 中的任务授权范围，已有授权无需重复确认。
 
 ## 软件授权
 

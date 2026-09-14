@@ -120,6 +120,17 @@ class DataBrowserTests(unittest.TestCase):
         workbook.save(self.root / "other.xlsx"); workbook.close()
         self.assertEqual(self.list(refresh=True)["errorCount"], 1)
 
+    def test_index_and_detail_describe_a_broken_file_the_same_way(self):
+        path = self.root / "broken.xlsx"
+        path.write_text("not a zip")
+        record = next(r for r in self.list()["records"] if r["fileName"] == "broken.xlsx")
+        self.assertEqual(record["readStatus"], "error")
+        self.assertTrue(record["error"].startswith("无法读取 Excel："), record["error"])
+        self.assertNotEqual(record["error"], "File is not a zip file")
+        with self.assertRaises(ValueError) as raised:
+            browser.inspect_data_record({"path": str(path)})
+        self.assertEqual(record["error"], str(raised.exception))
+
     def test_duplicate_currents_single_point_missing_values_are_preserved(self):
         path = self.root / "one.xlsx"
         write_workbook(path, rows=[[2, None, 5], [2, None, 6], [4, 10, None]])

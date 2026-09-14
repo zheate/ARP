@@ -29,6 +29,8 @@
 .app-shell .app-nav-item { padding-block: var(--workbench-nav-padding); }
 .app-shell [data-page="automatic"] { gap: var(--workbench-gap); padding: var(--workbench-gap); }
 .app-shell [data-page="manual"] { gap: var(--workbench-gap); padding: var(--workbench-padding); }
+/* The data browser renders in its own host instead of the [data-page] stack. */
+.db-page-host { padding: var(--workbench-padding); }
 .app-titlebar { min-height: var(--workbench-toolbar-height); flex-basis: var(--workbench-toolbar-height); gap: 1rem; }
 .app-shell[data-native="false"] .app-titlebar { padding-left: 1.5rem; }
 .app-titlebar__brand { flex-shrink: 0; font-size: 1.125rem; }
