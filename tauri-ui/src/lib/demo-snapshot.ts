@@ -1,8 +1,42 @@
-import type { BackendSnapshot } from "./backend"
+import type { BackendSnapshot, PowerMeterCoefficientLibrary } from "./backend"
 
 const DEMO_SPECTRUM = {
   wavelengthNm: [972, 973, 974, 975, 975.5, 975.8, 976, 976.2, 976.4, 976.7, 977, 977.5, 978, 979, 980],
   intensity: [180, 900, 320, 560, 1200, 4200, 9800, 12400, 10400, 5300, 1700, 650, 1000, 220, 160],
+}
+
+export const DEMO_POWER_METER_LIBRARIES: Record<string, PowerMeterCoefficientLibrary> = {
+  "ASRL3::INSTR": {
+    driverKind: "caihuang",
+    serialNumber: "W500-DEMO-001",
+    selectedProfileId: "demo-976-production",
+    selectedVersion: 2,
+    profiles: [
+      {
+        id: "demo-976-production",
+        versions: [
+          { version: 1, name: "976nm 生产光路", softwareGain: 1.02, wavelengthNm: 976, notes: "标准夹具，常温", operator: "张工", reason: "首次标定", createdAt: "2026-07-18T02:10:00.000Z" },
+          { version: 2, name: "976nm 生产光路", softwareGain: 1.018, wavelengthNm: 976, notes: "标准夹具，常温", operator: "李工", reason: "复核参考功率计", createdAt: "2026-07-19T03:20:00.000Z" },
+        ],
+      },
+      {
+        id: "demo-980-lab",
+        versions: [
+          { version: 1, name: "980nm 实验光路", softwareGain: 0.986, wavelengthNm: 980, notes: "实验室积分球", operator: "王工", reason: "新增光路", createdAt: "2026-07-19T06:00:00.000Z" },
+        ],
+      },
+    ],
+  },
+  "ASRL4::INSTR": {
+    driverKind: "coherent",
+    serialNumber: "PM-DEMO-2048",
+    selectedProfileId: "demo-coherent-976",
+    selectedVersion: 1,
+    profiles: [{
+      id: "demo-coherent-976",
+      versions: [{ version: 1, name: "Coherent 标准", softwareGain: 1.004, wavelengthNm: 976, notes: "备用表头", operator: "", reason: "", createdAt: "2026-07-17T01:00:00.000Z" }],
+    }],
+  },
 }
 
 export const DEMO_SNAPSHOT: BackendSnapshot = {
@@ -29,9 +63,15 @@ export const DEMO_SNAPSHOT: BackendSnapshot = {
     setCurrentA: 8,
     tdkVoltageV: 12,
     powerMeterResource: "ASRL3::INSTR",
-    powerMeterSerialNumber: "",
+    powerMeterSerialNumber: "W500-DEMO-001",
+    powerMeterDriverKind: "caihuang",
     powerMeterWavelengthNm: 976,
-    softwareGain: 1,
+    softwareGain: 1.018,
+    powerMeterProfileId: "demo-976-production",
+    powerMeterProfileName: "976nm 生产光路",
+    powerMeterProfileVersion: 2,
+    powerMeterProfileNotes: "标准夹具，常温",
+    powerMeterProfileWavelengthPending: false,
     powerMeterIntervalMs: 100,
     powerSmoothing: true,
     spectrometerResource: "",
@@ -81,7 +121,15 @@ export const DEMO_SNAPSHOT: BackendSnapshot = {
         connectedPort: { locationPath: "PCIROOT(0)#USB(1)", name: "1号工位", deviceIndex: 0 },
       },
     },
-    powerMeter: { state: "connected", label: "功率计", detail: "彩煌功率计 (ASRL3::INSTR)", connected: true, running: true, ready: true, stable: true, stableElapsedS: 8, powerW: 0.86, sampledAt: "2026-07-19T12:00:00.000Z", ageMs: 0, quality: "live", resources: ["彩煌功率计 | ASRL3::INSTR | 通道 1", "Coherent功率计 | ASRL4::INSTR"] },
+    powerMeter: {
+      state: "connected", label: "功率计", detail: "彩煌功率计 (ASRL3::INSTR)", connected: true, running: true, ready: true, stable: true, stableElapsedS: 8, powerW: 0.86, sampledAt: "2026-07-19T12:00:00.000Z", ageMs: 0, quality: "live",
+      resources: ["Caihuang CHLP-P | ASRL3::INSTR | 探头 SN W500-DEMO-001", "Coherent PowerMax | ASRL4::INSTR | 探头 SN PM-DEMO-2048"],
+      coefficientLibrary: DEMO_POWER_METER_LIBRARIES["ASRL3::INSTR"],
+      resourceProfiles: [
+        { resource: "ASRL3::INSTR", driverKind: "caihuang", serialNumber: "W500-DEMO-001", softwareGain: 1.018, coefficientLibrary: DEMO_POWER_METER_LIBRARIES["ASRL3::INSTR"] },
+        { resource: "ASRL4::INSTR", driverKind: "coherent", serialNumber: "PM-DEMO-2048", softwareGain: 1.004, coefficientLibrary: DEMO_POWER_METER_LIBRARIES["ASRL4::INSTR"] },
+      ],
+    },
     spectrometer: { state: "connected", label: "光谱仪", detail: "Ocean Insight · 示例", connected: true, running: true, ready: true, resources: ["自动选择第一台 Ocean Insight"], peakWavelengthNm: 976.2, centroidNm: 976.2, fwhmNm: 0.776, pib: 96.85, smsrDb: null, sampledAt: "2026-07-19T12:00:00.000Z", ageMs: 0, quality: "live", spectrumWindow: { centerNm: 976.2, halfRangeNm: 6.2 } },
   },
   automaticTest: {
@@ -175,7 +223,8 @@ export function resetDemoRun(base: BackendSnapshot): BackendSnapshot {
     devices: {
       ...base.devices,
       powerSupply: { ...base.devices.powerSupply, outputEnabled: false, activeCurrentA: 0, outputCurrentA: 0 },
-      powerMeter: { ...base.devices.powerMeter, powerW: 0, stable: false, stableElapsedS: null },
+      powerMeter: { ...base.devices.powerMeter, running: false, powerW: 0, stable: false, stableElapsedS: null },
+      spectrometer: { ...base.devices.spectrometer, running: false },
     },
     automaticTest: {
       ...base.automaticTest,

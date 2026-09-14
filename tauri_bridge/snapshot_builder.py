@@ -344,12 +344,14 @@ class SnapshotBuilder:
                     ),
                     **power_freshness,
                     "resources": [item.label() for item in power_meter_options],
+                    "coefficientLibrary": backend.power_meter_profiles.library(),
                     "resourceProfiles": [
                         {
                             "resource": item.resource,
                             "driverKind": item.driver_kind,
                             "serialNumber": power_meter_serial_number(item),
                             "softwareGain": backend.discovery._power_meter_profile_gain(item),
+                            "coefficientLibrary": backend.power_meter_profiles.library(item.driver_kind, power_meter_serial_number(item)),
                         }
                         for item in power_meter_options
                     ],

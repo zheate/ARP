@@ -134,6 +134,8 @@
 .device-rail-item__copy strong { flex-shrink: 0; font-size: 0.85rem; font-weight: 550; }
 .device-rail-item__copy small { overflow: hidden; font-size: 0.75rem; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground); }
 .device-rail-item__state { font-size: 0.75rem; white-space: nowrap; color: var(--muted-foreground); }
+.device-rail-item__summary { display: block; min-width: 0; min-height: 1rem; overflow: hidden; color: var(--app-text-secondary); font-size: 0.7rem; line-height: 1rem; text-overflow: ellipsis; white-space: nowrap; }
+.device-rail-item__summary.is-empty { visibility: hidden; }
 .device-rail-item__chevron { flex-shrink: 0; color: var(--muted-foreground); }
 .automatic-device-rail .automatic-test-control-card { min-height: 0; border: 0; border-radius: 0; background: transparent; padding: 0; }
 .automatic-device-rail .automatic-test-control-card__content { flex-direction: column; justify-content: center; align-items: stretch; padding-inline: 0.875rem; }
@@ -352,7 +354,8 @@ fieldset.appearance-section .appearance-help { clear: both; }
   .automatic-chart-grid__power-row { grid-template-columns: minmax(0, 1fr); grid-auto-rows: 15rem; }
   .automatic-device-rail { grid-template-columns: minmax(0, 1fr); }
   .device-rail-item { border-right: 0; border-bottom: 1px solid var(--border); }
-  .device-rail-item__copy { flex-direction: row; justify-content: space-between; }
+  .device-rail-item__copy { display: grid; grid-template-columns: minmax(0, 1fr) auto; justify-content: normal; }
+  .device-rail-item__summary { grid-column: 1 / -1; }
   .sample-nameplate { gap: 0.65rem; }
   .appearance-palette-heading { flex-wrap: wrap; }
   .appearance-palette { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -385,6 +388,7 @@ fieldset.appearance-section .appearance-help { clear: both; }
   .sample-nameplate label { font-size: 0.8125rem; }
   .device-rail-item__copy strong { font-size: 1rem; }
   .device-rail-item__copy small, .device-rail-item__state { font-size: 0.85rem; }
+  .device-rail-item__summary { font-size: 0.75rem; }
   .chart-panel-heading { font-size: 1.05rem; }
   .chart-panel-subtitle { font-size: 0.8rem; }
   .automatic-metric-card__title, .automatic-metric-card--power .automatic-metric-card__title { font-size: 0.85rem; }

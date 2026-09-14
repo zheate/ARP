@@ -58,6 +58,7 @@ from combined_test.tdk_power_supply import (
 
 from .command_safety import CommandSafetyGate, finite_number
 from .station_automatic import StationAutomaticMixin
+from .power_meter_profiles import MEASUREMENT_CONFIGURATION_KEYS
 from .station_support import (
     AGING_TEST_SCRIPT_ID,
     DEFAULT_CONFIGURATION,
@@ -396,7 +397,7 @@ class StationRuntime(StationAutomaticMixin):
 
     def configure(self, params: dict[str, Any]) -> None:
         with self._lock:
-            params = dict(params)
+            params = self.backend.power_meter_profiles.protect_configuration(dict(params))
             candidate = dict(self.configuration)
             kind = str(params.get("powerSupplyKind", candidate["powerSupplyKind"])).lower()
             if kind not in {"ch341", "tdk"}:
@@ -475,6 +476,7 @@ class StationRuntime(StationAutomaticMixin):
                 raise ValueError("customCurrentPoints must be a list")
             candidate["powerSupplyKind"] = kind
             candidate["currentPlanMode"] = mode
+            self.backend.power_meter_profiles.resolve_configuration(candidate, self.configuration)
             self._validate_configuration(candidate)
             if self.power_meter_reader is not None:
                 self.power_meter_reader.update_stability_settings(
@@ -824,6 +826,8 @@ class StationRuntime(StationAutomaticMixin):
             if not resource:
                 raise ValueError("请先选择功率计资源")
 
+            self.backend.power_meter_profiles.require_ready()
+
             settings = PowerMeterSettings(
                 resource=resource,
                 wavelength_nm=float(self.configuration["powerMeterWavelengthNm"]),
@@ -1016,7 +1020,10 @@ class StationRuntime(StationAutomaticMixin):
     def _ensure_manual_recording_session(self) -> None:
         session = self.record_store.current_session
         if session is not None and session.mode == "manual" and session.ended_at_utc is None:
-            return
+            if all(session.settings.get(key) == self.configuration.get(key) for key in MEASUREMENT_CONFIGURATION_KEYS):
+                return
+            if self.record_store.unsaved_records():
+                raise ValueError("采集设置与未保存测试点不一致，请先保存已有测试点")
         self.record_store.begin_session(
             Path(str(self.configuration["outputDir"])),
             str(self.configuration["sn"]),
@@ -1133,7 +1140,10 @@ class StationRuntime(StationAutomaticMixin):
             Path(output_dir),
             sn,
             test_station,
-            settings=dict(self.configuration),
+            settings={
+                **self.configuration,
+                **{key: session.settings[key] for key in MEASUREMENT_CONFIGURATION_KEYS if key in session.settings},
+            },
         )
         self.record_store.complete_session(
             SessionStatus.COMPLETED,

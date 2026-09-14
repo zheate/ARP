@@ -26,6 +26,7 @@ import {
   Save,
   Settings,
   ShieldCheck,
+  SlidersHorizontal,
   Square,
   Thermometer,
   Upload,
@@ -45,8 +46,9 @@ import { Label } from "@/components/ui/label"
 import { Progress } from "@/components/ui/progress"
 import { Separator } from "@/components/ui/separator"
 import { useBackendSnapshot } from "@/hooks/use-backend-snapshot"
-import { sendBackendRequest, type AppConfiguration, type AppShutdownResult, type AutomaticPauseAction, type AutomaticTerminalOutcome, type BackendSnapshot, type DeviceSnapshot, type SafetyShutdownResult, type ShippingReportBatchGenerationResult, type ShippingReportBatchInspection, type ShippingReportBatchItem, type ShippingReportFieldDefinition, type ShippingReportGenerationResult, type ShippingReportLanguage, type ShippingReportPointSuggestion, type ShippingReportPreviewResult, type ShippingReportType, type ShippingWorkbookInspection, type SnapshotView, type SpectrumAxisMode, type TestScript } from "@/lib/backend"
-import { powerMeterProfileForResource, powerMeterResourceValue } from "@/lib/power-meter-resource"
+import { sendBackendRequest, type AppConfiguration, type AppShutdownResult, type AutomaticPauseAction, type AutomaticTerminalOutcome, type BackendSnapshot, type DeviceSnapshot, type PowerMeterCoefficientLibrary, type PowerMeterCoefficientRevision, type SafetyShutdownResult, type ShippingReportBatchGenerationResult, type ShippingReportBatchInspection, type ShippingReportBatchItem, type ShippingReportFieldDefinition, type ShippingReportGenerationResult, type ShippingReportLanguage, type ShippingReportPointSuggestion, type ShippingReportPreviewResult, type ShippingReportType, type ShippingWorkbookInspection, type SnapshotView, type SpectrumAxisMode, type TestScript } from "@/lib/backend"
+import { powerMeterCoefficientLibraryForResource, powerMeterIdentityForResource, powerMeterResourceValue } from "@/lib/power-meter-resource"
+import { mergeAuthoritativePowerMeterConfiguration, powerMeterDerivedConfigurationKeys } from "@/lib/power-meter-configuration"
 import { automaticPauseCommand, automaticPauseCopy, pauseRemainingSeconds } from "@/lib/automatic-pause"
 import { openResultFile } from "@/lib/result-file"
 import { automaticTerminalTitle, shutdownPresentation } from "@/lib/safety-state"
@@ -268,8 +270,14 @@ const emptyConfig: AppConfiguration = {
   tdkVoltageV: 0,
   powerMeterResource: "",
   powerMeterSerialNumber: "",
+  powerMeterDriverKind: "",
   powerMeterWavelengthNm: 976,
   softwareGain: 1,
+  powerMeterProfileId: "",
+  powerMeterProfileName: "未绑定方案",
+  powerMeterProfileVersion: 0,
+  powerMeterProfileNotes: "",
+  powerMeterProfileWavelengthPending: false,
   powerMeterIntervalMs: 100,
   powerSmoothing: true,
   spectrometerResource: "",
@@ -303,6 +311,12 @@ const emptyConfig: AppConfiguration = {
 }
 
 const configurationKeys = Object.keys(emptyConfig) as Array<keyof AppConfiguration>
+
+function configurationPayload(config: AppConfiguration): Record<string, unknown> {
+  const payload = { ...config } as Record<string, unknown>
+  for (const key of powerMeterDerivedConfigurationKeys) delete payload[key]
+  return payload
+}
 
 function configurationsEqual(left: AppConfiguration, right: AppConfiguration): boolean {
   if (!sameRows(left.customCurrentPoints, right.customCurrentPoints, ["currentA", "dwellS"])) return false
@@ -638,7 +652,7 @@ function StatusDot({ state }: { state?: string }) {
 
 type DeviceSettingsKind = "powerSupply" | "powerMeter" | "spectrometer"
 
-function DeviceCard({ title, icon, device, model, details, summary, disabled = false, onOpenSettings }: { title: string; icon: ReactNode; device?: DeviceSnapshot; model: string; details: Array<[string, string]>; summary?: string; disabled?: boolean; onOpenSettings: () => void }) {
+function DeviceCard({ title, icon, device, model, details, summary, visibleSummary, disabled = false, onOpenSettings }: { title: string; icon: ReactNode; device?: DeviceSnapshot; model: string; details: Array<[string, string]>; summary?: string; visibleSummary?: string; disabled?: boolean; onOpenSettings: () => void }) {
   const connectionLabel = device?.detecting ? "识别中"
     : device?.state === "connected" ? "在线"
     : device?.state === "connecting" ? "连接中"
@@ -656,7 +670,7 @@ function DeviceCard({ title, icon, device, model, details, summary, disabled = f
           type="button"
         >
           <span className="device-rail-item__icon" data-active={device?.outputEnabled}>{icon}</span>
-          <span className="device-rail-item__copy"><span><strong>{title}</strong><small title={model}>{model}</small></span><span className="device-rail-item__state"><StatusDot state={device?.detecting ? "connecting" : device?.state} />{connectionLabel}{activityLabel && <> · {activityLabel}</>}</span></span>
+          <span className="device-rail-item__copy"><span><strong>{title}</strong><small title={model}>{model}</small></span><span className="device-rail-item__state"><StatusDot state={device?.detecting ? "connecting" : device?.state} />{connectionLabel}{activityLabel && <> · {activityLabel}</>}</span><span aria-hidden={!visibleSummary} className={`device-rail-item__summary ${visibleSummary ? "" : "is-empty"}`} title={visibleSummary}>{visibleSummary || "占位"}</span></span>
           <ChevronRight className="device-rail-item__chevron size-4" />
         </button>
       </Tooltip.Trigger>
@@ -810,7 +824,6 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
               </NativeSelect>
               <Button className={`btn-refresh-spin ${psu?.detecting ? "cursor-wait" : ""}`} disabled={!active || pending || psu?.detecting || psu?.connected} onClick={() => void run("device.refresh", { device: "powerSupply" }, true)} variant="outline"><RefreshCw className={`size-4 ${psu?.detecting ? "animate-spin" : ""}`} />{psu?.detecting ? "识别中" : "识别"}</Button>
             </div>
-            <DetectionStatus detail={psu?.detail} detecting={psu?.detecting} />
           </Field> : (
             <Ch341PortSelector
               config={config}
@@ -888,6 +901,267 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
   )
 }
 
+type PowerMeterProfileDraftIntent = "new" | "copy" | "save"
+
+interface PowerMeterProfileDraft {
+  name: string
+  softwareGain: number
+  wavelengthNm: number
+  notes: string
+  operator: string
+  reason: string
+}
+
+function selectedPowerMeterRevision(library: PowerMeterCoefficientLibrary | null): PowerMeterCoefficientRevision | null {
+  if (!library) return null
+  const profile = library.profiles.find((item) => item.id === library.selectedProfileId)
+  return profile?.versions.find((revision) => revision.version === library.selectedVersion)
+    ?? profile?.versions[profile.versions.length - 1]
+    ?? null
+}
+
+function formatProfileTimestamp(value: string): string {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value || "时间未知" : date.toLocaleString("zh-CN", { hour12: false })
+}
+
+function PowerMeterProfileEditor({ snapshot, config, active, pending, run, compact = false }: {
+  snapshot: BackendSnapshot | null
+  config: AppConfiguration
+  active: boolean
+  pending: boolean
+  run: RunCommand
+  compact?: boolean
+}) {
+  const meter = snapshot?.devices.powerMeter
+  const library = powerMeterCoefficientLibraryForResource(
+    meter,
+    config.powerMeterResource,
+    snapshot?.configuration?.powerMeterResource,
+  )
+  const identity = powerMeterIdentityForResource(
+    meter,
+    config.powerMeterResource,
+    snapshot?.configuration?.powerMeterResource,
+    { driverKind: config.powerMeterDriverKind, serialNumber: config.powerMeterSerialNumber },
+  )
+  const { driverKind, serialNumber } = identity
+  const selectedProfile = library?.profiles.find((profile) => profile.id === library.selectedProfileId) ?? null
+  const selectedRevision = selectedPowerMeterRevision(library)
+  const [draftIntent, setDraftIntent] = useState<PowerMeterProfileDraftIntent | null>(null)
+  const [draft, setDraft] = useState<PowerMeterProfileDraft>({
+    name: "",
+    softwareGain: config.softwareGain,
+    wavelengthNm: config.powerMeterWavelengthNm,
+    notes: "",
+    operator: "",
+    reason: "",
+  })
+  const [draftTarget, setDraftTarget] = useState<{ profileId: string; expectedVersion: number } | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
+  const probeIdentity = `${powerMeterResourceValue(config.powerMeterResource)}:${driverKind}:${serialNumber}`
+  const draftTargetProfile = draftTarget ? library?.profiles.find((profile) => profile.id === draftTarget.profileId) : null
+  const draftTargetLatestVersion = draftTargetProfile?.versions[draftTargetProfile.versions.length - 1]?.version
+  const draftStale = Boolean(
+    draftIntent === "save"
+    && draftTarget
+    && (draftTargetLatestVersion === undefined || draftTargetLatestVersion !== draftTarget.expectedVersion),
+  )
+  const automaticActive = Boolean(snapshot && !["idle", "completed"].includes(snapshot.automaticTest.state))
+  const pendingManualPoints = snapshot?.manualTest?.pendingCount ?? 0
+  const mutationLocked = !active || pending || busy || Boolean(meter?.detecting || meter?.running) || automaticActive || pendingManualPoints > 0
+  const lockReason = !serialNumber
+    ? "请先识别并选择具有探头 SN 的功率计"
+    : meter?.running
+      ? "请先停止功率采集"
+      : automaticActive
+        ? "自动测试进行中，不能切换或修改方案"
+        : pendingManualPoints > 0
+          ? `请先保存 ${pendingManualPoints} 个未保存的手动测试点`
+          : ""
+
+  useEffect(() => {
+    setDraftIntent(null)
+    setDraftTarget(null)
+    setHistoryOpen(false)
+    setError("")
+  }, [probeIdentity])
+
+  const beginDraft = (intent: PowerMeterProfileDraftIntent) => {
+    const source = selectedRevision
+    setDraft({
+      name: intent === "new" ? "" : intent === "copy" ? `${source?.name ?? "系数方案"} 副本` : source?.name ?? "",
+      softwareGain: source?.softwareGain ?? config.softwareGain,
+      wavelengthNm: source?.wavelengthNm ?? config.powerMeterWavelengthNm,
+      notes: source?.notes ?? "",
+      operator: "",
+      reason: "",
+    })
+    setHistoryOpen(false)
+    setError("")
+    setDraftTarget(intent === "save" && selectedProfile && selectedRevision
+      ? { profileId: selectedProfile.id, expectedVersion: selectedProfile.versions[selectedProfile.versions.length - 1]?.version ?? selectedRevision.version }
+      : null)
+    setDraftIntent(intent)
+  }
+
+  const perform = async (method: string, params: Record<string, unknown>) => {
+    if (mutationLocked || !driverKind || !serialNumber) return
+    setBusy(true)
+    setError("")
+    try {
+      const result = await run(method, { driverKind, serialNumber, ...params }, true)
+      if (!result) throw new Error("操作未执行，请等待当前设备命令完成后重试")
+      setDraftIntent(null)
+      setDraftTarget(null)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+      throw reason
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const selectProfile = async (profileId: string) => {
+    if (!library || profileId === library.selectedProfileId) return
+    const profile = library.profiles.find((item) => item.id === profileId)
+    const latest = profile?.versions[profile.versions.length - 1]
+    if (!latest) return
+    await perform("powerMeter.profile.select", { profileId, expectedVersion: latest.version }).catch(() => undefined)
+  }
+
+  const saveDraft = async () => {
+    if (!draftIntent) return
+    if (!draft.name.trim()) {
+      setError("请填写方案名称")
+      return
+    }
+    if (![draft.softwareGain, draft.wavelengthNm].every((value) => Number.isFinite(value) && value > 0)) {
+      setError("功率系数和校准波长必须是大于零的数值")
+      return
+    }
+    const values = {
+      name: draft.name.trim(),
+      softwareGain: draft.softwareGain,
+      wavelengthNm: draft.wavelengthNm,
+      notes: draft.notes.trim(),
+      operator: draft.operator.trim(),
+      reason: draft.reason.trim(),
+    }
+    if (draftIntent === "save") {
+      if (!draftTarget) {
+        setError("原方案版本已不可用，请取消后重新编辑")
+        return
+      }
+      await perform("powerMeter.profile.save", {
+        profileId: draftTarget.profileId,
+        expectedVersion: draftTarget.expectedVersion,
+        ...values,
+      }).catch(() => undefined)
+      return
+    }
+    await perform("powerMeter.profile.create", values).catch(() => undefined)
+  }
+
+  const restoreRevision = async (revision: PowerMeterCoefficientRevision) => {
+    if (!selectedProfile) return
+    const latest = selectedProfile.versions[selectedProfile.versions.length - 1]
+    if (!latest || revision.version === latest.version) return
+    await perform("powerMeter.profile.restore", {
+      profileId: selectedProfile.id,
+      expectedVersion: latest.version,
+      restoreVersion: revision.version,
+      reason: `恢复 v${revision.version}`,
+    }).catch(() => undefined)
+  }
+
+  const updateDraft = <K extends keyof PowerMeterProfileDraft>(key: K, value: PowerMeterProfileDraft[K]) => {
+    setDraft((current) => ({ ...current, [key]: value }))
+  }
+
+  return (
+    <section className={`power-meter-profile ${compact ? "power-meter-profile--compact" : ""}`}>
+      <div className="power-meter-profile__heading">
+        <div>
+          <p className="power-meter-profile__title">系数方案</p>
+          <p className="power-meter-profile__identity">{serialNumber ? `${driverKind || "未知驱动"} · 探头 SN ${serialNumber}` : "当前资源没有可用的探头身份"}</p>
+        </div>
+        {selectedRevision && <Badge variant="outline">v{selectedRevision.version}</Badge>}
+      </div>
+
+      {library?.profiles.length ? <Field label="当前方案">
+        <NativeSelect
+          ariaLabel="系数方案"
+          disabled={mutationLocked || draftIntent !== null}
+          value={library.selectedProfileId}
+          onChange={(value) => void selectProfile(value)}
+        >
+          {library.profiles.map((profile) => {
+            const revision = profile.versions[profile.versions.length - 1]
+            return <option key={profile.id} value={profile.id}>{revision?.name ?? "未命名方案"} · v{revision?.version ?? 0}</option>
+          })}
+        </NativeSelect>
+      </Field> : <p className="power-meter-profile__empty">此探头尚无可选方案，可新建第一套方案。</p>}
+
+      {selectedRevision && !draftIntent && <div className="power-meter-profile__summary">
+        <dl>
+          <div><dt>功率系数</dt><dd>× {formatTrimmedNumber(selectedRevision.softwareGain, 6)}</dd></div>
+          <div><dt>校准波长</dt><dd>{selectedRevision.wavelengthNm == null ? "待补充" : `${formatTrimmedNumber(selectedRevision.wavelengthNm, 3)} nm`}</dd></div>
+        </dl>
+        {selectedRevision.notes && <p>{selectedRevision.notes}</p>}
+        {selectedRevision.wavelengthNm == null && <p className="power-meter-profile__warning">旧方案没有校准波长，首次使用前请保存修改并补充波长。</p>}
+      </div>}
+
+      {draftIntent && <div className="power-meter-profile__draft">
+        <div className="power-meter-profile__draft-title">
+          <strong>{draftIntent === "save" ? "修改当前方案" : draftIntent === "copy" ? "另存为新方案" : "新建方案"}</strong>
+          <span>保存前不会改变当前测量参数</span>
+        </div>
+        <Field label="方案名称"><Input disabled={mutationLocked} maxLength={60} value={draft.name} onChange={(event) => updateDraft("name", event.target.value)} /></Field>
+        <div className="device-settings-field-grid">
+          <NumberField disabled={mutationLocked} label="功率系数" min={0.000001} step="0.01" value={draft.softwareGain} onChange={(value) => updateDraft("softwareGain", value)} />
+          <NumberField disabled={mutationLocked} label="校准波长 (nm)" min={0.000001} step="0.1" value={draft.wavelengthNm} onChange={(value) => updateDraft("wavelengthNm", value)} />
+        </div>
+        <Field label="条件备注"><textarea className="power-meter-profile__textarea" disabled={mutationLocked} maxLength={300} rows={2} value={draft.notes} onChange={(event) => updateDraft("notes", event.target.value)} /></Field>
+        <div className="device-settings-field-grid">
+          <Field label="修改人（可选）"><Input disabled={mutationLocked} maxLength={60} value={draft.operator} onChange={(event) => updateDraft("operator", event.target.value)} /></Field>
+          <Field label="修改原因（可选）"><Input disabled={mutationLocked} maxLength={120} value={draft.reason} onChange={(event) => updateDraft("reason", event.target.value)} /></Field>
+        </div>
+        <div className="power-meter-profile__draft-actions">
+          <Button disabled={busy} onClick={() => { setDraftIntent(null); setDraftTarget(null); setError("") }} size="sm" variant="outline">取消</Button>
+          <Button disabled={mutationLocked} onClick={() => void saveDraft()} size="sm"><Save className="size-3.5" />{busy ? "保存中…" : "保存方案"}</Button>
+        </div>
+        {draftStale && <p className="power-meter-profile__message is-warning">此方案在草稿打开后已有新版本。草稿仍保留，保存时会由后端阻止覆盖；建议取消后查看最新版本。</p>}
+      </div>}
+
+      {!draftIntent && <div className="power-meter-profile__actions">
+        <Button disabled={mutationLocked || !serialNumber} onClick={() => beginDraft("new")} size="sm" variant="outline"><Plus className="size-3.5" />新建</Button>
+        <Button disabled={mutationLocked || !selectedRevision} onClick={() => beginDraft("copy")} size="sm" variant="outline">另存为</Button>
+        <Button disabled={mutationLocked || !selectedRevision} onClick={() => beginDraft("save")} size="sm" variant="outline">保存修改</Button>
+        <Button disabled={!selectedProfile} onClick={() => setHistoryOpen((current) => !current)} size="sm" variant="outline">{historyOpen ? "收起历史" : "查看历史"}</Button>
+      </div>}
+
+      {historyOpen && selectedProfile && <div className="power-meter-profile__history">
+        {[...selectedProfile.versions].reverse().map((revision, index) => (
+          <article className="power-meter-profile__history-item" key={revision.version}>
+            <div>
+              <strong>v{revision.version} · {revision.name}</strong>
+              <span>{formatProfileTimestamp(revision.createdAt)}</span>
+            </div>
+            <p>× {formatTrimmedNumber(revision.softwareGain, 6)} · {revision.wavelengthNm == null ? "波长待补充" : `${formatTrimmedNumber(revision.wavelengthNm, 3)} nm`}</p>
+            {(revision.operator || revision.reason) && <p>{[revision.operator && `修改人：${revision.operator}`, revision.reason && `原因：${revision.reason}`].filter(Boolean).join(" · ")}</p>}
+            <Button disabled={mutationLocked || index === 0} onClick={() => void restoreRevision(revision)} size="sm" variant="ghost"><RotateCcw className="size-3.5" />{index === 0 ? "当前版本" : "恢复此版本"}</Button>
+          </article>
+        ))}
+      </div>}
+
+      {(lockReason || error) && <p aria-live="polite" className={`power-meter-profile__message ${error ? "is-error" : ""}`}>{error || lockReason}</p>}
+    </section>
+  )
+}
+
 function PowerMeterSettingsForm({ snapshot, config, update, active, pending, run }: {
   snapshot: BackendSnapshot | null; config: AppConfiguration; update: UpdateConfig; active: boolean; pending: boolean; run: RunCommand
 }) {
@@ -898,14 +1172,6 @@ function PowerMeterSettingsForm({ snapshot, config, update, active, pending, run
   const displayedResource = selectedResourceAvailable ? selectedResource : ""
   const selectResource = (resource: string) => {
     update("powerMeterResource", resource)
-    const profile = powerMeterProfileForResource(meter?.resourceProfiles, resource)
-    if (profile) {
-      update("powerMeterSerialNumber", profile.serialNumber)
-      update("softwareGain", profile.softwareGain)
-    } else if (!resource) {
-      update("powerMeterSerialNumber", "")
-      update("softwareGain", 1)
-    }
   }
   const measurementSummary = meter?.quality === "live"
     ? `实时功率 ${formatNumber(meter.powerW, " W")} · ${meter.stable ? "已稳定" : "稳定中"}`
@@ -925,9 +1191,7 @@ function PowerMeterSettingsForm({ snapshot, config, update, active, pending, run
           <Button className={`btn-refresh-spin ${meter?.detecting ? "cursor-wait" : ""}`} disabled={!active || pending || meter?.detecting || meter?.running} onClick={() => void run("device.refresh", { device: "powerMeter" }, true)} variant="outline"><RefreshCw className={`size-4 ${meter?.detecting ? "animate-spin" : ""}`} />{meter?.detecting ? "识别中" : "识别"}</Button>
         </div>
       </Field>
-      <DetectionStatus detail={meter?.detail} detecting={meter?.detecting} />
-      <NumberField label="校准波长 (nm)" value={config.powerMeterWavelengthNm} onChange={(v) => update("powerMeterWavelengthNm", v)} step="0.1" />
-      <NumberField label="功率系数" value={config.softwareGain} onChange={(v) => update("softwareGain", v)} step="0.01" />
+      <PowerMeterProfileEditor active={active} config={config} pending={pending} run={run} snapshot={snapshot} />
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
         <label className="device-settings-checkbox"><input checked={config.powerSmoothing ?? true} onChange={(e) => update("powerSmoothing", e.target.checked)} type="checkbox" />功率曲线平滑</label>
         <span className="text-xs text-muted-foreground">仅影响显示，不改变测量数据</span>
@@ -936,19 +1200,6 @@ function PowerMeterSettingsForm({ snapshot, config, update, active, pending, run
       <Button className={`w-full transition-all ${meter?.running ? "btn-running-pulse" : ""}`} disabled={!active || pending || meter?.detecting || (!meter?.running && !selectedResourceAvailable)} onClick={() => void run(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
       <p className="text-xs text-muted-foreground">{measurementSummary}</p>
     </div>
-  )
-}
-
-function DetectionStatus({ detecting, detail }: { detecting?: boolean; detail?: string }) {
-  const message = detail ?? ""
-  const completed = message.startsWith("识别完成：")
-  const failed = message.startsWith("识别失败：")
-  if (!detecting && !completed && !failed) return null
-  return (
-    <p aria-live="polite" className={`flex items-center gap-1.5 text-xs ${detecting ? "text-foreground" : failed ? "text-destructive" : "text-[var(--app-success)]"}`}>
-      {detecting ? <LoaderCircle className="size-3.5 shrink-0 animate-spin" /> : failed ? <X className="size-3.5 shrink-0" /> : <Check className="size-3.5 shrink-0" />}
-      <span>{message || "正在准备设备识别"}</span>
-    </p>
   )
 }
 
@@ -977,7 +1228,6 @@ function SpectrometerSettingsForm({ snapshot, config, update, active, pending, r
           <Button className={`btn-refresh-spin ${spectrum?.detecting ? "cursor-wait" : ""}`} disabled={!active || pending || spectrum?.detecting || spectrum?.running} onClick={() => void run("device.refresh", { device: "spectrometer" }, true)} variant="outline"><RefreshCw className={`size-4 ${spectrum?.detecting ? "animate-spin" : ""}`} />{spectrum?.detecting ? "识别中" : "识别"}</Button>
         </div>
       </Field>
-      <DetectionStatus detail={spectrum?.detail} detecting={spectrum?.detecting} />
       <div className="device-settings-field-grid">
         <NumberField label="积分时间 (μs)" value={config.integrationTimeUs} onChange={(v) => update("integrationTimeUs", v)} />
         <NumberField label="刷新间隔 (ms)" value={config.spectrometerIntervalMs} onChange={(v) => update("spectrometerIntervalMs", v)} />
@@ -1030,7 +1280,7 @@ function DeviceSettingsDialog({ kind, open, onClose, onSave, snapshot, config, u
   if (!open) return null
   const details = {
     powerSupply: { title: "电源设置", description: "配置电源控制器、输出参数并执行安全控制", icon: <Power className="size-5" /> },
-    powerMeter: { title: "功率计设置", description: "配置串口资源、校准波长和采集参数", icon: <Gauge className="size-5" /> },
+    powerMeter: { title: "功率计设置", description: "选择功率计资源并管理探头系数方案", icon: <Gauge className="size-5" /> },
     spectrometer: { title: "光谱仪设置", description: "配置光谱仪硬件资源与光谱采集参数", icon: <Radio className="size-5" /> },
   }[kind]
   const [saveSuccess, setSaveSuccess] = useState(false)
@@ -1052,7 +1302,7 @@ function DeviceSettingsDialog({ kind, open, onClose, onSave, snapshot, config, u
     if (commandLockRef.current || pending) return
     commandLockRef.current = true
     try {
-      await run(method, params, sync)
+      return await run(method, params, sync)
     } finally {
       commandLockRef.current = false
     }
@@ -1078,10 +1328,130 @@ function DeviceSettingsDialog({ kind, open, onClose, onSave, snapshot, config, u
             {kind === "spectrometer" && <SpectrometerSettingsForm active={active} config={config} pending={false} run={runDialogCommand} snapshot={snapshot} update={update} />}
           </div>
           <div className="device-settings-dialog__footer">
-            <p className="device-settings-dialog__hint">修改内容将保存到当前测试配置</p>
+            <p className="device-settings-dialog__hint">{kind === "powerMeter" ? "普通设置不会覆盖已保存的系数方案" : "修改内容将保存到当前测试配置"}</p>
             <div className="device-settings-dialog__actions">
               <Button className="device-settings-dialog__cancel" onClick={onClose} variant="outline">关闭</Button>
               <Button aria-busy={saving} aria-disabled={!active || pending || saving} className="device-settings-dialog__save transition-all" disabled={!active || saving} onClick={() => void handleSave()}>{saving ? "保存中…" : saveSuccess ? "✓ 已保存" : "保存设置"}</Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </DialogPortal>
+  )
+}
+
+function PowerMeterProfileDialog({
+  open,
+  onClose,
+  snapshot,
+  config,
+  active,
+  pending,
+  run,
+}: {
+  open: boolean
+  onClose: () => void
+  snapshot: BackendSnapshot | null
+  config: AppConfiguration
+  active: boolean
+  pending: boolean
+  run: RunCommand
+}) {
+  const commandLockRef = useRef(false)
+  const closeButtonRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const body = document.body
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const previousOverflow = body.style.overflow
+    const previousPaddingRight = body.style.paddingRight
+    const focusFrame = window.requestAnimationFrame(() => closeButtonRef.current?.focus())
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented) onClose()
+    }
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth
+    body.style.overflow = "hidden"
+    const hasStableScrollbarGutter = getComputedStyle(document.documentElement).scrollbarGutter.includes("stable")
+    if (scrollbarWidth > 0 && !hasStableScrollbarGutter) body.style.paddingRight = `${scrollbarWidth}px`
+    document.addEventListener("keydown", handleKeyDown)
+    return () => {
+      body.style.overflow = previousOverflow
+      body.style.paddingRight = previousPaddingRight
+      window.cancelAnimationFrame(focusFrame)
+      previousFocus?.focus()
+      document.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [open, onClose])
+
+  if (!open) return null
+
+  const runDialogCommand: RunCommand = async (method, params, sync) => {
+    if (commandLockRef.current || pending) return
+    commandLockRef.current = true
+    try {
+      return await run(method, params, sync)
+    } finally {
+      commandLockRef.current = false
+    }
+  }
+
+  return (
+    <DialogPortal>
+      <div
+        className="dialog-overlay motion-overlay-enter"
+        onMouseDown={(event) => {
+          if (event.target === event.currentTarget) onClose()
+        }}
+      >
+        <div
+          aria-labelledby="power-meter-profile-dialog-title"
+          aria-modal="true"
+          className="device-settings-dialog motion-dialog-enter"
+          data-kind="powerMeter"
+          role="dialog"
+        >
+          <div className="device-settings-dialog__header">
+            <div className="device-settings-dialog__identity">
+              <div className="device-settings-dialog__icon">
+                <SlidersHorizontal className="size-5" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="device-settings-dialog__title" id="power-meter-profile-dialog-title">
+                  功率计系数方案
+                </h2>
+                <p className="device-settings-dialog__description">
+                  管理探头系数方案、校准波长与历史版本
+                </p>
+              </div>
+            </div>
+            <button
+              aria-label="关闭系数方案弹窗"
+              className="device-settings-dialog__close"
+              onClick={onClose}
+              ref={closeButtonRef}
+              type="button"
+            >
+              <X className="size-[18px]" />
+            </button>
+          </div>
+          <div className="device-settings-dialog__body">
+            <PowerMeterProfileEditor
+              active={active}
+              config={config}
+              pending={pending}
+              run={runDialogCommand}
+              snapshot={snapshot}
+            />
+          </div>
+          <div className="device-settings-dialog__footer">
+            <p className="device-settings-dialog__hint">
+              方案修改与切换会即时生效并保存到探头配置库
+            </p>
+            <div className="device-settings-dialog__actions">
+              <Button className="min-w-[80px]" onClick={onClose} variant="default">
+                完成
+              </Button>
             </div>
           </div>
         </div>
@@ -1691,6 +2061,7 @@ function samePowerMeterResourceProfiles(
       && profile.driverKind === other.driverKind
       && profile.serialNumber === other.serialNumber
       && profile.softwareGain === other.softwareGain
+      && JSON.stringify(profile.coefficientLibrary ?? null) === JSON.stringify(other.coefficientLibrary ?? null)
   })
 }
 
@@ -1706,6 +2077,7 @@ function sameDeviceSnapshot(left: DeviceSnapshot | undefined, right: DeviceSnaps
     && left.ready === right.ready
     && sameStringArray(left.resources, right.resources)
     && samePowerMeterResourceProfiles(left.resourceProfiles, right.resourceProfiles)
+    && JSON.stringify(left.coefficientLibrary ?? null) === JSON.stringify(right.coefficientLibrary ?? null)
     && sameCh341State(left.ch341, right.ch341)
     && left.outputEnabled === right.outputEnabled
     && left.activeCurrentA === right.activeCurrentA
@@ -2365,7 +2737,7 @@ function AppTitlebar({
   controlsLocked: boolean
   dirty: boolean
   pendingCommand: string | null
-  run: (method: string) => Promise<void>
+  run: RunCommand
   saveConfiguration: () => Promise<void>
 }) {
   return (
@@ -2470,7 +2842,7 @@ function LicensedApp({
         try {
           await sendBackendRequest(
             "app.configure",
-            { ...configRef.current } as unknown as Record<string, unknown>,
+            configurationPayload(configRef.current),
           )
         } catch (reason) {
           setCloseFailure({
@@ -2536,7 +2908,7 @@ function LicensedApp({
     await automaticSaveFlightRef.current.catch(() => undefined)
     const savedSnapshot = await command(
       "app.configure",
-      { ...configRef.current } as unknown as Record<string, unknown>,
+      configurationPayload(configRef.current),
     )
     if (configRevisionRef.current === revision) {
       const persisted = savedSnapshot.configuration ?? configRef.current
@@ -2553,8 +2925,15 @@ function LicensedApp({
       throw new Error(`软件授权无效：${licenseReasonLabels[licenseStatus.reason]}`)
     }
     if (sync && dirty) await saveConfiguration()
-    await command(method, params)
+    const result = await command(method, params)
+    if (method.startsWith("powerMeter.profile.") && result.configuration) {
+      pendingPersistedConfigRef.current = null
+      const next = mergeAuthoritativePowerMeterConfiguration(configRef.current, result.configuration)
+      configRef.current = next
+      setConfig(next)
+    }
     if (method === "automatic.start") setDirty(false)
+    return result
   }, [active, command, dirty, licenseStatus.reason, licenseStatus.valid, saveConfiguration])
 
   const update: UpdateConfig = useCallback((key, value) => {
@@ -2649,9 +3028,47 @@ function LicensedApp({
   }, [changePage])
 
   const notices = snapshot?.backend.notices ?? []
-  const notifications = [
+  const deviceDetectionErrors = [
+    { key: "powerSupply", title: "电源识别失败", detail: snapshot?.devices.powerSupply?.detail },
+    { key: "powerMeter", title: "功率计识别失败", detail: snapshot?.devices.powerMeter?.detail },
+    { key: "spectrometer", title: "光谱仪识别失败", detail: snapshot?.devices.spectrometer?.detail },
+    { key: "pd", title: "采集卡识别失败", detail: snapshot?.pd?.status },
+  ]
+    .filter((item) => item.detail && item.detail.startsWith("识别失败："))
+    .map((item) => {
+      const message = item.detail!.replace(/^识别失败[：:]\s*/, "")
+      return {
+        key: `device-failure:${item.key}:${message}`,
+        level: "error" as const,
+        title: item.title,
+        message,
+      }
+    })
+    .filter((item) => !notices.some((notice) => notice.message === item.message))
+
+  const deviceDetectionCompletions = [
+    { key: "powerSupply", title: "电源识别", detail: snapshot?.devices.powerSupply?.detail },
+    { key: "powerMeter", title: "功率计识别", detail: snapshot?.devices.powerMeter?.detail },
+    { key: "spectrometer", title: "光谱仪识别", detail: snapshot?.devices.spectrometer?.detail },
+    { key: "pd", title: "采集卡识别", detail: snapshot?.pd?.status },
+  ]
+    .filter((item) => item.detail && item.detail.startsWith("识别完成："))
+    .map((item) => {
+      const message = item.detail!.replace(/^识别完成[：:]\s*/, "")
+      return {
+        key: `device-complete:${item.key}:${message}`,
+        level: "info" as const,
+        title: item.title,
+        message,
+      }
+    })
+    .filter((item) => !notices.some((notice) => notice.message === item.message))
+
+  const notifications: Array<{ key: string; level: "error" | "info" | "warning"; title: string; message: string; code?: string; id?: string }> = [
     ...(error ? [{ key: `request-error:${error}`, level: "error" as const, title: "系统错误", message: error }] : []),
     ...notices.map((notice, index) => ({ ...notice, key: notice.id ? `backend-notice:${notice.id}` : `backend-notice:${notice.level}:${notice.title}:${notice.message}:${index}` })),
+    ...deviceDetectionErrors,
+    ...deviceDetectionCompletions,
     ...(!active && snapshot ? [{ key: "runtime-warning", level: "warning" as const, title: "运行环境提示", message: "当前 Python 环境未加载所需设备驱动，因此控制功能暂不可用。请使用项目指定环境启动。" }] : []),
   ]
   const [dismissedNotifications, setDismissedNotifications] = useState<Set<string>>(() => new Set())
@@ -2870,7 +3287,7 @@ function LicensedApp({
 }
 
 type UpdateConfig = <K extends keyof AppConfiguration>(key: K, value: AppConfiguration[K]) => void
-type RunCommand = (method: string, params?: Record<string, unknown>, sync?: boolean) => Promise<void>
+type RunCommand = (method: string, params?: Record<string, unknown>, sync?: boolean) => Promise<BackendSnapshot | void>
 
 function SystemSettingsPage({ theme, accentTheme, curveLineStyle, latestPointMarkerStyle, licenseStatus, onThemeChange, onAccentThemeChange, onCurveLineStyleChange, onLatestPointMarkerStyleChange, onImportLicense }: { theme: Theme; accentTheme: AccentTheme; curveLineStyle: CurveLineStyle; latestPointMarkerStyle: LatestPointMarkerStyle; licenseStatus: LicenseStatus; onThemeChange: (theme: Theme) => void; onAccentThemeChange: (theme: AccentTheme) => void; onCurveLineStyleChange: (style: CurveLineStyle) => void; onLatestPointMarkerStyleChange: (style: LatestPointMarkerStyle) => void; onImportLicense: () => Promise<void> }) {
   const [licenseBusy, setLicenseBusy] = useState(false)
@@ -3968,7 +4385,12 @@ const AutomaticPage = memo(function AutomaticPage({
   const powerSupplySummary = config.powerSupplyKind === "ch341"
     ? `CH341 · ${config.initialCurrentA}A → ${config.targetCurrentA}A (${config.currentStepA}A)`
     : `TDK · ${config.initialCurrentA}A → ${config.targetCurrentA}A (${config.tdkVoltageV}V)`
-  const powerMeterSummary = `${config.powerMeterResource ? powerMeterResourceLabel(config.powerMeterResource, snapshot?.devices.powerMeter?.resources) : "未选串口"} · ${config.powerMeterWavelengthNm} nm (×${config.softwareGain})`
+  const appliedPowerMeterConfig = snapshot?.configuration ?? config
+  const powerMeterProfileLabel = appliedPowerMeterConfig.powerMeterProfileName
+    ? `${appliedPowerMeterConfig.powerMeterProfileName}${appliedPowerMeterConfig.powerMeterProfileVersion ? ` · v${appliedPowerMeterConfig.powerMeterProfileVersion}` : ""}`
+    : "未绑定方案"
+  const powerMeterSummary = `${appliedPowerMeterConfig.powerMeterResource ? powerMeterResourceLabel(appliedPowerMeterConfig.powerMeterResource, snapshot?.devices.powerMeter?.resources) : "未选串口"} · ${powerMeterProfileLabel} · ${appliedPowerMeterConfig.powerMeterWavelengthNm} nm (×${appliedPowerMeterConfig.softwareGain})`
+  const powerMeterVisibleSummary = `${powerMeterProfileLabel} / ×${formatTrimmedNumber(appliedPowerMeterConfig.softwareGain, 6)} · ${formatTrimmedNumber(appliedPowerMeterConfig.powerMeterWavelengthNm, 3)} nm`
   const powerMeter = snapshot?.devices.powerMeter
   const livePowerW = powerMeter?.quality === "live" ? powerMeter.powerW : null
   const powerSupply = snapshot?.devices.powerSupply
@@ -4084,7 +4506,7 @@ const AutomaticPage = memo(function AutomaticPage({
 
       <section className="automatic-device-rail" aria-label="测试设备与控制">
         <DeviceCard title="电源" icon={<Power className="size-4" />} device={snapshot?.devices.powerSupply} model={config.powerSupplyKind === "tdk" ? "TDK" : "CH341"} details={[["接口", config.powerSupplyKind === "tdk" ? config.tdkResource : config.ch341SelectedLocationPath], ["电流计划", `${config.initialCurrentA} → ${config.targetCurrentA} A`], ["目标电压", `${config.tdkVoltageV} V`]]} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("powerSupply")} summary={powerSupplySummary} />
-        <DeviceCard title="功率计" icon={<Gauge className="size-4" />} device={snapshot?.devices.powerMeter} model={config.powerMeterResource ? powerMeterResourceLabel(config.powerMeterResource, powerMeter?.resources).split("|")[0].trim().replace(/功率计$/, "") : "未选择"} details={[["接口", powerMeterResourceValue(config.powerMeterResource)], ["设备", powerMeter?.detail || "未连接"], ["校准波长", `${config.powerMeterWavelengthNm} nm`], ["功率系数", `× ${config.softwareGain}`]]} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("powerMeter")} summary={powerMeterSummary} />
+        <DeviceCard title="功率计" icon={<Gauge className="size-4" />} device={snapshot?.devices.powerMeter} model={appliedPowerMeterConfig.powerMeterResource ? powerMeterResourceLabel(appliedPowerMeterConfig.powerMeterResource, powerMeter?.resources).split("|")[0].trim().replace(/功率计$/, "") : "未选择"} details={[["接口", powerMeterResourceValue(appliedPowerMeterConfig.powerMeterResource)], ["设备", powerMeter?.detail || "未连接"], ["系数方案", powerMeterProfileLabel], ["校准波长", `${appliedPowerMeterConfig.powerMeterWavelengthNm} nm`], ["功率系数", `× ${appliedPowerMeterConfig.softwareGain}`]]} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("powerMeter")} summary={powerMeterSummary} visibleSummary={powerMeterVisibleSummary} />
         <DeviceCard title="光谱仪" icon={<Radio className="size-4" />} device={snapshot?.devices.spectrometer} model="Ocean Insight" details={[["设备", config.spectrometerResource || spectrometer?.detail || "未选择"], ["积分时间", `${config.integrationTimeUs} μs`], ["PIB 范围", `${config.pibCenterWavelengthNm} ± ${config.pibHalfRangeNm} nm`]]} disabled={controlsLocked} onOpenSettings={() => setOpenSettings("spectrometer")} summary={spectrometerSummary} />
         <AutomaticTestControlCard
           active={active}
@@ -4318,15 +4740,22 @@ const ManualPage = memo(function ManualPage({
   const displayedPowerMeterResource = selectedPowerMeterResourceAvailable ? selectedPowerMeterResource : ""
   const selectPowerMeterResource = (resource: string) => {
     update("powerMeterResource", resource)
-    const profile = powerMeterProfileForResource(meter?.resourceProfiles, resource)
-    if (profile) {
-      update("powerMeterSerialNumber", profile.serialNumber)
-      update("softwareGain", profile.softwareGain)
-    } else if (!resource) {
-      update("powerMeterSerialNumber", "")
-      update("softwareGain", 1)
-    }
   }
+  const [profileDialogOpen, setProfileDialogOpen] = useState(false)
+  const powerMeterLibrary = powerMeterCoefficientLibraryForResource(
+    meter,
+    config.powerMeterResource,
+    snapshot?.configuration?.powerMeterResource,
+  )
+  const powerMeterIdentity = powerMeterIdentityForResource(
+    meter,
+    config.powerMeterResource,
+    snapshot?.configuration?.powerMeterResource,
+    { driverKind: config.powerMeterDriverKind, serialNumber: config.powerMeterSerialNumber },
+  )
+  const selectedRevision = selectedPowerMeterRevision(powerMeterLibrary)
+  const softwareGain = selectedRevision?.softwareGain ?? config.softwareGain
+  const wavelengthNm = selectedRevision?.wavelengthNm ?? config.powerMeterWavelengthNm
   const spectrometerResources = spectrum?.resources ?? []
   const selectedSpectrometerResourceAvailable = spectrometerResources.includes(config.spectrometerResource)
   const displayedSpectrometerResource = selectedSpectrometerResourceAvailable ? config.spectrometerResource : ""
@@ -4336,7 +4765,7 @@ const ManualPage = memo(function ManualPage({
     if (!manualControlsAllowed || commandLockRef.current || pending) return
     commandLockRef.current = true
     try {
-      await run(method, params, sync)
+      return await run(method, params, sync)
     } finally {
       commandLockRef.current = false
     }
@@ -4461,7 +4890,6 @@ const ManualPage = memo(function ManualPage({
                 </NativeSelect>
                 <Button className={`btn-refresh-spin ${psu?.detecting ? "cursor-wait" : ""}`} disabled={!active || pending || psu?.detecting || psu?.connected} onClick={() => void runManualCommand("device.refresh", { device: "powerSupply" }, true)} variant="outline"><RefreshCw className={`size-4 ${psu?.detecting ? "animate-spin" : ""}`} />{psu?.detecting ? "识别中" : "识别"}</Button>
               </div>
-              <DetectionStatus detail={psu?.detail} detecting={psu?.detecting} />
               </Field>
             </div>
             <ManualSectionHeading>参数设置</ManualSectionHeading>
@@ -4552,11 +4980,50 @@ const ManualPage = memo(function ManualPage({
               <Button className={`btn-refresh-spin ${meter?.detecting ? "cursor-wait" : ""}`} disabled={!active || meter?.detecting || meter?.running} onClick={() => void runManualCommand("device.refresh", { device: "powerMeter" }, true)} variant="outline"><RefreshCw className={`size-4 ${meter?.detecting ? "animate-spin" : ""}`} />{meter?.detecting ? "识别中" : "识别"}</Button>
             </div>
           </Field>
-          <DetectionStatus detail={meter?.detail} detecting={meter?.detecting} />
-          <ManualSectionHeading>参数设置</ManualSectionHeading>
-          <div className="device-settings-field-grid">
-            <NumberField label="校准波长 (nm)" value={config.powerMeterWavelengthNm} onChange={(v) => update("powerMeterWavelengthNm", v)} step="0.1" />
-            <NumberField label="功率系数" value={config.softwareGain} onChange={(v) => update("softwareGain", v)} step="0.01" />
+          <ManualSectionHeading>系数方案</ManualSectionHeading>
+          <Field label="当前方案">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+              <NativeSelect
+                ariaLabel="手动测试系数方案"
+                disabled={!active || !manualControlsAllowed || pending || !powerMeterLibrary?.profiles.length}
+                value={powerMeterLibrary?.selectedProfileId ?? ""}
+                onChange={(value) => {
+                  if (!powerMeterLibrary || value === powerMeterLibrary.selectedProfileId) return
+                  const profile = powerMeterLibrary.profiles.find((item) => item.id === value)
+                  const latest = profile?.versions[profile.versions.length - 1]
+                  if (!latest) return
+                  void runManualCommand("powerMeter.profile.select", {
+                    driverKind: powerMeterIdentity.driverKind,
+                    serialNumber: powerMeterIdentity.serialNumber,
+                    profileId: value,
+                    expectedVersion: latest.version,
+                  }, true)
+                }}
+              >
+                {powerMeterLibrary?.profiles.length ? (
+                  powerMeterLibrary.profiles.map((profile) => {
+                    const revision = profile.versions[profile.versions.length - 1]
+                    return <option key={profile.id} value={profile.id}>{revision?.name ?? "未命名方案"} · v{revision?.version ?? 0}</option>
+                  })
+                ) : (
+                  <option value="">{powerMeterIdentity.serialNumber ? "暂无可用方案" : "未识别探头"}</option>
+                )}
+              </NativeSelect>
+              <Button
+                disabled={!active || !manualControlsAllowed || pending}
+                onClick={() => setProfileDialogOpen(true)}
+                variant="outline"
+              >
+                <SlidersHorizontal className="size-3.5" />
+                方案管理
+              </Button>
+            </div>
+          </Field>
+          <div>
+            <p className="manual-device-readback">
+              <span className="is-blue">系数 ×{formatTrimmedNumber(softwareGain, 4)}</span>
+              <span className="is-green">波长 {wavelengthNm != null ? `${formatTrimmedNumber(wavelengthNm, 1)} nm` : "待补充"}</span>
+            </p>
           </div>
           <ManualSectionHeading>功能操作</ManualSectionHeading>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
@@ -4580,7 +5047,6 @@ const ManualPage = memo(function ManualPage({
               <Button className={`btn-refresh-spin ${spectrum?.detecting ? "cursor-wait" : ""}`} disabled={!active || spectrum?.detecting || spectrum?.running} onClick={() => void runManualCommand("device.refresh", { device: "spectrometer" }, true)} variant="outline"><RefreshCw className={`size-4 ${spectrum?.detecting ? "animate-spin" : ""}`} />{spectrum?.detecting ? "识别中" : "识别"}</Button>
             </div>
           </Field>
-          <DetectionStatus detail={spectrum?.detail} detecting={spectrum?.detecting} />
           <ManualSectionHeading>参数设置</ManualSectionHeading>
           <div className="device-settings-field-grid">
             <NumberField label="积分时间 (μs)" value={config.integrationTimeUs} onChange={(v) => update("integrationTimeUs", v)} />
@@ -4611,6 +5077,17 @@ const ManualPage = memo(function ManualPage({
         <SpectrumRealtimeChart snapshot={snapshot} smoothing={config.spectrumSmoothing ?? true} stretch />
       </section>
       </fieldset>
+      {profileDialogOpen && (
+        <PowerMeterProfileDialog
+          active={active && manualControlsAllowed}
+          config={config}
+          onClose={() => setProfileDialogOpen(false)}
+          open={profileDialogOpen}
+          pending={pending}
+          run={runManualCommand}
+          snapshot={snapshot}
+        />
+      )}
     </div>
   )
 }, (previous, next) => (
@@ -4671,7 +5148,6 @@ const PdPage = memo(function PdPage({ snapshot, active, pending, run }: { snapsh
               <Button className={`btn-refresh-spin ${pd?.detecting ? "cursor-wait" : ""}`} disabled={!active || pending || pd?.detecting || pd?.state === "running"} onClick={() => void run("pd.refresh")} variant="outline"><RefreshCw className={`size-4 ${pd?.detecting ? "animate-spin" : ""}`} />{pd?.detecting ? "识别中" : "识别"}</Button>
             </div>
           </Field>
-          <div className="col-span-2"><DetectionStatus detail={pd?.status} detecting={pd?.detecting} /></div>
           <Field label="输入通道" className="pd-inline-field" layout="inline"><NativeSelect value={current.channel} onChange={(v) => set("channel", v)}><option value="">请选择</option>{pd?.channels.map((item) => <option key={item} value={item}>{item}</option>)}</NativeSelect></Field>
           <Field label="接线方式" className="pd-inline-field" layout="inline"><NativeSelect value={current.terminal} onChange={(v) => set("terminal", v)}><option value="DIFF">差分 DIFF</option><option value="RSE">参考单端 RSE</option></NativeSelect></Field>
           <Field label="输入量程" className="pd-inline-field" layout="inline"><NativeSelect value={String(current.range ?? "")} onChange={(v) => set("range", asNumber(v))}><option value="">自动</option>{pd?.ranges.map((item) => <option key={String(item.value)} value={String(item.value)}>{item.label}</option>)}</NativeSelect></Field>

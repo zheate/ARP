@@ -56,6 +56,7 @@ export interface DeviceSnapshot {
   ready?: boolean
   resources?: string[]
   resourceProfiles?: PowerMeterResourceProfile[]
+  coefficientLibrary?: PowerMeterCoefficientLibrary | null
   ch341?: Ch341State
   outputEnabled?: boolean
   activeCurrentA?: number | null
@@ -87,6 +88,31 @@ export interface PowerMeterResourceProfile {
   driverKind: string
   serialNumber: string
   softwareGain: number
+  coefficientLibrary?: PowerMeterCoefficientLibrary | null
+}
+
+export interface PowerMeterCoefficientRevision {
+  version: number
+  name: string
+  softwareGain: number
+  wavelengthNm: number | null
+  notes: string
+  operator: string
+  reason: string
+  createdAt: string
+}
+
+export interface PowerMeterCoefficientProfile {
+  id: string
+  versions: PowerMeterCoefficientRevision[]
+}
+
+export interface PowerMeterCoefficientLibrary {
+  driverKind: string
+  serialNumber: string
+  selectedProfileId: string
+  selectedVersion: number
+  profiles: PowerMeterCoefficientProfile[]
 }
 
 export interface AutomaticReadinessBlocker {
@@ -114,8 +140,14 @@ export interface AppConfiguration {
   tdkVoltageV: number
   powerMeterResource: string
   powerMeterSerialNumber: string
+  powerMeterDriverKind?: string
   powerMeterWavelengthNm: number
   softwareGain: number
+  powerMeterProfileId?: string
+  powerMeterProfileName?: string
+  powerMeterProfileVersion?: number
+  powerMeterProfileNotes?: string
+  powerMeterProfileWavelengthPending?: boolean
   powerMeterIntervalMs: number
   powerSmoothing: boolean
   spectrometerResource: string

@@ -26,6 +26,7 @@ from .command_safety import finite_number
 from .device_discovery import DeviceDiscoveryService
 from .export_queue import ExportQueueWorker
 from .settings import JsonSettings
+from .power_meter_profiles import PowerMeterProfiles
 from .snapshot_builder import SnapshotBuilder
 from .station_runtime import StationRuntime
 from .station_support import (
@@ -90,7 +91,9 @@ class HeadlessBackend:
         initial_config["ch341SelectedLocationPath"] = ""
         initial_config["ch341PortBindings"] = []
         self.runtime = StationRuntime(self, initial_config)
-        if legacy_stations is not None or self.runtime.power_meter_configuration_migrated:
+        self.power_meter_profiles = PowerMeterProfiles(self)
+        profiles_migrated = self.power_meter_profiles.initialize(initial_config)
+        if legacy_stations is not None or self.runtime.power_meter_configuration_migrated or profiles_migrated:
             self._persist_configuration()
         self.export_worker.start()
 
@@ -278,10 +281,13 @@ class HeadlessBackend:
             configuration["ch341PortBindings"] = []
             return configuration
 
-        self.settings.update({
-            "runtime/configuration": persistent_configuration(self.runtime),
-            "runtime/deviceProfiles": self.device_profiles,
-        }, remove_keys=("runtime/stations",))
+        # Capture and flush under the same lock as profile transactions. A
+        # concurrent device callback must never persist a candidate that rolls back.
+        with self.runtime._lock:
+            self.settings.update({
+                "runtime/configuration": persistent_configuration(self.runtime),
+                "runtime/deviceProfiles": self.device_profiles,
+            }, remove_keys=("runtime/stations",))
 
     def ping(self) -> dict[str, Any]:
         return {"status": "ok", "mode": self.mode}

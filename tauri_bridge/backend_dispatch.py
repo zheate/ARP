@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import math
+import copy
 from typing import Any, Callable
 
 from .service import BACKGROUND_FILE_TASK_METHODS
 from .station_support import (
     MANUAL_CONTROL_METHODS,
-    finite as _finite,
     normalize_device_serial as _normalize_device_serial,
 )
 
@@ -24,7 +23,7 @@ class BackendDispatcher:
             "app.configure", "powerSupply.connect", "powerSupply.setCurrent", "powerSupply.setVoltage",
             "automatic.start", "automatic.resume", "automatic.retryPoint", "automatic.recoverPowerMeter",
             "automatic.recoverSpectrometer", "automatic.adjustSpectrum", "automatic.retryPersist",
-        } or (method == "powerSupply.setOutput" and params.get("enabled", False) is not False)
+        } or method.startswith("powerMeter.profile.") or (method == "powerSupply.setOutput" and params.get("enabled", False) is not False)
         if guarded:
             with st.command_safety.command(command_generation):
                 return self._dispatch(method, params)
@@ -81,12 +80,15 @@ class BackendDispatcher:
             "app.stopAll": lambda _p: backend._stop_all(),
             "app.shutdown": lambda _p: backend._shutdown(),
         }
+        if method.startswith("powerMeter.profile."):
+            result = backend.power_meter_profiles.command(method.rsplit(".", 1)[1], params)
+            return backend.snapshot(params) if result is None else result
         action = actions.get(method)
         if action is None:
             raise KeyError(method)
         result = action(params)
         if method in {
-            "app.configure", "device.refresh", "powerSupply.connect", "powerSupply.disconnect",
+            "device.refresh", "powerSupply.connect", "powerSupply.disconnect",
             "powerSupply.setCurrent", "powerSupply.setVoltage", "powerSupply.setOutput",
             "powerMeter.start", "spectrometer.start", "automatic.start", "automatic.nextDevice",
             "automatic.resume", "automatic.retryPoint", "automatic.recoverPowerMeter",
@@ -121,58 +123,24 @@ class BackendDispatcher:
 
     def configure(self, params: dict[str, Any]) -> None:
         backend = self._backend
+        with backend.runtime._lock:
+            old_config = dict(backend.runtime.configuration)
+            old_profiles = copy.deepcopy(backend.device_profiles)
+            try:
+                self._configure(params)
+                backend._persist_configuration()
+            except Exception:
+                backend.runtime.configuration = old_config
+                backend.runtime.power_supply_kind = str(old_config["powerSupplyKind"])
+                backend.device_profiles = old_profiles
+                raise
+
+    def _configure(self, params: dict[str, Any]) -> None:
+        backend = self._backend
         backend.validate_runtime_target(params)
         target_station = backend.runtime
         previous_kind = target_station.power_supply_kind
-        previous_power_meter_resource = str(
-            target_station.configuration.get("powerMeterResource", "")
-        ).strip()
-        previous_software_gain = _finite(
-            target_station.configuration.get("softwareGain")
-        )
         target_station.configure(params)
-        if "powerMeterResource" in params:
-            selected_resource = str(target_station.configuration.get("powerMeterResource", "")).strip()
-            option = next(
-                (item for item in backend.power_meter_options if item.resource == selected_resource),
-                None,
-            )
-            if option is not None:
-                submitted_software_gain = (
-                    _finite(params.get("softwareGain"))
-                    if "softwareGain" in params
-                    else None
-                )
-                software_gain_was_edited = (
-                    "softwareGain" in params
-                    and (
-                        previous_software_gain is None
-                        or submitted_software_gain is None
-                        or not math.isclose(
-                            submitted_software_gain,
-                            previous_software_gain,
-                            rel_tol=1e-12,
-                            abs_tol=1e-12,
-                        )
-                    )
-                )
-                # The React settings UI submits the complete configuration.
-                # When only the resource changed, its softwareGain field still
-                # contains the previous meter's value and must not suppress the
-                # new meter's serial-bound profile restoration.
-                restore_gain = "softwareGain" not in params or (
-                    selected_resource != previous_power_meter_resource
-                    and not software_gain_was_edited
-                )
-                backend.discovery._bind_power_meter_option(
-                    target_station,
-                    option,
-                    restore_gain=restore_gain,
-                )
-            elif not selected_resource:
-                target_station.configuration["powerMeterSerialNumber"] = ""
-        if "softwareGain" in params:
-            backend.discovery._remember_power_meter_profile(target_station)
 
         if "spectrometerResource" in params:
             selected_resource = str(target_station.configuration.get("spectrometerResource", ""))

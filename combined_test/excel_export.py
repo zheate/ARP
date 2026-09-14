@@ -444,6 +444,7 @@ def _write_xlsx_session_information(
     sheet.set_column(0, 0, 24)
     sheet.set_column(1, 1, 72)
     test_temperature = _session_test_temperature(session)
+    settings = dict(getattr(session, "settings", {}) or {})
     rows = (
         ("出货报告格式版本", EXPORT_WORKBOOK_SCHEMA_VERSION),
         ("会话编号", getattr(session, "session_id", "")),
@@ -452,6 +453,13 @@ def _write_xlsx_session_information(
         ("批次", getattr(session, "batch", "")),
         ("测试站别", getattr(session, "station", "")),
         ("测试温度", test_temperature),
+        ("功率计探头 SN", settings.get("powerMeterSerialNumber", "")),
+        ("功率计驱动", settings.get("powerMeterDriverKind", "")),
+        ("系数方案", settings.get("powerMeterProfileName", "未记录")),
+        ("系数方案版本", settings.get("powerMeterProfileVersion", "")),
+        ("功率系数", settings.get("softwareGain", "")),
+        ("功率计校准波长 (nm)", settings.get("powerMeterWavelengthNm", "")),
+        ("方案条件备注", settings.get("powerMeterProfileNotes", "")),
         ("测试模式", getattr(session, "mode", "")),
         ("开始时间 UTC", getattr(session, "started_at_utc", "")),
         ("结束时间 UTC", getattr(session, "ended_at_utc", "") or ""),

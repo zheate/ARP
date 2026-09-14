@@ -503,6 +503,7 @@ class StationRuntimeTests(unittest.TestCase):
         controller = _FakeController()
         station.power_supply_controller = controller
         station.power_supply_kind = "tdk"
+        station.configuration["powerMeterResource"] = "ASRL3::INSTR"
         station.power_meter_reader = MagicMock(is_ready=True)
 
         with patch("tauri_bridge.station_automatic.threading.Thread") as thread_class:
@@ -535,6 +536,7 @@ class StationRuntimeTests(unittest.TestCase):
     def test_automatic_start_without_connected_spectrometer_uses_power_only(self) -> None:
         station = self.backend.runtime
         station.power_supply_controller = _FakeController()
+        station.configuration["powerMeterResource"] = "ASRL3::INSTR"
         station.power_meter_reader = MagicMock(is_ready=True)
 
         with (
@@ -905,9 +907,13 @@ class StationRuntimeTests(unittest.TestCase):
         )
         self.backend.power_meter_options = [meter_a, meter_b]
 
+        self.backend.dispatch("app.configure", {"powerMeterResource": meter_a.resource})
         self.backend.dispatch(
-            "app.configure",
-            {"stationId": "1", "powerMeterResource": meter_a.resource, "softwareGain": 1.23},
+            "powerMeter.profile.create",
+            {
+                "driverKind": "caihuang", "serialNumber": "PROBE-A",
+                "name": "Probe A", "softwareGain": 1.23, "wavelengthNm": 976.0,
+            },
         )
         self.backend.dispatch(
             "app.configure",
@@ -916,8 +922,11 @@ class StationRuntimeTests(unittest.TestCase):
         self.assertEqual(self.backend.runtime.configuration["softwareGain"], 1.0)
 
         self.backend.dispatch(
-            "app.configure",
-            {"stationId": "1", "powerMeterResource": meter_b.resource, "softwareGain": 0.98},
+            "powerMeter.profile.create",
+            {
+                "driverKind": "caihuang", "serialNumber": "PROBE-B",
+                "name": "Probe B", "softwareGain": 0.98, "wavelengthNm": 977.0,
+            },
         )
         self.backend.dispatch(
             "app.configure",
@@ -944,13 +953,21 @@ class StationRuntimeTests(unittest.TestCase):
         )
         self.backend.power_meter_options = [meter_a, meter_b]
 
+        self.backend.dispatch("app.configure", {"powerMeterResource": meter_a.resource})
         self.backend.dispatch(
-            "app.configure",
-            {"stationId": "1", "powerMeterResource": meter_a.resource, "softwareGain": 1.04},
+            "powerMeter.profile.create",
+            {
+                "driverKind": "caihuang", "serialNumber": "W500-CB-40",
+                "name": "Meter A", "softwareGain": 1.04, "wavelengthNm": 976.0,
+            },
         )
+        self.backend.dispatch("app.configure", {"powerMeterResource": meter_b.resource})
         self.backend.dispatch(
-            "app.configure",
-            {"stationId": "1", "powerMeterResource": meter_b.resource, "softwareGain": 0.97},
+            "powerMeter.profile.create",
+            {
+                "driverKind": "laserpoint", "serialNumber": "222483",
+                "name": "Meter B", "softwareGain": 0.97, "wavelengthNm": 977.0,
+            },
         )
         self.backend.dispatch(
             "app.configure",
@@ -961,8 +978,14 @@ class StationRuntimeTests(unittest.TestCase):
             item["resource"]: item
             for item in self.backend.snapshot({"stationId": "1"})["devices"]["powerMeter"]["resourceProfiles"]
         }
-        self.assertEqual(profiles[meter_a.resource]["softwareGain"], 1.04)
-        self.assertEqual(profiles[meter_b.resource]["softwareGain"], 0.97)
+        profile_a = self.backend.power_meter_profiles.selected(
+            profiles[meter_a.resource]["coefficientLibrary"]
+        )
+        profile_b = self.backend.power_meter_profiles.selected(
+            profiles[meter_b.resource]["coefficientLibrary"]
+        )
+        self.assertEqual(profile_a["softwareGain"], 1.04)
+        self.assertEqual(profile_b["softwareGain"], 0.97)
         self.assertEqual(profiles[meter_b.resource]["serialNumber"], "222483")
 
         frontend_payload = dict(self.backend.runtime.configuration)
@@ -977,12 +1000,12 @@ class StationRuntimeTests(unittest.TestCase):
         self.assertEqual(config["powerMeterDriverKind"], "laserpoint")
         self.assertEqual(config["powerMeterSerialNumber"], "222483")
         self.assertEqual(config["softwareGain"], 0.97)
-        self.assertEqual(
-            self.backend.device_profiles["powerMeters"]["laserpoint:222483"]["softwareGain"],
-            0.97,
+        selected = self.backend.power_meter_profiles.selected(
+            self.backend.device_profiles["powerMeters"]["laserpoint:222483"]
         )
+        self.assertEqual(selected["softwareGain"], 0.97)
 
-    def test_full_frontend_config_keeps_gain_edited_while_switching_meter(self) -> None:
+    def test_full_frontend_config_cannot_write_gain_while_switching_meter(self) -> None:
         meter_a = PowerMeterOption(
             resource="ASRL7::INSTR",
             device_type="Caihuang CHLP-P",
@@ -998,9 +1021,13 @@ class StationRuntimeTests(unittest.TestCase):
             serial_number="222483",
         )
         self.backend.power_meter_options = [meter_a, meter_b]
+        self.backend.dispatch("app.configure", {"powerMeterResource": meter_a.resource})
         self.backend.dispatch(
-            "app.configure",
-            {"stationId": "1", "powerMeterResource": meter_a.resource, "softwareGain": 1.04},
+            "powerMeter.profile.create",
+            {
+                "driverKind": "caihuang", "serialNumber": "W500-CB-40",
+                "name": "Meter A", "softwareGain": 1.04, "wavelengthNm": 976.0,
+            },
         )
 
         frontend_payload = dict(self.backend.runtime.configuration)
@@ -1015,11 +1042,11 @@ class StationRuntimeTests(unittest.TestCase):
 
         config = self.backend.runtime.configuration
         self.assertEqual(config["powerMeterSerialNumber"], "222483")
-        self.assertEqual(config["softwareGain"], 1.08)
-        self.assertEqual(
-            self.backend.device_profiles["powerMeters"]["laserpoint:222483"]["softwareGain"],
-            1.08,
+        self.assertEqual(config["softwareGain"], 1.0)
+        selected = self.backend.power_meter_profiles.selected(
+            self.backend.device_profiles["powerMeters"]["laserpoint:222483"]
         )
+        self.assertEqual(selected["softwareGain"], 1.0)
 
     def test_remembered_serial_rebinds_power_meter_to_its_current_port(self) -> None:
         station = self.backend.runtime

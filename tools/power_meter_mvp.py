@@ -26,6 +26,10 @@ OPHIR_COM_PROGID = "OphirLMMeasurement.CoLMMeasurement"
 OPHIR_RESOURCE_PREFIX = "OPHIR::USB::"
 OPHIR_CHANNEL = 0
 OPHIR_SAMPLE_TIMEOUT_S = 2.0
+# Tolerance only absorbs floating-point/string conversion noise. It is far
+# below a meaningful calibration wavelength difference and must not select a
+# physically different preset.
+OPHIR_WAVELENGTH_MATCH_TOLERANCE_NM = 1e-6
 LASERPOINT_RANGE_SYNC_ATTEMPTS = 4
 
 
@@ -890,7 +894,7 @@ class OphirPowerMeter:
         if not callable(getter) or not callable(setter):
             raise RuntimeError("当前 Ophir COM 组件不支持设置校准波长")
 
-        current_index, options = _com_outputs(
+        _current_index, options = _com_outputs(
             getter(self.handle, self.channel),
             2,
         )
@@ -899,6 +903,8 @@ class OphirPowerMeter:
             raise RuntimeError("Ophir 功率计未返回可用波长列表")
 
         target = float(wavelength_nm)
+        if not math.isfinite(target):
+            raise RuntimeError(f"Ophir 校准波长无效：{wavelength_nm}")
         numeric_options: list[tuple[int, float]] = []
         for index, option in enumerate(option_values):
             match = re.search(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)", str(option))
@@ -909,13 +915,31 @@ class OphirPowerMeter:
             except ValueError:
                 continue
 
-        if numeric_options:
-            selected_index = min(numeric_options, key=lambda item: abs(item[1] - target))[0]
-        else:
-            try:
-                selected_index = int(_com_first_value(current_index))
-            except (TypeError, ValueError):
-                selected_index = 0
+        exact_match = next(
+            (
+                (index, value)
+                for index, value in numeric_options
+                if math.isclose(
+                    value,
+                    target,
+                    rel_tol=0.0,
+                    abs_tol=OPHIR_WAVELENGTH_MATCH_TOLERANCE_NM,
+                )
+            ),
+            None,
+        )
+        if exact_match is None:
+            if numeric_options:
+                available = ", ".join(format_wavelength_nm(value) for _, value in numeric_options)
+                raise RuntimeError(
+                    f"Ophir 功率计不支持校准波长 {format_wavelength_nm(target)} nm；"
+                    f"可用波长：{available} nm"
+                )
+            raise RuntimeError(
+                "Ophir 功率计仅返回命名波长预设，无法确认请求的数值校准波长；"
+                "请在 StarLab 中检查探头波长配置"
+            )
+        selected_index = exact_match[0]
         setter(self.handle, self.channel, int(selected_index))
 
     def _ensure_stream(self) -> None:

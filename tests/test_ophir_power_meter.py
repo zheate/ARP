@@ -180,6 +180,59 @@ class OphirPowerMeterReadTests(unittest.TestCase):
         self.assertEqual(result, 0.25)
         self.assertEqual(meter.controller.read_count, 7)
 
+    def test_supported_numeric_wavelength_selects_its_exact_preset(self) -> None:
+        class Controller:
+            def __init__(self) -> None:
+                self.selections: list[tuple[int, int, int]] = []
+
+            def GetWavelengths(self, _handle: int, _channel: int):
+                return 0, ("532 nm", "976.000000 nm", "1064 nm")
+
+            def SetWavelength(self, handle: int, channel: int, index: int) -> None:
+                self.selections.append((handle, channel, index))
+
+        controller = Controller()
+        meter = self._meter(controller)
+        meter.set_wavelength(976.0000005)
+
+        self.assertEqual(controller.selections, [(1000, 0, 1)])
+
+    def test_unsupported_numeric_wavelength_does_not_select_nearest_preset(self) -> None:
+        class Controller:
+            def __init__(self) -> None:
+                self.selections: list[tuple[int, int, int]] = []
+
+            def GetWavelengths(self, _handle: int, _channel: int):
+                return 0, ("532 nm", "976 nm", "1064 nm")
+
+            def SetWavelength(self, handle: int, channel: int, index: int) -> None:
+                self.selections.append((handle, channel, index))
+
+        controller = Controller()
+        meter = self._meter(controller)
+        with self.assertRaisesRegex(RuntimeError, "不支持校准波长 975.8 nm"):
+            meter.set_wavelength(975.8)
+
+        self.assertEqual(controller.selections, [])
+
+    def test_named_only_wavelength_presets_fail_without_changing_the_device(self) -> None:
+        class Controller:
+            def __init__(self) -> None:
+                self.selections: list[tuple[int, int, int]] = []
+
+            def GetWavelengths(self, _handle: int, _channel: int):
+                return 0, ("Broadband", "VIS", "NIR")
+
+            def SetWavelength(self, handle: int, channel: int, index: int) -> None:
+                self.selections.append((handle, channel, index))
+
+        controller = Controller()
+        meter = self._meter(controller)
+        with self.assertRaisesRegex(RuntimeError, "仅返回命名波长预设"):
+            meter.set_wavelength(976.0)
+
+        self.assertEqual(controller.selections, [])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -286,6 +286,33 @@ class CoherentPowerMeterTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "功率量程单位不受支持"):
             power_meter_mvp.parse_laserpoint_full_scale_power_to_w("#4.5_MW;")
 
+    def test_laserpoint_rejects_fractional_wavelength_without_sending_a_command(self) -> None:
+        instrument = FakeVisaInstrument()
+        meter = power_meter_mvp.LaserPointPowerMeter.__new__(
+            power_meter_mvp.LaserPointPowerMeter
+        )
+        meter.inst = instrument
+        meter._power_ranges_to_w = {0: 1.0}
+
+        with self.assertRaisesRegex(RuntimeError, "波长必须是整数 nm"):
+            meter.set_wavelength(976.5)
+
+        self.assertEqual(instrument.writes, [])
+        self.assertEqual(meter._power_ranges_to_w, {0: 1.0})
+
+    def test_laserpoint_sends_supported_integer_wavelength_unchanged(self) -> None:
+        instrument = FakeVisaInstrument()
+        meter = power_meter_mvp.LaserPointPowerMeter.__new__(
+            power_meter_mvp.LaserPointPowerMeter
+        )
+        meter.inst = instrument
+        meter._power_ranges_to_w = {0: 1.0}
+
+        meter.set_wavelength(976.0)
+
+        self.assertEqual(instrument.writes, ["*SETLAM00976"])
+        self.assertEqual(meter._power_ranges_to_w, {})
+
     def test_adapter_sets_watts_and_wavelength_reads_power_and_controls_zero(self) -> None:
         instrument = FakeVisaInstrument()
         manager = FakeVisaManager(instrument)

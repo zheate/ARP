@@ -646,6 +646,7 @@ class StationAutomaticMixin:
         if not str(self.configuration.get("powerMeterResource", "")).strip():
             block("power_meter_not_selected", "请选择功率计资源")
         try:
+            self.backend.power_meter_profiles.require_ready()
             self._automatic_settings()
         except (TypeError, ValueError) as exc:
             block("invalid_test_settings", str(exc))

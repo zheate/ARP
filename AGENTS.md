@@ -104,6 +104,11 @@ or `python -m tools.pd_daq_mvp --help`.
   `*SERNU`, and Ophir uses StarLab COM `GetSensorInfo()`. Meter SN and resource
   names remain connection identities only. Software gain is restored only after
   the same driver and probe/head SN are found again.
+- Each probe owns named coefficient profiles containing gain, calibration wavelength,
+  and condition notes. Profile commands append revisions; ordinary configuration saves
+  must not overwrite them. Keep the last selected profile, freeze its measurement
+  parameters in session records, and block changes during acquisition or with unsaved
+  manual points. Legacy profiles with no known wavelength require completion before use.
 - Spectrometers are discovered through OceanDirect `find_usb_devices()`,
   `get_device_ids()`, and `get_serial_number()` and are shown as:
   `Ocean Insight | 设备 ID <id> | SN <serial>`.

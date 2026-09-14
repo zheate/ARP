@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 
-import { fetchBackendSnapshot, mergeBackendSnapshot, sendBackendCommand, subscribeBackendSnapshots, type BackendSnapshot, type SeriesRevisions, type SnapshotView } from "@/lib/backend"
+import { fetchBackendSnapshot, mergeBackendSnapshot, sendBackendCommand, subscribeBackendSnapshots, type AppConfiguration, type BackendSnapshot, type PowerMeterCoefficientLibrary, type PowerMeterCoefficientRevision, type SeriesRevisions, type SnapshotView } from "@/lib/backend"
+import { powerMeterProfileForResource } from "@/lib/power-meter-resource"
 
 // Acquisition remains device-owned; the native WebView2 bridge streams compact
 // snapshots without allocating a new command callback for every UI refresh.
@@ -11,6 +12,118 @@ const DEMO_RUN_ENABLED = DEMO_PREVIEW_ENABLED && typeof window !== "undefined" &
 
 import { DEMO_RUN_SNAPSHOT, DEMO_SNAPSHOT, resetDemoRun } from "@/lib/demo-snapshot"
 import { demoRunSnapshot } from "@/lib/demo-run"
+
+function selectedDemoRevision(library: PowerMeterCoefficientLibrary): PowerMeterCoefficientRevision | null {
+  const profile = library.profiles.find((item) => item.id === library.selectedProfileId)
+  return profile?.versions.find((item) => item.version === library.selectedVersion)
+    ?? profile?.versions[profile.versions.length - 1]
+    ?? null
+}
+
+function demoConfigurationForLibrary(
+  config: AppConfiguration,
+  library: PowerMeterCoefficientLibrary,
+): AppConfiguration {
+  const revision = selectedDemoRevision(library)
+  return {
+    ...config,
+    powerMeterDriverKind: library.driverKind,
+    powerMeterSerialNumber: library.serialNumber,
+    powerMeterProfileId: library.selectedProfileId,
+    powerMeterProfileName: revision?.name ?? "未绑定方案",
+    powerMeterProfileVersion: revision?.version ?? 0,
+    powerMeterProfileNotes: revision?.notes ?? "",
+    powerMeterProfileWavelengthPending: revision?.wavelengthNm == null,
+    softwareGain: revision?.softwareGain ?? 1,
+    powerMeterWavelengthNm: revision?.wavelengthNm ?? 976,
+  }
+}
+
+function demoProfileRevision(params: Record<string, unknown>, version: number): PowerMeterCoefficientRevision {
+  const name = String(params.name ?? "").trim()
+  const softwareGain = Number(params.softwareGain)
+  const wavelengthNm = Number(params.wavelengthNm)
+  if (!name) throw new Error("请填写方案名称")
+  if (![softwareGain, wavelengthNm].every((value) => Number.isFinite(value) && value > 0)) {
+    throw new Error("功率系数和校准波长必须是大于零的数值")
+  }
+  return {
+    version,
+    name,
+    softwareGain,
+    wavelengthNm,
+    notes: String(params.notes ?? "").trim(),
+    operator: String(params.operator ?? "").trim(),
+    reason: String(params.reason ?? "").trim(),
+    createdAt: new Date().toISOString(),
+  }
+}
+
+function runDemoPowerMeterProfileCommand(
+  base: BackendSnapshot,
+  method: string,
+  params: Record<string, unknown>,
+): BackendSnapshot {
+  const current = base.devices.powerMeter.coefficientLibrary
+  if (!current) throw new Error("请先识别并选择具有探头 SN 的功率计")
+  if (current.driverKind !== params.driverKind || current.serialNumber !== params.serialNumber) {
+    throw new Error("探头已切换，请重新打开系数方案")
+  }
+  const library = JSON.parse(JSON.stringify(current)) as PowerMeterCoefficientLibrary
+  const profileId = String(params.profileId ?? "")
+  let profile = library.profiles.find((item) => item.id === profileId)
+  let revision: PowerMeterCoefficientRevision
+  if (method === "powerMeter.profile.create") {
+    revision = demoProfileRevision(params, 1)
+    profile = { id: `demo-profile-${Date.now()}-${library.profiles.length}`, versions: [revision] }
+    library.profiles.push(profile)
+  } else {
+    if (!profile) throw new Error("方案不存在")
+    const latest = profile.versions[profile.versions.length - 1]
+    if (!latest || params.expectedVersion !== latest.version) {
+      throw new Error("方案已被修改，请刷新后查看最新版本；本次编辑未覆盖已有修改")
+    }
+    if (method === "powerMeter.profile.select") {
+      revision = latest
+    } else if (method === "powerMeter.profile.save") {
+      revision = demoProfileRevision(params, latest.version + 1)
+      profile.versions.push(revision)
+    } else if (method === "powerMeter.profile.restore") {
+      const target = profile.versions.find((item) => item.version === params.restoreVersion)
+      if (!target) throw new Error("历史版本不存在")
+      revision = demoProfileRevision({
+        ...target,
+        operator: params.operator ?? "",
+        reason: params.reason || `恢复 v${target.version}`,
+      }, latest.version + 1)
+      profile.versions.push(revision)
+    } else {
+      throw new Error("未知系数方案操作")
+    }
+  }
+  if (library.profiles.some((item) => item.id !== profile!.id && item.versions[item.versions.length - 1]?.name === revision.name)) {
+    throw new Error("同一探头已有同名方案，请使用不同名称")
+  }
+  library.selectedProfileId = profile.id
+  library.selectedVersion = revision.version
+  const configuration = demoConfigurationForLibrary(base.configuration!, library)
+  return {
+    ...base,
+    configuration,
+    devices: {
+      ...base.devices,
+      powerMeter: {
+        ...base.devices.powerMeter,
+        coefficientLibrary: library,
+        resourceProfiles: base.devices.powerMeter.resourceProfiles?.map((item) => (
+          item.driverKind === library.driverKind && item.serialNumber === library.serialNumber
+            ? { ...item, softwareGain: revision.softwareGain, coefficientLibrary: library }
+            : item
+        )),
+      },
+    },
+  }
+}
 
 export function useBackendSnapshot(view: SnapshotView) {
   const [snapshot, setSnapshot] = useState<BackendSnapshot | null>(null)
@@ -115,7 +228,89 @@ export function useBackendSnapshot(view: SnapshotView) {
           return next
         }
         if (method === "app.configure") {
-          return publishDemo({ ...base, configuration: { ...base.configuration!, ...params } })
+          const configured = { ...base.configuration!, ...params } as AppConfiguration
+          const resourceProfile = powerMeterProfileForResource(
+            base.devices.powerMeter.resourceProfiles,
+            configured.powerMeterResource,
+          )
+          const library = resourceProfile?.coefficientLibrary
+            ?? (configured.powerMeterResource === base.configuration?.powerMeterResource
+              ? base.devices.powerMeter.coefficientLibrary
+              : null)
+          const configuration = library ? demoConfigurationForLibrary(configured, library) : configured
+          return publishDemo({
+            ...base,
+            configuration,
+            devices: {
+              ...base.devices,
+              powerMeter: {
+                ...base.devices.powerMeter,
+                coefficientLibrary: library,
+                detail: resourceProfile
+                  ? `${resourceProfile.driverKind} · 探头 SN ${resourceProfile.serialNumber}`
+                  : base.devices.powerMeter.detail,
+              },
+            },
+          })
+        }
+        if (method.startsWith("powerMeter.profile.")) {
+          return publishDemo(runDemoPowerMeterProfileCommand(base, method, params))
+        }
+        if (method === "device.refresh") {
+          const device = params.device
+          if (device !== "powerSupply" && device !== "powerMeter" && device !== "spectrometer") {
+            throw new Error("未知示例设备")
+          }
+          const detecting = publishDemo({
+            ...base,
+            devices: {
+              ...base.devices,
+              [device]: { ...base.devices[device], detecting: true, detail: "正在识别示例设备…" },
+            },
+          })
+          await new Promise((resolve) => window.setTimeout(resolve, 300))
+          const failed = Boolean(params.fail || (typeof window !== "undefined" && (window as unknown as { __SIMULATE_DEVICE_FAIL?: boolean }).__SIMULATE_DEVICE_FAIL))
+          return publishDemo({
+            ...detecting,
+            devices: {
+              ...detecting.devices,
+              [device]: {
+                ...detecting.devices[device],
+                detecting: false,
+                detail: failed
+                  ? "识别失败：未找到 OceanDirect.dll: /Users/zh/Documents/test/ARP/assets/libs/ocean_direct/OceanDirect.dll"
+                  : "识别完成：示例设备可用",
+              },
+            },
+          })
+        }
+        if (method === "powerMeter.start" || method === "powerMeter.stop") {
+          return publishDemo({
+            ...base,
+            devices: {
+              ...base.devices,
+              powerMeter: { ...base.devices.powerMeter, connected: true, state: "connected", running: method.endsWith("start") },
+            },
+          })
+        }
+        if (method === "spectrometer.start" || method === "spectrometer.stop") {
+          return publishDemo({
+            ...base,
+            devices: {
+              ...base.devices,
+              spectrometer: { ...base.devices.spectrometer, connected: true, state: "connected", running: method.endsWith("start") },
+            },
+          })
+        }
+        if (method === "powerSupply.connect" || method === "powerSupply.disconnect") {
+          const connected = method.endsWith("connect") && !method.endsWith("disconnect")
+          return publishDemo({
+            ...base,
+            devices: {
+              ...base.devices,
+              powerSupply: { ...base.devices.powerSupply, connected, state: connected ? "connected" : "disconnected", outputEnabled: connected ? base.devices.powerSupply.outputEnabled : false },
+            },
+          })
         }
         if (method === "automatic.start") {
           const runConfiguration = { ...base.configuration!, ...params }
@@ -140,7 +335,7 @@ export function useBackendSnapshot(view: SnapshotView) {
             devices: {
               ...base.devices,
               powerSupply: { ...base.devices.powerSupply, outputEnabled: false, activeCurrentA: 0, outputCurrentA: 0 },
-              powerMeter: { ...base.devices.powerMeter, powerW: 0, stable: false, stableElapsedS: null },
+              powerMeter: { ...base.devices.powerMeter, running: false, powerW: 0, stable: false, stableElapsedS: null },
             },
             automaticTest: {
               ...base.automaticTest,

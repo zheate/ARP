@@ -20,7 +20,6 @@ from combined_test.tdk_power_supply import (
 from .station_runtime import StationRuntime
 from .station_support import (
     DeviceDiscoveryThread as _DeviceDiscoveryThread,
-    finite as _finite,
     normalize_device_serial as _normalize_device_serial,
     power_meter_serial_number as _power_meter_serial_number,
     spectrometer_label as _spectrometer_label,
@@ -31,68 +30,25 @@ class DeviceDiscoveryService:
     def __init__(self, backend: Any) -> None:
         self._backend = backend
 
-    def _power_meter_profile_key(self, driver_kind: str, serial_number: str) -> str:
-        backend = self._backend
-        return f"{str(driver_kind).strip().lower()}:{_normalize_device_serial(serial_number)}"
-
-    def _remember_power_meter_profile(self, station: StationRuntime) -> None:
-        backend = self._backend
-        serial_number = _normalize_device_serial(
-            station.configuration.get("powerMeterSerialNumber")
-        )
-        if not serial_number:
-            return
-        driver_kind = str(station.configuration.get("powerMeterDriverKind", "caihuang")).lower()
-        key = self._power_meter_profile_key(driver_kind, serial_number)
-        backend.device_profiles["powerMeters"][key] = {
-            "serialNumber": serial_number,
-            "driverKind": driver_kind,
-            "softwareGain": float(station.configuration.get("softwareGain", 1.0)),
-        }
-
-    def _restore_power_meter_gain(
-        self,
-        station: StationRuntime,
-        option: PowerMeterOption,
-        serial_number: str,
-    ) -> bool:
-        backend = self._backend
-        key = self._power_meter_profile_key(option.driver_kind, serial_number)
-        profile = backend.device_profiles["powerMeters"].get(key)
-        if profile is not None:
-            gain = _finite(profile.get("softwareGain"))
-            if gain is not None and gain > 0.0:
-                station.configuration["softwareGain"] = gain
-                return True
-        return False
-
     def _power_meter_profile_gain(self, option: PowerMeterOption) -> float:
-        backend = self._backend
-        serial_number = _power_meter_serial_number(option)
-        if not serial_number:
-            return 1.0
-        key = self._power_meter_profile_key(option.driver_kind, serial_number)
-        profile = backend.device_profiles["powerMeters"].get(key)
-        gain = _finite(None if profile is None else profile.get("softwareGain"))
-        return gain if gain is not None and gain > 0.0 else 1.0
+        service = self._backend.power_meter_profiles
+        revision = service.selected(service.library(option.driver_kind, _power_meter_serial_number(option)))
+        return revision["softwareGain"] if revision else 1.0
 
-    def _bind_power_meter_option(
-        self,
-        station: StationRuntime,
-        option: PowerMeterOption,
-        *,
-        restore_gain: bool = True,
-    ) -> None:
-        backend = self._backend
+    def _bind_power_meter_option(self, station: StationRuntime, option: PowerMeterOption) -> None:
+        service = self._backend.power_meter_profiles
         serial_number = _power_meter_serial_number(option)
-        station.configuration["powerMeterResource"] = option.resource
-        station.configuration["powerMeterDriverKind"] = option.driver_kind
-        station.configuration["powerMeterSerialNumber"] = serial_number
-        if serial_number and restore_gain:
-            if not self._restore_power_meter_gain(station, option, serial_number):
-                station.configuration["softwareGain"] = 1.0
-        if serial_number:
-            self._remember_power_meter_profile(station)
+        with station._lock:
+            if (service.key(option.driver_kind, serial_number) != service.current_key()
+                    or option.resource != station.configuration["powerMeterResource"]):
+                service.assert_editable()
+            key = service.key(option.driver_kind, serial_number)
+            is_new = key not in self._backend.device_profiles["powerMeters"]
+            service.ensure(option.driver_kind, serial_number, wavelength=976.0 if is_new else None)
+            station.configuration["powerMeterResource"] = option.resource
+            station.configuration["powerMeterDriverKind"] = option.driver_kind
+            station.configuration["powerMeterSerialNumber"] = serial_number
+            service.apply_current()
 
     def _rebind_remembered_power_meters(self, options: Sequence[PowerMeterOption]) -> None:
         backend = self._backend
@@ -390,25 +346,41 @@ class DeviceDiscoveryService:
             if backend.power_meter_detect_thread is not None:
                 return
         backend.validate_runtime_target(params)
+        backend.power_meter_profiles.assert_editable()
         thread = PowerMeterDetectThread(preferred_resource="")
         with backend._lock:
             backend.power_meter_detect_thread = thread
             backend.power_meter_detection_detail = "正在准备功率计识别"
 
         def on_detected(options: list[PowerMeterOption]) -> None:
+            # Never nest the shared backend lock around the station lock.
             with backend._lock:
                 backend.power_meter_options = list(options)
-                self._rebind_remembered_power_meters(options)
-                self._select_power_meter_after_scan(
-                    backend.runtime,
-                    options,
-                )
+            with backend.runtime._lock:
+                import copy
+                old_config = dict(backend.runtime.configuration)
+                old_profiles = copy.deepcopy(backend.device_profiles)
+                try:
+                    for option in options:
+                        key = backend.power_meter_profiles.key(option.driver_kind, _power_meter_serial_number(option))
+                        backend.power_meter_profiles.ensure(
+                            option.driver_kind, _power_meter_serial_number(option),
+                            wavelength=976.0 if key not in backend.device_profiles["powerMeters"] else None,
+                        )
+                    self._rebind_remembered_power_meters(options)
+                    self._select_power_meter_after_scan(backend.runtime, options)
+                    backend._persist_configuration()
+                except Exception as exc:
+                    backend.runtime.configuration = old_config
+                    backend.device_profiles = old_profiles
+                    on_failed(str(exc))
+                    return
+            with backend._lock:
                 backend.power_meter_detection_detail = (
                     f"识别完成：发现 {len(options)} 台兼容功率计"
                     if options
                     else "识别完成：未找到兼容功率计，请检查 USB/串口连接与驱动"
                 )
-                backend._persist_configuration()
         def on_finished() -> None:
             with backend._lock:
                 backend.power_meter_detect_thread = None
@@ -460,12 +432,13 @@ class DeviceDiscoveryService:
             ]
             with backend._lock:
                 backend.spectrometer_resources = resources
+                backend.spectrometer_detection_detail = f"识别完成：发现 {len(devices)} 台光谱仪"
+            with backend.runtime._lock:
                 self._rebind_remembered_spectrometers(resources)
                 self._select_spectrometer_after_scan(
                     backend.runtime,
                     resources,
                 )
-                backend.spectrometer_detection_detail = f"识别完成：发现 {len(devices)} 台光谱仪"
                 backend._persist_configuration()
 
         def on_status(message: str) -> None:
