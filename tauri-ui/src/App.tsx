@@ -1521,7 +1521,7 @@ function PowerProtectionDialog({ message, onClose }: { message: string; onClose:
         <div aria-labelledby="power-protection-title" aria-modal="true" className="status-dialog motion-dialog-enter w-[min(520px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--app-danger)_55%,transparent)] bg-popover shadow-2xl shadow-black/45" role="alertdialog">
         <div className="flex items-start gap-4 border-b border-border px-5 py-5">
           <div className="grid size-11 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,var(--app-danger)_16%,transparent)] text-[var(--app-danger)]"><OctagonAlert className="size-6" /></div>
-          <div><h2 className="text-lg font-semibold" id="power-protection-title">功率保护已触发</h2><p className="mt-1 text-sm text-muted-foreground">设备已进入断电保护状态</p></div>
+          <div><h2 className="text-lg font-semibold" id="power-protection-title">功率保护已触发</h2><p className="mt-1 text-sm text-muted-foreground">保护已触发；请核对下电结果与电源实体面板</p></div>
         </div>
         <div className="px-5 py-5"><p className="whitespace-pre-line text-sm leading-6 text-foreground">{message}</p></div>
           <div className="flex justify-end border-t border-border bg-background/35 px-5 py-3"><Button onClick={onClose} ref={acknowledgeButtonRef} variant="destructive">确认并关闭</Button></div>
@@ -1796,7 +1796,7 @@ function AutomaticCompletionDialog({
             )}
             <div className={`rounded-lg border px-3.5 py-2.5 ${exportStatus === "failed" ? "border-destructive/40 bg-destructive/10" : "border-border/60 bg-muted/20"}`}>
               <span className="text-[11px] font-medium text-muted-foreground">数据与结果文件</span>
-              <p className={`mt-1 text-xs font-semibold ${exportStatus === "failed" ? "text-destructive" : "text-foreground"}`}>本地 JSONL 已保存 · {exportLabel}</p>
+              <p className={`mt-1 text-xs font-semibold ${exportStatus === "failed" ? "text-destructive" : "text-foreground"}`}>{journalPath ? "本地记录路径已提供" : "本地记录路径未提供"} · {exportLabel}</p>
               {exportPath && <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground" title={exportPath}>{exportPath}</p>}
               {exportError && <p className="mt-1 text-xs leading-5 text-destructive">{exportError}</p>}
               {resultOpenError && <p aria-live="polite" className="mt-1 text-xs leading-5 text-destructive">{resultOpenError}</p>}
@@ -5122,7 +5122,7 @@ const ManualPage = memo(function ManualPage({
         </div>
         <RealtimeMetricCards
           config={config}
-          currentA={psu?.activeCurrentA ?? config.setCurrentA}
+          currentA={psu?.connected ? (config.powerSupplyKind === "ch341" ? psu.activeCurrentA : psu.outputCurrentA) : null}
           powerMeter={meter}
           spectrometer={spectrum}
         />
