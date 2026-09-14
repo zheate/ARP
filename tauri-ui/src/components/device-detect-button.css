@@ -1,0 +1,75 @@
+.device-detect-button {
+  min-inline-size: calc(3em + 2.75rem);
+}
+
+.device-detect-button__label {
+  inline-size: 3em;
+  text-align: center;
+}
+
+.device-detect-button__icon {
+  display: grid;
+  flex: 0 0 1rem;
+  width: 1rem;
+  height: 1rem;
+  place-items: center;
+}
+
+.device-detect-button__icon > svg {
+  grid-area: 1 / 1;
+  transition: opacity 140ms ease;
+}
+
+.device-detect-button__spinner {
+  opacity: 0;
+}
+
+.device-detect-button__track {
+  opacity: 0.18;
+}
+
+.device-detect-button__arc {
+  stroke-dasharray: 18 57;
+}
+
+/* Busy must stay legible, including under the global dark disabled styles. */
+[data-slot="button"].device-detect-button[aria-busy="true"]:disabled {
+  color: var(--primary) !important;
+  background: color-mix(in oklch, var(--primary) 7%, var(--background)) !important;
+  border-color: color-mix(in oklch, var(--primary) 25%, var(--border)) !important;
+  cursor: wait;
+  pointer-events: auto;
+}
+
+.device-detect-button[aria-busy="true"] .device-detect-button__refresh {
+  opacity: 0;
+}
+
+.device-detect-button[aria-busy="true"] .device-detect-button__spinner {
+  opacity: 1;
+  animation: device-detect-rotate 1s linear infinite;
+}
+
+.device-detect-button[aria-busy="true"] .device-detect-button__arc {
+  animation: device-detect-arc 1.8s ease-in-out infinite;
+}
+
+@keyframes device-detect-rotate {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes device-detect-arc {
+  0%, 100% { stroke-dasharray: 18 57; }
+  50% { stroke-dasharray: 40 57; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .device-detect-button__icon > svg {
+    transition: none;
+  }
+
+  .device-detect-button[aria-busy="true"] .device-detect-button__spinner,
+  .device-detect-button[aria-busy="true"] .device-detect-button__arc {
+    animation: none;
+  }
+}

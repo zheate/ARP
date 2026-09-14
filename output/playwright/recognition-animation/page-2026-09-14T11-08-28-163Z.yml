@@ -1,0 +1,162 @@
+- generic [ref=f3e3]:
+  - banner [ref=f3e4]:
+    - generic [ref=f3e5]: Power Test
+    - generic "测试阶段：提前结束，已记录 3 / 6 点" [ref=f3e220]:
+      - list [ref=f3e8]:
+        - listitem [ref=f3e9]:
+          - generic [ref=f3e11]: 准备
+        - listitem [ref=f3e12]:
+          - generic [ref=f3e14]: 升流
+        - listitem [ref=f3e15]:
+          - generic [ref=f3e17]: 稳定
+        - listitem [ref=f3e18]:
+          - generic [ref=f3e20]: 记录
+        - listitem [ref=f3e21]:
+          - generic [ref=f3e23]: 提前结束
+      - strong [ref=f3e25]: 已记录 3 / 6
+    - generic [ref=f3e26]:
+      - button "显示" [ref=f3e27] [cursor=pointer]
+      - button "急停" [ref=f3e29] [cursor=pointer]
+  - generic [ref=f3e30]:
+    - complementary [ref=f3e31]:
+      - navigation [ref=f3e32]:
+        - button "自动测试" [ref=f3e33] [cursor=pointer]
+        - button "手动配置" [ref=f3e39] [cursor=pointer]
+        - button "PD 采集" [ref=f3e46] [cursor=pointer]
+        - button "数据浏览" [ref=f3e50] [cursor=pointer]
+        - button "出货报告" [ref=f3e55] [cursor=pointer]
+        - button "系统设置" [ref=f3e60] [cursor=pointer]
+      - generic "侧栏格言 Stay True" [ref=f3e65]:
+        - paragraph [ref=f3e67]: Stay True
+    - main [ref=f3e68]:
+      - generic [ref=f3e69]:
+        - region "测试结果摘要" [ref=f3e221]:
+          - generic [ref=f3e222]:
+            - generic [ref=f3e227]:
+              - generic [ref=f3e228]:
+                - strong [ref=f3e229]: 测试已提前结束
+                - button "详情" [ref=f3e230] [cursor=pointer]
+              - status "测试已手动终止并安全下电" [ref=f3e233]
+            - generic [ref=f3e234]:
+              - generic [ref=f3e235]: 当前样品
+              - strong [ref=f3e236]: DEMO-001
+              - generic [ref=f3e237]: 水冷25°C · 站别 1
+            - generic [ref=f3e238]:
+              - generic [ref=f3e239]:
+                - term [ref=f3e240]: 耗时
+                - definition [ref=f3e244]: 02:36
+              - generic [ref=f3e245]:
+                - term [ref=f3e246]: 测试点
+                - definition [ref=f3e247]: 3 / 6
+              - generic [ref=f3e248]:
+                - term [ref=f3e249]: 数据
+                - definition [ref=f3e250]: 本地已保存
+                - text: Excel 已生成
+              - generic [ref=f3e251]:
+                - term [ref=f3e252]: 安全下电
+                - definition [ref=f3e253]: 已确认
+            - generic [ref=f3e254]:
+              - button "查看数据" [ref=f3e255] [cursor=pointer]
+              - button "下一颗" [ref=f3e256] [cursor=pointer]
+        - region "测试设备与控制" [ref=f3e103]:
+          - button "电源信息，点击打开设置" [ref=f3e257] [cursor=pointer]:
+            - generic [ref=f3e108]:
+              - generic [ref=f3e109]:
+                - strong [ref=f3e110]: 电源
+                - generic "TDK" [ref=f3e111]
+              - generic [ref=f3e112]: 在线
+              - generic "电压 12 V · 电流 2 → 12 A · 步进 2 A" [ref=f3e114]
+          - button "功率计信息，点击打开设置" [ref=f3e258] [cursor=pointer]:
+            - generic [ref=f3e120]:
+              - generic [ref=f3e121]:
+                - strong [ref=f3e122]: 功率计
+                - generic "Caihuang CHLP-P" [ref=f3e123]
+              - generic [ref=f3e124]: 在线
+              - generic "976nm 生产光路 · v2 / 系数 ×1.018 · 976 nm" [ref=f3e126]
+          - button "光谱仪信息，点击打开设置" [ref=f3e259] [cursor=pointer]:
+            - generic [ref=f3e135]:
+              - generic [ref=f3e136]:
+                - strong [ref=f3e137]: 光谱仪
+                - generic "Ocean Insight" [ref=f3e138]
+              - generic [ref=f3e139]: 在线 · 采集中
+              - generic "中心波长 976 nm · FWHM ≤ 0.6 nm" [ref=f3e141]
+          - generic [ref=f3e144]:
+            - button "开始" [ref=f3e260] [cursor=pointer]
+            - button "停止" [disabled]
+        - generic [ref=f3e146]:
+          - generic [ref=f3e147]:
+            - generic "功率实时" [ref=f3e149]:
+              - generic [ref=f3e151]:
+                - img "功率实时曲线" [ref=f3e152]
+                - generic [ref=f3e153]: 实时功率
+            - generic "功率 / 效率" [ref=f3e154]:
+              - generic [ref=f3e155]:
+                - generic [ref=f3e156]:
+                  - img "功率 / 效率曲线" [ref=f3e157]
+                  - generic [ref=f3e158]: 功率 (W)、效率 (%)、历史参考
+                - generic:
+                  - generic "图例":
+                    - generic: 功率 (W)
+                    - generic: 效率 (%)
+                    - generic: 历史参考
+          - region "实时关键指标" [ref=f3e159]:
+            - generic [ref=f3e160]:
+              - generic "功率稳定状态：末点已稳定，0.0 / 5 秒" [ref=f3e262]:
+                - generic "末点已稳定" [ref=f3e263]
+                - generic [ref=f3e166]: 0.0 / 5 秒
+              - generic [ref=f3e167]:
+                - generic "0.000" [ref=f3e264]:
+                  - generic [aria-hidden] [ref=f3e170]: "0"
+                  - generic [aria-hidden] [ref=f3e171]: .
+                  - generic [aria-hidden] [ref=f3e172]: "0"
+                  - generic [aria-hidden] [ref=f3e173]: "0"
+                  - generic [aria-hidden] [ref=f3e174]: "0"
+                - generic [ref=f3e175]:
+                  - text: W @
+                  - generic [ref=f3e176]: 0 A
+            - button "中心波长，点击设置规格" [ref=f3e177] [cursor=pointer]:
+              - generic [ref=f3e178]: 中心波长
+              - generic [ref=f3e180]:
+                - generic "976.200" [ref=f3e182]:
+                  - generic [aria-hidden] [ref=f3e183]: "9"
+                  - generic [aria-hidden] [ref=f3e184]: "7"
+                  - generic [aria-hidden] [ref=f3e185]: "6"
+                  - generic [aria-hidden] [ref=f3e186]: .
+                  - generic [aria-hidden] [ref=f3e187]: "2"
+                  - generic [aria-hidden] [ref=f3e188]: "0"
+                  - generic [aria-hidden] [ref=f3e189]: "0"
+                - generic [ref=f3e190]: nm
+            - button "FWHM，点击设置规格" [ref=f3e191] [cursor=pointer]:
+              - generic [ref=f3e192]: FWHM
+              - generic [ref=f3e194]:
+                - generic "0.776" [ref=f3e196]:
+                  - generic [aria-hidden] [ref=f3e197]: "0"
+                  - generic [aria-hidden] [ref=f3e198]: .
+                  - generic [aria-hidden] [ref=f3e199]: "7"
+                  - generic [aria-hidden] [ref=f3e200]: "7"
+                  - generic [aria-hidden] [ref=f3e201]: "6"
+                - generic [ref=f3e202]: nm
+            - button "PIB，点击设置规格" [ref=f3e203] [cursor=pointer]:
+              - generic [ref=f3e204]: PIB
+              - generic [ref=f3e206]:
+                - generic "96.85" [ref=f3e208]:
+                  - generic [aria-hidden] [ref=f3e209]: "9"
+                  - generic [aria-hidden] [ref=f3e210]: "6"
+                  - generic [aria-hidden] [ref=f3e211]: .
+                  - generic [aria-hidden] [ref=f3e212]: "8"
+                  - generic [aria-hidden] [ref=f3e213]: "5"
+                - generic [ref=f3e214]: "%"
+          - generic "光谱" [ref=f3e215]:
+            - generic [ref=f3e217]:
+              - img "光谱曲线" [ref=f3e218]
+              - generic "峰值图例":
+                - generic:
+                  - generic: Peak 1
+                  - generic: 976.200 nm
+                - generic:
+                  - generic: Peak 2
+                  - generic: 978.000 nm
+                - generic:
+                  - generic: Peak 3
+                  - generic: 973.000 nm
+              - generic [ref=f3e219]: 光谱（实时）

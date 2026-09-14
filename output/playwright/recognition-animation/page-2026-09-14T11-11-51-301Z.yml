@@ -1,0 +1,263 @@
+- generic [ref=f4e1]:
+  - generic [ref=f4e3]:
+    - banner [ref=f4e4]:
+      - generic [ref=f4e5]: Power Test
+      - generic "测试阶段：提前结束，已记录 3 / 6 点" [ref=f4e220]:
+        - list [ref=f4e8]:
+          - listitem [ref=f4e9]:
+            - generic [ref=f4e11]: 准备
+          - listitem [ref=f4e12]:
+            - generic [ref=f4e14]: 升流
+          - listitem [ref=f4e15]:
+            - generic [ref=f4e17]: 稳定
+          - listitem [ref=f4e18]:
+            - generic [ref=f4e20]: 记录
+          - listitem [ref=f4e21]:
+            - generic [ref=f4e23]: 提前结束
+        - strong [ref=f4e25]: 已记录 3 / 6
+      - generic [ref=f4e26]:
+        - button "显示" [ref=f4e27] [cursor=pointer]
+        - button "急停" [ref=f4e29] [cursor=pointer]
+    - generic [ref=f4e30]:
+      - complementary [ref=f4e31]:
+        - navigation [ref=f4e32]:
+          - button "自动测试" [ref=f4e33] [cursor=pointer]
+          - button "手动配置" [ref=f4e39] [cursor=pointer]
+          - button "PD 采集" [ref=f4e46] [cursor=pointer]
+          - button "数据浏览" [ref=f4e50] [cursor=pointer]
+          - button "出货报告" [ref=f4e55] [cursor=pointer]
+          - button "系统设置" [ref=f4e60] [cursor=pointer]
+        - generic "侧栏格言 Stay True" [ref=f4e65]:
+          - paragraph [ref=f4e67]: Stay True
+      - main [ref=f4e68]:
+        - generic [ref=f4e69]:
+          - region "测试结果摘要" [ref=f4e221]:
+            - generic [ref=f4e222]:
+              - generic [ref=f4e227]:
+                - generic [ref=f4e228]:
+                  - strong [ref=f4e229]: 测试已提前结束
+                  - button "详情" [ref=f4e230] [cursor=pointer]
+                - status "测试已手动终止并安全下电" [ref=f4e233]
+              - generic [ref=f4e234]:
+                - generic [ref=f4e235]: 当前样品
+                - strong [ref=f4e236]: DEMO-001
+                - generic [ref=f4e237]: 水冷25°C · 站别 1
+              - generic [ref=f4e238]:
+                - generic [ref=f4e239]:
+                  - term [ref=f4e240]: 耗时
+                  - definition [ref=f4e244]: 02:36
+                - generic [ref=f4e245]:
+                  - term [ref=f4e246]: 测试点
+                  - definition [ref=f4e247]: 3 / 6
+                - generic [ref=f4e248]:
+                  - term [ref=f4e249]: 数据
+                  - definition [ref=f4e250]: 本地已保存
+                  - text: Excel 已生成
+                - generic [ref=f4e251]:
+                  - term [ref=f4e252]: 安全下电
+                  - definition [ref=f4e253]: 已确认
+              - generic [ref=f4e254]:
+                - button "查看数据" [ref=f4e255] [cursor=pointer]
+                - button "下一颗" [ref=f4e256] [cursor=pointer]
+          - region "测试设备与控制" [ref=f4e103]:
+            - button "电源信息，点击打开设置" [ref=f4e257] [cursor=pointer]:
+              - generic [ref=f4e108]:
+                - generic [ref=f4e109]:
+                  - strong [ref=f4e110]: 电源
+                  - generic "TDK" [ref=f4e111]
+                - generic [ref=f4e112]: 未连接
+                - generic "电压 12 V · 电流 2 → 12 A · 步进 2 A" [ref=f4e114]
+            - button "功率计信息，点击打开设置" [ref=f4e258] [cursor=pointer]:
+              - generic [ref=f4e120]:
+                - generic [ref=f4e121]:
+                  - strong [ref=f4e122]: 功率计
+                  - generic "未选择" [ref=f4e416]
+                - generic [ref=f4e124]: 在线
+                - generic "976nm 生产光路 · v2 / 系数 ×1.018 · 976 nm" [ref=f4e126]
+            - button "光谱仪信息，点击打开设置" [ref=f4e260] [cursor=pointer]:
+              - generic [ref=f4e135]:
+                - generic [ref=f4e136]:
+                  - strong [ref=f4e137]: 光谱仪
+                  - generic "Ocean Insight" [ref=f4e138]
+                - generic [ref=f4e139]: 在线 · 采集中
+                - generic "中心波长 976 nm · FWHM ≤ 0.6 nm" [ref=f4e141]
+            - generic [ref=f4e144]:
+              - button "开始" [ref=f4e261] [cursor=pointer]
+              - button "停止" [disabled]
+          - generic [ref=f4e146]:
+            - generic [ref=f4e147]:
+              - generic "功率实时" [ref=f4e149]:
+                - generic [ref=f4e151]:
+                  - img "功率实时曲线" [ref=f4e152]
+                  - generic [ref=f4e153]: 实时功率
+              - generic "功率 / 效率" [ref=f4e154]:
+                - generic [ref=f4e155]:
+                  - generic [ref=f4e156]:
+                    - img "功率 / 效率曲线" [ref=f4e157]
+                    - generic [ref=f4e158]: 功率 (W)、效率 (%)、历史参考
+                  - generic:
+                    - generic "图例":
+                      - generic: 功率 (W)
+                      - generic: 效率 (%)
+                      - generic: 历史参考
+            - region "实时关键指标" [ref=f4e159]:
+              - generic [ref=f4e160]:
+                - generic "功率稳定状态：末点已稳定，0.0 / 5 秒" [ref=f4e263]:
+                  - generic "末点已稳定" [ref=f4e264]
+                  - generic [ref=f4e166]: 0.0 / 5 秒
+                - generic [ref=f4e167]:
+                  - generic "0.000" [ref=f4e265]:
+                    - generic [aria-hidden] [ref=f4e170]: "0"
+                    - generic [aria-hidden] [ref=f4e171]: .
+                    - generic [aria-hidden] [ref=f4e172]: "0"
+                    - generic [aria-hidden] [ref=f4e173]: "0"
+                    - generic [aria-hidden] [ref=f4e174]: "0"
+                  - generic [ref=f4e175]:
+                    - text: W @
+                    - generic [ref=f4e176]: "-- A"
+              - button "中心波长，点击设置规格" [ref=f4e177] [cursor=pointer]:
+                - generic [ref=f4e178]: 中心波长
+                - generic [ref=f4e180]:
+                  - generic "976.200" [ref=f4e182]:
+                    - generic [aria-hidden] [ref=f4e183]: "9"
+                    - generic [aria-hidden] [ref=f4e184]: "7"
+                    - generic [aria-hidden] [ref=f4e185]: "6"
+                    - generic [aria-hidden] [ref=f4e186]: .
+                    - generic [aria-hidden] [ref=f4e187]: "2"
+                    - generic [aria-hidden] [ref=f4e188]: "0"
+                    - generic [aria-hidden] [ref=f4e189]: "0"
+                  - generic [ref=f4e190]: nm
+              - button "FWHM，点击设置规格" [ref=f4e191] [cursor=pointer]:
+                - generic [ref=f4e192]: FWHM
+                - generic [ref=f4e194]:
+                  - generic "0.776" [ref=f4e196]:
+                    - generic [aria-hidden] [ref=f4e197]: "0"
+                    - generic [aria-hidden] [ref=f4e198]: .
+                    - generic [aria-hidden] [ref=f4e199]: "7"
+                    - generic [aria-hidden] [ref=f4e200]: "7"
+                    - generic [aria-hidden] [ref=f4e201]: "6"
+                  - generic [ref=f4e202]: nm
+              - button "PIB，点击设置规格" [ref=f4e203] [cursor=pointer]:
+                - generic [ref=f4e204]: PIB
+                - generic [ref=f4e206]:
+                  - generic "96.85" [ref=f4e208]:
+                    - generic [aria-hidden] [ref=f4e209]: "9"
+                    - generic [aria-hidden] [ref=f4e210]: "6"
+                    - generic [aria-hidden] [ref=f4e211]: .
+                    - generic [aria-hidden] [ref=f4e212]: "8"
+                    - generic [aria-hidden] [ref=f4e213]: "5"
+                  - generic [ref=f4e214]: "%"
+            - generic "光谱" [ref=f4e215]:
+              - generic [ref=f4e217]:
+                - img "光谱曲线" [ref=f4e218]
+                - generic "峰值图例":
+                  - generic:
+                    - generic: Peak 1
+                    - generic: 976.200 nm
+                  - generic:
+                    - generic: Peak 2
+                    - generic: 978.000 nm
+                  - generic:
+                    - generic: Peak 3
+                    - generic: 973.000 nm
+                - generic [ref=f4e219]: 光谱（实时）
+  - dialog [ref=f4e267]:
+    - generic [ref=f4e268]:
+      - generic [ref=f4e273]:
+        - heading "电源设置" [level=2] [ref=f4e274]
+        - paragraph [ref=f4e275]: 配置电源控制器、输出参数并执行安全控制
+      - button "关闭设置弹窗" [ref=f4e276] [cursor=pointer]
+    - generic [ref=f4e281]:
+      - generic [ref=f4e282]:
+        - generic [ref=f4e283]:
+          - paragraph [ref=f4e284]: 手动控制
+          - paragraph [ref=f4e285]: 连接设备并执行输出控制与状态读取
+        - generic [ref=f4e286]:
+          - generic [ref=f4e287]:
+            - generic [ref=f4e288]: 控制器
+            - combobox [ref=f4e290] [cursor=pointer]:
+              - generic [ref=f4e291]: TDK RS232
+          - generic [ref=f4e294]:
+            - generic [ref=f4e295]: TDK 串口
+            - generic [ref=f4e296]:
+              - combobox [ref=f4e298] [cursor=pointer]:
+                - generic [ref=f4e299]: TDK RS232
+              - button "识别" [ref=f4e417] [cursor=pointer]
+          - generic [ref=f4e302]:
+            - generic [ref=f4e303]:
+              - generic [ref=f4e304]: 输出电压 (V)
+              - generic [ref=f4e305]:
+                - textbox [ref=f4e306]: "12"
+                - generic [ref=f4e307]:
+                  - button "增加数值" [ref=f4e308] [cursor=pointer]
+                  - button "减少数值" [ref=f4e311] [cursor=pointer]
+            - generic [ref=f4e314]:
+              - generic [ref=f4e315]: 设定电流 (A)
+              - generic [ref=f4e316]:
+                - textbox [ref=f4e317]: "8"
+                - generic [ref=f4e318]:
+                  - button "增加数值" [ref=f4e319] [cursor=pointer]
+                  - button "减少数值" [ref=f4e322] [cursor=pointer]
+          - generic [ref=f4e325]:
+            - button "连接 TDK" [active] [ref=f4e420] [cursor=pointer]
+            - button "设置电压" [disabled]
+            - button "开启输出" [disabled]
+            - button "设置电流" [disabled]
+      - generic [ref=f4e330]:
+        - generic [ref=f4e331]:
+          - paragraph [ref=f4e332]: 测试脚本参数
+          - paragraph [ref=f4e333]: 选择参数脚本，修改升流节拍和安全下电参数后保存
+        - generic [ref=f4e334]:
+          - generic [ref=f4e335]:
+            - generic [ref=f4e336]: 参数脚本
+            - combobox [ref=f4e338] [cursor=pointer]:
+              - generic [ref=f4e339]: 标准测试
+          - generic [ref=f4e342]:
+            - generic [ref=f4e343]:
+              - generic [ref=f4e344]: 起始电流 (A)
+              - generic [ref=f4e345]:
+                - textbox [ref=f4e346]: "2"
+                - generic [ref=f4e347]:
+                  - button "增加数值" [ref=f4e348] [cursor=pointer]
+                  - button "减少数值" [ref=f4e351] [cursor=pointer]
+            - generic [ref=f4e354]:
+              - generic [ref=f4e355]: 目标电流 (A)
+              - generic [ref=f4e356]:
+                - textbox [ref=f4e357]: "12"
+                - generic [ref=f4e358]:
+                  - button "增加数值" [ref=f4e359] [cursor=pointer]
+                  - button "减少数值" [ref=f4e362] [cursor=pointer]
+            - generic [ref=f4e365]:
+              - generic [ref=f4e366]: 电流间隔 (A)
+              - generic [ref=f4e367]:
+                - textbox [ref=f4e368]: "2"
+                - generic [ref=f4e369]:
+                  - button "增加数值" [ref=f4e370] [cursor=pointer]
+                  - button "减少数值" [ref=f4e373] [cursor=pointer]
+          - generic [ref=f4e376]:
+            - generic [ref=f4e377]:
+              - generic [ref=f4e378]: 单点超时 (s)
+              - generic [ref=f4e379]:
+                - textbox [ref=f4e380]: "120"
+                - generic [ref=f4e381]:
+                  - button "增加数值" [ref=f4e382] [cursor=pointer]
+                  - button "减少数值" [ref=f4e385] [cursor=pointer]
+            - generic [ref=f4e388]:
+              - generic [ref=f4e389]: 下电步长 (A)
+              - generic [ref=f4e390]:
+                - textbox [ref=f4e391]: "5"
+                - generic [ref=f4e392]:
+                  - button "增加数值" [ref=f4e393] [cursor=pointer]
+                  - button "减少数值" [ref=f4e396] [cursor=pointer]
+            - generic [ref=f4e399]:
+              - generic [ref=f4e400]: 下电间隔 (s)
+              - generic [ref=f4e401]:
+                - textbox [ref=f4e402]: "1.1"
+                - generic [ref=f4e403]:
+                  - button "增加数值" [ref=f4e404] [cursor=pointer]
+                  - button "减少数值" [ref=f4e407] [cursor=pointer]
+    - generic [ref=f4e410]:
+      - paragraph [ref=f4e411]: 修改内容将保存到当前测试配置
+      - generic [ref=f4e412]:
+        - button "关闭" [ref=f4e413] [cursor=pointer]
+        - button "保存设置" [ref=f4e414] [cursor=pointer]

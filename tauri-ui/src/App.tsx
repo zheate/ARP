@@ -40,6 +40,7 @@ import { invoke } from "@tauri-apps/api/core"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { DeviceDetectButton } from "@/components/device-detect-button"
 import { CanvasLineChart, type CanvasChartAnnotation, type CanvasChartAnnotationLegendItem, type CanvasChartLine, type CanvasColumnarData } from "@/components/canvas-line-chart"
 import { AnimatedToastStack, type ToastStatus } from "@/components/motion/animated-toast-stack"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -595,7 +596,7 @@ function Ch341PortSelector({
   pending: boolean
   layout?: "stacked" | "inline"
   update: UpdateConfig
-  onRefresh: () => void
+  onRefresh: () => void | Promise<unknown>
 }) {
   const psu = snapshot?.devices?.powerSupply
   const isConnected = Boolean(psu?.connected && config.powerSupplyKind === "ch341")
@@ -633,15 +634,11 @@ function Ch341PortSelector({
               )
             })}
           </NativeSelect>
-          <Button
-            className={`btn-refresh-spin ${detecting ? "cursor-wait" : ""}`}
+          <DeviceDetectButton
+            detecting={detecting}
             disabled={!active || pending || detecting || isConnected}
             onClick={onRefresh}
-            variant="outline"
-          >
-            <RefreshCw className={`size-4 ${detecting ? "animate-spin" : ""}`} />
-            {detecting ? "识别中" : "识别"}
-          </Button>
+          />
         </div>
       </Field>
     </div>
@@ -884,7 +881,7 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
                 {selectedResource && !resources.includes(selectedResource) && <option value={selectedResource}>{selectedResource}</option>}
                 {resources.map((resource) => <option key={resource} value={resource}>{resource}</option>)}
               </NativeSelect>
-              <Button className={`btn-refresh-spin ${psu?.detecting ? "cursor-wait" : ""}`} disabled={!active || pending || psu?.detecting || psu?.connected} onClick={() => void run("device.refresh", { device: "powerSupply" }, true)} variant="outline"><RefreshCw className={`size-4 ${psu?.detecting ? "animate-spin" : ""}`} />{psu?.detecting ? "识别中" : "识别"}</Button>
+              <DeviceDetectButton detecting={psu?.detecting} disabled={!active || pending || psu?.detecting || psu?.connected} onClick={() => run("device.refresh", { device: "powerSupply" }, true)} />
             </div>
           </Field> : (
             <Ch341PortSelector
@@ -894,7 +891,7 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
               pending={pending}
               layout="stacked"
               update={update}
-              onRefresh={() => void run("device.refresh", { device: "powerSupply" }, true)}
+              onRefresh={() => run("device.refresh", { device: "powerSupply" }, true)}
             />
           )}
           <div className="power-settings-value-grid">
@@ -902,7 +899,7 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
             <NumberField label="设定电流 (A)" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
           </div>
           {config.powerSupplyKind === "tdk" ? <div className="power-settings-action-grid">
-            <Button disabled={!active || pending || psu?.detecting} onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接 TDK"}</Button>
+            <Button aria-disabled={psu?.detecting || undefined} disabled={!active || pending} onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接 TDK"}</Button>
             <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setVoltage", { voltageV: config.tdkVoltageV }, true)} variant="outline">设置电压</Button>
             <Button className={psu?.outputEnabled ? "btn-power-active" : ""} disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled ? <><span className="size-2 rounded-full bg-white animate-pulse shrink-0 mr-1.5 inline-block" />关闭输出</> : "开启输出"}</Button>
             <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
@@ -921,7 +918,7 @@ function PowerSupplySettingsForm({ snapshot, config, update, active, pending, ru
                 : "连接电源"
               return (
                 <Button
-                  disabled={!active || pending || psu?.detecting || (!psu?.connected && !isCh341ReadyToConnect)}
+                  aria-disabled={psu?.detecting || undefined} disabled={!active || pending || (!psu?.connected && !isCh341ReadyToConnect)}
                   onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)}
                   variant={psu?.connected ? "outline" : "default"}
                 >
@@ -1232,7 +1229,7 @@ function PowerMeterSettingsForm({ snapshot, config, update, active, pending, run
             <option value="">请选择串口资源</option>
             {resources.map((item) => <option key={item} value={powerMeterResourceValue(item)}>{item}</option>)}
           </NativeSelect>
-          <Button className={`btn-refresh-spin ${meter?.detecting ? "cursor-wait" : ""}`} disabled={!active || pending || meter?.detecting || meter?.running} onClick={() => void run("device.refresh", { device: "powerMeter" }, true)} variant="outline"><RefreshCw className={`size-4 ${meter?.detecting ? "animate-spin" : ""}`} />{meter?.detecting ? "识别中" : "识别"}</Button>
+          <DeviceDetectButton detecting={meter?.detecting} disabled={!active || pending || meter?.detecting || meter?.running} onClick={() => run("device.refresh", { device: "powerMeter" }, true)} />
         </div>
       </Field>
       <PowerMeterProfileEditor active={active} config={config} pending={pending} run={run} snapshot={snapshot} />
@@ -1240,8 +1237,8 @@ function PowerMeterSettingsForm({ snapshot, config, update, active, pending, run
         <label className="device-settings-checkbox"><input checked={config.powerSmoothing ?? true} onChange={(e) => update("powerSmoothing", e.target.checked)} type="checkbox" />功率曲线平滑</label>
         <span className="text-xs text-muted-foreground">仅影响显示，不改变测量数据</span>
       </div>
-      <div className="device-settings-action-grid"><Button disabled={!active || pending || meter?.detecting || meter?.running || !selectedResourceAvailable} onClick={() => void run("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button disabled={!active || pending || meter?.detecting || meter?.running || !selectedResourceAvailable} onClick={() => void run("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></div>
-      <Button className={`w-full transition-all ${meter?.running ? "btn-running-pulse" : ""}`} disabled={!active || pending || meter?.detecting || (!meter?.running && !selectedResourceAvailable)} onClick={() => void run(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
+      <div className="device-settings-action-grid"><Button aria-disabled={meter?.detecting || undefined} disabled={!active || pending || meter?.running || !selectedResourceAvailable} onClick={() => void run("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button aria-disabled={meter?.detecting || undefined} disabled={!active || pending || meter?.running || !selectedResourceAvailable} onClick={() => void run("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></div>
+      <Button className={`w-full transition-all ${meter?.running ? "btn-running-pulse" : ""}`} aria-disabled={meter?.detecting || undefined} disabled={!active || pending || (!meter?.running && !selectedResourceAvailable)} onClick={() => void run(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
       <p className="text-xs text-muted-foreground">{measurementSummary}</p>
     </div>
   )
@@ -1269,7 +1266,7 @@ function SpectrometerSettingsForm({ snapshot, config, update, active, pending, r
             <option value="">{defaultSpectrometerResourceLabel}</option>
             {resources.map((item) => <option key={item} value={item}>{item}</option>)}
           </NativeSelect>
-          <Button className={`btn-refresh-spin ${spectrum?.detecting ? "cursor-wait" : ""}`} disabled={!active || pending || spectrum?.detecting || spectrum?.running} onClick={() => void run("device.refresh", { device: "spectrometer" }, true)} variant="outline"><RefreshCw className={`size-4 ${spectrum?.detecting ? "animate-spin" : ""}`} />{spectrum?.detecting ? "识别中" : "识别"}</Button>
+          <DeviceDetectButton detecting={spectrum?.detecting} disabled={!active || pending || spectrum?.detecting || spectrum?.running} onClick={() => run("device.refresh", { device: "spectrometer" }, true)} />
         </div>
       </Field>
       <div className="device-settings-field-grid">
@@ -1283,7 +1280,7 @@ function SpectrometerSettingsForm({ snapshot, config, update, active, pending, r
         <label className="device-settings-checkbox"><input checked={config.spectrumSmoothing ?? true} onChange={(e) => update("spectrumSmoothing", e.target.checked)} type="checkbox" />光谱曲线平滑</label>
         <span className="text-xs text-muted-foreground">仅影响显示，不改变测量数据</span>
       </div>
-      <Button className={`w-full transition-all ${spectrum?.running ? "btn-running-pulse" : ""}`} disabled={!active || pending || spectrum?.detecting || (!spectrum?.running && !selectedResourceAvailable)} onClick={() => void run(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
+      <Button className={`w-full transition-all ${spectrum?.running ? "btn-running-pulse" : ""}`} aria-disabled={spectrum?.detecting || undefined} disabled={!active || pending || (!spectrum?.running && !selectedResourceAvailable)} onClick={() => void run(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
       <p className="text-xs text-muted-foreground">{measurementSummary}</p>
     </div>
   )
@@ -1327,7 +1324,7 @@ function DeviceSettingsDialog({ kind, open, onClose, onSave, onScriptSelect, sna
     spectrometer: { title: "光谱仪设置", description: "配置光谱仪硬件资源与光谱采集参数", icon: <Radio className="size-5" /> },
   }[kind]
   const handleSave = async () => {
-    if (!active || saving || pending || commandLockRef.current) return
+    if (!active || saving || pending || commandLockRef.current || snapshot?.devices[kind]?.detecting) return
     commandLockRef.current = true
     setSaving(true)
     try {
@@ -1340,7 +1337,7 @@ function DeviceSettingsDialog({ kind, open, onClose, onSave, onScriptSelect, sna
   }
 
   const runDialogCommand: RunCommand = async (method, params, sync) => {
-    if (commandLockRef.current || pending) return
+    if (commandLockRef.current || pending || snapshot?.devices[kind]?.detecting) return
     commandLockRef.current = true
     try {
       return await run(method, params, sync)
@@ -1372,7 +1369,7 @@ function DeviceSettingsDialog({ kind, open, onClose, onSave, onScriptSelect, sna
             <p className="device-settings-dialog__hint">{kind === "powerMeter" ? "普通设置不会覆盖已保存的系数方案" : "修改内容将保存到当前测试配置"}</p>
             <div className="device-settings-dialog__actions">
               <Button className="device-settings-dialog__cancel" onClick={onClose} variant="outline">关闭</Button>
-              <Button aria-busy={saving} aria-disabled={!active || pending || saving} className="device-settings-dialog__save" disabled={!active || saving} onClick={() => void handleSave()}>{saving ? "保存中…" : "保存设置"}</Button>
+              <Button aria-busy={saving} aria-disabled={!active || pending || saving || snapshot?.devices[kind]?.detecting} className="device-settings-dialog__save" disabled={!active || saving} onClick={() => void handleSave()}>{saving ? "保存中…" : "保存设置"}</Button>
             </div>
           </div>
         </div>
@@ -5076,7 +5073,7 @@ const ManualPage = memo(function ManualPage({
                   {selectedPowerSupplyResource && !powerSupplyResources.includes(selectedPowerSupplyResource) && <option value={selectedPowerSupplyResource}>{selectedPowerSupplyResource}</option>}
                   {powerSupplyResources.map((resource) => <option key={resource} value={resource}>{resource}</option>)}
                 </NativeSelect>
-                <Button className={`btn-refresh-spin ${psu?.detecting ? "cursor-wait" : ""}`} disabled={!active || pending || psu?.detecting || psu?.connected} onClick={() => void runManualCommand("device.refresh", { device: "powerSupply" }, true)} variant="outline"><RefreshCw className={`size-4 ${psu?.detecting ? "animate-spin" : ""}`} />{psu?.detecting ? "识别中" : "识别"}</Button>
+                <DeviceDetectButton detecting={psu?.detecting} disabled={!active || pending || psu?.detecting || psu?.connected} onClick={() => runManualCommand("device.refresh", { device: "powerSupply" }, true)} />
               </div>
               </Field>
             </div>
@@ -5107,7 +5104,7 @@ const ManualPage = memo(function ManualPage({
                 pending={pending}
                 layout="stacked"
                 update={update}
-                onRefresh={() => void runManualCommand("device.refresh", { device: "powerSupply" }, true)}
+                onRefresh={() => runManualCommand("device.refresh", { device: "powerSupply" }, true)}
               />
             </div>
             <ManualSectionHeading>参数设置</ManualSectionHeading>
@@ -5165,7 +5162,7 @@ const ManualPage = memo(function ManualPage({
                 <option value="">请选择串口资源</option>
                 {powerMeterResources.map((item) => <option key={item} value={powerMeterResourceValue(item)}>{item}</option>)}
               </NativeSelect>
-              <Button className={`btn-refresh-spin ${meter?.detecting ? "cursor-wait" : ""}`} disabled={!active || meter?.detecting || meter?.running} onClick={() => void runManualCommand("device.refresh", { device: "powerMeter" }, true)} variant="outline"><RefreshCw className={`size-4 ${meter?.detecting ? "animate-spin" : ""}`} />{meter?.detecting ? "识别中" : "识别"}</Button>
+              <DeviceDetectButton detecting={meter?.detecting} disabled={!active || meter?.detecting || meter?.running} onClick={() => runManualCommand("device.refresh", { device: "powerMeter" }, true)} />
             </div>
           </Field>
           <ManualSectionHeading>系数方案</ManualSectionHeading>
@@ -5232,7 +5229,7 @@ const ManualPage = memo(function ManualPage({
                 <option value="">{defaultSpectrometerResourceLabel}</option>
                 {spectrometerResources.map((item) => <option key={item} value={item}>{item}</option>)}
               </NativeSelect>
-              <Button className={`btn-refresh-spin ${spectrum?.detecting ? "cursor-wait" : ""}`} disabled={!active || spectrum?.detecting || spectrum?.running} onClick={() => void runManualCommand("device.refresh", { device: "spectrometer" }, true)} variant="outline"><RefreshCw className={`size-4 ${spectrum?.detecting ? "animate-spin" : ""}`} />{spectrum?.detecting ? "识别中" : "识别"}</Button>
+              <DeviceDetectButton detecting={spectrum?.detecting} disabled={!active || spectrum?.detecting || spectrum?.running} onClick={() => runManualCommand("device.refresh", { device: "spectrometer" }, true)} />
             </div>
           </Field>
           <ManualSectionHeading>参数设置</ManualSectionHeading>
@@ -5333,7 +5330,7 @@ const PdPage = memo(function PdPage({ snapshot, active, pending, run }: { snapsh
           <Field label="采集卡" className="pd-inline-field col-span-2" layout="inline">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
               <NativeSelect disabled={!active || pending || pd?.detecting || pd?.state === "running"} value={current.device} onChange={(v) => set("device", v)}><option value="">请选择</option>{pd?.devices.map((item) => <option key={item} value={item}>{item}</option>)}</NativeSelect>
-              <Button className={`btn-refresh-spin ${pd?.detecting ? "cursor-wait" : ""}`} disabled={!active || pending || pd?.detecting || pd?.state === "running"} onClick={() => void run("pd.refresh")} variant="outline"><RefreshCw className={`size-4 ${pd?.detecting ? "animate-spin" : ""}`} />{pd?.detecting ? "识别中" : "识别"}</Button>
+              <DeviceDetectButton detecting={pd?.detecting} disabled={!active || pending || pd?.detecting || pd?.state === "running"} onClick={() => run("pd.refresh")} />
             </div>
           </Field>
           <Field label="输入通道" className="pd-inline-field" layout="inline"><NativeSelect value={current.channel} onChange={(v) => set("channel", v)}><option value="">请选择</option>{pd?.channels.map((item) => <option key={item} value={item}>{item}</option>)}</NativeSelect></Field>
