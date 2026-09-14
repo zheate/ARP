@@ -1,2 +1,3 @@
 /** Browser-only review; never starts Tauri, a sidecar, or real hardware. */
-import './ui-review.mjs';
+await import('./ui-review.mjs');
+await import('./ui-state-review.mjs');
