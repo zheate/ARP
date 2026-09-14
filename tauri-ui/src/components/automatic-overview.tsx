@@ -5,44 +5,29 @@ import { automaticPhase, automaticStabilityPresentation, automaticStoragePresent
 import { automaticTerminalTitle, shutdownPresentation } from "@/lib/safety-state"
 import type { AppConfiguration, BackendSnapshot, DeviceSnapshot } from "@/lib/backend"
 
-function useCurrentSetNotice(auto: BackendSnapshot["automaticTest"] | undefined) {
-  const currentA = auto?.currentA ?? auto?.currents?.[auto.currentIndex ?? -1]
-  const pointKey = typeof currentA === "number" && Number.isFinite(currentA)
-    ? `${auto?.currentIndex ?? -1}:${currentA}` : null
-  const setting = auto?.state === "setting_current"
-  const active = ["setting_current", "waiting_stable", "waiting_voltage", "saving_point"].includes(auto?.state ?? "")
-  const available = auto !== undefined
-  const previous = useRef<{ pointKey: string | null; setting: boolean } | null>(null)
-  const [notice, setNotice] = useState<{ pointKey: string; label: string } | null>(null)
+export function LivePowerRecordingDot({ active = true }: { active?: boolean }) {
+  const [visible, setVisible] = useState(true)
 
   useEffect(() => {
-    const last = previous.current
-    previous.current = available ? { pointKey, setting } : null
-    if (!active || pointKey === null || currentA === undefined || currentA === null) {
-      setNotice(null)
+    if (!active) {
+      setVisible(true)
       return
     }
-    // A fast set command can finish between snapshots. A changed test point
-    // still announces its target, while ordinary status refreshes leave it alone.
-    if ((setting && !last?.setting) || (last && last.pointKey !== pointKey)) {
-      setNotice({ pointKey, label: `set ${currentA.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 2, useGrouping: false })} A` })
-    }
-  }, [active, available, currentA, pointKey, setting])
+    const timer = window.setInterval(() => setVisible((current) => !current), 500)
+    return () => window.clearInterval(timer)
+  }, [active])
 
-  useEffect(() => {
-    if (!notice) return
-    const timeout = window.setTimeout(() => setNotice(null), 3000)
-    return () => window.clearTimeout(timeout)
-  }, [notice])
-
-  return active && notice?.pointKey === pointKey ? notice?.label : null
+  return <span aria-hidden="true" className={`automatic-metric-card__recording-dot ${active ? (visible ? "is-on" : "is-off") : "is-idle"}`} />
 }
 
-export function AutomaticPhaseTrack({ snapshot }: { snapshot: BackendSnapshot | null }) {
+export function AutomaticPhaseTrack({
+  snapshot,
+}: {
+  snapshot: BackendSnapshot | null
+  recording?: boolean
+}) {
   const auto = snapshot?.automaticTest
   const phase = automaticPhase(auto, snapshot?.safety.shutdown)
-  const stability = automaticStabilityPresentation(auto, snapshot?.devices.powerMeter)
-  const currentNotice = useCurrentSetNotice(auto)
   const [recordedRecently, setRecordedRecently] = useState(false)
   const savedCount = auto?.savedPointCount ?? snapshot?.measurements?.stable.length ?? 0
   const previousSaved = useRef(savedCount)
@@ -57,6 +42,17 @@ export function AutomaticPhaseTrack({ snapshot }: { snapshot: BackendSnapshot | 
     const timeout = window.setTimeout(() => setRecordedRecently(false), 650)
     return () => window.clearTimeout(timeout)
   }, [auto?.state, savedCount])
+  const pointCurrentA = !phase.terminal && phase.point > 0
+    ? (typeof auto?.currentA === "number" && Number.isFinite(auto.currentA)
+        ? auto.currentA
+        : (typeof auto?.currentIndex === "number" && auto.currentIndex >= 0 && auto?.currents && typeof auto.currents[auto.currentIndex] === "number"
+            ? auto.currents[auto.currentIndex]
+            : null))
+    : null
+  const currentFormatted = pointCurrentA !== null
+    ? `${pointCurrentA.toFixed(2).replace(/\.?0+$/, "")} A`
+    : null
+
   return <div
     className="automatic-phase-track"
     data-dwell={phase.dwell !== null}
@@ -64,7 +60,7 @@ export function AutomaticPhaseTrack({ snapshot }: { snapshot: BackendSnapshot | 
     data-tone={phase.tone}
     style={phase.dwell === null ? undefined : { "--phase-progress": phase.dwell } as CSSProperties}
     title={auto?.detail}
-    aria-label={`测试阶段：${phase.labels[phase.activeIndex]}，${phase.terminal ? "已记录" : "当前第"} ${phase.point} / ${phase.total} 点`}
+    aria-label={`测试阶段：${phase.labels[phase.activeIndex]}，${phase.terminal ? "已记录" : "当前第"} ${phase.point} / ${phase.total} 点${currentFormatted ? `（${currentFormatted}）` : ""}`}
   >
     <ol>
       {phase.labels.map((label, index) => <li
@@ -75,37 +71,34 @@ export function AutomaticPhaseTrack({ snapshot }: { snapshot: BackendSnapshot | 
       ><span className="automatic-phase-track__node" aria-hidden="true">{index === 4 && phase.complete ? <Check /> : null}</span><span>{label}</span></li>)}
     </ol>
     <span className="automatic-phase-track__count">
-      <strong>{phase.terminal ? "已记录 " : phase.point > 0 ? "第 " : "待测 "}{phase.point} / {phase.total}{phase.terminal ? "" : " 点"}</strong>
+      <strong>
+        {phase.terminal ? "已记录 " : phase.point > 0 ? "第 " : "待测 "}{phase.point} / {phase.total}{phase.terminal ? "" : " 点"}
+        {currentFormatted && ` · ${currentFormatted}`}
+      </strong>
       {phase.dwell !== null && <small>停留 {Math.floor(phase.dwell * (auto?.currentDwellS ?? 0))} / {auto?.currentDwellS} s</small>}
     </span>
     <span className="automatic-phase-track__compact">{phase.labels[phase.activeIndex]}</span>
-    <div className="automatic-phase-track__stability" data-tone={currentNotice ? "setting" : stability.tone} title={currentNotice ? `加电设定：${currentNotice}` : stability.detail}>
-      <span className="automatic-phase-track__stability-state"><i aria-hidden="true" />{currentNotice ?? stability.label}</span>
-      <span className="automatic-phase-track__stability-time"><span>稳定后保持</span><strong>{stability.time}</strong></span>
-    </div>
   </div>
 }
 
-export function LivePowerRecordingDot({ active = true }: { active?: boolean }) {
-  const [visible, setVisible] = useState(true)
-
-  useEffect(() => {
-    if (!active) return
-    const timer = window.setInterval(() => setVisible((current) => !current), 500)
-    return () => window.clearInterval(timer)
-  }, [active])
-
-  return <span aria-hidden="true" className={`automatic-metric-card__recording-dot ${active ? (visible ? "is-on" : "is-off") : "is-idle"}`} />
-}
-
-export function PowerStabilityStatus({ meter, automatic, recording = false }: { meter: DeviceSnapshot | undefined; automatic?: BackendSnapshot["automaticTest"]; recording?: boolean }) {
+export function PowerStabilityStatus({
+  meter,
+  automatic,
+  recording,
+}: {
+  meter: DeviceSnapshot | undefined
+  automatic?: BackendSnapshot["automaticTest"]
+  recording?: boolean
+}) {
+  const autoLive = automatic ? !["idle", "paused", "completed"].includes(automatic.state ?? "idle") : false
+  const isLive = recording ?? (autoLive || Boolean(meter?.running))
   const progress = automaticStabilityPresentation(automatic, meter)
   const status = automatic
-    ? { ...progress, time: `稳定后保持 ${progress.time}` }
+    ? progress
     : powerStabilityPresentation(meter)
   return <div className="power-stability-status" data-tone={status.tone} aria-label={`功率稳定状态：${status.label}，${status.time}`} title={automatic ? progress.detail : "稳定时间从本轮功率读数达到稳定后计算；读数中断、失稳或重新判稳后重新计时。"}>
     <span>
-      {recording ? <LivePowerRecordingDot active /> : <i aria-hidden="true" />}
+      <LivePowerRecordingDot active={isLive} />
       <span className="power-stability-status__label" title={status.label}>{status.label}</span>
     </span>
     <span>{status.time}</span>

@@ -76,12 +76,12 @@ export function powerStabilityPresentation(meter: DeviceSnapshot | undefined) {
     const label = meter?.running === false ? "采集已停止"
       : meter?.quality === "stale" ? "采样中断"
       : meter?.quality === "saturated" ? "读数饱和" : "等待采样"
-    return { label, time: "稳定时间 --", tone: "muted" }
+    return { label, time: "—", tone: "muted" }
   }
-  if (meter?.stable !== true) return { label: "未稳定", time: "稳定时间 --", tone: "warning" }
+  if (meter?.stable !== true) return { label: "未稳定", time: "—", tone: "warning" }
   const elapsed = meter.stableElapsedS
   const time = typeof elapsed === "number" && Number.isFinite(elapsed) && elapsed >= 0
-    ? `持续 ${Math.floor(elapsed)} s` : "稳定时间待更新"
+    ? `持续 ${Math.floor(elapsed)} s` : "待更新"
   return { label: "已稳定", time, tone: "success" }
 }
 
@@ -119,7 +119,7 @@ export function automaticStabilityPresentation(auto: Automatic | undefined, mete
   if (stability.powerStable) {
     return stability.wavelengthRequired && !stability.wavelengthStable
       ? result("等待波长稳定", "warning", time, `${detail}功率已稳定，等待波长满足条件。`)
-      : result(elapsed < required ? "稳定保持中" : "稳定保持完成", "success", time, detail)
+      : result(elapsed < required ? "保持中" : "保持完成", "success", time, detail)
   }
   const exceeds = stability.spanLimitW === null
     ? stability.percent !== null && stability.percent > stability.limitPercent

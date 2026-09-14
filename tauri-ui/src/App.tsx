@@ -1281,17 +1281,15 @@ function DeviceSettingsDialog({ kind, open, onClose, onSave, snapshot, config, u
     powerMeter: { title: "功率计设置", description: "选择功率计资源并管理探头系数方案", icon: <Gauge className="size-5" /> },
     spectrometer: { title: "光谱仪设置", description: "配置光谱仪硬件资源与光谱采集参数", icon: <Radio className="size-5" /> },
   }[kind]
-  const [saveSuccess, setSaveSuccess] = useState(false)
   const handleSave = async () => {
-    if (saving || pending) return
+    if (!active || saving || pending || commandLockRef.current) return
+    commandLockRef.current = true
     setSaving(true)
     try {
       await onSave()
-      setSaveSuccess(true)
-      setTimeout(() => {
-        onClose()
-      }, 500)
+      onClose()
     } finally {
+      commandLockRef.current = false
       setSaving(false)
     }
   }
@@ -1329,7 +1327,7 @@ function DeviceSettingsDialog({ kind, open, onClose, onSave, snapshot, config, u
             <p className="device-settings-dialog__hint">{kind === "powerMeter" ? "普通设置不会覆盖已保存的系数方案" : "修改内容将保存到当前测试配置"}</p>
             <div className="device-settings-dialog__actions">
               <Button className="device-settings-dialog__cancel" onClick={onClose} variant="outline">关闭</Button>
-              <Button aria-busy={saving} aria-disabled={!active || pending || saving} className="device-settings-dialog__save transition-all" disabled={!active || saving} onClick={() => void handleSave()}>{saving ? "保存中…" : saveSuccess ? "✓ 已保存" : "保存设置"}</Button>
+              <Button aria-busy={saving} aria-disabled={!active || pending || saving} className="device-settings-dialog__save" disabled={!active || saving} onClick={() => void handleSave()}>{saving ? "保存中…" : "保存设置"}</Button>
             </div>
           </div>
         </div>
@@ -2667,11 +2665,11 @@ function RealtimeMetricCards({
     <section className={`automatic-metric-grid${compact ? " automatic-metric-grid--compact" : ""}`} aria-label="实时关键指标">
       <AutomaticMetricCard
         className="automatic-metric-card--power automatic-metric-card--title-below"
-        title={<PowerStabilityStatus automatic={automatic} meter={powerMeter} recording={Boolean(powerMeter?.running)} />}
+        title={<PowerStabilityStatus automatic={automatic} meter={powerMeter} />}
         value={formatFixedNumber(livePowerW, 3)}
         unit={<>W @ <span className="automatic-metric-card__current">{formatTrimmedNumber(currentA, 2)} A</span></>}
         valueTone="warning"
-        recording={Boolean(powerMeter?.running)}
+        recording={Boolean(powerMeter?.running || (automatic && !["idle", "paused", "completed"].includes(automatic.state)))}
       />
       <AutomaticMetricCard
         className="automatic-metric-card--title-below"
@@ -4544,11 +4542,11 @@ const AutomaticPage = memo(function AutomaticPage({
             {!useSpectrometer && (
               <AutomaticMetricCard
                 className="automatic-power-chart__reading automatic-metric-card--power automatic-metric-card--title-below"
-                title={<PowerStabilityStatus automatic={snapshot?.automaticTest} meter={powerMeter} recording={Boolean(powerMeter?.running)} />}
+                title={<PowerStabilityStatus automatic={snapshot?.automaticTest} meter={powerMeter} />}
                 value={formatFixedNumber(livePowerW, 3)}
                 unit={<>W @ <span className="automatic-metric-card__current">{formatTrimmedNumber(liveCurrentA, 2)} A</span></>}
                 valueTone="warning"
-                recording={Boolean(powerMeter?.running)}
+                recording={Boolean(powerMeter?.running || (snapshot?.automaticTest && !["idle", "paused", "completed"].includes(snapshot.automaticTest.state)))}
               />
             )}
           </div>

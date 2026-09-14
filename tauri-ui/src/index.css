@@ -620,6 +620,12 @@ body {
   box-shadow: none;
 }
 
+.automatic-metric-card__recording-dot.is-idle {
+  opacity: 0.35;
+  background: var(--muted-foreground);
+  box-shadow: none;
+}
+
 .automatic-metric-card__value {
   display: flex;
   flex: 0 0 auto;

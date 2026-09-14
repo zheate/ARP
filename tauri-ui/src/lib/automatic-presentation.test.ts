@@ -20,10 +20,10 @@ test("confirmation starts only after stability and completes after five seconds"
   assert.equal(pending.time, "0.0 / 5 秒")
   assert.match(pending.detail, /判稳后连续保持 5 秒/)
   const holding = automaticStabilityPresentation(auto({ state: "waiting_voltage", stability: { ...stability, powerStable: true, holdElapsedS: 2.3 } }))
-  assert.equal(holding.label, "稳定保持中")
+  assert.equal(holding.label, "保持中")
   assert.equal(holding.time, "2.3 / 5 秒")
   const complete = automaticStabilityPresentation(auto({ state: "waiting_voltage", stability: { ...stability, powerStable: true, holdElapsedS: 5 } }))
-  assert.equal(complete.label, "稳定保持完成")
+  assert.equal(complete.label, "保持完成")
   assert.equal(complete.time, "5.0 / 5 秒")
 })
 
@@ -42,10 +42,10 @@ test("new points, lost stability and stale readings clear the confirmation clock
 test("final-point display uses the backend ten-second target", () => {
   const final = { ...stability, powerStable: true, holdRequiredS: 10, holdElapsedS: 5 }
   const holding = automaticStabilityPresentation(auto({ state: "waiting_voltage", stability: final }))
-  assert.equal(holding.label, "稳定保持中")
+  assert.equal(holding.label, "保持中")
   assert.equal(holding.time, "5.0 / 10 秒")
   const complete = automaticStabilityPresentation(auto({ state: "waiting_voltage", stability: { ...final, holdElapsedS: 10 } }))
-  assert.equal(complete.label, "稳定保持完成")
+  assert.equal(complete.label, "保持完成")
   assert.equal(complete.time, "10.0 / 10 秒")
 })
 
@@ -178,14 +178,14 @@ test("power stability requires a live reading and a backend duration instead of 
   assert.deepEqual(powerStabilityPresentation(meter), { label: "已稳定", time: "持续 6 s", tone: "success" })
   assert.equal(powerStabilityPresentation({ ...meter, stableElapsedS: 0 }).time, "持续 0 s")
   for (const stableElapsedS of [undefined, null, NaN, Infinity, -1]) {
-    assert.equal(powerStabilityPresentation({ ...meter, stableElapsedS }).time, "稳定时间待更新")
+    assert.equal(powerStabilityPresentation({ ...meter, stableElapsedS }).time, "待更新")
   }
   assert.equal(powerStabilityPresentation({ ...meter, stable: false }).label, "未稳定")
-  assert.equal(powerStabilityPresentation({ ...meter, stable: false }).time, "稳定时间 --")
+  assert.equal(powerStabilityPresentation({ ...meter, stable: false }).time, "—")
   for (const patch of [{ quality: "stale" as const }, { quality: "invalid" as const }, { running: false }, { powerW: NaN }]) {
     const status = powerStabilityPresentation({ ...meter, ...patch })
     assert.equal(status.tone, "muted")
-    assert.equal(status.time, "稳定时间 --")
+    assert.equal(status.time, "—")
   }
 })
 

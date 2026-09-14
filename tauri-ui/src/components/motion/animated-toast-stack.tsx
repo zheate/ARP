@@ -67,7 +67,9 @@ export function AnimatedToastStack({ toasts, disabled = false, onDismiss }: Anim
               drag={canDismiss && !reduce ? "x" : false}
               dragConstraints={{ left: 0, right: 0 }}
               dragElastic={0.18}
-              exit={reduce ? { opacity: 0 } : { opacity: 0, x: 32, scale: 0.96, filter: "blur(8px)" }}
+              exit={reduce
+                ? { opacity: 0, transition: { type: "tween", duration: 0.1, ease: "easeOut" } }
+                : { opacity: 0, x: 8, scale: 1, filter: "blur(0px)", transition: { type: "tween", duration: 0.18, ease: "easeOut" } }}
               initial={reduce ? { opacity: 0 } : { opacity: 0, x: 20, scale: 0.96, filter: "blur(10px)" }}
               key={toast.id}
               layout
