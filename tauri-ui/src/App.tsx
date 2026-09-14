@@ -719,6 +719,7 @@ function AutomaticTestControlCard({
       <CardContent className="automatic-test-control-card__content px-4 py-0">
         <div className="automatic-test-control-card__actions">
           <Button
+            className="automatic-test-start-btn"
             disabled={!active || pending || controlsLocked || running}
             onClick={onStart}
             size="sm"
