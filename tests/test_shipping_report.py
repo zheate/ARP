@@ -521,6 +521,36 @@ class ShippingReportTests(unittest.TestCase):
         self.assertEqual(_spectrum_legend_column_count(11), 2)
         self.assertEqual(_spectrum_legend_column_count(14), 2)
 
+    def test_spectrum_legend_aligns_units_and_keeps_swatches_in_columns(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "legend.xlsx"
+            for currents in (list(range(2, 21, 2)), [0.5, *range(2, 21, 2)]):
+                save_test_records(source, [self._record(current) for current in currents], session=self._session())
+                request = replace(self._request(ShippingReportType.SPECTRUM), operating_current_a=20)
+                figures = _HeadlessShippingReportRenderer(inspect_shipping_workbook(source), request).build()
+                try:
+                    figure = figures[0]
+                    legend = next(axis.get_legend() for axis in figure.axes if axis.get_xlabel() == "Wavelength (nm)")
+                    self.assertEqual([text.get_text() for text in legend.get_texts()], [f"{current:g} A" for current in currents])
+                    columns = _spectrum_legend_column_count(len(currents))
+                    for dpi in (96, 220):
+                        figure.set_dpi(dpi)
+                        figure.canvas.draw()
+                        renderer = figure.canvas.get_renderer()
+                        start = 0
+                        for column in range(columns):
+                            count = len(currents) // columns + (column < len(currents) % columns)
+                            texts = legend.get_texts()[start:start + count]
+                            handles = legend.legend_handles[start:start + count]
+                            right_edges = [text.get_window_extent(renderer).x1 for text in texts]
+                            swatch_starts = [handle.get_window_extent(renderer).x0 for handle in handles]
+                            self.assertLess(max(right_edges) - min(right_edges), 0.01)
+                            self.assertLess(max(swatch_starts) - min(swatch_starts), 0.01)
+                            start += count
+                finally:
+                    for figure in figures:
+                        figure.clear()
+
     def test_pole_report_labels_use_the_requested_english_names(self) -> None:
         definitions = {definition.key: definition for definition in POLE_FIELD_DEFINITIONS}
         spectrum_definitions = {definition.key: definition for definition in SPECTRUM_FIELD_DEFINITIONS}

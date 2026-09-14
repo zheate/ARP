@@ -16,7 +16,7 @@ from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
-from matplotlib.offsetbox import AnnotationBbox, HPacker, TextArea
+from matplotlib.offsetbox import AnnotationBbox, HPacker, TextArea, VPacker
 from matplotlib.patches import PathPatch, Rectangle
 from matplotlib.path import Path as MatplotlibPath
 from matplotlib.ticker import FixedLocator
@@ -59,6 +59,18 @@ def _spectrum_legend_column_count(series_count: int) -> int:
     """Keep short legends compact and split overflowing spectrum legends."""
 
     return 2 if series_count > SPECTRUM_LEGEND_SINGLE_COLUMN_LIMIT else 1
+
+
+class _RightAlignedLegendLabel(VPacker):
+    """Share a column's label width at the current preview/PDF resolution."""
+
+    def __init__(self, label: TextArea, column_labels: list[TextArea]) -> None:
+        super().__init__(children=[label], align="right", pad=0, sep=0)
+        self._column_labels = column_labels
+
+    def _get_bbox_and_child_offsets(self, renderer: Any) -> Any:
+        self.width = max(label.get_bbox(renderer).width for label in self._column_labels)
+        return super()._get_bbox_and_child_offsets(renderer)
 
 
 def _register_font(path: Path) -> None:
@@ -697,7 +709,7 @@ class _HeadlessShippingReportRenderer:
             )
             lines.append(line)
             labels.append(f"{point.current_a:g} A")
-        axes.legend(
+        legend = axes.legend(
             lines,
             labels,
             loc="upper right",
@@ -710,6 +722,14 @@ class _HeadlessShippingReportRenderer:
             labelspacing=0.45,
             prop=_font(8.0, chart=True, chinese=self._chinese),
         )
+        # Keep swatches fixed and right-align the common " A" suffix in each column.
+        for column in legend._legend_handle_box.get_children():
+            rows = column.get_children()
+            column_labels = [row.get_children()[1] for row in rows]
+            for row, label in zip(rows, column_labels):
+                aligned_label = _RightAlignedLegendLabel(label, column_labels)
+                aligned_label.set_figure(figure)
+                row.get_children()[1] = aligned_label
 
     def _draw_detail_table(self, figure: Figure, top: float, points: list[Any]) -> None:
         self._draw_section_title(figure, top, self._localized("Detailed Measurement Data", "详细测量数据"))
