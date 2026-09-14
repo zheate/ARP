@@ -105,7 +105,7 @@ export function automaticStabilityPresentation(auto: Automatic | undefined, mete
   const sampling = ["waiting_stable", "waiting_voltage"].includes(state)
   const usable = stability.hasReading && (!sampling || stability.quality === "live") && !preparing
   const elapsed = usable && stability.powerStable ? Math.min(required, Math.max(0, holdElapsed)) : 0
-  const time = `${elapsed.toFixed(1)} / ${required} 秒`
+  const time = `${elapsed.toFixed(1)} / ${required.toFixed(1)} 秒`
   const criterion = stability.spanLimitW === null
     ? `相对波动 ≤ ${stability.limitPercent}%`
     : `峰峰值 ≤ ${stability.spanLimitW} W`

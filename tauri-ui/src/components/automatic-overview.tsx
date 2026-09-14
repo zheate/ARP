@@ -101,7 +101,7 @@ export function PowerStabilityStatus({
       <LivePowerRecordingDot active={isLive} />
       <span className="power-stability-status__label" title={status.label}>{status.label}</span>
     </span>
-    <span>{status.time}</span>
+    <span className="power-stability-status__time">{status.time}</span>
   </div>
 }
 

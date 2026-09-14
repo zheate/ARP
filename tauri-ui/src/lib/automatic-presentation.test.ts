@@ -17,24 +17,24 @@ const stability: NonNullable<Automatic["stability"]> = {
 test("confirmation starts only after stability and completes after five seconds", () => {
   const pending = automaticStabilityPresentation(auto({ state: "waiting_stable", stability }))
   assert.equal(pending.label, "判稳中")
-  assert.equal(pending.time, "0.0 / 5 秒")
+  assert.equal(pending.time, "0.0 / 5.0 秒")
   assert.match(pending.detail, /判稳后连续保持 5 秒/)
   const holding = automaticStabilityPresentation(auto({ state: "waiting_voltage", stability: { ...stability, powerStable: true, holdElapsedS: 2.3 } }))
   assert.equal(holding.label, "保持中")
-  assert.equal(holding.time, "2.3 / 5 秒")
+  assert.equal(holding.time, "2.3 / 5.0 秒")
   const complete = automaticStabilityPresentation(auto({ state: "waiting_voltage", stability: { ...stability, powerStable: true, holdElapsedS: 5 } }))
   assert.equal(complete.label, "保持完成")
-  assert.equal(complete.time, "5.0 / 5 秒")
+  assert.equal(complete.time, "5.0 / 5.0 秒")
 })
 
 test("new points, lost stability and stale readings clear the confirmation clock", () => {
   const held = { ...stability, powerStable: true, holdElapsedS: 3.2 }
-  assert.equal(automaticStabilityPresentation(auto({ state: "setting_current", stability: held })).time, "0.0 / 5 秒")
+  assert.equal(automaticStabilityPresentation(auto({ state: "setting_current", stability: held })).time, "0.0 / 5.0 秒")
   const stale = automaticStabilityPresentation(auto({ state: "waiting_voltage", stability: { ...held, quality: "stale" } }))
-  assert.equal(stale.time, "0.0 / 5 秒")
+  assert.equal(stale.time, "0.0 / 5.0 秒")
   assert.equal(stale.label, "等待采样")
   const excursion = automaticStabilityPresentation(auto({ state: "waiting_stable", stability: { ...held, powerStable: false, spanW: 0.11 } }))
-  assert.equal(excursion.time, "0.0 / 5 秒")
+  assert.equal(excursion.time, "0.0 / 5.0 秒")
   assert.equal(excursion.label, "波动超限")
   assert.equal(automaticStabilityPresentation(auto({ state: "idle", stability })).time, "—")
 })
@@ -43,24 +43,24 @@ test("final-point display uses the backend ten-second target", () => {
   const final = { ...stability, powerStable: true, holdRequiredS: 10, holdElapsedS: 5 }
   const holding = automaticStabilityPresentation(auto({ state: "waiting_voltage", stability: final }))
   assert.equal(holding.label, "保持中")
-  assert.equal(holding.time, "5.0 / 10 秒")
+  assert.equal(holding.time, "5.0 / 10.0 秒")
   const complete = automaticStabilityPresentation(auto({ state: "waiting_voltage", stability: { ...final, holdElapsedS: 10 } }))
   assert.equal(complete.label, "保持完成")
-  assert.equal(complete.time, "10.0 / 10 秒")
+  assert.equal(complete.time, "10.0 / 10.0 秒")
 })
 
 test("spectral testing also waits for wavelength stability before confirmation", () => {
   const wave = automaticStabilityPresentation(auto({ state: "waiting_stable", stability: { ...stability, powerStable: true, wavelengthRequired: true } }))
   assert.equal(wave.label, "等待波长稳定")
-  assert.equal(wave.time, "0.0 / 5 秒")
+  assert.equal(wave.time, "0.0 / 5.0 秒")
 })
 
 test("paused and finished runs retain their recorded confirmation interval", () => {
   const held = { ...stability, powerStable: true, holdElapsedS: 2.3, quality: "stale" as const }
-  assert.equal(automaticStabilityPresentation(auto({ state: "paused", stability: held })).time, "2.3 / 5 秒")
+  assert.equal(automaticStabilityPresentation(auto({ state: "paused", stability: held })).time, "2.3 / 5.0 秒")
   const complete = automaticStabilityPresentation(auto({ state: "completed", stability: { ...held, holdElapsedS: 5 } }))
   assert.equal(complete.label, "末点已稳定")
-  assert.equal(complete.time, "5.0 / 5 秒")
+  assert.equal(complete.time, "5.0 / 5.0 秒")
   assert.equal(automaticStabilityPresentation(auto({ state: "completed", stability: { ...held, hasReading: false } })).time, "—")
   assert.equal(automaticStabilityPresentation(auto({ state: "waiting_voltage", stability, runContext: { selectedScriptId: "aging", sn: "", station: "", testTemperatureC: "" } })).label, "定时老化")
 })
@@ -71,7 +71,7 @@ test("older timing fields cannot be mistaken for the post-stability hold", () =>
   assert.equal(automaticStabilityPresentation(auto({ state: "waiting_voltage", stability: oldStability }), meter).time, "—")
   assert.equal(automaticStabilityPresentation(auto({ state: "waiting_voltage" }), meter).time, "—")
   const accepted = automaticStabilityPresentation(auto({ state: "waiting_voltage", stability: { ...stability, powerStable: true, holdElapsedS: 15 } }), meter)
-  assert.equal(accepted.time, "5.0 / 5 秒")
+  assert.equal(accepted.time, "5.0 / 5.0 秒")
 })
 
 const form = { sn: "555", outputDir: "C:\\test\\ES" }

@@ -2520,7 +2520,7 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, sm
     && previousSpectrum?.spectrumWindow?.halfRangeNm === nextSpectrum?.spectrumWindow?.halfRangeNm
 })
 
-function AutomaticMetricCard({ title, value, unit, valueTone = "muted", recording = false, onClick, className = "", headerLeading, footer, verdictLabel }: {
+function AutomaticMetricCard({ title, value, unit, valueTone = "muted", recording = false, onClick, className = "", headerTrailing, footer, verdictLabel }: {
   title: ReactNode
   value: string
   unit: ReactNode
@@ -2528,7 +2528,7 @@ function AutomaticMetricCard({ title, value, unit, valueTone = "muted", recordin
   recording?: boolean
   onClick?: () => void
   className?: string
-  headerLeading?: ReactNode
+  headerTrailing?: ReactNode
   footer?: ReactNode
   verdictLabel?: string
 }) {
@@ -2547,10 +2547,10 @@ function AutomaticMetricCard({ title, value, unit, valueTone = "muted", recordin
       role={clickable ? "button" : undefined}
       tabIndex={clickable ? 0 : undefined}
     >
-      <div aria-label={recording ? `${isStringTitle ? title : "实时功率"}，实时记录中` : undefined} className={`automatic-metric-card__title${headerLeading ? " automatic-metric-card__title--with-status" : ""}`}>
-        {headerLeading}
+      <div aria-label={recording ? `${isStringTitle ? title : "实时功率"}，实时记录中` : undefined} className={`automatic-metric-card__title${headerTrailing ? " automatic-metric-card__title--with-status" : ""}`}>
         {isStringTitle && recording ? <LivePowerRecordingDot active /> : null}
         {isStringTitle ? <span>{title}</span> : title}
+        {headerTrailing}
       </div>
       <div className="automatic-metric-card__value">
         <span className={`automatic-metric-card__number is-${valueTone}`}><NumericReadout value={value} /></span>
@@ -2608,7 +2608,7 @@ function RealtimeMetricCards({
         unit="nm"
         valueTone={wavelengthVerdict.tone === "success" ? "primary" : wavelengthVerdict.tone}
         verdictLabel={wavelengthVerdict.label}
-        headerLeading={<MeasurementState verdict={wavelengthVerdict} limit={`规格 ${config.centerWavelengthSpecNm} ± ${config.centerWavelengthToleranceNm} nm`} />}
+        headerTrailing={<MeasurementState verdict={wavelengthVerdict} limit={`规格 ${config.centerWavelengthSpecNm} ± ${config.centerWavelengthToleranceNm} nm`} />}
         onClick={onOpenSpecifications}
       />
       <AutomaticMetricCard
@@ -2618,7 +2618,7 @@ function RealtimeMetricCards({
         unit="nm"
         valueTone={fwhmVerdict.tone === "success" ? "primary" : fwhmVerdict.tone}
         verdictLabel={fwhmVerdict.label}
-        headerLeading={<MeasurementState verdict={fwhmVerdict} limit={`上限 ${config.fwhmMaximumNm} nm`} />}
+        headerTrailing={<MeasurementState verdict={fwhmVerdict} limit={`上限 ${config.fwhmMaximumNm} nm`} />}
         onClick={onOpenSpecifications}
       />
       <AutomaticMetricCard
@@ -2628,7 +2628,7 @@ function RealtimeMetricCards({
         unit="%"
         valueTone={pibVerdict.tone === "success" ? "primary" : pibVerdict.tone}
         verdictLabel={pibVerdict.label}
-        headerLeading={<MeasurementState verdict={pibVerdict} limit={`下限 ${config.pibMinimumPercent}%`} />}
+        headerTrailing={<MeasurementState verdict={pibVerdict} limit={`下限 ${config.pibMinimumPercent}%`} />}
         onClick={onOpenSpecifications}
       />
     </section>

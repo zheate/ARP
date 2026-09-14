@@ -78,7 +78,7 @@ try{
     for(const value of ['10.000','999.999','1000.000','--','-12.345']){
      await page.evaluate(v=>window.__arpQaSetValue(v),value);await page.waitForTimeout(30);
      const rect=await number.boundingBox();const unitAfter=await unit.boundingBox();
-     check(`${key}-geometry-${value}`,before && rect && Math.abs(before.x-rect.x)<1 && Math.abs(before.width-rect.width)<1 && unitBefore && unitAfter && Math.abs(unitBefore.x-unitAfter.x)<1,{before,rect,unitBefore,unitAfter});
+     check(`${key}-geometry-${value}`,before && rect && Math.abs((before.x+before.width/2)-(rect.x+rect.width/2))<1 && unitAfter && unitAfter.x>=rect.x+rect.width,{before,rect,unitBefore,unitAfter});
     }
     check(`${key}-reduced-motion-no-animation`,await number.evaluate(e=>e.getAnimations({subtree:true}).length===0));
    }

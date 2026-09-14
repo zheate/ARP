@@ -135,10 +135,10 @@
 .automatic-metric-card__title, .automatic-metric-card--power .automatic-metric-card__title { justify-content: flex-start; font-size: 0.75rem; line-height: 1.1rem; font-weight: 400; }
 .automatic-metric-card--title-below .automatic-metric-card__title { order: 0; }
 .automatic-metric-card--title-below .automatic-metric-card__value { order: 1; }
-.automatic-metric-card__value, .automatic-metric-card--power .automatic-metric-card__value { min-width: 0; font-size: var(--workbench-metric-size); line-height: 1.25; font-weight: 600; gap: 0.4rem; }
+.automatic-metric-card__value, .automatic-metric-card--power .automatic-metric-card__value { display: grid; grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr); width: 100%; min-width: 0; font-size: var(--workbench-metric-size); line-height: 1.25; font-weight: 600; gap: 0.4rem; }
 .automatic-metric-grid .automatic-metric-card { align-items: stretch; }
 .automatic-metric-grid .automatic-metric-card .automatic-metric-card__title { justify-content: flex-end; }
-.automatic-metric-grid .automatic-metric-card .automatic-metric-card__value { width: 100%; justify-content: center; }
+.automatic-metric-card__unit { grid-column: 3; justify-self: start; }
 .automatic-metric-card__unit, .automatic-metric-card--power .automatic-metric-card__unit { font-size: 0.8rem; font-weight: 450; white-space: nowrap; }
 .automatic-metric-card__current { margin-left: 0.2rem; font-size: 1.375rem; font-weight: 600; color: var(--foreground); }
 .automatic-metric-card__recording-dot { width: 0.4rem; height: 0.4rem; }
@@ -151,6 +151,7 @@
 .automatic-metric-card__title .power-stability-status__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .power-stability-status { order: 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.25rem 0.7rem; width: 100%; color: var(--muted-foreground); font-size: 0.75rem; line-height: 1.35; font-variant-numeric: tabular-nums; }
 .power-stability-status > span { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
+.power-stability-status__time { font-family: var(--font-din); font-size: inherit; font-weight: inherit; font-variant-numeric: lining-nums tabular-nums; }
 .power-stability-status i { width: 0.35rem; height: 0.35rem; border-radius: 50%; background: currentColor; }
 .power-stability-status[data-tone="success"] > span:first-child { color: var(--app-success); }
 .power-stability-status[data-tone="warning"] > span:first-child { color: var(--app-warning); }
@@ -386,10 +387,10 @@ fieldset.appearance-section .appearance-help { clear: both; }
 }
 
 /* Shared instrument readouts and controls: neutral live values, semantic verdicts. */
-.automatic-metric-card__number { flex: 0 0 auto; min-inline-size: 8ch; text-align: right; }
+.automatic-metric-card__number { grid-column: 2; min-inline-size: 0; text-align: center; }
 .automatic-metric-card__number.is-primary { color: var(--foreground); }
-.automatic-metric-card__current { display: inline-block; min-inline-size: 7ch; text-align: right; font-variant-numeric: tabular-nums; }
-.measurement-state { display: inline-flex; align-items: center; gap: 0.25rem; margin-right: auto; font-size: 0.6875rem; white-space: nowrap; }
+.automatic-metric-card__current { display: inline-block; text-align: left; font-variant-numeric: tabular-nums; }
+.measurement-state { display: inline-flex; align-items: center; gap: 0.25rem; margin-left: auto; font-size: 0.6875rem; white-space: nowrap; }
 .measurement-state svg { width: 0.75rem; height: 0.75rem; flex-shrink: 0; }
 .measurement-state.is-success { color: var(--app-success); }
 .measurement-state.is-danger { color: var(--app-danger); }
@@ -436,7 +437,7 @@ fieldset.appearance-section .appearance-help { clear: both; }
   .device-rail-item__icon { width: 1.25rem; }
   .device-rail-item__icon svg { width: 1.25rem; height: 1.25rem; }
   .automatic-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .automatic-metric-card__value { font-size: 1.5rem; }
+  .automatic-metric-card__value, .automatic-metric-card--power .automatic-metric-card__value { font-size: 1.5rem; }
 }
 @media (min-width: 821px) and (max-height: 650px) {
   /* The spectrum and measured values precede the secondary historical power plots.
