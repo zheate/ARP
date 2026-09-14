@@ -1,7 +1,7 @@
 name: Frontend design QA
 on:
   push:
-    branches: [audit/arp-ui-20260914]
+    branches: [ui/arp-instrument-audit-20260914]
     paths: ['tauri-ui/**', 'DESIGN.md', 'design-qa.md', '.github/workflows/frontend-qa.yml']
   pull_request:
     paths: ['tauri-ui/**', 'DESIGN.md', 'design-qa.md', '.github/workflows/frontend-qa.yml']
@@ -45,7 +45,7 @@ jobs:
         run: |
           npm install --prefix /tmp/arp-playwright --no-package-lock --no-audit --no-fund playwright@1.56.1
           node /tmp/arp-playwright/node_modules/playwright/cli.js install --with-deps chromium
-      - name: Verify demo workspaces, modal focus and viewport geometry
+      - name: Verify workspaces, modal focus, safety dialogs and failure states
         working-directory: tauri-ui
         env:
           ARP_PLAYWRIGHT_MODULE: /tmp/arp-playwright/node_modules/playwright/index.mjs
@@ -60,6 +60,7 @@ jobs:
             sleep 1
           done
           node scripts/ui-audit.mjs 2>&1 | tee ../qa-evidence/capture.txt
+          node scripts/dialog-qa.mjs 2>&1 | tee ../qa-evidence/dialog-capture.txt
       - name: Upload evidence even when a check fails
         if: always()
         uses: actions/upload-artifact@v4
