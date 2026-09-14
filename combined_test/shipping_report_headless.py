@@ -542,11 +542,12 @@ class _HeadlessShippingReportRenderer:
                 y = top + index * row_height
                 # A hair space loosens adjacent Chinese glyphs without spacing Latin abbreviations.
                 label = re.sub(r"(?<=[\u3400-\u9fff])(?=[\u3400-\u9fff])", "\u200a", definition.label) if self._chinese else definition.label
-                _draw_text(figure, side_x, y, label_width, row_height, label, size=8.5, bold=True, chinese=self._chinese)
+                # Times New Roman for Latin text and digits; Chinese glyphs fall back to YaHei.
+                _draw_text(figure, side_x, y, label_width, row_height, label, size=8.5)
                 if re.fullmatch(r"[+-]?\d+\.\d+", value):
                     value = value.rstrip("0").rstrip(".")
                 spacing = 0.35 if re.fullmatch(r"[+-]?\d+(?:\.\d+)?", value) else 0.0
-                _draw_text(figure, side_x + value_offset, y, value_width, row_height, value, size=8.6, bold=True, horizontal="right", letter_spacing_pt=spacing)
+                _draw_text(figure, side_x + value_offset, y, value_width, row_height, value, size=8.6, horizontal="right", letter_spacing_pt=spacing)
                 _draw_text(figure, side_x + unit_offset, y, unit_width, row_height, definition.unit, size=8.2)
         return height
 
