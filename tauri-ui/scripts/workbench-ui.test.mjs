@@ -40,7 +40,7 @@ test("PD acquisition parameters are locked during a run but stop remains outside
   const snapshot = structuredClone(DEMO_SNAPSHOT)
   snapshot.pd = { devices: [], channels: [], ranges: [], points: [], ...snapshot.pd, state: "running" }
   const html = renderToStaticMarkup(h(PdPage, { snapshot, active: true, pending: false, run: noop }))
-  const fieldset = html.indexOf('<fieldset class="contents" disabled=""')
+  const fieldset = html.search(/<fieldset\b[^>]*\bdisabled=""/)
   assert.ok(fieldset > 0)
   const stop = html.match(/<button[^>]*>[^<]*(?:<svg[\s\S]*?<\/svg>)?停止并保存<\/button>/)
   assert.ok(stop, "existing stop action must remain rendered")

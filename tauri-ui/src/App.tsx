@@ -5197,7 +5197,7 @@ const PdPage = memo(function PdPage({ snapshot, active, pending, run }: { snapsh
             <Button className="w-full" disabled={!active || pending || pd?.detecting || (pd?.state !== "running" && !current.device)} onClick={() => void run(pd?.state === "running" ? "pd.stop" : "pd.start", current as unknown as Record<string, unknown>)}>{pd?.state === "running" ? <><Square className="size-4" />停止并保存</> : <><Play className="size-4" />开始采集</>}</Button>
           </div>
           <p className="pd-acquisition-status text-xs text-muted-foreground" role="status">{pd?.status || "等待识别采集卡"}</p>
-<CardContent className="pd-settings-grid grid grid-cols-2 gap-3"><fieldset className="contents" disabled={!active || pending || pd?.state === "running"}>
+<CardContent className="pd-settings-grid grid grid-cols-2 gap-3"><fieldset aria-label="PD 采集参数" className="contents" disabled={!active || pending || pd?.state === "running"}>
           <div className="col-span-2 pt-1"><p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">采集参数</p></div>
           <Field label="采集卡" className="pd-inline-field col-span-2" layout="inline">
             <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">

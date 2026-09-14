@@ -923,7 +923,8 @@ body {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .pd-settings-grid > .col-span-2 {
+  .pd-settings-grid > .col-span-2,
+  .pd-settings-grid > fieldset > .col-span-2 {
     grid-column: 1 / -1;
   }
 }

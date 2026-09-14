@@ -58,6 +58,12 @@ try {
    if(id==='pd'){
     const action=await page.locator('.pd-acquisition-actions').boundingBox();
     check(`${key}-pd-action-visible`,action && action.y>=0 && action.y+action.height<=height,action);
+    const fields=await page.locator('.pd-settings-grid .pd-inline-field').evaluateAll(elements=>elements.map(e=>{
+      const r=e.getBoundingClientRect();const label=e.querySelector('label');const lr=label?.getBoundingClientRect();
+      return {label:label?.textContent,x:r.x,y:r.y,right:r.right,bottom:r.bottom,width:r.width,labelRight:lr?.right};
+    }));
+    const overlap=fields.some((a,i)=>fields.some((b,j)=>j>i && Math.min(a.right,b.right)-Math.max(a.x,b.x)>1 && Math.min(a.bottom,b.bottom)-Math.max(a.y,b.y)>1));
+    check(`${key}-pd-fields-fit-without-overlap`,fields.length>=6 && fields.every(f=>f.width>=160 && f.labelRight<=f.right+1) && !overlap,fields);
    }
   }
   // The unchanged mid-run fixture deliberately locks manual/report navigation.
@@ -65,16 +71,16 @@ try {
   const live=await capture(page,`${key}-automatic-running`);
   check(`${key}-running-lock`,await page.getByRole('button',{name:'手动配置',exact:true}).isDisabled() && await page.getByRole('button',{name:'出货报告',exact:true}).isDisabled());
   check(`${key}-readouts-no-overflow`,live.readouts.every(r=>!r.overflow),live.readouts);
-  if(dpr===1 && width!==2560){
+  if(dpr===1){
    const spectrum=live.charts.find(c=>c.text==='光谱曲线');
-   check(`${key}-spectrum-visible`,spectrum && spectrum.rect.y>=0 && spectrum.rect.bottom<=height+1 && spectrum.rect.height>=180,spectrum?.rect);
+   check(`${key}-spectrum-visible`,spectrum && spectrum.rect.y>=0 && spectrum.rect.bottom<=height+1 && spectrum.rect.height>=(height>=1000?320:180),spectrum?.rect);
   }
   // Synthetic DOM text stress tests geometry only, never backend measurement data.
   const stress=await page.evaluate(()=>[...document.querySelectorAll('.automatic-metric-card__number')].map(e=>{
     const readout=e.querySelector('.numeric-readout');if(!readout)return {passed:false};
-    const original=readout.innerHTML;const initial=e.getBoundingClientRect();let passed=true;
+    const original=[...readout.childNodes];const initial=e.getBoundingClientRect();let passed=true;
     for(const value of ['9.999','10.000','999.999','--','-12.345']){readout.textContent=value;const r=e.getBoundingClientRect();passed=passed && Math.abs(r.x-initial.x)<1 && Math.abs(r.width-initial.width)<1;}
-    readout.innerHTML=original;return {passed};
+    readout.replaceChildren(...original);return {passed};
   }));
   check(`${key}-synthetic-numeric-width`,stress.length>0 && stress.every(s=>s.passed),stress);
   if(dpr===1 && width!==2560 || dpr===2){

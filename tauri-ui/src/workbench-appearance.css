@@ -125,8 +125,8 @@
 .device-info-tooltip p { margin: 0.75rem 0 0; font-size: 0.7rem; }
 .device-info-tooltip__arrow { fill: var(--app-border-strong); }
 
-.automatic-chart-grid { gap: var(--workbench-gap); grid-template-rows: minmax(14rem, 0.95fr) auto minmax(21rem, 1.05fr); }
-.automatic-chart-grid--compact-metrics { grid-template-rows: minmax(14rem, 1.05fr) auto minmax(21rem, 1fr); }
+.automatic-chart-grid { gap: var(--workbench-gap); grid-template-rows: minmax(14rem, 0.95fr) auto minmax(22.5rem, 1.05fr); }
+.automatic-chart-grid--compact-metrics { grid-template-rows: minmax(14rem, 1.05fr) auto minmax(22.5rem, 1fr); }
 .automatic-chart-grid__power-row, .automatic-metric-grid { gap: var(--workbench-gap); }
 .automatic-chart-grid [data-slot="card-header"] { justify-content: space-between; gap: 1rem; padding: 0.75rem 0.875rem 0.25rem; }
 .chart-panel-heading { color: var(--foreground); font-size: 0.85rem; font-weight: 550; white-space: nowrap; }
@@ -431,7 +431,7 @@ fieldset.appearance-section .appearance-help { clear: both; }
   .automatic-device-rail { grid-template-columns: repeat(3, minmax(0, 1fr)) 8rem; }
   .automatic-device-rail > .automatic-test-control-card { grid-column: auto; margin: 0; border-top: 0; }
   .automatic-device-rail .automatic-test-control-card__content { flex-direction: column; padding-inline: 0.5rem; }
-  .automatic-device-rail .automatic-test-control-card__actions { width: 100%; flex-direction: column; gap: 0.25rem; }
+  .automatic-device-rail .automatic-test-control-card__actions { width: 100%; grid-template-columns: minmax(0, 1fr); gap: 0.25rem; }
   .device-rail-item { gap: 0.375rem; padding: 0.5rem; }
   .device-rail-item__icon { width: 1.25rem; }
   .device-rail-item__icon svg { width: 1.25rem; height: 1.25rem; }
