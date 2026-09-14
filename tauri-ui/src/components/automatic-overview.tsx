@@ -116,25 +116,85 @@ export function AutomaticCompletionSummary({ snapshot, config, active, pending, 
   const title = automaticTerminalTitle(auto.terminalOutcome)
   const success = auto.terminalOutcome === "succeeded" && shutdown.confirmed
   const aging = run.selectedScriptId === "aging"
-  return <section className="automatic-completion-summary" data-tone={success ? "success" : "warning"} aria-label="测试结果摘要">
-    <div className="automatic-completion-summary__main">
-      <div className="automatic-completion-summary__status">{success ? <CheckCircle2 /> : <CircleAlert />}<strong>{title}</strong></div>
-      <div className="automatic-completion-summary__sample"><small>当前样品</small><strong title={run.sn}>{run.sn || "未填写 SN"}</strong><small>{run.testTemperatureC || "未填写温度"} · {run.station || "未填写站别"}</small></div>
-      <dl className="automatic-completion-summary__facts">
-        <div><dt><Clock3 />耗时</dt><dd>{formatTestDuration(auto.elapsedS)}</dd></div>
-        <div><dt>{aging ? "老化采样" : "测试点"}</dt><dd>{aging ? `${snapshot.measurements?.agingPower.length ?? 0} 次` : `${auto.savedPointCount ?? 0} / ${auto.currents?.length ?? 0}`}</dd></div>
-        <div><dt>数据</dt><dd className={storage.saved ? "is-success" : "is-warning"}>{aging ? "见老化曲线" : storage.label}</dd>{storage.exportLabel && <small className={storage.exportFailed ? "is-danger" : ""}>{storage.exportLabel}</small>}</div>
-        <div><dt>安全下电</dt><dd className={shutdown.confirmed ? "is-success" : "is-danger"} title={shutdown.label}>{shutdown.confirmed ? "已确认" : "未确认"}</dd></div>
-      </dl>
-      <div className="automatic-completion-summary__actions">
-        <Button onClick={onViewData} size="sm" variant="outline"><FileText className="size-4" />查看数据</Button>
-        <Button disabled={!active || pending || !auto.canNextDevice || !shutdown.confirmed} onClick={onNextDevice} size="sm">下一颗<ChevronRight className="size-4" /></Button>
+  const reason = (storage.exportFailed || !success)
+    ? (auto.exportError || auto.terminalReason || auto.detail)
+    : null
+
+  return (
+    <section className="automatic-completion-summary" data-tone={success ? "success" : "warning"} aria-label="测试结果摘要">
+      <div className="automatic-completion-summary__main">
+        <div className="automatic-completion-summary__status">
+          <span className="automatic-completion-summary__status-icon">
+            {success ? <CheckCircle2 className="size-5 shrink-0" /> : <CircleAlert className="size-5 shrink-0" />}
+          </span>
+          <div className="automatic-completion-summary__status-text min-w-0">
+            <div className="automatic-completion-summary__title-row">
+              <strong>{title}</strong>
+              <button
+                className="automatic-completion-summary__detail-link"
+                onClick={onShowDetails}
+                title="查看结束详情"
+                type="button"
+              >
+                <Info className="size-3 shrink-0" />
+                详情
+              </button>
+            </div>
+            {reason && (
+              <p className="automatic-completion-summary__reason" role="status" title={reason}>
+                {reason}
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="automatic-completion-summary__sample">
+          <small>当前样品</small>
+          <strong title={run.sn}>{run.sn || "未填写 SN"}</strong>
+          <small className="truncate">{run.testTemperatureC || "未填写温度"} · {run.station || "未填写站别"}</small>
+        </div>
+
+        <dl className="automatic-completion-summary__facts">
+          <div>
+            <dt><Clock3 />耗时</dt>
+            <dd>{formatTestDuration(auto.elapsedS)}</dd>
+          </div>
+          <div>
+            <dt>{aging ? "老化采样" : "测试点"}</dt>
+            <dd>{aging ? `${snapshot.measurements?.agingPower.length ?? 0} 次` : `${auto.savedPointCount ?? 0} / ${auto.currents?.length ?? 0}`}</dd>
+          </div>
+          <div>
+            <dt>数据</dt>
+            <dd className={storage.saved ? "is-success" : "is-warning"}>{aging ? "见老化曲线" : storage.label}</dd>
+            {storage.exportLabel && <small className={storage.exportFailed ? "is-danger" : ""}>{storage.exportLabel}</small>}
+          </div>
+          <div>
+            <dt>安全下电</dt>
+            <dd className={shutdown.confirmed ? "is-success" : "is-danger"} title={shutdown.label}>
+              {shutdown.confirmed ? "已确认" : "未确认"}
+            </dd>
+          </div>
+        </dl>
+
+        <div className="automatic-completion-summary__actions">
+          {auto.canRetryExport && (
+            <>
+              <Button disabled={!active || pending} onClick={onRetryExport} size="sm" variant="outline">
+                <RefreshCw className="size-3.5" />重试 Excel
+              </Button>
+              <Button disabled={!active || pending} onClick={onChooseExportDirectory} size="sm" variant="outline">
+                <FolderOpen className="size-3.5" />更换目录
+              </Button>
+            </>
+          )}
+          <Button onClick={onViewData} size="sm" variant="outline">
+            <FileText className="size-4" />查看数据
+          </Button>
+          <Button disabled={!active || pending || !auto.canNextDevice || !shutdown.confirmed} onClick={onNextDevice} size="sm">
+            下一颗<ChevronRight className="size-4" />
+          </Button>
+        </div>
       </div>
-    </div>
-    {(storage.exportFailed || !success) && <p className="automatic-completion-summary__reason" role="status">{auto.exportError || auto.terminalReason || auto.detail}</p>}
-    <div className="automatic-completion-summary__footer">
-      <button onClick={onShowDetails} type="button"><Info className="size-3.5" />查看结束详情</button>
-      {auto.canRetryExport && <><button disabled={!active || pending} onClick={onRetryExport} type="button"><RefreshCw className="size-3.5" />重新生成 Excel</button><button disabled={!active || pending} onClick={onChooseExportDirectory} type="button"><FolderOpen className="size-3.5" />更换输出目录</button></>}
-    </div>
-  </section>
+    </section>
+  )
 }
