@@ -86,13 +86,28 @@ export function AutomaticPhaseTrack({ snapshot }: { snapshot: BackendSnapshot | 
   </div>
 }
 
-export function PowerStabilityStatus({ meter, automatic }: { meter: DeviceSnapshot | undefined; automatic?: BackendSnapshot["automaticTest"] }) {
+export function LivePowerRecordingDot({ active = true }: { active?: boolean }) {
+  const [visible, setVisible] = useState(true)
+
+  useEffect(() => {
+    if (!active) return
+    const timer = window.setInterval(() => setVisible((current) => !current), 500)
+    return () => window.clearInterval(timer)
+  }, [active])
+
+  return <span aria-hidden="true" className={`automatic-metric-card__recording-dot ${active ? (visible ? "is-on" : "is-off") : "is-idle"}`} />
+}
+
+export function PowerStabilityStatus({ meter, automatic, recording = false }: { meter: DeviceSnapshot | undefined; automatic?: BackendSnapshot["automaticTest"]; recording?: boolean }) {
   const progress = automaticStabilityPresentation(automatic, meter)
   const status = automatic
     ? { ...progress, time: `稳定后保持 ${progress.time}` }
     : powerStabilityPresentation(meter)
   return <div className="power-stability-status" data-tone={status.tone} aria-label={`功率稳定状态：${status.label}，${status.time}`} title={automatic ? progress.detail : "稳定时间从本轮功率读数达到稳定后计算；读数中断、失稳或重新判稳后重新计时。"}>
-    <span><i aria-hidden="true" /><span className="power-stability-status__label" title={status.label}>{status.label}</span></span>
+    <span>
+      {recording ? <LivePowerRecordingDot active /> : <i aria-hidden="true" />}
+      <span className="power-stability-status__label" title={status.label}>{status.label}</span>
+    </span>
     <span>{status.time}</span>
   </div>
 }

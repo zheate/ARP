@@ -57,11 +57,13 @@ import { spectrumPeakAnnotations, spectrumPeakLegend } from "@/lib/spectrum-anno
 import { ActivationView } from "@/components/license/ActivationView"
 import { AppearanceProvider, useAppearance } from "@/hooks/use-appearance"
 import { AppearanceSettings, DisplayMenu } from "@/components/appearance-controls"
-import { AutomaticCompletionSummary, AutomaticPhaseTrack, PowerStabilityStatus } from "@/components/automatic-overview"
+import { AutomaticCompletionSummary, AutomaticPhaseTrack, LivePowerRecordingDot, PowerStabilityStatus } from "@/components/automatic-overview"
 import { NumericReadout } from "@/components/numeric-readout"
 import { ACCENT_THEMES, type Theme, type AccentTheme, type CurveLineStyle, type LatestPointMarkerStyle } from "@/lib/appearance"
 import { DataBrowserPage } from "@/components/data-browser-page"
 import { formatLicenseDate, getLicenseStatus, installLicense, licenseReasonLabels, type LicenseStatus } from "@/lib/license"
+import { cn } from "@/lib/utils"
+import { normalizeNumericInput, stepNumericValue } from "@/lib/number-input"
 
 type Page = "automatic" | "manual" | "pd" | "data" | "shipping" | "settings"
 
@@ -710,9 +712,10 @@ function AutomaticTestControlCard({
       <CardContent className="automatic-test-control-card__content px-4 py-0">
         <div className="automatic-test-control-card__actions">
           <Button
-            disabled={!active || pending || controlsLocked || running || !canStart}
+            disabled={!active || pending || controlsLocked || running}
             onClick={onStart}
             size="sm"
+            title={!canStart && readinessMessages.length > 0 ? readinessMessages.join("；") : undefined}
           >
             <Play className="size-4" />开始
           </Button>
@@ -725,11 +728,6 @@ function AutomaticTestControlCard({
             <Square className="size-4" />停止
           </Button>
         </div>
-        {!running && readinessMessages.length > 0 && (
-          <p aria-live="polite" className="mt-2 text-xs leading-5 text-destructive" title={readinessMessages.join("；")}>
-            未就绪：{readinessMessages.slice(0, 2).join("；")}{readinessMessages.length > 2 ? `；另有 ${readinessMessages.length - 2} 项` : ""}
-          </p>
-        )}
       </CardContent>
     </Card>
   )
@@ -1121,7 +1119,7 @@ function PowerMeterProfileEditor({ snapshot, config, active, pending, run, compa
         </div>
         <Field label="方案名称"><Input disabled={mutationLocked} maxLength={60} value={draft.name} onChange={(event) => updateDraft("name", event.target.value)} /></Field>
         <div className="device-settings-field-grid">
-          <NumberField disabled={mutationLocked} label="功率系数" min={0.000001} step="0.01" value={draft.softwareGain} onChange={(value) => updateDraft("softwareGain", value)} />
+          <NumberField disabled={mutationLocked} label="功率系数" min={0.000001} step="0.001" value={draft.softwareGain} onChange={(value) => updateDraft("softwareGain", value)} />
           <NumberField disabled={mutationLocked} label="校准波长 (nm)" min={0.000001} step="0.1" value={draft.wavelengthNm} onChange={(value) => updateDraft("wavelengthNm", value)} />
         </div>
         <Field label="条件备注"><textarea className="power-meter-profile__textarea" disabled={mutationLocked} maxLength={300} rows={2} value={draft.notes} onChange={(event) => updateDraft("notes", event.target.value)} /></Field>
@@ -2598,19 +2596,8 @@ const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, sm
     && previousSpectrum?.spectrumWindow?.halfRangeNm === nextSpectrum?.spectrumWindow?.halfRangeNm
 })
 
-function LivePowerRecordingDot() {
-  const [visible, setVisible] = useState(true)
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setVisible((current) => !current), 500)
-    return () => window.clearInterval(timer)
-  }, [])
-
-  return <span aria-hidden="true" className={`automatic-metric-card__recording-dot ${visible ? "is-on" : "is-off"}`} />
-}
-
 function AutomaticMetricCard({ title, value, unit, valueTone = "muted", recording = false, onClick, className = "", headerLeading, footer }: {
-  title: string
+  title: ReactNode
   value: string
   unit: ReactNode
   valueTone?: "success" | "danger" | "warning" | "muted"
@@ -2621,9 +2608,10 @@ function AutomaticMetricCard({ title, value, unit, valueTone = "muted", recordin
   footer?: ReactNode
 }) {
   const clickable = Boolean(onClick)
+  const isStringTitle = typeof title === "string"
   return (
     <div
-      aria-label={clickable ? `${title}，点击设置规格` : undefined}
+      aria-label={clickable ? `${isStringTitle ? title : "实时功率"}，点击设置规格` : undefined}
       className={`automatic-metric-card ${className} ${clickable ? "automatic-metric-card--clickable" : ""}`}
       onClick={onClick}
       onKeyDown={(event) => {
@@ -2634,10 +2622,10 @@ function AutomaticMetricCard({ title, value, unit, valueTone = "muted", recordin
       role={clickable ? "button" : undefined}
       tabIndex={clickable ? 0 : undefined}
     >
-      <div aria-label={recording ? `${title}，实时记录中` : undefined} className={`automatic-metric-card__title${headerLeading ? " automatic-metric-card__title--with-status" : ""}`}>
+      <div aria-label={recording ? `${isStringTitle ? title : "实时功率"}，实时记录中` : undefined} className={`automatic-metric-card__title${headerLeading ? " automatic-metric-card__title--with-status" : ""}`}>
         {headerLeading}
-        {recording ? <LivePowerRecordingDot /> : null}
-        <span>{title}</span>
+        {isStringTitle && recording ? <LivePowerRecordingDot active /> : null}
+        {isStringTitle ? <span>{title}</span> : title}
       </div>
       <div className="automatic-metric-card__value">
         <span className={`automatic-metric-card__number is-${valueTone}`}><NumericReadout value={value} /></span>
@@ -2679,13 +2667,11 @@ function RealtimeMetricCards({
     <section className={`automatic-metric-grid${compact ? " automatic-metric-grid--compact" : ""}`} aria-label="实时关键指标">
       <AutomaticMetricCard
         className="automatic-metric-card--power automatic-metric-card--title-below"
-        title="实时功率"
+        title={<PowerStabilityStatus automatic={automatic} meter={powerMeter} recording={Boolean(powerMeter?.running)} />}
         value={formatFixedNumber(livePowerW, 3)}
         unit={<>W @ <span className="automatic-metric-card__current">{formatTrimmedNumber(currentA, 2)} A</span></>}
         valueTone="warning"
         recording={Boolean(powerMeter?.running)}
-        headerLeading={compact ? <PowerStabilityStatus automatic={automatic} meter={powerMeter} /> : undefined}
-        footer={compact ? undefined : <PowerStabilityStatus automatic={automatic} meter={powerMeter} />}
       />
       <AutomaticMetricCard
         className="automatic-metric-card--title-below"
@@ -3064,11 +3050,29 @@ function LicensedApp({
     })
     .filter((item) => !notices.some((notice) => notice.message === item.message))
 
+  const [customNotices, setCustomNotices] = useState<Array<{ key: string; level: "error" | "info" | "warning"; title: string; message: string }>>([])
+  const notify = useCallback((notice: { level?: "error" | "info" | "warning"; title: string; message: string; durationMs?: number }) => {
+    const key = `custom-notice:${Date.now()}:${Math.random().toString(36).slice(2, 6)}`
+    const level = notice.level ?? "error"
+    setCustomNotices((current) => {
+      const filtered = current.filter((item) => !(item.title === notice.title && item.message === notice.message))
+      return [...filtered, { key, level, title: notice.title, message: notice.message }]
+    })
+    const duration = notice.durationMs ?? (level === "info" ? INFO_TOAST_DURATION_MS : 5000)
+    if (duration > 0) {
+      window.setTimeout(() => {
+        setDismissedNotifications((current) => new Set(current).add(key))
+        setCustomNotices((current) => current.filter((item) => item.key !== key))
+      }, duration)
+    }
+  }, [])
+
   const notifications: Array<{ key: string; level: "error" | "info" | "warning"; title: string; message: string; code?: string; id?: string }> = [
     ...(error ? [{ key: `request-error:${error}`, level: "error" as const, title: "系统错误", message: error }] : []),
     ...notices.map((notice, index) => ({ ...notice, key: notice.id ? `backend-notice:${notice.id}` : `backend-notice:${notice.level}:${notice.title}:${notice.message}:${index}` })),
     ...deviceDetectionErrors,
     ...deviceDetectionCompletions,
+    ...customNotices,
     ...(!active && snapshot ? [{ key: "runtime-warning", level: "warning" as const, title: "运行环境提示", message: "当前 Python 环境未加载所需设备驱动，因此控制功能暂不可用。请使用项目指定环境启动。" }] : []),
   ]
   const [dismissedNotifications, setDismissedNotifications] = useState<Set<string>>(() => new Set())
@@ -3221,7 +3225,10 @@ function LicensedApp({
           {toastNotifications.length > 0 && (
             <AnimatedToastStack
               disabled={automaticInteractionLocked}
-              onDismiss={(id) => setDismissedNotifications((current) => new Set(current).add(id))}
+              onDismiss={(id) => {
+                setDismissedNotifications((current) => new Set(current).add(id))
+                setCustomNotices((current) => current.filter((item) => item.key !== id))
+              }}
               toasts={toastNotifications.map((notification) => ({
                 id: notification.key,
                 title: notification.title,
@@ -3262,7 +3269,7 @@ function LicensedApp({
             data-page={page}
             key={page}
           >
-            {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={operational} controlsLocked={automaticInteractionLocked || !licenseStatus.valid} curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} pending={commandPending} run={run} saveConfiguration={saveConfiguration} testScripts={snapshot?.testScripts ?? BUILTIN_TEST_SCRIPT_OPTIONS} onScriptSelect={selectTestScript} onNextDevice={() => void prepareNextDevice()} onViewData={() => changePage("data")} onRetryExport={() => void retryAutomaticExport()} onChooseExportDirectory={() => void chooseAutomaticExportDirectory()} onShowCompletion={() => { const auto = snapshot?.automaticTest; if (auto?.terminalOutcome) setAutomaticCompletion({ title: automaticTerminalTitle(auto.terminalOutcome), message: auto.detail }) }} />}
+            {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={operational} controlsLocked={automaticInteractionLocked || !licenseStatus.valid} curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} pending={commandPending} run={run} saveConfiguration={saveConfiguration} testScripts={snapshot?.testScripts ?? BUILTIN_TEST_SCRIPT_OPTIONS} onScriptSelect={selectTestScript} onNextDevice={() => void prepareNextDevice()} onViewData={() => changePage("data")} onRetryExport={() => void retryAutomaticExport()} onChooseExportDirectory={() => void chooseAutomaticExportDirectory()} onShowCompletion={() => { const auto = snapshot?.automaticTest; if (auto?.terminalOutcome) setAutomaticCompletion({ title: automaticTerminalTitle(auto.terminalOutcome), message: auto.detail }) }} onNotify={notify} />}
             {page === "manual" && <ManualPage snapshot={snapshot} config={config} update={update} active={operational} pending={commandPending} run={run} />}
             {page === "pd" && <PdPage snapshot={snapshot} active={operational} pending={commandPending} run={run} />}
             {page === "shipping" && <ShippingReportPage active={operational} controlsLocked={automaticInteractionLocked || !licenseStatus.valid} pending={commandPending} />}
@@ -4349,6 +4356,7 @@ const AutomaticPage = memo(function AutomaticPage({
   onRetryExport,
   onChooseExportDirectory,
   onShowCompletion,
+  onNotify,
 }: {
   snapshot: BackendSnapshot | null
   config: AppConfiguration
@@ -4367,6 +4375,7 @@ const AutomaticPage = memo(function AutomaticPage({
   onRetryExport: () => void
   onChooseExportDirectory: () => void
   onShowCompletion: () => void
+  onNotify?: (notice: { level?: "error" | "info" | "warning"; title: string; message: string; durationMs?: number }) => void
 }) {
   const auto = snapshot?.automaticTest
   const completed = auto?.state === "completed" && Boolean(auto.terminalOutcome)
@@ -4379,7 +4388,16 @@ const AutomaticPage = memo(function AutomaticPage({
   useEffect(() => {
     if (controlsLocked) setOpenSettings(null)
   }, [controlsLocked])
+  const { canStart, messages: readinessMessages } = automaticStartPresentation(auto, config)
   const startAutomaticTest = () => {
+    if (!canStart) {
+      onNotify?.({
+        title: "未就绪",
+        message: readinessMessages.length > 0 ? readinessMessages.join("；") : "当前状态无法开始测试",
+        level: "error",
+      })
+      return
+    }
     void run("automatic.start", { ...config })
   }
   const powerSupplySummary = config.powerSupplyKind === "ch341"
@@ -4526,12 +4544,11 @@ const AutomaticPage = memo(function AutomaticPage({
             {!useSpectrometer && (
               <AutomaticMetricCard
                 className="automatic-power-chart__reading automatic-metric-card--power automatic-metric-card--title-below"
-                title="实时功率"
+                title={<PowerStabilityStatus automatic={snapshot?.automaticTest} meter={powerMeter} recording={Boolean(powerMeter?.running)} />}
                 value={formatFixedNumber(livePowerW, 3)}
                 unit={<>W @ <span className="automatic-metric-card__current">{formatTrimmedNumber(liveCurrentA, 2)} A</span></>}
                 valueTone="warning"
                 recording={Boolean(powerMeter?.running)}
-                footer={<PowerStabilityStatus automatic={snapshot?.automaticTest} meter={powerMeter} />}
               />
             )}
           </div>
@@ -4619,7 +4636,7 @@ function NumberInput({
   useEffect(() => {
     if (!isFocused) {
       setText(Number.isFinite(value) ? String(value) : "")
-    } else if (Number.isFinite(value) && Number(text) !== value && text !== "" && text !== "-") {
+    } else if (Number.isFinite(value) && Number(text) !== value && text !== "" && text !== "-" && !text.endsWith(".")) {
       setText(String(value))
     }
   }, [value, isFocused])
@@ -4628,9 +4645,9 @@ function NumberInput({
   const numMax = max !== undefined ? Number(max) : undefined
 
   const handleChange = (rawValue: string) => {
-    const normalized = rawValue.replace(/^(-?)0+(\d)/, "$1$2")
+    const normalized = normalizeNumericInput(rawValue)
     setText(normalized)
-    if (normalized === "" || normalized === "-" || normalized.endsWith(".")) {
+    if (normalized === "" || normalized === "-" || normalized === "-0" || normalized.endsWith(".")) {
       return
     }
     const parsed = Number(normalized)
@@ -4645,7 +4662,7 @@ function NumberInput({
 
   const handleBlur = () => {
     setIsFocused(false)
-    if (text === "" || text === "-" || !Number.isFinite(Number(text))) {
+    if (text === "" || text === "-" || text === "-0" || !Number.isFinite(Number(text))) {
       const fallback = numMin !== undefined && Number.isFinite(numMin) ? numMin : 0
       setText(String(fallback))
       onChange(fallback)
@@ -4663,21 +4680,65 @@ function NumberInput({
     event.currentTarget.select()
   }
 
+  const doStep = (direction: 1 | -1) => {
+    if (disabled) return
+    const nextNum = stepNumericValue(text, step, direction, numMin, numMax)
+    setText(String(nextNum))
+    onChange(nextNum)
+  }
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "ArrowUp") {
+      event.preventDefault()
+      doStep(1)
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault()
+      doStep(-1)
+    }
+  }
+
   return (
-    <Input
-      aria-label={ariaLabel}
-      className={className}
-      disabled={disabled}
-      id={id}
-      type="number"
-      min={min}
-      max={max}
-      step={step}
-      value={text}
-      onFocus={handleFocus}
-      onBlur={handleBlur}
-      onChange={(e) => handleChange(e.target.value)}
-    />
+    <div className="relative flex w-full min-w-0 items-center">
+      <Input
+        aria-label={ariaLabel}
+        className={cn("pr-6", className)}
+        disabled={disabled}
+        id={id}
+        inputMode="decimal"
+        type="text"
+        value={text}
+        onBlur={handleBlur}
+        onFocus={handleFocus}
+        onKeyDown={handleKeyDown}
+        onChange={(e) => handleChange(e.target.value)}
+      />
+      <div className="pointer-events-auto absolute right-1 flex flex-col justify-center gap-0.5">
+        <button
+          aria-label="增加数值"
+          className="flex h-3 w-3.5 cursor-pointer items-center justify-center rounded text-muted-foreground/70 transition-colors hover:bg-muted/50 hover:text-foreground active:bg-muted/80 disabled:pointer-events-none disabled:opacity-30"
+          disabled={disabled}
+          tabIndex={-1}
+          type="button"
+          onClick={() => doStep(1)}
+        >
+          <svg className="size-2.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" viewBox="0 0 24 24">
+            <path d="m18 15-6-6-6 6" />
+          </svg>
+        </button>
+        <button
+          aria-label="减少数值"
+          className="flex h-3 w-3.5 cursor-pointer items-center justify-center rounded text-muted-foreground/70 transition-colors hover:bg-muted/50 hover:text-foreground active:bg-muted/80 disabled:pointer-events-none disabled:opacity-30"
+          disabled={disabled}
+          tabIndex={-1}
+          type="button"
+          onClick={() => doStep(-1)}
+        >
+          <svg className="size-2.5" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" viewBox="0 0 24 24">
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </button>
+      </div>
+    </div>
   )
 }
 

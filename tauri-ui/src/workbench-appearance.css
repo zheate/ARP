@@ -141,7 +141,6 @@
 .automatic-device-rail .automatic-test-control-card__content { flex-direction: column; justify-content: center; align-items: stretch; padding-inline: 0.875rem; }
 .automatic-device-rail .automatic-test-control-card__actions { gap: 0.5rem; }
 .automatic-device-rail .automatic-test-control-card__actions [data-slot="button"] { height: 2.6rem; font-size: 0.9rem; }
-.automatic-device-rail .automatic-test-control-card__content p { font-size: 0.65rem; line-height: 1.4; }
 .device-info-tooltip { z-index: 80; max-width: min(24rem, calc(100vw - 24px)); padding: 1rem; border: 1px solid var(--app-border-strong); border-radius: 0.5rem; background: var(--popover); color: var(--foreground); box-shadow: 0 10px 30px rgb(0 0 0 / 0.18); font-size: 0.8rem; }
 .device-info-tooltip dl { display: grid; gap: 0.5rem; margin-top: 0.75rem; }
 .device-info-tooltip dl > div { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 1.5rem; border-top: 1px solid var(--border); padding-top: 0.5rem; }
@@ -168,13 +167,11 @@
 .automatic-metric-card__current { margin-left: 0.2rem; font-size: 1.125rem; font-weight: 600; color: var(--foreground); }
 .automatic-metric-card__recording-dot { width: 0.4rem; height: 0.4rem; }
 .automatic-metric-grid--compact .automatic-metric-card { gap: 0.1rem; padding-block: 0.4rem; }
-.automatic-metric-card__title--with-status { width: 100%; flex-shrink: 0; }
-.automatic-metric-card__title--with-status > span { flex-shrink: 0; }
-.automatic-metric-card__title--with-status .power-stability-status { order: 0; flex: 1 1 auto; min-width: 0; width: auto; margin-right: auto; flex-wrap: nowrap; justify-content: flex-start; gap: 0.4rem; }
-.automatic-metric-card__title--with-status .power-stability-status > span:first-child { min-width: 0; flex-shrink: 1; }
-.automatic-metric-card__title--with-status .power-stability-status > span:last-child { flex-shrink: 0; }
-.automatic-metric-card__title--with-status .power-stability-status i { flex-shrink: 0; }
-.automatic-metric-card__title--with-status .power-stability-status__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.automatic-metric-card__title .power-stability-status { width: 100%; flex-wrap: nowrap; justify-content: flex-end; font-size: inherit; line-height: inherit; gap: 0.25rem 0.6rem; }
+.automatic-metric-card__title .power-stability-status > span { flex-shrink: 0; }
+.automatic-metric-card__title .power-stability-status .automatic-metric-card__recording-dot,
+.automatic-metric-card__title .power-stability-status i { flex-shrink: 0; }
+.automatic-metric-card__title .power-stability-status__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .power-stability-status { order: 2; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 0.25rem 0.7rem; width: 100%; color: var(--muted-foreground); font-size: 0.75rem; line-height: 1.35; font-variant-numeric: tabular-nums; }
 .power-stability-status > span { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
 .power-stability-status i { width: 0.35rem; height: 0.35rem; border-radius: 50%; background: currentColor; }
@@ -332,7 +329,6 @@ fieldset.appearance-section .appearance-help { clear: both; }
   .automatic-device-rail > .automatic-test-control-card { grid-column: 1 / -1; border-top: 1px solid var(--border); margin-top: 0.35rem; padding-block: 0.4rem; }
   .automatic-device-rail .automatic-test-control-card__content { flex-direction: row; gap: 1rem; align-items: center; }
   .automatic-device-rail .automatic-test-control-card__actions { width: 12rem; flex-shrink: 0; }
-  .automatic-device-rail .automatic-test-control-card__content p { margin: 0; }
   .appearance-settings { grid-template-columns: minmax(0, 1fr); }
   .appearance-settings__preview { position: static; }
   .appearance-preview__metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
