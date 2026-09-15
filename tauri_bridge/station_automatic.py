@@ -42,7 +42,6 @@ from combined_test.tdk_power_supply import compensate_tdk_output_voltage
 from combined_test.recipes.catalog import (
     AGING_HOLD,
     DEFAULT_POINT_STABILITY,
-    MEASURED_POINT_MEASUREMENTS,
     STANDARD_WAVELENGTH_STABILITY_TOLERANCE_NM,
     STANDARD_TEST_STABILITY_WINDOW_S,
     RELAXED_STABILITY_CURRENT_A,
@@ -57,6 +56,7 @@ from .recipe_configuration import (
     point_stability_from_configuration,
     recipe_from_configuration,
     stability_profile_for_legacy_id,
+    template_for_legacy_id,
 )
 
 
@@ -121,7 +121,12 @@ class StationAutomaticMixin:
         self.automatic_sample_path = ""
         # The one-second trace belongs only to TDK custom-hold plans. CH341
         # must never run this extra polling path.
-        if self.power_supply_kind != "tdk" or not MEASURED_POINT_MEASUREMENTS.requests_second_trace(
+        if self.power_supply_kind != "tdk":
+            return workbook_path
+        measurement_plan = template_for_legacy_id(
+            self.configuration.get("selectedScriptId", "standard")
+        ).measurement_plan
+        if not measurement_plan.requests_second_trace(
             current_plan_mode=settings.current_plan_mode
         ):
             return workbook_path
