@@ -1,0 +1,70 @@
+name: Recipe Phase 0 and 1 regression
+on:
+  push:
+    branches: [refactor/test-platform-process-model]
+    paths:
+      - 'combined_test/**'
+      - 'tauri_bridge/**'
+      - 'tests/**'
+      - '.github/workflows/recipe-phase01-tests.yml'
+  pull_request:
+    paths:
+      - 'combined_test/**'
+      - 'tauri_bridge/**'
+      - 'tests/**'
+      - '.github/workflows/recipe-phase01-tests.yml'
+permissions:
+  contents: read
+concurrency:
+  group: recipe-phase01-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  python-regression:
+    strategy:
+      fail-fast: false
+      matrix:
+        source: [baseline, candidate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MPLBACKEND: Agg
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.source == 'baseline' && '0b6f46ac92ffcb880ad8a140fade4b997f2cf926' || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install existing portable test dependencies with repository pins
+        run: |
+          python - <<'PY'
+          import pathlib, subprocess, sys
+          names = {'numpy', 'scipy', 'openpyxl', 'xlsxwriter', 'matplotlib', 'pyvisa', 'pillow'}
+          requirements = [line for line in pathlib.Path('requirements-runtime.txt').read_text().splitlines() if '==' in line and line.split('==')[0].lower() in names]
+          subprocess.run([sys.executable, '-m', 'pip', 'install', *requirements], check=True)
+          PY
+      - name: Full hardware-free Python test suite
+        run: |
+          set -o pipefail
+          mkdir -p /tmp/recipe-evidence
+          git rev-parse HEAD > /tmp/recipe-evidence/commit.txt
+          python -VV > /tmp/recipe-evidence/python.txt
+          python -m pip freeze > /tmp/recipe-evidence/packages.txt
+          python -m unittest discover -s tests -v 2>&1 | tee /tmp/recipe-evidence/tests.log
+      - name: Obtain the missing local test dependency as an isolated artifact
+        if: matrix.source == 'candidate'
+        run: python -m pip download --only-binary=:all: --dest /tmp/recipe-test-wheels PyVISA==1.16.2
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recipe-phase01-${{ matrix.source }}-${{ github.sha }}
+          path: /tmp/recipe-evidence/
+          retention-days: 14
+      - uses: actions/upload-artifact@v4
+        if: matrix.source == 'candidate' && success()
+        with:
+          name: recipe-local-test-dependency
+          path: /tmp/recipe-test-wheels/
+          retention-days: 3
