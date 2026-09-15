@@ -10,6 +10,7 @@ from combined_test.devices import extract_power_resource_name
 from combined_test.models import PowerMeterOption
 from combined_test.record_store import AttemptValidity
 from combined_test.runtime_logging import get_runtime_logger
+from combined_test.recipes.catalog import AGING_CURRENT_PLAN, AGING_HOLD
 
 
 _LOGGER = get_runtime_logger("station_support")
@@ -35,12 +36,14 @@ MANUAL_CONTROL_METHODS = frozenset(
 )
 MIN_SPECTRUM_PEAK_INTENSITY = 500.0
 AGING_TEST_SCRIPT_ID = "aging"
-AGING_START_CURRENT_A = 2.0
-AGING_TARGET_CURRENT_A = 20.0
-AGING_CURRENT_STEP_A = 2.0
-AGING_RAMP_INTERVAL_S = 1.0
-AGING_HOLD_DURATION_S = 2.0 * 60.0 * 60.0
-AGING_POWER_SAMPLE_INTERVAL_S = 5.0 * 60.0
+# Public compatibility aliases. Values now come from the immutable recipe;
+# controller compatibility and command timing guards remain platform-owned.
+AGING_START_CURRENT_A = AGING_CURRENT_PLAN.initial_current_a
+AGING_TARGET_CURRENT_A = AGING_CURRENT_PLAN.target_current_a
+AGING_CURRENT_STEP_A = AGING_CURRENT_PLAN.current_step_a
+AGING_RAMP_INTERVAL_S = AGING_HOLD.requested_ramp_interval_s
+AGING_HOLD_DURATION_S = AGING_HOLD.duration_s
+AGING_POWER_SAMPLE_INTERVAL_S = AGING_HOLD.sample_interval_s
 AUTOMATIC_PAUSE_ACTIONS: dict[str, tuple[str, ...]] = {
     "operator": ("resume", "safe_end"),
     "spectrum_saturated": ("adjust_spectrum", "retry_point", "safe_end"),

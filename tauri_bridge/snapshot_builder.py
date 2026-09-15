@@ -12,7 +12,7 @@ from combined_test.automation import AutomaticTestState, ORDINARY_AUTO_POST_STAB
 from combined_test.runtime_logging import runtime_log_path
 from combined_test.spectrum import SPECTRUM_CENTER_LOCK_HALF_RANGE_NM
 
-from .station_automatic import automatic_power_stability_span_limit_w, automatic_power_stability_window_s
+from .recipe_configuration import point_stability_from_configuration
 from .station_support import (
     BUILTIN_TEST_SCRIPTS,
     device_state,
@@ -134,11 +134,10 @@ class SnapshotBuilder:
         auto_state = active_st.automatic.state
         if auto_state in {AutomaticTestState.IDLE, AutomaticTestState.STARTING, AutomaticTestState.SETTING_CURRENT}:
             stability_reading = None
-        stability_window_s = automatic_power_stability_window_s(
-            active_st.configuration.get("selectedScriptId", "standard"),
-            active_st.configuration["stableWindowS"],
-            active_st.automatic.current_a,
+        point_stability = point_stability_from_configuration(
+            active_st.configuration, active_st.automatic.current_a,
         )
+        stability_window_s = point_stability.power_window_s
         stability_quality = (
             power_freshness["quality"]
             if stability_reading is active_st.latest_power else "stale"
@@ -164,7 +163,7 @@ class SnapshotBuilder:
             ),
             "holdRequiredS": hold_required_s,
             "spanW": finite(stability_reading.stable_span_w) if stability_reading else None,
-            "spanLimitW": automatic_power_stability_span_limit_w(active_st.automatic.current_a),
+            "spanLimitW": point_stability.absolute_power_span_w,
             "percent": finite(stability_reading.stability_percent) if stability_reading else None,
             "limitPercent": float(active_st.configuration["stabilityLimitPercent"]),
             "quality": stability_quality,

@@ -37,6 +37,29 @@ from combined_test.session_journal import SessionJournalError
 from combined_test.spectrum_math import calculate_pib
 from combined_test.tdk_power_supply import compensate_tdk_output_voltage
 
+# Compatibility exports: callers keep their helper names while recipe values
+# and ordered point overrides live in the pure domain layer.
+from combined_test.recipes.catalog import (
+    AGING_HOLD,
+    DEFAULT_POINT_STABILITY,
+    MEASURED_POINT_MEASUREMENTS,
+    STANDARD_WAVELENGTH_STABILITY_TOLERANCE_NM,
+    STANDARD_TEST_STABILITY_WINDOW_S,
+    RELAXED_STABILITY_CURRENT_A,
+    RELAXED_WAVELENGTH_STABILITY_TOLERANCE_NM,
+    RELAXED_POWER_STABILITY_SPAN_W,
+    LOW_POWER_STABILITY_SPAN_W,
+    LOW_POWER_STABILITY_WINDOW_S,
+)
+from combined_test.recipes.definitions import ExecutionKind, TimedPowerHold
+from .recipe_configuration import (
+    execution_kind_for_legacy_id,
+    point_stability_from_configuration,
+    recipe_from_configuration,
+    stability_profile_for_legacy_id,
+)
+
+
 from .export_queue import ExportTask
 from .station_support import (
     AGING_HOLD_DURATION_S,
@@ -53,49 +76,19 @@ from .station_support import (
 
 _LOGGER = get_runtime_logger("station_automatic")
 
-STANDARD_WAVELENGTH_STABILITY_TOLERANCE_NM = 0.2
-STANDARD_TEST_STABILITY_WINDOW_S = 5.0
-RELAXED_STABILITY_CURRENT_A = 2.0
-RELAXED_WAVELENGTH_STABILITY_TOLERANCE_NM = 0.5
-RELAXED_POWER_STABILITY_SPAN_W = 0.2
-LOW_POWER_STABILITY_SPAN_W = 0.1
-LOW_POWER_STABILITY_WINDOW_S = 10.0
-
-
 def automatic_wavelength_stability_tolerance_nm(current_a: float | None) -> float:
-    """Use a wider centroid window only for the 2 A automatic point."""
-    if current_a is not None and math.isclose(
-        float(current_a),
-        RELAXED_STABILITY_CURRENT_A,
-        rel_tol=0.0,
-        abs_tol=1e-9,
-    ):
-        return RELAXED_WAVELENGTH_STABILITY_TOLERANCE_NM
-    return STANDARD_WAVELENGTH_STABILITY_TOLERANCE_NM
+    return DEFAULT_POINT_STABILITY.for_current(current_a).wavelength_tolerance_nm
 
 
 def automatic_power_stability_span_limit_w(current_a: float | None) -> float | None:
-    """Use 0.1 W peak-to-peak below 2 A and 0.2 W at 2 A."""
-    if current_a is not None and 0.0 <= float(current_a) < RELAXED_STABILITY_CURRENT_A:
-        return LOW_POWER_STABILITY_SPAN_W
-    if current_a is not None and math.isclose(
-        float(current_a),
-        RELAXED_STABILITY_CURRENT_A,
-        rel_tol=0.0,
-        abs_tol=1e-9,
-    ):
-        return RELAXED_POWER_STABILITY_SPAN_W
-    return None
+    return DEFAULT_POINT_STABILITY.for_current(current_a).absolute_power_span_w
 
 
 def automatic_stability_window_s(
     selected_script_id: Any,
     configured_window_s: Any,
 ) -> float:
-    """Use a five-second power and wavelength window for the standard test."""
-    if str(selected_script_id).strip() == "standard":
-        return STANDARD_TEST_STABILITY_WINDOW_S
-    return float(configured_window_s)
+    return stability_profile_for_legacy_id(selected_script_id, configured_window_s).detector_window_s
 
 
 def automatic_power_stability_window_s(
@@ -103,10 +96,10 @@ def automatic_power_stability_window_s(
     configured_window_s: Any,
     current_a: float | None,
 ) -> float:
-    """Require a full ten-second power window for points below 2 A."""
-    if current_a is not None and 0.0 <= float(current_a) < RELAXED_STABILITY_CURRENT_A:
-        return LOW_POWER_STABILITY_WINDOW_S
-    return automatic_stability_window_s(selected_script_id, configured_window_s)
+    window = DEFAULT_POINT_STABILITY.power_window_override(current_a)
+    # Preserve lazy conversion: the low-current rule does not consult the
+    # configured window, even for a legacy non-numeric helper argument.
+    return window if window is not None else automatic_stability_window_s(selected_script_id, configured_window_s)
 
 
 class StationAutomaticMixin:
@@ -128,7 +121,9 @@ class StationAutomaticMixin:
         self.automatic_sample_path = ""
         # The one-second trace belongs only to TDK custom-hold plans. CH341
         # must never run this extra polling path.
-        if self.power_supply_kind != "tdk" or settings.current_plan_mode != "custom":
+        if self.power_supply_kind != "tdk" or not MEASURED_POINT_MEASUREMENTS.requests_second_trace(
+            current_plan_mode=settings.current_plan_mode
+        ):
             return workbook_path
         sample_path = automatic_sample_path(workbook_path)
         self.automatic_sample_recorder = AutomaticSampleRecorder(sample_path)
@@ -562,42 +557,34 @@ class StationAutomaticMixin:
             on_export_done(None, RuntimeError("Excel 保存队列已满，请稍后重新生成"))
 
     def _automatic_settings(self) -> AutomaticTestSettings:
-        points = tuple(
-            AutomaticCurrentPoint(float(item["currentA"]), float(item["dwellS"]))
-            for item in self.configuration["customCurrentPoints"]
-        )
+        recipe = recipe_from_configuration(self.configuration)
+        plan = recipe.current_plan
+        points = tuple(AutomaticCurrentPoint(point.current_a, point.dwell_s) for point in plan.holds)
         settings = AutomaticTestSettings(
-            initial_current_a=float(self.configuration["initialCurrentA"]),
-            target_current_a=float(self.configuration["targetCurrentA"]),
-            current_step_a=float(self.configuration["currentStepA"]),
+            initial_current_a=plan.initial_current_a,
+            target_current_a=plan.target_current_a,
+            current_step_a=plan.current_step_a,
             point_timeout_s=float(self.configuration["pointTimeoutS"]),
             ramp_down_step_a=float(self.configuration["rampDownStepA"]),
             ramp_down_interval_s=float(self.configuration["rampDownIntervalS"]),
             pause_ramp_down_timeout_s=float(self.configuration["pauseRampDownTimeoutS"]),
-            use_spectrometer=(
-                bool(self.spectrometer_reader and self.spectrometer_reader.is_ready)
-                and not self._aging_test_selected()
+            use_spectrometer=recipe.measurement_plan.uses_spectrum(
+                ready_at_start=bool(self.spectrometer_reader and self.spectrometer_reader.is_ready)
             ),
             maximum_current_a=None if self.power_supply_kind == "tdk" else 20.0,
-            current_plan_mode=str(self.configuration["currentPlanMode"]),
+            current_plan_mode=plan.mode,
             custom_current_points=points,
             custom_hold_ramp_enabled=(
-                str(self.configuration["currentPlanMode"]).lower() == "custom"
-                and self.power_supply_kind == "tdk"
+                plan.mode.lower() == "custom" and self.power_supply_kind == "tdk"
             ),
         )
+        # Recipe intent never supplies a device ceiling, timing guard or
+        # permission to bypass the existing planner and safety validation.
         return validate_automatic_test_settings(
             settings,
             stable_window_s=max(
-                automatic_stability_window_s(
-                    self.configuration.get("selectedScriptId", "standard"),
-                    self.configuration["stableWindowS"],
-                ),
-                automatic_power_stability_window_s(
-                    self.configuration.get("selectedScriptId", "standard"),
-                    self.configuration["stableWindowS"],
-                    build_test_currents(settings)[0],
-                ),
+                recipe.stability.detector_window_s,
+                recipe.stability.for_current(build_test_currents(settings)[0]).power_window_s,
             ),
             post_stable_delay_s=FINAL_AUTO_POST_STABLE_DELAY_S,
             minimum_ramp_down_interval_s=(
@@ -661,7 +648,9 @@ class StationAutomaticMixin:
         return self._automatic_settings()
 
     def _aging_test_selected(self) -> bool:
-        return str(self.configuration.get("selectedScriptId", "standard")) == AGING_TEST_SCRIPT_ID
+        return execution_kind_for_legacy_id(
+            self.configuration.get("selectedScriptId", "standard")
+        ) is ExecutionKind.TIMED_POWER_HOLD
 
     def start_automatic(self, params: dict[str, Any]) -> None:
         with self.command_safety.command():
@@ -787,14 +776,11 @@ class StationAutomaticMixin:
         reader = self.power_meter_reader
         if reader is None:
             raise RuntimeError("功率计采集线程未运行")
+        point_stability = point_stability_from_configuration(self.configuration, current_a)
         reader.update_stability_settings(
-            automatic_power_stability_window_s(
-                self.configuration.get("selectedScriptId", "standard"),
-                self.configuration["stableWindowS"],
-                current_a,
-            ),
+            point_stability.power_window_s,
             float(self.configuration["stabilityLimitPercent"]),
-            automatic_power_stability_span_limit_w(current_a),
+            point_stability.absolute_power_span_w,
         )
         stability_generation = reader.reset_stability_window()
         with self._lock:
@@ -873,12 +859,10 @@ class StationAutomaticMixin:
         retry_reason: str = "",
     ) -> tuple[PowerMeterReading, Any, int, int]:
         """Wait for a fresh joint-stability latch for the active setpoint."""
+        point_stability = point_stability_from_configuration(self.configuration, current_a)
         self.wavelength_stability_detector = WavelengthStabilityDetector(
-            automatic_stability_window_s(
-                self.configuration.get("selectedScriptId", "standard"),
-                self.configuration["stableWindowS"],
-            ),
-            automatic_wavelength_stability_tolerance_nm(current_a),
+            point_stability.wavelength_window_s,
+            point_stability.wavelength_tolerance_nm,
         )
         self.latest_wavelength_stable = False
         self.latest_wavelength_span_nm = math.inf
@@ -1179,7 +1163,7 @@ class StationAutomaticMixin:
             if self._await_automatic_resume() is None:
                 raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
 
-    def _run_aging_cycle(self) -> None:
+    def _run_aging_cycle(self, *, hold: TimedPowerHold = AGING_HOLD) -> None:
         self._wait_for_aging_power_meter()
         currents = self.automatic.currents
         for index, current_a in enumerate(currents):
@@ -1188,7 +1172,7 @@ class StationAutomaticMixin:
             self.automatic_detail = f"老化升流：正在设置 {current_a:g} A"
             self._set_automatic_current(current_a)
             if index < len(currents) - 1 and not self._wait_automatic_duration(
-                AGING_RAMP_INTERVAL_S
+                hold.requested_ramp_interval_s
             ):
                 raise RuntimeError(self.automatic_terminal_reason or "AU 老化测试已停止")
 
@@ -1196,8 +1180,8 @@ class StationAutomaticMixin:
         self.automatic_hold_started_at = time.monotonic()
         self.automatic_detail = "已到达 20 A，不判稳，正在老化计时 2 小时"
         if not self._wait_automatic_duration(
-            AGING_HOLD_DURATION_S,
-            interval_s=AGING_POWER_SAMPLE_INTERVAL_S,
+            hold.duration_s,
+            interval_s=hold.sample_interval_s,
             on_interval=self._record_aging_power_sample,
         ):
             raise RuntimeError(self.automatic_terminal_reason or "AU 老化测试已停止")
@@ -1209,7 +1193,10 @@ class StationAutomaticMixin:
                 raise RuntimeError("自动测试配置不可用")
 
             if self._aging_test_selected():
-                self._run_aging_cycle()
+                hold = recipe_from_configuration(self.configuration).timed_hold
+                if hold is None:
+                    raise RuntimeError("老化测试计划不可用")
+                self._run_aging_cycle(hold=hold)
                 self.safe_ramp_down()
                 self.automatic.complete()
                 self.automatic_terminal_outcome = "succeeded"
