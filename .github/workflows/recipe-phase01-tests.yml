@@ -55,7 +55,8 @@ jobs:
           python -m unittest discover -s tests -v 2>&1 | tee /tmp/recipe-evidence/tests.log
       - name: Obtain the missing local test dependency as an isolated artifact
         if: matrix.source == 'candidate'
-        run: python -m pip download --only-binary=:all: --dest /tmp/recipe-test-wheels PyVISA==1.16.2
+        run: |
+          python -m pip download --only-binary=:all: --dest /tmp/recipe-test-wheels PyVISA==1.16.2
       - uses: actions/upload-artifact@v4
         if: always()
         with:
