@@ -37,6 +37,32 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - name: Capture tracked source provenance (no assets, credentials or binaries)
+        run: |
+          python - <<'PY'
+          import hashlib, json, pathlib, subprocess, tarfile
+          root = pathlib.Path.cwd()
+          out = pathlib.Path('/tmp/recipe-evidence')
+          out.mkdir(parents=True, exist_ok=True)
+          commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          roots = {'combined_test', 'tauri_bridge', 'tests', 'tools', 'scripts', 'docs', 'tauri-ui', 'rust-realtime-core'}
+          suffixes = {'.py', '.ts', '.tsx', '.mjs', '.json', '.md', '.txt', '.toml', '.rs', '.css', '.html'}
+          names = subprocess.check_output(['git', 'ls-files', '-z']).decode().split('\0')
+          files = {}
+          with tarfile.open(out / 'source.tar.gz', 'w:gz') as archive:
+              for name in names:
+                  path = pathlib.PurePosixPath(name)
+                  if not name or path.suffix not in suffixes:
+                      continue
+                  if len(path.parts) > 1 and path.parts[0] not in roots:
+                      continue
+                  source = root / path
+                  if source.is_symlink() or not source.is_file():
+                      continue
+                  files[name] = hashlib.sha256(source.read_bytes()).hexdigest()
+                  archive.add(source, arcname=name, recursive=False)
+          (out / 'source-manifest.json').write_text(json.dumps({'commit': commit, 'sha256': files}, indent=2), encoding='utf-8')
+          PY
       - name: Install existing portable test dependencies with repository pins
         run: |
           python - <<'PY'
