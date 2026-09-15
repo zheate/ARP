@@ -1,70 +1,25 @@
-Power Test 驱动文件说明
+Power Test 离线部署故障排查（仅维护人员）
 
-安装包不会自动安装任何硬件驱动。所有驱动文件已复制到：
+普通操作员只运行 Power Test_<version>_x64_offline_setup.exe，选择应用目录并安装。
+正式包应自动安装/预装全部受支持驱动，不要求操作员解压 ZIP 或右键安装 INF。
 
-C:\ProgramData\Power Test\Drivers
+安装前：安全结束测试、关闭 Power Test，断开测试仪器。不要在运行测试时升级。
+系统组件不随自定义应用路径移动；许可证、配置和测试数据仍保留既有位置。
+首次使用许可证仍按离线机器码/JSON 流程处理，不会连接授权服务器。
 
-请只安装实际使用设备对应的驱动，并在安装前关闭 Power Test、拔下相关 USB 设备。
-驱动安装通常需要右键“以管理员身份运行”。
+失败时：
+1. 保存安装器详细输出及 C:\ProgramData\Power Test\InstallerLogs 中本次日志。
+2. deployment.jsonl 记录组件、实际命令、返回码、验证结果和重启状态；
+   各组件的 stdout/stderr 和 MSI 详细日志位于同一运行目录。
+3. 超时表示安装状态未知，并不等于已经取消。不要立即重跑或删除 InstallerCache。
+   请维护人员确认没有厂商安装进程/Windows Installer 事务仍在进行。
+4. “没有插设备”不是驱动预装失败。安装器用 Driver Store 的实际 INF 校验结果判断。
+5. 同版本修复不搬迁应用目录。需要更换目录时，只卸载 Power Test，再重新安装；
+   不要卸载共享 NI/WebView2/厂商驱动或删除用户数据。
+6. 大版本升级、更高版 NI/厂商 Runtime 并存、签名信任链和重启行为必须在受控目标机验收。
 
-0. Microsoft WebView2（Power Test 运行环境）
+开发/发布资产缺失不是操作员任务：
+local_drivers 中的媒体、全部依赖和经过审查的 offline-deployment.lock.json
+由发布工程师准备。安装包缺少任何必需组件时不得发布，不允许在线补下载。
 
-目录：09_webview2
-
-- 安装器不会自动安装 WebView2。
-- 如果 Power Test 无法启动，或系统提示缺少 WebView2，请以管理员身份运行 MicrosoftEdgeWebView2RuntimeInstallerX64.exe。
-- 安装完成后再启动 Power Test。已经安装 WebView2 的电脑可以跳过此步骤。
-
-1. CH341 I2C 泵驱控制器
-
-目录：01_ch341_i2c
-
-- 推荐：右键 driver\CH341WDM.INF，选择“安装”。
-- 也可手动运行 CH341PAR.EXE，并在厂商界面完成安装。
-- 程序运行所需 DLL 位于 runtime 目录，应用安装包内部也已包含 64 位 DLL。
-
-2. Ocean Optics OceanHR4 光谱仪
-
-目录：03_ocean_hr4
-
-- 以管理员身份运行 install_ocean_hr4_driver.ps1。
-- 或右键 driver\OOI_OceanHR4.inf，选择“安装”。
-
-3. LaserPoint / FTDI 功率计
-
-目录：04_laserpoint_ftdi
-
-- 解压 Win-10-11-Drivers-rev2026.zip。
-- 运行其中的 dp-chooser.exe 或 dpinst-amd64.exe。
-
-4. WCH CH341/CH343 USB 转串口
-
-目录：05_serial_adapters
-
-- CH341：运行 wch_ch341ser\SETUP.EXE，或右键 CH341SER.INF 选择“安装”。
-- CH343：运行 wch_ch343ser\SETUP.EXE，或右键 CH343SER.INF 选择“安装”。
-- 只需安装设备管理器中实际显示的芯片型号。
-
-5. NI-DAQmx 和 NI-VISA
-
-目录：00_ni_package_manager、06_ni_runtime
-
-- 先运行 00_ni_package_manager\NIPackageManager24.0.0.exe。
-- 再以管理员身份运行 06_ni_runtime\install_ni_runtime.ps1。
-- 该步骤使用随包提供的离线源，不需要联网下载。
-
-6. Ophir 功率计
-
-目录：07_ophir_starlab
-
-- 运行 StarLab_Setup.exe。
-- 完成后确认 StarLab 能识别设备，再启动 Power Test。
-
-7. Coherent PowerMax 功率计
-
-目录：08_coherent
-
-- 解压 coherent-meter-connection-setup.zip。
-- 运行解压后的 Coherent Meter Connection 安装程序。
-
-安装所需驱动后建议重启 Windows，再连接设备并启动 Power Test。
+完整发布流程、锁定清单及尚需验收的边界见源码 packaging/OFFLINE_DEPLOYMENT.md。

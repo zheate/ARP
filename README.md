@@ -80,6 +80,20 @@ npm run build:windows:full
 
 缺少必要硬件 DLL 或构建依赖时会直接失败，不生成能力不完整的发布包。
 
+全离线安装入口现在由外层 NSIS 编排 Windows PowerShell：自动预装全部支持的 PnP 驱动、调用经验证的厂商运行时安装流程，最后安装应用并核验 MSI 实际路径。用户只选择 Power Test 应用目录；系统驱动、运行时、配置和许可证不随应用路径搬迁。
+
+**当前全离线正式发布仍有资产与验收门槛，不能把源码实现当作真机安装通过。** 发布机必须具有完整 `local_drivers/` 和经过审查的 `local_drivers/current_project/offline-deployment.lock.json`。模板故意未获批准；缺失 NI/Ophir/Coherent 的实际媒体、离线静默参数或验证记录时，构建会明确失败，不会跳过组件、生成缩水包或联网补装。详细格式和 Windows 验收矩阵见 [离线部署说明](packaging/OFFLINE_DEPLOYMENT.md)。这些准备是发布工程师的工作，不转交给最终用户。
+
+候选产物命名为 `release/full/Power Test_<version>_x64_offline_setup.exe`。最终 EXE 签名、干净断网 Windows 10/11 安装、替代磁盘/中文路径、重复安装和硬件验收均通过后才能正式分发。同版本修复不搬迁目录；需要搬迁时先只卸载应用并保留用户数据、共享运行时。
+
+打包层单独检查（不操作仪器）：
+
+```powershell
+python -m unittest discover -s packaging/tests -p 'test_*.py' -v
+powershell -NoProfile -ExecutionPolicy Bypass -File packaging/tests/Test-OfflineScripts.ps1
+```
+
+
 ## 目录
 
 - `tauri-ui/`：React 界面和 Tauri Rust 主进程。

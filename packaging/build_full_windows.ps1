@@ -1,219 +1,118 @@
+#Requires -Version 5.1
 [CmdletBinding()]
 param(
     [switch]$SkipApplicationBuild,
+    [string]$AppMsiPath,
+    [string]$DeploymentLock,
     [string]$OutputFile
 )
-
-$ErrorActionPreference = "Stop"
-
+$ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$driverRoot = Join-Path $projectRoot "local_drivers\current_project"
-$allDriverRoot = Join-Path $projectRoot "local_drivers"
-$ophirInstallerItem = Get-ChildItem -LiteralPath $allDriverRoot -Recurse -File -Filter "StarLab_Setup.exe" |
-    Select-Object -First 1
-$ophirInstaller = if ($ophirInstallerItem) {
-    $ophirInstallerItem.FullName
+$driverRoot = Join-Path $projectRoot 'local_drivers\current_project'
+$tauriRoot = Join-Path $projectRoot 'tauri-ui'
+foreach ($module in @('Common', 'Payload', 'Application')) { . (Join-Path $PSScriptRoot "offline\$module.ps1") }
+if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT -or -not [Environment]::Is64BitProcess) { throw 'Build the offline installer on native x64 Windows PowerShell' }
+if (-not $DeploymentLock) { $DeploymentLock = Join-Path $driverRoot 'offline-deployment.lock.json' }
+if (-not (Test-Path -LiteralPath $DeploymentLock -PathType Leaf)) { throw "Reviewed deployment lock is missing: $DeploymentLock. See packaging/OFFLINE_DEPLOYMENT.md. Vendor commands are never guessed." }
+$conda = (Get-Command conda.exe -CommandType Application -ErrorAction Stop).Source
+$validator = Join-Path $PSScriptRoot 'offline_manifest.py'
+& $conda run -n sth_eb314 python $validator --lock $DeploymentLock
+if ($LASTEXITCODE -ne 0) { throw 'Offline deployment lock is not release-ready' }
+& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'tests\Test-OfflineScripts.ps1')
+if ($LASTEXITCODE -ne 0) { throw 'PowerShell parser/logic tests failed' }
+& $conda run -n sth_eb314 python -m unittest discover -s (Join-Path $PSScriptRoot 'tests') -p 'test_*.py' -v
+if ($LASTEXITCODE -ne 0) { throw 'Offline packaging regression tests failed' }
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'check_windows_build.ps1')
+if ($LASTEXITCODE -ne 0) { throw 'Windows packaging preflight failed' }
+
+$appVersion = [string](Get-Content -LiteralPath (Join-Path $tauriRoot 'package.json') -Raw | ConvertFrom-Json).version
+if ($appVersion -notmatch '^\d+\.\d+\.\d+$') { throw 'Application version must contain three numeric fields' }
+$allDrivers = Join-Path $projectRoot 'local_drivers'
+$ophir = @(Get-ChildItem -LiteralPath $allDrivers -Recurse -File -Filter 'StarLab_Setup.exe')
+if ($ophir.Count -ne 1) { throw 'Expected exactly one pinned StarLab_Setup.exe; do not select an arbitrary duplicate' }
+$coherent = Join-Path $allDrivers 'coherent\coherent-meter-connection-v1.4.2.3-release-setup.zip'
+# Preserve the curated input pins. Updating these is a separate vendor review.
+$pins = @(
+    @{ path = (Join-Path $driverRoot '00_ni_package_manager\NIPackageManager24.0.0.exe'); hash = '92763B4AFCFE81BFBB2C73F84071707B3852BDDBEFE29AB47F5279BAFA3B88F8'; subject = '.' },
+    @{ path = (Join-Path $driverRoot '09_webview2\MicrosoftEdgeWebView2RuntimeInstallerX64.exe'); hash = '6AC57A21414742AC1A6A03BF9516A048897317CEF04A49967B283093E29C31B7'; subject = 'Microsoft Corporation' },
+    @{ path = $ophir[0].FullName; hash = '1FE3E5937EB054A3B50754F0AAF1A5E6BE2EE7426BD943DCEB6FF5989384DE1B'; subject = '.' },
+    @{ path = $coherent; hash = '53907AFDC23F6163017DFEC6360C087F735AA30E331C5883BAE81CC976C9B194'; subject = '' }
+)
+foreach ($pin in $pins) {
+    if (-not (Test-Path -LiteralPath $pin.path -PathType Leaf) -or (Get-FileHash -LiteralPath $pin.path -Algorithm SHA256).Hash -ne $pin.hash) { throw "Curated vendor input missing/hash mismatch: $($pin.path)" }
+    if ($pin.subject) {
+        $sig = Get-AuthenticodeSignature -LiteralPath $pin.path
+        if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch $pin.subject) { throw "Invalid vendor input signature: $($pin.path)" }
+    }
+}
+$verifyBundle = Join-Path $driverRoot 'verify_bundle.ps1'
+if (-not (Test-Path -LiteralPath $verifyBundle -PathType Leaf)) { throw 'The curated driver bundle verification script is missing' }
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $verifyBundle
+if ($LASTEXITCODE -ne 0) { throw 'Curated driver bundle verification failed' }
+
+if ($SkipApplicationBuild) {
+    if (-not $AppMsiPath) { throw '-SkipApplicationBuild requires an explicit -AppMsiPath; never pick an old MSI by modification time' }
 } else {
-    Join-Path $allDriverRoot "missing\StarLab_Setup.exe"
+    if ($AppMsiPath) { throw '-AppMsiPath is only supported with -SkipApplicationBuild' }
+    $started = Get-Date
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'build_tauri_windows.ps1') -BundleTargets msi
+    if ($LASTEXITCODE -ne 0) { throw 'Power Test application build failed' }
+    $candidates = @(Get-ChildItem -LiteralPath (Join-Path $tauriRoot 'src-tauri\target\release\bundle\msi') -Filter '*.msi' -File | Where-Object { $_.LastWriteTime -ge $started })
+    if ($candidates.Count -ne 1) { throw 'Expected exactly one freshly built MSI' }
+    $AppMsiPath = $candidates[0].FullName
 }
-$coherentArchive = Join-Path $projectRoot "local_drivers\coherent\coherent-meter-connection-v1.4.2.3-release-setup.zip"
-$tauriRoot = Join-Path $projectRoot "tauri-ui"
-$appPackagePath = Join-Path $tauriRoot "package.json"
-$appPackage = Get-Content -LiteralPath $appPackagePath -Raw | ConvertFrom-Json
-$appVersion = [string]$appPackage.version
-if ($appVersion -notmatch '^\d+\.\d+\.\d+$') {
-    throw "Tauri app version must contain three numeric fields: $appVersion"
+$AppMsiPath = [IO.Path]::GetFullPath($AppMsiPath)
+$contract = Get-ApplicationContract $AppMsiPath $appVersion
+foreach ($file in $contract.files) {
+    $path = if ($file.name -eq 'arp-python.exe') { Join-Path $tauriRoot 'src-tauri\binaries\arp-python-x86_64-pc-windows-msvc.exe' } else { Join-Path $tauriRoot 'src-tauri\target\release\tauri-ui.exe' }
+    $file | Add-Member -NotePropertyName sha256 -NotePropertyValue (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
 }
-$bundleRoot = Join-Path $tauriRoot "src-tauri\target\release\bundle"
-$buildRoot = Join-Path $projectRoot "build\full-installer"
-$driverPayloadRoot = Join-Path $buildRoot "drivers"
-$outputRoot = Join-Path $projectRoot "release\full"
-if ([string]::IsNullOrWhiteSpace($OutputFile)) {
-    $OutputFile = Join-Path $outputRoot "Power Test_${appVersion}_x64-all-drivers-setup.exe"
-} elseif (-not [System.IO.Path]::IsPathRooted($OutputFile)) {
-    $OutputFile = Join-Path $projectRoot $OutputFile
-}
-$installScript = Join-Path $PSScriptRoot "install_full_bundle.ps1"
-$driverGuide = Join-Path $PSScriptRoot "driver_installation_guide.txt"
-$licenseFile = Join-Path $PSScriptRoot "full_installer_notice.txt"
-$encodedLicenseFile = Join-Path $buildRoot "full_installer_notice.utf16.txt"
-$nsiScript = Join-Path $PSScriptRoot "power_test_full_installer.nsi"
-$appIcon = Join-Path $tauriRoot "src-tauri\icons\icon.ico"
-$nipmInstaller = Join-Path $driverRoot "00_ni_package_manager\NIPackageManager24.0.0.exe"
-$webviewInstaller = Join-Path $driverRoot "09_webview2\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
-$expectedNipmHash = "92763B4AFCFE81BFBB2C73F84071707B3852BDDBEFE29AB47F5279BAFA3B88F8"
-$expectedOphirHash = "1FE3E5937EB054A3B50754F0AAF1A5E6BE2EE7426BD943DCEB6FF5989384DE1B"
-$expectedCoherentHash = "53907AFDC23F6163017DFEC6360C087F735AA30E331C5883BAE81CC976C9B194"
-$expectedWebviewHash = "6AC57A21414742AC1A6A03BF9516A048897317CEF04A49967B283093E29C31B7"
+$contract | Add-Member -NotePropertyName sha256 -NotePropertyValue (Get-FileHash -LiteralPath $AppMsiPath -Algorithm SHA256).Hash
 
-$requiredPaths = @(
-    $driverRoot,
-    (Join-Path $driverRoot "01_ch341_i2c\CH341PAR.EXE"),
-    (Join-Path $driverRoot "03_ocean_hr4\driver\OOI_OceanHR4.inf"),
-    (Join-Path $driverRoot "04_laserpoint_ftdi\Win-10-11-Drivers-rev2026.zip"),
-    (Join-Path $driverRoot "05_serial_adapters\wch_ch341ser\CH341SER.INF"),
-    (Join-Path $driverRoot "05_serial_adapters\wch_ch343ser\CH343SER.INF"),
-    (Join-Path $driverRoot "06_ni_runtime\feed\Packages.gz"),
-    $ophirInstaller,
-    $coherentArchive,
-    $nipmInstaller,
-    $webviewInstaller,
-    $installScript,
-    $driverGuide,
-    $licenseFile,
-    $nsiScript,
-    $appIcon
-)
-foreach ($path in $requiredPaths) {
-    if (-not (Test-Path -LiteralPath $path)) {
-        throw "Required full-installer input is missing: $path"
-    }
-}
+# Unique staging directories prevent stale payloads and unsafe recursive deletes.
+$buildRoot = Join-Path $projectRoot ('build\full-installer\' + [guid]::NewGuid().ToString('N'))
+$inputs = Join-Path $buildRoot 'inputs'
+$payload = Join-Path $buildRoot 'drivers'
+New-Item -ItemType Directory -Force -Path $inputs | Out-Null
+Get-ChildItem -LiteralPath $driverRoot -Force | Copy-Item -Destination $inputs -Recurse -Force
+$ch341 = Join-Path $inputs '01_ch341_i2c\driver'
+New-Item -ItemType Directory -Force -Path $ch341 | Out-Null
+$ch341Files = @('CH341M64.SYS','CH341W64.SYS','CH341WDM.CAT','CH341WDM.INF','CH341WDM.SYS')
+& "$env:SystemRoot\System32\tar.exe" -xf (Join-Path $inputs '01_ch341_i2c\CH341PAR.EXE') -C $ch341 @ch341Files
+if ($LASTEXITCODE -ne 0) { throw 'CH341 driver extraction failed' }
+foreach ($name in $ch341Files) { if (-not (Test-Path -LiteralPath (Join-Path $ch341 $name) -PathType Leaf)) { throw "CH341 file missing: $name" } }
+foreach ($name in @('07_ophir_starlab', '08_coherent')) { New-Item -ItemType Directory -Force -Path (Join-Path $inputs $name) | Out-Null }
+Copy-Item -LiteralPath $ophir[0].FullName -Destination (Join-Path $inputs '07_ophir_starlab\StarLab_Setup.exe')
+Copy-Item -LiteralPath $coherent -Destination (Join-Path $inputs '08_coherent\coherent-meter-connection-setup.zip')
+& $conda run -n sth_eb314 python $validator --lock $DeploymentLock --source $inputs --destination $payload
+if ($LASTEXITCODE -ne 0) { throw 'Offline payload staging failed' }
+$manifestPath = Join-Path $payload 'deployment.json'
+$manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+Assert-BuildSignatures $payload $manifest
+$manifest | Add-Member -NotePropertyName application -NotePropertyValue $contract
+[IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 20), (New-Object Text.UTF8Encoding($false)))
+$manifestHash = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash
+[void](Read-VerifiedDeployment $payload $manifestHash)
+Assert-MsiHash $AppMsiPath $manifest
 
-$nipmHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $nipmInstaller).Hash
-if ($nipmHash -ne $expectedNipmHash) {
-    throw "NI Package Manager SHA-256 mismatch. Expected $expectedNipmHash, received $nipmHash"
-}
-$nipmSignature = Get-AuthenticodeSignature -LiteralPath $nipmInstaller
-if ($nipmSignature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
-    throw "NI Package Manager signature is not valid: $($nipmSignature.Status)"
-}
-
-$webviewHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $webviewInstaller).Hash
-if ($webviewHash -ne $expectedWebviewHash) {
-    throw "WebView2 Runtime SHA-256 mismatch. Expected $expectedWebviewHash, received $webviewHash"
-}
-$webviewSignature = Get-AuthenticodeSignature -LiteralPath $webviewInstaller
-if (
-    $webviewSignature.Status -ne [System.Management.Automation.SignatureStatus]::Valid -or
-    $webviewSignature.SignerCertificate.Subject -notmatch "Microsoft Corporation"
-) {
-    throw "WebView2 Runtime signature is not valid: $($webviewSignature.Status)"
-}
-
-$ophirHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $ophirInstaller).Hash
-if ($ophirHash -ne $expectedOphirHash) {
-    throw "Ophir StarLab SHA-256 mismatch. Expected $expectedOphirHash, received $ophirHash"
-}
-$ophirSignature = Get-AuthenticodeSignature -LiteralPath $ophirInstaller
-if ($ophirSignature.Status -ne [System.Management.Automation.SignatureStatus]::Valid) {
-    throw "Ophir StarLab signature is not valid: $($ophirSignature.Status)"
-}
-
-$coherentHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $coherentArchive).Hash
-if ($coherentHash -ne $expectedCoherentHash) {
-    throw "Coherent driver SHA-256 mismatch. Expected $expectedCoherentHash, received $coherentHash"
-}
-
-& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $driverRoot "verify_bundle.ps1")
-if ($LASTEXITCODE -ne 0) {
-    throw "The curated driver bundle failed verification."
-}
-
-if (-not $SkipApplicationBuild) {
-    & powershell -NoProfile -ExecutionPolicy Bypass `
-        -File (Join-Path $PSScriptRoot "build_tauri_windows.ps1") `
-        -BundleTargets msi
-    if ($LASTEXITCODE -ne 0) {
-        throw "Power Test application build failed."
-    }
-}
-
-$appMsi = Get-ChildItem -LiteralPath (Join-Path $bundleRoot "msi") -File -Filter "*.msi" |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object -First 1
-if (-not $appMsi) {
-    throw "Power Test MSI was not found under $bundleRoot\msi"
-}
-
-$makensisCandidates = @(
-    (Join-Path $env:LOCALAPPDATA "tauri\NSIS\Bin\makensis.exe"),
-    (Join-Path $env:LOCALAPPDATA "Tauri\NSIS\Bin\makensis.exe")
-)
-$makensis = $makensisCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-if (-not $makensis) {
-    $makensisCommand = Get-Command makensis.exe -ErrorAction SilentlyContinue
-    if ($makensisCommand) {
-        $makensis = $makensisCommand.Source
-    }
-}
-if (-not $makensis) {
-    throw "makensis.exe was not found. Run a normal Tauri NSIS build first."
-}
-
-New-Item -ItemType Directory -Force -Path $buildRoot, $outputRoot | Out-Null
-
-# Stage every driver used by the active backend. Historical BWTEK/Yokogawa
-# packages are excluded because the application has no adapter for them.
-$resolvedBuildRoot = [System.IO.Path]::GetFullPath($buildRoot).TrimEnd('\') + '\'
-$resolvedPayloadRoot = [System.IO.Path]::GetFullPath($driverPayloadRoot)
-if (-not $resolvedPayloadRoot.StartsWith($resolvedBuildRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-    throw "Refusing to recreate driver payload outside the build directory: $resolvedPayloadRoot"
-}
-if (Test-Path -LiteralPath $driverPayloadRoot) {
-    Remove-Item -LiteralPath $driverPayloadRoot -Recurse -Force
-}
-New-Item -ItemType Directory -Force -Path $driverPayloadRoot | Out-Null
-Copy-Item -Path (Join-Path $driverRoot '*') -Destination $driverPayloadRoot -Recurse -Force
-Copy-Item -LiteralPath $driverGuide -Destination (Join-Path $driverPayloadRoot "DRIVER-INSTALLATION.txt") -Force
-
-# CH341PAR.EXE is a WinRAR SFX. Extract its signed driver files at build time
-# so users can install the INF manually without depending on the vendor GUI.
-$ch341Sfx = Join-Path $driverRoot "01_ch341_i2c\CH341PAR.EXE"
-$ch341DriverPayloadRoot = Join-Path $driverPayloadRoot "01_ch341_i2c\driver"
-New-Item -ItemType Directory -Force -Path $ch341DriverPayloadRoot | Out-Null
-$ch341DriverFiles = @(
-    "CH341M64.SYS",
-    "CH341W64.SYS",
-    "CH341WDM.CAT",
-    "CH341WDM.INF",
-    "CH341WDM.SYS"
-)
-& "$env:SystemRoot\System32\tar.exe" -xf $ch341Sfx -C $ch341DriverPayloadRoot @ch341DriverFiles
-if ($LASTEXITCODE -ne 0) {
-    throw "Could not extract the CH341 I2C driver package from $ch341Sfx"
-}
-foreach ($driverFile in $ch341DriverFiles) {
-    $driverPath = Join-Path $ch341DriverPayloadRoot $driverFile
-    if (-not (Test-Path -LiteralPath $driverPath -PathType Leaf)) {
-        throw "Extracted CH341 I2C driver file is missing: $driverPath"
-    }
-}
-
-$ophirPayloadRoot = Join-Path $driverPayloadRoot "07_ophir_starlab"
-$coherentPayloadRoot = Join-Path $driverPayloadRoot "08_coherent"
-New-Item -ItemType Directory -Force -Path $ophirPayloadRoot, $coherentPayloadRoot | Out-Null
-Copy-Item -LiteralPath $ophirInstaller -Destination (Join-Path $ophirPayloadRoot "StarLab_Setup.exe") -Force
-Copy-Item -LiteralPath $coherentArchive -Destination (Join-Path $coherentPayloadRoot "coherent-meter-connection-setup.zip") -Force
-
-# NSIS reads external LicenseData using a Windows text encoding. Generate an
-# explicit UTF-16 LE BOM copy so Chinese text cannot be decoded as ANSI.
-$strictUtf8 = New-Object System.Text.UTF8Encoding($false, $true)
-$utf16LeBom = New-Object System.Text.UnicodeEncoding($false, $true, $true)
-$licenseText = [System.IO.File]::ReadAllText($licenseFile, $strictUtf8)
-$licenseText = $licenseText -replace "`r?`n", "`r`n"
-[System.IO.File]::WriteAllText($encodedLicenseFile, $licenseText, $utf16LeBom)
-
-$nsisArguments = @(
-    "/V4",
-    "/INPUTCHARSET",
-    "UTF8",
-    "/DAPP_MSI=$($appMsi.FullName)",
-    "/DDRIVER_ROOT=$driverPayloadRoot",
-    "/DINSTALL_SCRIPT=$installScript",
-    "/DLICENSE_FILE=$encodedLicenseFile",
-    "/DOUTPUT_FILE=$OutputFile",
-    "/DAPP_ICON=$appIcon",
-    "/DAPP_VERSION=$appVersion",
-    $nsiScript
-)
-& $makensis @nsisArguments
-if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $OutputFile)) {
-    throw "Power Test Full Setup build failed."
-}
-
+# Include vendor terms in the single consent page, using local reviewed text.
+$notice = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'full_installer_notice.txt'), [Text.Encoding]::UTF8)
+foreach ($name in $manifest.licenses) { $notice += "`r`n`r`n--- $name ---`r`n" + [IO.File]::ReadAllText((Get-PayloadPath $payload $name), [Text.Encoding]::UTF8) }
+$licensePath = Join-Path $buildRoot 'offline-licenses.utf16.txt'
+[IO.File]::WriteAllText($licensePath, $notice, (New-Object Text.UnicodeEncoding($false, $true)))
+$makensis = Get-Command makensis.exe -ErrorAction SilentlyContinue
+$nsisExe = if ($makensis) { $makensis.Source } else { Join-Path $env:LOCALAPPDATA 'tauri\NSIS\Bin\makensis.exe' }
+if (-not (Test-Path -LiteralPath $nsisExe -PathType Leaf)) { throw 'Install the NSIS build tool on the controlled build machine' }
+if (-not $OutputFile) { $OutputFile = Join-Path $projectRoot "release\full\Power Test_${appVersion}_x64_offline_setup.exe" }
+elseif (-not [IO.Path]::IsPathRooted($OutputFile)) { $OutputFile = Join-Path $projectRoot $OutputFile }
+New-Item -ItemType Directory -Force -Path (Split-Path $OutputFile -Parent) | Out-Null
+$arguments = @('/V4', '/INPUTCHARSET', 'UTF8', "/DAPP_MSI=$AppMsiPath", "/DDRIVER_ROOT=$payload", "/DINSTALL_SCRIPT=$(Join-Path $PSScriptRoot 'install_full_bundle.ps1')", "/DOFFLINE_MODULES=$(Join-Path $PSScriptRoot 'offline')", "/DMANIFEST_HASH=$manifestHash", "/DLICENSE_FILE=$licensePath", "/DOUTPUT_FILE=$OutputFile", "/DAPP_ICON=$(Join-Path $tauriRoot 'src-tauri\icons\icon.ico')", "/DAPP_VERSION=$appVersion", (Join-Path $PSScriptRoot 'power_test_full_installer.nsi'))
+& $nsisExe @arguments
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $OutputFile -PathType Leaf)) { throw 'Offline NSIS build failed; do not distribute a partial artifact' }
 $item = Get-Item -LiteralPath $OutputFile
-$hash = Get-FileHash -Algorithm SHA256 -LiteralPath $OutputFile
-Write-Host "Full Setup completed: $($item.FullName)"
-Write-Host ("Size: {0:N2} MiB" -f ($item.Length / 1MB))
-Write-Host "SHA-256: $($hash.Hash)"
+if ($item.Length -ge 2GB) { throw 'Installer exceeds the supported single-EXE size budget; review the payload before distribution' }
+$hash = (Get-FileHash -LiteralPath $OutputFile -Algorithm SHA256).Hash
+[IO.File]::WriteAllText("$OutputFile.sha256", "$hash  $($item.Name)`n", [Text.Encoding]::ASCII)
+Write-Host "Offline build artifact: $OutputFile"
+Write-Host "Bytes: $($item.Length); SHA-256: $hash"
+Write-Host 'Build is not installation acceptance. Sign the final EXE and pass clean disconnected Windows 10/11 acceptance before release.'

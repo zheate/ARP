@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "architecture": "x64",
+  "minimumWindowsBuild": 19045,
+  "approved": false,
+  "reviewer": "",
+  "files": [],
+  "archives": [],
+  "licenses": [],
+  "components": [],
+  "_instructions": "Deliberately non-buildable. Copy to local_drivers/current_project/offline-deployment.lock.json only after reviewing the actual vendor media, exact silent commands, versions, dependency closure, hashes, licenses and clean disconnected Windows acceptance. See packaging/OFFLINE_DEPLOYMENT.md. Never flip approved just to bypass missing evidence."
+}

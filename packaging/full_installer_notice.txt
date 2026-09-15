@@ -1,22 +1,15 @@
-Power Test 应用与离线驱动文件包
+Power Test 全离线部署
 
-本安装包只安装 Power Test，不会自动安装任何硬件驱动或厂商软件。
+本安装程序将安装 Power Test，以及经过审查的离线清单中列出的全部运行组件和设备驱动。
+可能包括 WebView2、WCH CH341/CH343、OceanHR4、FTDI/LaserPoint、NI Package Manager、
+NI-VISA/NI-DAQmx、Ophir USB/COM 和 Coherent PowerMax 组件。
 
-Microsoft WebView2 离线安装程序也会复制到驱动目录，但不会自动安装。首次启动 Power Test 前，如果电脑尚未安装 WebView2，请由用户手动运行该安装程序。
+Power Test 应用目录可自定义。共享驱动与系统运行组件安装到 Windows/厂商标准位置。
+安装期间请关闭 Power Test 并断开测试仪器。部分组件需要在全部步骤结束后重启电脑。
+不会要求用户寻找驱动文件，不使用联网下载作为缺失组件的替代方案。
 
-下列离线驱动文件会复制到 C:\ProgramData\Power Test\Drivers，供用户按需手动安装：
+继续安装表示接受本页附带的各厂商许可条款。发布工程师须事先确认每个组件的再分发权限；
+本说明本身不授予任何第三方再分发权利。实际组件许可原文附于后文。
 
-- WCH CH341 I2C 和 CH341/CH343 串口驱动
-- Ocean Optics OceanHR4 WinUSB 驱动
-- LaserPoint / FTDI USB 串口驱动
-- Ophir StarLab、Ophir USB 驱动及 COM 接口
-- Coherent Meter Connection / PowerMax USB 驱动
-- National Instruments Package Manager 24.0
-- NI-DAQmx Runtime 23.5
-- NI-VISA Runtime 23.5
-- Microsoft WebView2 Runtime 离线安装程序
-
-安装结束后请打开该目录，阅读 DRIVER-INSTALLATION.txt，只安装实际使用设备对应的驱动。
-手动安装厂商驱动表示您接受对应厂商的许可条款。部分驱动安装后可能需要重启电脑。
-
-Power Test 安装过程不会执行驱动安装程序，也不会从互联网下载驱动。
+应用安装不等于产品授权，首次运行仍使用既有的离线机器绑定许可证流程。
+共享组件不会在安装失败时被自动回滚卸载，以免破坏其他仪器软件。
