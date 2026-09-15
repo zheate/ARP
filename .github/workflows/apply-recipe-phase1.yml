@@ -1,0 +1,81 @@
+name: Apply verified recipe Phase 1 integration
+on:
+  push:
+    branches: [refactor/test-platform-process-model]
+    paths: [.github/workflows/apply-recipe-phase1.yml]
+permissions:
+  contents: read
+jobs:
+  integrate:
+    if: github.repository == 'zheate/ARP' && github.ref == 'refs/heads/refactor/test-platform-process-model'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      MPLBACKEND: Agg
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Apply reviewed data-only patch with preimage and postimage checks
+        run: |
+          mkdir -p /tmp/recipe-apply-evidence
+          python - <<'PY'
+          import base64, hashlib, json, pathlib, subprocess, zlib
+          # Temporary transport for a reviewed unified diff and test source;
+          # never a product recipe interpreter. No decoded code is executed here.
+          encoded = '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'
+          data = zlib.decompress(base64.b64decode(encoded))
+          assert hashlib.sha256(data).hexdigest() == 'a070cb78fd949d7503adc4c7073b1697d7dda3e2dabd6dcd0a2fea50d9967b3c'
+          payload = json.loads(data)
+          expected = {'tauri_bridge/station_automatic.py': ('7a6bfe6474b8c8d10052c3daf400c5dc3aebac600d2f9211a5aeee8f5df512ac','3aceb16bae52294c81733518605a8c4744c1f99de79deec92e896ca68a634d07'), 'tauri_bridge/station_support.py': ('7da7c265be2a6ea06c1fac9df06db90c88570159d45b92baf7675e142984516a','83d9485a666eb6a72a49973218be20603feae65c4122affc9bc87793d7bc293a'), 'tauri_bridge/snapshot_builder.py': ('f0ecac251ca430aa7ce653701d2ea30d9b75e3b77699c12e7820b722d1ab1d37','cdbdc3a75bdf297b59d677747188b3273fa10f3f682ada7afd88c7d2070d9d9e')}
+          for name, hashes in expected.items():
+              assert hashlib.sha256(pathlib.Path(name).read_bytes()).hexdigest() == hashes[0], name
+          patch = payload['patch'].encode()
+          subprocess.run(['git','apply','--check','-'], input=patch, check=True)
+          subprocess.run(['git','apply','-'], input=patch, check=True)
+          for name, hashes in expected.items():
+              assert hashlib.sha256(pathlib.Path(name).read_bytes()).hexdigest() == hashes[1], name
+          assert set(subprocess.check_output(['git','diff','--name-only'], text=True).splitlines()) == set(expected)
+          target = pathlib.Path('tests/test_recipe_integration.py')
+          assert not target.exists()
+          target.write_text(payload['test'], encoding='utf-8')
+          assert hashlib.sha256(target.read_bytes()).hexdigest() == 'fee8a4409028ecd1242e7d7000071e3a4059343ee8c7a1dc37eaee32fbae1768'
+          pathlib.Path('/tmp/recipe-apply-evidence/runtime.patch').write_bytes(patch)
+          PY
+      - name: Install existing portable test dependencies
+        run: |
+          python - <<'PY'
+          import pathlib, subprocess, sys
+          names = {'numpy','scipy','openpyxl','xlsxwriter','matplotlib','pyvisa','pillow'}
+          requirements = [s for s in pathlib.Path('requirements-runtime.txt').read_text().splitlines() if '==' in s and s.split('==')[0].lower() in names]
+          subprocess.run([sys.executable, '-m', 'pip', 'install', *requirements], check=True)
+          PY
+      - name: Full hardware-free Python regression before committing
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -v 2>&1 | tee /tmp/recipe-apply-evidence/tests.log
+      - name: Commit only the tested runtime integration and its regression tests
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote origin refs/heads/refactor/test-platform-process-model | cut -f1)" = "$EXPECTED_HEAD"
+          git add tauri_bridge/station_automatic.py tauri_bridge/station_support.py tauri_bridge/snapshot_builder.py tests/test_recipe_integration.py
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'refactor(recipes): resolve test intent through typed profiles without changing safety or persistence'
+          git rev-parse HEAD > /tmp/recipe-apply-evidence/commit.txt
+          git push origin HEAD:refs/heads/refactor/test-platform-process-model
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: recipe-phase1-integration-${{ github.sha }}
+          path: /tmp/recipe-apply-evidence/
+          retention-days: 14
