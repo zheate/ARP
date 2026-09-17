@@ -21,7 +21,7 @@ REQUIRED = (
 )
 PNP = {"ch341-i2c", "ch341-serial", "ch343-serial", "ocean-hr4", "laserpoint-ftdi"}
 KINDS = {"webview2", "pnp", "vendor"}
-PROBES = {"file-version", "registry-version", "com"}
+PROBES = {"file-version", "registry-version", "com", "driver-store"}
 HASH = re.compile(r"[0-9a-fA-F]{64}\Z")
 VERSION = re.compile(r"\d+(?:\.\d+){1,3}\Z")
 UNSAFE = re.compile(r"(?i)(https?://|ftp://|\\\\|invoke-webrequest|invoke-restmethod|downloadstring|downloadfile|start-bitstransfer|\b(?:winget|choco|curl|wget)\b)")
@@ -151,6 +151,15 @@ def validate(lock: dict[str, Any]) -> None:
             require(p.get("kind") in PROBES, f"{ident}: unknown verification probe")
             if p["kind"] == "com":
                 require(p.get("progId") == "OphirLMMeasurement.CoLMMeasurement", "Only the read-only Ophir COM activation probe is permitted")
+                if "minimumVersion" in p:
+                    require(VERSION.fullmatch(str(p["minimumVersion"])) is not None, f"{ident}: invalid COM server version")
+                if "maximumVersion" in p:
+                    require("minimumVersion" in p and VERSION.fullmatch(str(p["maximumVersion"])) is not None, f"{ident}: invalid maximum COM server version")
+                continue
+            if p["kind"] == "driver-store":
+                inf = relative(p.get("inf"))
+                pinned(inf)
+                require(inf.lower().endswith(".inf"), f"{ident}: driver-store probe needs a pinned INF")
                 continue
             require(VERSION.fullmatch(str(p.get("minimumVersion", ""))) is not None, f"{ident}: pin verification version")
             if "maximumVersion" in p:
@@ -161,7 +170,7 @@ def validate(lock: dict[str, Any]) -> None:
                 relative(path.split("}/", 1)[1])
             else:
                 require(p.get("view") in {32, 64} and str(p.get("key", "")).startswith("SOFTWARE\\") and bool(p.get("value")), f"{ident}: HKLM registry-version probe needs view/key/value")
-        require(any(p.get("kind") in {"file-version", "registry-version"} for p in probes), f"{ident}: require a versioned runtime probe, not COM activation alone")
+        require(any(p.get("kind") in {"file-version", "registry-version"} or (p.get("kind") == "com" and "minimumVersion" in p) for p in probes), f"{ident}: require a versioned runtime probe, not COM activation alone")
         if ident == "ophir":
             require(any(p.get("kind") == "com" for p in probes), "Ophir needs 64-bit COM activation verification")
     require(isinstance(lock.get("licenses"), list) and bool(lock["licenses"]), "Redistributed components must include offline license text")

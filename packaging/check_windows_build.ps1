@@ -44,7 +44,7 @@ if ([string]$tauriConfig.version -ne "../package.json") {
     throw "Tauri must read its application version from ../package.json."
 }
 
-& conda.exe run -n sth_eb314 python -c "import matplotlib, nidaqmx, numpy, openpyxl, pyvisa, scipy, win32com.client, xlsxwriter; import PyInstaller"
+& conda.exe run -n sth_eb314 python -c "import matplotlib, nidaqmx, numpy, openpyxl, pyvisa, pyvisa_py, serial, scipy, win32com.client, xlsxwriter; import PyInstaller"
 if ($LASTEXITCODE -ne 0) {
     throw "The sth_eb314 environment is missing one or more build/runtime dependencies."
 }

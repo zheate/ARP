@@ -2,7 +2,9 @@ Power Test 全离线部署
 
 本安装程序将安装 Power Test，以及经过审查的离线清单中列出的全部运行组件和设备驱动。
 可能包括 WebView2、WCH CH341/CH343、OceanHR4、FTDI/LaserPoint、NI Package Manager、
-NI-VISA/NI-DAQmx、Ophir USB/COM 和 Coherent PowerMax 组件。
+NI-DAQmx、Ophir USB/COM 和 Coherent PowerMax 组件。
+串口通信可使用程序内置实现，无须仅为串口通信安装 NI-VISA。
+原有 NI/LabVIEW 环境只在通过复用验证后继续使用，不自动升级或卸载。
 
 Power Test 应用目录可自定义。共享驱动与系统运行组件安装到 Windows/厂商标准位置。
 安装期间请关闭 Power Test 并断开测试仪器。部分组件需要在全部步骤结束后重启电脑。

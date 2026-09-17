@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import builtins
 import threading
 import time
 import unittest
@@ -100,6 +101,35 @@ class FakeDll:
             if int(index) in self._path_cstrings:
                 return ctypes.cast(self._path_cstrings[int(index)], ctypes.c_void_p).value
             return 0
+
+
+class HeadlessCH341ImportTest(unittest.TestCase):
+    def test_scan_without_tkinter_uses_only_controller_and_mocked_dll(self):
+        """Reproduce the frozen sidecar where the optional Tk toolkit is absent."""
+        original_import = builtins.__import__
+        toolkit_imports = []
+
+        def without_tk(name, *args, **kwargs):
+            if name.split('.')[0] in {'tkinter', '_tkinter'}:
+                toolkit_imports.append(name)
+                raise ModuleNotFoundError(f"No module named '{name}'")
+            return original_import(name, *args, **kwargs)
+
+        fake_dll = FakeDll(available_indices=[1])
+        load_legacy_ch341_controller_class.cache_clear()
+        try:
+            with (
+                patch('builtins.__import__', side_effect=without_tk),
+                patch('ctypes.WinDLL', return_value=fake_dll, create=True),
+                patch('combined_test.devices.get_location_path_from_interface_path', return_value='MOCK_PORT_1'),
+            ):
+                descriptors = scan_ch341_devices(max_devices=3)
+            self.assertEqual(toolkit_imports, [])
+            self.assertEqual([item.device_index for item in descriptors], [1])
+            self.assertEqual([item.location_path for item in descriptors], ['MOCK_PORT_1'])
+            self.assertEqual(fake_dll.opened_indices, set())
+        finally:
+            load_legacy_ch341_controller_class.cache_clear()
 
 
 class MultiCH341Test(unittest.TestCase):

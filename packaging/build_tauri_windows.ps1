@@ -61,6 +61,11 @@ $pyInstallerArgs = @(
     "--hidden-import", "combined_test.ocean_direct_adapter",
     "--hidden-import", "tools.pd_daq_mvp",
     "--hidden-import", "tools.power_meter_mvp",
+    "--hidden-import", "tools.serial_visa",
+    "--copy-metadata", "pyvisa-py",
+    "--copy-metadata", "pyserial",
+    "--copy-metadata", "nidaqmx",
+    "--copy-metadata", "nitypes",
     "--hidden-import", "tools.spectrometer_mvp",
     "--hidden-import", "combined_test.shipping_report_headless",
     "--hidden-import", "matplotlib.backends.backend_agg",
@@ -84,6 +89,11 @@ $pyInstallerArgs += (Join-Path $PSScriptRoot "tauri_bridge_entry.py")
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $sidecarPath)) {
     throw "Python sidecar build failed."
 }
+
+# Validate the actual frozen program, not just imports in the build environment.
+# This mode never loads installed DAQmx, creates tasks or starts the live backend.
+& $sidecarPath --check-runtime --imports-only --output (Join-Path $workRoot 'packaged-runtime-imports.json')
+if ($LASTEXITCODE -ne 0) { throw 'Packaged Python runtime dependency check failed; do not bundle this sidecar.' }
 
 Push-Location $tauriRoot
 try {

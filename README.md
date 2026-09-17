@@ -9,7 +9,7 @@ Tauri 是唯一的操作员界面。Python sidecar 使用 `tauri_bridge/headless
 - Node.js 20 或更新版本，前端包管理器固定为 npm；唯一锁文件是 `tauri-ui/package-lock.json`。
 - Rust stable toolchain。
 - Conda 环境 `sth_eb314`，依赖分别记录在 `requirements-runtime.txt`、`requirements-build.txt` 和 `requirements-dev.txt`。
-- Windows 真机还需要 OceanDirect、CH341、NI-DAQmx、NI-VISA 及所用功率计的厂商驱动。
+- Windows 真机还需要 OceanDirect、CH341、NI-DAQmx 及所用功率计的厂商驱动。串口设备优先复用原生 VISA；没有可加载的原生 VISA 库时，使用程序内置的 PyVISA-py/PySerial 串口实现，无须为串口通信升级旧 NI 环境。
 
 在已有 `sth_eb314` 环境中安装开发与构建依赖：
 
@@ -84,7 +84,9 @@ npm run build:windows:full
 
 **当前全离线正式发布仍有资产与验收门槛，不能把源码实现当作真机安装通过。** 发布机必须具有完整 `local_drivers/` 和经过审查的 `local_drivers/current_project/offline-deployment.lock.json`。模板故意未获批准；缺失 NI/Ophir/Coherent 的实际媒体、离线静默参数或验证记录时，构建会明确失败，不会跳过组件、生成缩水包或联网补装。详细格式和 Windows 验收矩阵见 [离线部署说明](packaging/OFFLINE_DEPLOYMENT.md)。这些准备是发布工程师的工作，不转交给最终用户。
 
-候选产物命名为 `release/full/Power Test_<version>_x64_offline_setup.exe`。最终 EXE 签名、干净断网 Windows 10/11 安装、替代磁盘/中文路径、重复安装和硬件验收均通过后才能正式分发。同版本修复不搬迁目录；需要搬迁时先只卸载应用并保留用户数据、共享运行时。
+默认部署目标为 Windows 10 1909（Build 18363）及以上的 x64 现场电脑，允许已有 NI 等软件，不要求先重装系统或清空驱动。原有 LabVIEW/NI 程序必须保留可用：经审查的现有 NI 运行库直接复用，也不额外安装 NIPM；尚未通过复用验证时，在安装任何组件前停止，禁止自动升级或卸载旧 NI。NI 23.5 候选安装方案只用于尚无 NI 运行库/应用的环境。现场 DAQmx 9.7 的复用兼容性仍待验证。
+
+候选产物命名为 `release/full/Power Test_<version>_x64_offline_setup.exe`。最终 EXE 签名、现场旧环境的断网安装/升级、缺少运行组件的离线补齐、替代磁盘/中文路径、重复安装和硬件验收均通过后才能正式分发。同版本修复不搬迁目录；需要搬迁时先只卸载应用并保留用户数据、共享运行时。
 
 打包层单独检查（不操作仪器）：
 

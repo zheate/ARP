@@ -29,8 +29,10 @@ function Assert-BuildSignatures {
         }
     }
     foreach ($component in $Manifest.components) {
-        if ($component.kind -ne 'pnp') { continue }
-        foreach ($name in $component.inf) {
+        $infs = if ($component.kind -eq 'pnp') { @($component.inf) }
+        elseif ($component.kind -eq 'vendor') { @($component.detect | Where-Object { $_.kind -eq 'driver-store' } | ForEach-Object { $_.inf }) }
+        else { @() }
+        foreach ($name in $infs) {
             $inf = Get-PayloadPath $Root $name
             # INF packages need a signed catalog, not a signature on the INF.
             $text = Get-Content -LiteralPath $inf -Raw

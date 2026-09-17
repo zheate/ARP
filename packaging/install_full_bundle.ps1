@@ -8,7 +8,7 @@ param(
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
-foreach ($module in @('Common', 'Payload', 'Components', 'Application')) {
+foreach ($module in @('Common', 'Payload', 'Components', 'NiPreservation', 'Application')) {
     . (Join-Path $PSScriptRoot "offline\$module.ps1")
 }
 $script:Deploy = @{ DryRun = [bool]$DryRun; RebootRequired = $false; PayloadRoot = $PayloadRoot; LogRoot = ''; Journal = '' }
@@ -22,6 +22,9 @@ try {
     $build = [int](Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion').CurrentBuildNumber
     if ($build -lt $manifest.minimumWindowsBuild) { throw "Windows build $build is below the reviewed minimum $($manifest.minimumWindowsBuild)" }
     $directory = Assert-ApplicationPath $AppInstallDir
+    # Run before any vendor installation, including NIPM and WebView2.
+    # Existing NI software must not be upgraded merely to satisfy our bundle.
+    $reuseNi = Assert-NiPreservation $manifest
     $script:Deploy.LogRoot = Join-Path $env:ProgramData 'Power Test\InstallerLogs\dry-run'
     if (-not $DryRun) {
         $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -58,6 +61,10 @@ try {
     }
     Write-DeployEvent 'deployment' 'start' @{ version = $manifest.application.version; windowsBuild = $build; architecture = 'x64'; directory = $directory; manifestHash = $ExpectedManifestSha256; dryRun = [bool]$DryRun }
     foreach ($component in $manifest.components) {
+        if ($reuseNi -and $component.id -in @('ni-package-manager', 'ni-runtime')) {
+            Write-DeployEvent $component.id 'existing-runtime-reused-no-ni-changes' $null
+            continue
+        }
         if ($component.kind -eq 'pnp') { Install-PnpComponent $component }
         elseif ($component.kind -in @('webview2', 'vendor')) { Install-RuntimeComponent $component }
         else { throw "Unsupported component kind: $($component.kind)" }

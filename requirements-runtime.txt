@@ -5,6 +5,8 @@ openpyxl==3.1.5
 XlsxWriter==3.2.9
 matplotlib==3.10.8
 PyVISA==1.16.2
+PyVISA-py==0.8.1
+pyserial==3.5
 nidaqmx==1.4.1
 pywin32==311
 # Security-patched runtime transitive dependencies (report images and NI tooling).

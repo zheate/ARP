@@ -1,5 +1,48 @@
 # Verification for the offline installer source change
 
+## Windows follow-up — 2026-09-15
+
+The second field report, serial transport adaptation, frozen NI dependency fix,
+47 focused passing checks and rebuilt artifacts are recorded in
+`FIELD_COMPATIBILITY_2026-09-15.md`. The actual frozen EXE passed on the build
+host. The spare-PC report received on 2026-09-16 also confirms that the frozen
+program loaded DAQmx 9.7.0 and the embedded serial backend. Actual acquisition,
+old LabVIEW operation and installed application startup remain unverified.
+
+The Linux results below describe the original source change. The subsequent
+Windows work is recorded in `WINDOWS_FOLLOWUP_2026-09-15.md`:
+
+- Windows build preflight and the actual Rust/PyInstaller/Tauri/MSI build passed.
+- Python packaging regressions after the field-target/probe changes: 33 passed,
+  1 skipped (symlink privilege).
+- PowerShell parser/boundary tests and new real Windows Installer COM tests passed.
+- Runtime compatibility mocks passed: reuse sufficient installed versions,
+  install missing/old versions, verify results and refuse unreviewed downgrades.
+- Default target floor adjusted to Windows build 18363. The user subsequently
+  required preservation of existing LabVIEW/NI applications. A new preflight
+  blocks all deployment before vendor changes when the existing NI stack has
+  no qualified reuse path. Qualified NI bypasses both runtime and NIPM setup.
+- NI preservation, registered COM version/activation, Driver Store probes and
+  static PE export inventory tests passed in native Windows PowerShell 5.1.
+- WebView2 embedded runtime version 151.0.4129.86 was identified. NI-VISA's
+  dedicated x64 registry version and DAQmx numeric file version were checked.
+- StarLab 3.80 x64 COM 10.4.0.0 and VC++ 14.22.27821.0 were extracted and their
+  signatures checked. The documented redistributable adapter passed PlanOnly;
+  no COM registration, driver installation or acquisition was performed.
+- Ophir's bundled license.rtf contains an InstallShield template, not vendor
+  terms; it is excluded from the working license inventory.
+- The fresh MSI passed the actual INSTALLDIR/main-executable/sidecar contract
+  after fixing COM void output leaking null records from `Read-MsiRows`.
+- Local vendor binary/signature and NI feed static checks completed; this is
+  not a clean-machine installation result.
+- NI adapter simulation on this already configured host returned "Packages are
+  already installed". Clean disconnected installation remains unverified.
+- No full offline NSIS release EXE, installed-path acceptance, real hardware
+  acceptance or signed release has been produced by this follow-up.
+
+The working local inventory is `offline-deployment.review.json`, deliberately
+unapproved. It is not the production `offline-deployment.lock.json`.
+
 ## Executed
 
 Environment: Linux x86_64, Python 3.13. No vendor installer was executed.

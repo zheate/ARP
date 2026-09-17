@@ -115,4 +115,4 @@ $hash = (Get-FileHash -LiteralPath $OutputFile -Algorithm SHA256).Hash
 [IO.File]::WriteAllText("$OutputFile.sha256", "$hash  $($item.Name)`n", [Text.Encoding]::ASCII)
 Write-Host "Offline build artifact: $OutputFile"
 Write-Host "Bytes: $($item.Length); SHA-256: $hash"
-Write-Host 'Build is not installation acceptance. Sign the final EXE and pass clean disconnected Windows 10/11 acceptance before release.'
+Write-Host 'Build is not installation acceptance. Sign the final EXE and pass disconnected Windows 10 1909+ field-upgrade and missing-prerequisite acceptance before release.'

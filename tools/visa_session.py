@@ -14,9 +14,21 @@ from typing import Any, Callable, Iterator
 
 
 def _create_default_resource_manager() -> Any:
+    import os
     import pyvisa
 
-    return pyvisa.ResourceManager()
+    if os.environ.get("PYVISA_LIBRARY"):
+        # An explicitly selected library must not be silently substituted.
+        return pyvisa.ResourceManager()
+    try:
+        library = pyvisa.highlevel.open_visa_library("@ivi")
+    except (OSError, ValueError):
+        # Only library discovery/loading failures select the bundled serial
+        # implementation. Runtime I/O failures retain the original error path.
+        from tools.serial_visa import create_serial_resource_manager
+
+        return create_serial_resource_manager()
+    return pyvisa.ResourceManager(library)
 
 
 class VisaResourceManagerPool:

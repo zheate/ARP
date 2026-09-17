@@ -2,7 +2,9 @@ function Read-MsiRows {
     param([object]$Database, [string]$Sql, [int]$Columns)
     $view = $Database.OpenView($Sql)
     try {
-        $view.Execute()
+        # COM void methods can emit null pipeline entries in PowerShell. Those
+        # entries must not escape a function that promises only MSI rows.
+        [void]$view.Execute()
         while ($null -ne ($row = $view.Fetch())) {
             try {
                 $values = @()
@@ -10,7 +12,7 @@ function Read-MsiRows {
                 [pscustomobject]@{ Values = $values }
             } finally { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($row) }
         }
-    } finally { $view.Close(); [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($view) }
+    } finally { [void]$view.Close(); [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($view) }
 }
 
 function Get-ApplicationContract {

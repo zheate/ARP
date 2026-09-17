@@ -19,6 +19,11 @@ foreach ($file in Get-ChildItem -LiteralPath $packaging -Recurse -File -Filter '
     }
 }
 if ($errorsFound.Count) { throw ($errorsFound -join "`n") }
+& (Join-Path $PSScriptRoot 'Test-MsiContract.ps1')
+& (Join-Path $PSScriptRoot 'Test-RuntimeCompatibility.ps1')
+& (Join-Path $PSScriptRoot 'Test-RuntimeProbes.ps1')
+& (Join-Path $PSScriptRoot 'Test-NiPreservation.ps1')
+& (Join-Path $PSScriptRoot 'Test-NativeInventory.ps1')
 . (Join-Path $packaging 'offline\Common.ps1')
 . (Join-Path $packaging 'offline\Components.ps1')
 $script:Deploy = @{ DryRun = $true; RebootRequired = $false; PayloadRoot = $packaging; LogRoot = $packaging; Journal = '' }

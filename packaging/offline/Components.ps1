@@ -1,3 +1,32 @@
+function Get-MachineComServerPath {
+    param([string]$ProgId)
+    if ($ProgId -ne 'OphirLMMeasurement.CoLMMeasurement') { throw 'Unexpected COM probe' }
+    $hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::LocalMachine, [Microsoft.Win32.RegistryView]::Registry64)
+    $classKey = $null
+    $serverKey = $null
+    try {
+        $classKey = $hive.OpenSubKey("SOFTWARE\Classes\$ProgId\CLSID")
+        if (-not $classKey) { return $null }
+        $clsid = [guid]::Empty
+        if (-not [guid]::TryParse([string]$classKey.GetValue(''), [ref]$clsid)) { return $null }
+        $serverKey = $hive.OpenSubKey("SOFTWARE\Classes\CLSID\$($clsid.ToString('B'))\InprocServer32")
+        if (-not $serverKey) { return $null }
+        return ([string]$serverKey.GetValue('')).Trim('"')
+    } finally {
+        if ($serverKey) { $serverKey.Dispose() }
+        if ($classKey) { $classKey.Dispose() }
+        $hive.Dispose()
+    }
+}
+
+function Test-ComActivation {
+    param([string]$ProgId)
+    $instance = $null
+    try { $instance = New-Object -ComObject $ProgId -ErrorAction Stop; return $true }
+    catch { return $false }
+    finally { if ($instance) { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($instance) } }
+}
+
 function Test-RuntimeProbe {
     param([object]$Probe)
     switch ($Probe.kind) {
@@ -20,12 +49,17 @@ function Test-RuntimeProbe {
         }
         'com' {
             if ($Probe.progId -ne 'OphirLMMeasurement.CoLMMeasurement') { throw 'Unexpected COM probe' }
-            $instance = $null
-            try {
-                $instance = New-Object -ComObject $Probe.progId -ErrorAction Stop
-                return $true
-            } catch { return $false }
-            finally { if ($instance) { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($instance) } }
+            $server = Get-MachineComServerPath $Probe.progId
+            if (-not $server -or $server -notmatch '^[A-Za-z]:\\' -or -not (Test-Path -LiteralPath $server -PathType Leaf)) { return $false }
+            if ($Probe.PSObject.Properties['minimumVersion']) {
+                $info = (Get-Item -LiteralPath $server).VersionInfo
+                $version = '{0}.{1}.{2}.{3}' -f $info.FileMajorPart, $info.FileMinorPart, $info.FileBuildPart, $info.FilePrivatePart
+                if (-not (Test-VersionRange $version $Probe)) { return $false }
+            }
+            return Test-ComActivation $Probe.progId
+        }
+        'driver-store' {
+            return Test-DriverStaged (Get-PayloadPath $script:Deploy.PayloadRoot $Probe.inf)
         }
         default { throw "Unknown probe: $($Probe.kind)" }
     }

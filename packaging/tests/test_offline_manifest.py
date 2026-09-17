@@ -17,7 +17,7 @@ spec.loader.exec_module(m)
 
 
 def fixture():
-    lock = {"schemaVersion": 1, "architecture": "x64", "minimumWindowsBuild": 19045,
+    lock = {"schemaVersion": 1, "architecture": "x64", "minimumWindowsBuild": 18363,
             "approved": True, "reviewer": "unit-test-only", "files": [], "archives": [],
             "components": [], "licenses": ["licenses/vendor.txt"]}
     data = {}
@@ -61,6 +61,15 @@ class ManifestTests(unittest.TestCase):
     def test_complete_reviewed_fixture(self):
         m.validate(self.lock)
 
+    def test_field_windows_baseline_does_not_approve_unverified_payload(self):
+        template = m.read_json(MODULE.parent / "offline-deployment.example.json")
+        self.assertEqual(template["minimumWindowsBuild"], 18363)
+        self.assertFalse(template["approved"])
+        self.lock["minimumWindowsBuild"] = template["minimumWindowsBuild"]
+        m.validate(self.lock)
+        with self.assertRaisesRegex(m.ManifestError, "NOT approved"):
+            m.validate(template)
+
     def test_template_is_not_release_ready(self):
         lock = m.read_json(MODULE.parent / "offline-deployment.example.json")
         with self.assertRaisesRegex(m.ManifestError, "NOT approved"):
@@ -87,6 +96,30 @@ class ManifestTests(unittest.TestCase):
 
     def test_ophir_requires_com(self):
         self.rejects(lambda x: x["components"][-2]["detect"].pop())
+
+    def test_registered_com_version_is_a_versioned_postcondition(self):
+        ophir = self.lock["components"][-2]
+        ophir["detect"] = [{"kind": "com", "progId": "OphirLMMeasurement.CoLMMeasurement", "minimumVersion": "10.4.0.0"}]
+        m.validate(self.lock)
+        del ophir["detect"][0]["minimumVersion"]
+        with self.assertRaisesRegex(m.ManifestError, "versioned runtime probe"):
+            m.validate(self.lock)
+
+    def test_com_version_range_must_be_numeric_and_complete(self):
+        for change in [{"minimumVersion": "v10.4"}, {"maximumVersion": "11.0"}, {"minimumVersion": "10.4", "maximumVersion": "latest"}]:
+            lock = copy.deepcopy(self.lock)
+            lock["components"][-2]["detect"][-1].update(change)
+            with self.subTest(change=change), self.assertRaises(m.ManifestError):
+                m.validate(lock)
+
+    def test_vendor_driver_store_probe_requires_pinned_inf(self):
+        ophir = self.lock["components"][-2]
+        ophir["detect"].append({"kind": "driver-store", "inf": "ch341-i2c/driver.inf"})
+        m.validate(self.lock)
+        for path in ["missing.inf", "../driver.inf", "licenses/vendor.txt"]:
+            ophir["detect"][-1]["inf"] = path
+            with self.subTest(path=path), self.assertRaises(m.ManifestError):
+                m.validate(self.lock)
 
     def test_vendor_switches_cannot_download(self):
         for arg in ["https://example.com/setup", r"\\server\setup", "Invoke-WebRequest", "{AppInstallDir}", "abc\nxyz"]:

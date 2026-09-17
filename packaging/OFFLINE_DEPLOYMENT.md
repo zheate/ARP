@@ -29,6 +29,7 @@ interpolated command-line switches). Windows PowerShell 5.1 runs these modules:
 | `offline/Common.ps1` | Native argument quoting, synchronous process execution, timeouts, JSONL events, version checks |
 | `offline/Payload.ps1` | Manifest/hash verification, protected persistent cache, unresolved-install guard, build-only signature checks |
 | `offline/Components.ps1` | WebView2, individual PnP INF staging, reviewed vendor recipes and runtime probes |
+| `offline/NiPreservation.ps1` | Preserve installed NI/LabVIEW applications; reuse qualified runtimes without running NIPM |
 | `offline/Application.ps1` | MSI contract inspection, path preflight, repair and actual installed component path/hash verification |
 | `install_full_bundle.ps1` | Environment/preflight, dependency order, application install, aggregated restart and failure status |
 
@@ -50,8 +51,10 @@ local_drivers/current_project/offline-deployment.lock.json
 must describe the ACTUAL vendor assets, not placeholder values.
 
 - `schemaVersion: 1`, `architecture: "x64"`, `minimumWindowsBuild` (integer >=17763),
-  `approved: true` and a named `reviewer`. The example floor 19045 is not a claim
-  that earlier Windows 10 builds have been tested.
+  `approved: true` and a named `reviewer`. The default target floor is **18363**
+  (Windows 10 1909 x64), matching the field computers. Existing NI software is
+  allowed; a clean machine is not an installation prerequisite. This target
+  definition is not a claim that the actual media has passed Windows 1909 tests.
 - `files`: one entry per redistributed file, `{path, sha256, signatureSubject}`.
   Paths are local, relative, case-unique Windows-safe paths. SHA-256 values must
   come from approved source media. `signatureSubject` is a publisher regular
@@ -115,6 +118,12 @@ Supported probes:
   registry `value`, numeric `minimumVersion`, optional `maximumVersion`.
 - `com`: `progId: "OphirLMMeasurement.CoLMMeasurement"`. Activates/releases the
   64-bit COM object without calling discovery, acquisition or output methods.
+  Requires a local machine-wide registered server. Optional `minimumVersion`
+  and `maximumVersion` check that actual server DLL, not an unrelated copied
+  library. A COM probe with `minimumVersion` counts as a versioned probe.
+- `driver-store`: a pinned relative `inf` path. Requires the matching INF hash
+  in Driver Store, also for vendor recipes such as Ophir. Its catalog is checked
+  at build time just like a standalone PnP component.
 
 Every vendor recipe needs a versioned probe; Ophir additionally needs the COM
 probe. All probes must pass after installation. A return code or file's existence
@@ -245,14 +254,63 @@ attempted zero network requests." Evergreen WebView2, Windows certificate checks
 and opaque vendor services can have their own behavior. Static URL/command lint
 cannot prove their behavior. Do not claim a packet-capture result without one.
 
-Release acceptance must use clean disconnected Windows 10/11 x64 machines with
-no development tools, no cached vendor runtimes and a standard operator account:
+Release acceptance must cover the field baseline: disconnected Windows 10 1909
+(build 18363) or later x64, including existing NI software, with a standard
+operator account. Do not require operators to reinstall Windows or remove NI
+merely to make a target eligible. Test both an existing-software installation
+and a missing-prerequisites baseline; the latter establishes that the offline
+payload is complete, not an operator prerequisite.
+
+The user requires existing LabVIEW/NI applications to remain usable. Before any
+component installation, `Assert-NiPreservation` checks the existing NI stack.
+When the reviewed NI runtime probes pass, both NI and NIPM setup are bypassed.
+When existing NI has no qualified reuse path, the entire deployment stops before
+vendor changes. Do not automatically upgrade, remove, downgrade or declare the
+legacy stack compatible just to proceed. The standalone NI candidate also refuses
+changes when it detects an existing NI runtime/application; simulation stays
+read-only. NI 23.5 DAQmx remains a candidate for machines without an existing NI stack.
+
+The field report collected at `2026-09-15T09:37:36.7571006Z` confirms an x64
+`nicaiu.dll` with all 14 selected exports; its file version `2.8.0f0` is a C API
+component version, not evidence that the installed DAQmx product is version 2.8.
+The report did not find `System32/visa64.dll`, a native NI-VISA version key or
+machine-wide WebView2 registration. It is still not an actual runtime load test.
+
+Serial communication now has a bundled ASRL implementation: PyVISA-py 0.8.1 and
+PySerial 3.5. Available native VISA and explicit `PYVISA_LIBRARY` selections retain
+their original paths. Only default native library discovery/loading failures
+select the local serial implementation; live native I/O failures are propagated.
+The bundled implementation enumerates local COM ports only and rejects network,
+USB and GPIB resource opens. CH341/CH343/FTDI/Coherent USB serial drivers remain
+required. The NI candidate no longer installs NI-VISA just for ASRL communication.
+
+`arp-python ... --check-runtime --output report.json` loads the actual packaged
+Python dependencies and queries only the installed DAQmx version API. It never
+starts HeadlessBackend, enumerates devices, creates a DAQ task or opens ports.
+The optional `--imports-only` mode skips loading the system DAQmx DLL; the Windows
+build runs that check against its actual frozen sidecar before creating the MSI.
+Metadata for `nidaqmx` and `nitypes` is explicitly included, because these packages
+read their installed distribution versions during import.
+
+NI-DAQmx/VISA 23.5 list Windows 10 support, but their published LabVIEW support
+starts at 2020/2020 SP1, not 2011. The bundled Python nidaqmx is 1.4.1. The supplied
+DAQmx 9.7 machine still requires runtime/ABI validation and actual ARP plus
+legacy-application acceptance before a reuse profile can be approved.
+`Collect-OfflineTarget.ps1` now records x64 NI DLL versions, hashes and selected
+export availability without loading them. Export names alone do not establish
+supported ABI, successful runtime loading or acquisition compatibility.
+
+The manifest approval gate remains in force for all target classes:
 
 1. Install to default, alternate-drive, spaces and Chinese paths. Verify actual
    MSI component paths, shortcuts, unprivileged startup and offline activation.
 2. Preinstall a different/newer runtime, repeat/repair, upgrade, inject a failure,
    verify restart aggregation and that no unrelated application loses its feeds
    or shared drivers. Exercise outstanding restart/installer states.
+   Include the supplied Windows 18363.592 + DAQmx 9.7/LabVIEW 2011 baseline.
+   Preserve a recoverable copy of that test environment and verify its existing
+   measurement programs after deployment without changing its NI stack. Do not declare that legacy driver
+   sufficient for ARP without the required runtime and acquisition checks.
 3. Install without instruments, reboot, then connect each supported device and
    perform separately authorized hardware acceptance. Driver staging and mocks
    are not evidence of real acquisition or safe device shutdown.
@@ -269,6 +327,8 @@ report the missing components and must NOT call the offline release complete.
 - Microsoft WebView2 distribution: https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution
 - Microsoft PnPUtil return values: https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/pnputil-return-values
 - Windows Installer component-path verification: https://learn.microsoft.com/en-us/windows/win32/msi/installer-componentpath
+- NI-DAQmx 2023 Q3 OS/application support: https://www.ni.com/pdf/manuals/ni-daqmx-2023-q3.html
+- NI-VISA 2023 Q3 OS/application support: https://www.ni.com/pdf/manuals/ni-visa-windows-2023-q3.html
 
 These explain platform mechanisms, not the silent-install behavior of the local
 NI/Ophir/Coherent package versions. That evidence must come from their actual

@@ -1,7 +1,4 @@
-"""Legacy Tkinter CH341 power-supply controller."""
-
-import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext
+"""CH341 controller with an optional standalone Tkinter diagnostic UI."""
 import time
 from datetime import datetime
 import ctypes
@@ -256,6 +253,12 @@ class CH341I2CController:
 
 class SimpleI2CReaderApp:
     def __init__(self, root):
+        # The Tauri sidecar loads CH341I2CController from this file as data.
+        # Tk is needed only when explicitly opening this standalone diagnostic.
+        global tk, ttk, messagebox, scrolledtext
+        import tkinter as tk
+        from tkinter import ttk, messagebox, scrolledtext
+
         self.root = root
         self.root.title("CH341 I2C 读数工具")
         self.root.minsize(680, 580)
@@ -527,6 +530,8 @@ class SimpleI2CReaderApp:
         self.root.destroy()
 
 def main():
+    import tkinter as tk
+
     root = tk.Tk()
     app = SimpleI2CReaderApp(root)
     root.protocol("WM_DELETE_WINDOW", app.on_closing)
