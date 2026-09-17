@@ -15,6 +15,8 @@
 
 - Do not use abstract ASCII-art diagrams made from blocks, slashes, arrows, or similar text characters to explain optical propagation, near-field/far-field relationships, beam geometry, optomechanical layouts, device structure, or other spatial engineering concepts.
 - When a visual explanation materially improves understanding, use a proper engineering figure instead: a generated schematic, plotted diagram, or suitable reference image. The figure should use physically meaningful labels such as axes, dimensions, propagation direction, angles, focal planes, apertures, NA, and relevant optical surfaces.
+- When a suitable existing figure is available on the public web, prefer using that figure rather than redrawing or generating an equivalent one. Favor technically reliable sources such as manufacturer documentation, textbooks or course material, academic publications, standards bodies, and reputable optics/engineering references. Clearly identify or link the source and do not present a third-party figure as original work.
+- Generate or draw a new figure when no suitable existing reference image is available, when the existing figure does not show the specific geometry or quantities needed, or when a custom figure would materially improve technical clarity.
 - Prefer equations, explicit physical reasoning, and concrete engineering examples over decorative or oversimplified sketches. Do not substitute an ASCII sketch for missing physical explanation.
 - ASCII/text diagrams are acceptable only for genuinely text-native structures such as a short file tree, software state flow, or simple data topology where spatial or physical geometry is not being represented.
 
