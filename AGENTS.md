@@ -11,6 +11,13 @@
 - Full test suites, packaging, and connecting to or controlling real devices require authorization for that scope. Reuse authorization already given in the task; ask before adding an operation outside it. Task duration alone is not a reason to request approval again.
 - State what was verified and any remaining limits. A build or simulated check does not establish real-device acceptance.
 
+## Engineering Explanation and Visualization Policy
+
+- Do not use abstract ASCII-art diagrams made from blocks, slashes, arrows, or similar text characters to explain optical propagation, near-field/far-field relationships, beam geometry, optomechanical layouts, device structure, or other spatial engineering concepts.
+- When a visual explanation materially improves understanding, use a proper engineering figure instead: a generated schematic, plotted diagram, or suitable reference image. The figure should use physically meaningful labels such as axes, dimensions, propagation direction, angles, focal planes, apertures, NA, and relevant optical surfaces.
+- Prefer equations, explicit physical reasoning, and concrete engineering examples over decorative or oversimplified sketches. Do not substitute an ASCII sketch for missing physical explanation.
+- ASCII/text diagrams are acceptable only for genuinely text-native structures such as a short file tree, software state flow, or simple data topology where spatial or physical geometry is not being represented.
+
 ## Power Test App
 
 - Run from this workspace with the Python environment that can load the scripts runner compiled modules:
