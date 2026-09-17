@@ -546,7 +546,9 @@ function drawBaseChart(
   const border = styles.getPropertyValue("--app-border-strong").trim() || "#686c70"
   const muted = styles.getPropertyValue("--muted-foreground").trim() || "hsl(40 8% 60%)"
   const chartBackground = styles.getPropertyValue("--card").trim() || "hsl(48 3% 17%)"
-  context.font = CHART_FONT
+  context.font = styles.getPropertyValue("--chart-font-size").trim()
+    ? CHART_FONT.replace("12px", styles.getPropertyValue("--chart-font-size").trim())
+    : CHART_FONT
   context.lineWidth = 1
   context.strokeStyle = border
   context.fillStyle = muted

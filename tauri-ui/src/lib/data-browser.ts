@@ -1,4 +1,5 @@
 export interface DataRecord {
+  storage?: "database"
   id: string
   sourcePath: string
   fileName: string
@@ -39,13 +40,23 @@ export interface DataPoint {
   smsrDb: number | null
 }
 
+export interface SpectrumSeries {
+  currentA: number
+  wavelengthNm: number[]
+  intensity: number[]
+  peakWavelengthNm: number
+  maxIntensity: number
+}
+
 export interface DataDetail {
   record: DataRecord
   points: DataPoint[]
   metadata: Record<string, string>
   warnings: string[]
   columnLabels: Record<string, string>
+  spectra?: SpectrumSeries[] | null
 }
+
 
 export interface DataList {
   records: DataRecord[]
@@ -201,4 +212,64 @@ export function extractComparisonSummary(basePoints: DataPoint[], otherPoints: D
     deltaMaxPowerPercent,
     sharedPointCount,
   }
+}
+
+export const DATA_METRICS = [
+  { key: "powerW", label: "功率", unit: "W" },
+  { key: "voltageV", label: "电压", unit: "V" },
+  { key: "efficiencyPercent", label: "电光效率", unit: "%" },
+  { key: "peakWavelengthNm", label: "峰值波长", unit: "nm" },
+  { key: "centroidNm", label: "质心波长", unit: "nm" },
+  { key: "fwhmNm", label: "FWHM", unit: "nm" },
+  { key: "pibPercent", label: "PIB", unit: "%" },
+  { key: "smsrDb", label: "SMSR", unit: "dB" },
+] as const
+export type DataMetricKey = typeof DATA_METRICS[number]["key"]
+export const SERIES_COLORS = ["#ed7624", "#3788df", "#31a58c", "#a776cf", "#d75481"]
+export const MAX_COMPARISONS = 5
+
+export function metricChartRows(details: DataDetail[], metric: DataMetricKey): Record<string, number | null>[] {
+  return details.flatMap((detail, index) => detail.points
+    .filter((point) => Number.isFinite(point.currentA) && point[metric] != null && Number.isFinite(point[metric]))
+    .map((point) => ({ currentA: point.currentA, [`series${index}`]: point[metric] })))
+    .sort((a, b) => a.currentA - b.currentA)
+}
+
+/** Match measured currents only. Repeated currents are ambiguous, even if one value is missing. */
+export function metricComparisonRows(details: DataDetail[], metric: DataMetricKey) {
+  const groups = details.map((detail) => {
+    const result = new Map<string, DataPoint[]>()
+    for (const point of detail.points) {
+      if (!Number.isFinite(point.currentA)) continue
+      const key = point.currentA.toFixed(6)
+      result.set(key, [...(result.get(key) ?? []), point])
+    }
+    return result
+  })
+  const currents = [...new Set(groups.flatMap((group) => [...group.keys()]))].sort((a, b) => Number(a) - Number(b))
+  return currents.map((current) => {
+    const ambiguous = groups.map((group) => (group.get(current)?.length ?? 0) > 1)
+    const values = groups.map((group, index) => {
+      const value = group.get(current)?.[0]?.[metric]
+      return ambiguous[index] || value == null || !Number.isFinite(value) ? null : value
+    })
+    const base = values[0]
+    return { currentA: Number(current), values, ambiguous,
+      deltas: values.map((value) => value == null || base == null ? null : value - base) }
+  })
+}
+
+/** A wavelength near 976 nm needs its measured range, otherwise drift looks flat. */
+export function metricYAxisDomain(details: DataDetail[], metric: DataMetricKey): [number, number] | undefined {
+  if (metric === "powerW") return undefined
+  let low = Infinity, high = -Infinity
+  for (const detail of details) for (const point of detail.points) {
+    const value = point[metric]
+    if (value == null || !Number.isFinite(value)) continue
+    low = Math.min(low, value); high = Math.max(high, value)
+  }
+  if (!Number.isFinite(low)) return undefined
+  const minimumPadding = metric === "efficiencyPercent" || metric === "pibPercent" || metric === "smsrDb" ? 0.2 : 0.02
+  const padding = Math.max((high - low) * 0.12, minimumPadding)
+  return [low - padding, high + padding]
 }

@@ -2746,6 +2746,10 @@ function LicensedApp({
   )
   const attemptGracefulClose = useCallback(async () => {
     if (!("__TAURI_INTERNALS__" in window) || closeRequestInFlightRef.current) return
+    if (DEMO_PREVIEW_ENABLED) {
+      await getCurrentWindow().destroy()
+      return
+    }
     closeRequestInFlightRef.current = true
     setCloseRequestPending(true)
     setCloseFailure(null)
@@ -3152,6 +3156,11 @@ function LicensedApp({
             {automaticWorkflowActive && <Button onClick={() => void run("automatic.end")} size="sm" variant="outline">安全结束测试</Button>}
             <Button onClick={() => void run("app.stopAll")} size="sm" variant="destructive">急停</Button>
           </div>
+        </div>
+      )}
+      {DEMO_PREVIEW_ENABLED && (
+        <div className="border-b border-border bg-primary/5 px-5 py-2 text-sm text-muted-foreground" role="status">
+          虚拟数据演示 · 不连接仪器，不写入正式数据库
         </div>
       )}
       <div className="app-shell__body grid min-h-0 flex-1 overflow-hidden">

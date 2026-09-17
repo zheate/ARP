@@ -606,6 +606,14 @@ export async function sendBackendRequest<T>(
   method: string,
   params: Record<string, unknown> = {},
 ): Promise<T> {
+  if (typeof window !== "undefined"
+    && new URLSearchParams(window.location.search).get("demo") === "1") {
+    if (method.startsWith("dataBrowser.")) {
+      const { demoDataRequest } = await import("./data-browser-demo")
+      return demoDataRequest(method, params) as T
+    }
+    throw new Error("虚拟演示模式不会调用真实后端")
+  }
   ensureTauri()
   return invoke<T>("bridge_request", { method, params })
 }

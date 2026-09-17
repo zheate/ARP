@@ -68,6 +68,7 @@ class BackendDispatcher:
             "shippingReport.inspect": self._inspect_shipping_report,
             "dataBrowser.list": self._list_data_records,
             "dataBrowser.inspect": self._inspect_data_record,
+            "dataBrowser.import": self._import_data_records,
             "shippingReport.batchInspect": self._inspect_shipping_report_batch,
             "shippingReport.batchGenerateItem": self._generate_shipping_report_batch_item,
             "shippingReport.preview": self._preview_shipping_report,
@@ -102,6 +103,7 @@ class BackendDispatcher:
         actions: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
             "dataBrowser.list": self._list_data_records,
             "dataBrowser.inspect": self._inspect_data_record,
+            "dataBrowser.import": self._import_data_records,
             "shippingReport.inspect": self._inspect_shipping_report,
             "shippingReport.batchInspect": self._inspect_shipping_report_batch,
             "shippingReport.batchGenerateItem": self._generate_shipping_report_batch_item,
@@ -115,11 +117,28 @@ class BackendDispatcher:
 
     def _list_data_records(self, params: dict[str, Any]) -> dict[str, Any]:
         from combined_test.data_browser import list_data_records
-        return list_data_records(params)
+        if params.get("source") != "database":
+            return list_data_records(params)
+        library = self._data_library()
+        warnings = []
+        for journal_root in sorted(library.path.parent.glob("station-*")):
+            warnings.extend(library.recover(journal_root))
+        result = library.list(params)
+        result["warnings"] = warnings
+        return result
 
     def _inspect_data_record(self, params: dict[str, Any]) -> dict[str, Any]:
         from combined_test.data_browser import inspect_data_record
+        if params.get("recordId"):
+            return self._data_library().inspect(str(params["recordId"]), include_spectra=bool(params.get("includeSpectra", False)))
         return inspect_data_record(params)
+
+    def _data_library(self):
+        from combined_test.data_library import DataLibrary
+        return DataLibrary(self._backend.settings.path.parent / "test-records" / "library.sqlite3")
+
+    def _import_data_records(self, params: dict[str, Any]) -> dict[str, Any]:
+        return self._data_library().import_excel(params)
 
     def configure(self, params: dict[str, Any]) -> None:
         backend = self._backend

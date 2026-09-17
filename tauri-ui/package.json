@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "tauri dev",
+    "demo:data": "tauri dev --config src-tauri/tauri.demo.conf.json",
     "dev": "node scripts/vite-production-dev.mjs",
     "test": "node --experimental-strip-types --test src/lib/*.test.ts scripts/*.test.mjs",
     "build": "tsc && vite build",

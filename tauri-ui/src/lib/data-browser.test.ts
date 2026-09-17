@@ -124,3 +124,38 @@ test("extractComparisonSummary calculates delta Pmax, percentage, and shared poi
   assert.equal(summary.deltaMaxPowerPercent, 25)
   assert.equal(summary.sharedPointCount, 2)
 })
+
+test("five curves preserve each selected parameter even when power is missing", async () => {
+  const { metricChartRows } = await import("./data-browser.ts")
+  const details = Array.from({ length: 5 }, (_, index) => ({ points: [point(index + 1, null, 1, { voltageV: 10 + index, efficiencyPercent: 0 })] })) as DataDetail[]
+  const rows = metricChartRows(details, "voltageV")
+  assert.equal(rows.length, 5)
+  rows.forEach((row, index) => assert.equal(row[`series${index}`], 10 + index))
+  assert.equal(metricChartRows(details, "powerW").length, 0)
+  assert.equal(metricChartRows(details, "efficiencyPercent")[0].series0, 0)
+})
+
+test("parameter deltas never interpolate, invent missing values or match duplicate currents", async () => {
+  const { metricComparisonRows } = await import("./data-browser.ts")
+  const details = [
+    { points: [point(2, 10, 1, { efficiencyPercent: 40 }), point(4, 12, 2, { efficiencyPercent: 50 })] },
+    { points: [point(2, 11, 1, { efficiencyPercent: 45 }), point(3, 13, 2, { efficiencyPercent: 47 }), point(4, 12, 3, { efficiencyPercent: 0 }), point(4, null)] },
+    { points: [point(2, null, 1, { efficiencyPercent: 0 })] },
+  ] as DataDetail[]
+  const rows = metricComparisonRows(details, "efficiencyPercent")
+  assert.deepEqual(rows[0].deltas, [0, 5, -40])
+  assert.deepEqual(rows[1].values, [null, 47, null])
+  assert.deepEqual(rows[1].deltas, [null, null, null])
+  assert.equal(rows[2].ambiguous[1], true)
+  assert.equal(rows[2].deltas[1], null)
+})
+
+test("wavelength and efficiency axes resolve measured differences without changing power zero reference", async () => {
+  const { metricYAxisDomain } = await import("./data-browser.ts")
+  const details = [{points:[point(2,10,1,{peakWavelengthNm:976.1}), point(4,20,2,{peakWavelengthNm:976.4})]}] as DataDetail[]
+  const domain = metricYAxisDomain(details, "peakWavelengthNm")!
+  assert.ok(domain[0] > 975 && domain[0] < 976.1)
+  assert.ok(domain[1] > 976.4 && domain[1] < 977)
+  assert.equal(metricYAxisDomain(details, "powerW"), undefined)
+  assert.equal(metricYAxisDomain(details, "efficiencyPercent"), undefined)
+})

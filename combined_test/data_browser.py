@@ -8,6 +8,7 @@ from __future__ import annotations
 import copy
 import math
 import os
+import re
 import threading
 import time
 from collections import OrderedDict
@@ -24,12 +25,14 @@ MAX_DETAIL_CACHE = 32
 MAX_INDEX_FILES = 20000
 _LOCK = threading.RLock()
 _INDEXES: OrderedDict[str, dict[str, Any]] = OrderedDict()
-_DETAILS: OrderedDict[tuple[str, str], dict[str, Any]] = OrderedDict()
+_DETAILS: OrderedDict[tuple[str, str, bool], dict[str, Any]] = OrderedDict()
 _FIELDS = {
     "current": "currentA", "voltage": "voltageV", "power": "powerW",
     "efficiency": "efficiencyPercent", "peak_wavelength": "peakWavelengthNm",
     "centroid": "centroidNm", "fwhm": "fwhmNm", "pib": "pibPercent", "smsr": "smsrDb",
 }
+_SPECTRUM_COLUMN_PATTERN = re.compile(r"^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*A\s*$", re.IGNORECASE)
+
 
 
 def clear_data_browser_cache() -> None:
@@ -76,7 +79,7 @@ def _empty_summary(path: Path, version: str, modified: float) -> dict[str, Any]:
     }
 
 
-def _read_workbook(path: Path, version: str, modified: float) -> dict[str, Any]:
+def _read_workbook(path: Path, version: str, modified: float, include_spectra: bool = False) -> dict[str, Any]:
     workbook = load_workbook(path, read_only=True, data_only=True)
     try:
         session = _parse_session_information(workbook)
@@ -131,22 +134,78 @@ def _read_workbook(path: Path, version: str, modified: float) -> dict[str, Any]:
                     summary[field] = str(row[col + 1]).strip()
                     if field == "sn":
                         summary["snSource"] = "metadata"
+
+        spectrum_cols: list[tuple[float, int]] = []
+        if include_spectra:
+            result_cols = set(columns.values())
+            for col_idx, val in enumerate(headers):
+                if col_idx in result_cols or (col_idx + 1) in result_cols:
+                    continue
+                if val is not None:
+                    m = _SPECTRUM_COLUMN_PATTERN.match(str(val).strip())
+                    if m:
+                        try:
+                            spectrum_cols.append((float(m.group(1)), col_idx))
+                        except ValueError:
+                            pass
+            spectrum_cols.sort(key=lambda item: item[0])
+
+        max_col_to_read = max(columns.values()) + 1
+        if spectrum_cols:
+            max_col_to_read = max(max_col_to_read, max(c + 2 for _, c in spectrum_cols))
+
+        spectra_map: dict[float, dict[str, list[float]]] = {
+            cur: {"wavelengthNm": [], "intensity": []} for cur, _ in spectrum_cols
+        }
+
         points = []
-        for row_index, row in enumerate(sheet.iter_rows(min_row=header_row + 1,
-                max_col=max(columns.values()) + 1, values_only=True), header_row + 1):
-            current = _number(row[columns["current"]])
-            if current is None:
-                continue
-            point: dict[str, Any] = {"rowId": row_index, "currentA": current}
-            for column_key, field in _FIELDS.items():
-                col = columns.get(column_key)
-                value = None if col is None else _number(row[col])
-                # Native exports store ratios, like shipping_report. Explicit
-                # percent headers in imported workbooks already contain percent.
-                if column_key in {"efficiency", "pib"} and value is not None and "%" not in str(headers[col]):
-                    value *= 100
-                point[field] = value
-            points.append(point)
+        for row_index, row in enumerate(
+            sheet.iter_rows(
+                min_row=header_row + 1,
+                max_col=max_col_to_read,
+                values_only=True,
+            ),
+            header_row + 1,
+        ):
+            current = _number(row[columns["current"]]) if columns["current"] < len(row) else None
+            if current is not None:
+                point: dict[str, Any] = {"rowId": row_index, "currentA": current}
+                for column_key, field in _FIELDS.items():
+                    col = columns.get(column_key)
+                    value = None if col is None or col >= len(row) else _number(row[col])
+                    # Native exports store ratios, like shipping_report. Explicit
+                    # percent headers in imported workbooks already contain percent.
+                    if column_key in {"efficiency", "pib"} and value is not None and "%" not in str(headers[col]):
+                        value *= 100
+                    point[field] = value
+                points.append(point)
+
+            if include_spectra:
+                for cur, col in spectrum_cols:
+                    if col < len(row) and (col + 1) < len(row):
+                        wl = _number(row[col])
+                        val = _number(row[col + 1])
+                        if wl is not None and val is not None:
+                            spectra_map[cur]["wavelengthNm"].append(wl)
+                            spectra_map[cur]["intensity"].append(val)
+
+        spectra_list: list[dict[str, Any]] | None = None
+        if include_spectra and spectrum_cols:
+            spectra_list = []
+            for cur in sorted(spectra_map):
+                wls = spectra_map[cur]["wavelengthNm"]
+                ints = spectra_map[cur]["intensity"]
+                if wls and ints:
+                    max_int = max(ints)
+                    max_idx = ints.index(max_int)
+                    spectra_list.append({
+                        "currentA": cur,
+                        "wavelengthNm": wls,
+                        "intensity": ints,
+                        "peakWavelengthNm": wls[max_idx],
+                        "maxIntensity": max_int,
+                    })
+
         valid = [p for p in points if p["powerW"] is not None]
         currents = [p["currentA"] for p in valid]
         summary.update(pointCount=len(points), validPointCount=len(valid),
@@ -161,7 +220,10 @@ def _read_workbook(path: Path, version: str, modified: float) -> dict[str, Any]:
         if summary["snSource"] == "directory":
             warnings.append("SN 由标准目录结构推定，文件未记录 SN。")
         labels = {_FIELDS[key]: str(headers[col]) for key, col in columns.items() if key in _FIELDS}
-        return {"record": summary, "points": points, "metadata": session, "warnings": warnings, "columnLabels": labels}
+        res: dict[str, Any] = {"record": summary, "points": points, "metadata": session, "warnings": warnings, "columnLabels": labels}
+        if include_spectra:
+            res["spectra"] = spectra_list
+        return res
     finally:
         workbook.close()
 
@@ -181,24 +243,24 @@ def _describe_read_error(exc: Exception) -> str:
     return f"无法读取 Excel：{exc}"
 
 
-def _read_detail(path: Path, version: str, modified: float) -> dict[str, Any]:
+def _read_detail(path: Path, version: str, modified: float, include_spectra: bool = False) -> dict[str, Any]:
     """Read a workbook through the shared detail cache.
 
     Returns the cached entry itself rather than a copy, so the directory scan
     can read a single record without cloning every test point. Callers must
     copy before handing the value out and must never mutate it in place.
     """
-    cache_key = (_key(path), version)
+    cache_key = (_key(path), version, include_spectra)
     with _LOCK:
         cached = _DETAILS.get(cache_key)
         if cached is not None:
             _DETAILS.move_to_end(cache_key)
             return cached
-    result = _read_workbook(path, version, modified)
+    result = _read_workbook(path, version, modified, include_spectra=include_spectra)
     if _version(path)[0] != version:
         raise ValueError("文件正在更新，请稍后刷新重试")
     with _LOCK:
-        for old in [key for key in _DETAILS if key[0] == cache_key[0]]:
+        for old in [key for key in _DETAILS if key[0] == cache_key[0] and key[2] == include_spectra]:
             del _DETAILS[old]
         _DETAILS[cache_key] = result
         while len(_DETAILS) > MAX_DETAIL_CACHE:
@@ -213,9 +275,10 @@ def inspect_data_record(params: dict[str, Any]) -> dict[str, Any]:
     path = Path(raw).expanduser().resolve()
     if path.suffix.lower() != ".xlsx":
         raise ValueError("仅支持 .xlsx 测试文件")
+    include_spectra = bool(params.get("includeSpectra", False))
     try:
         version, modified = _version(path)
-        return copy.deepcopy(_read_detail(path, version, modified))
+        return copy.deepcopy(_read_detail(path, version, modified, include_spectra=include_spectra))
     except Exception as exc:
         raise ValueError(_describe_read_error(exc)) from exc
 

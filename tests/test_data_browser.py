@@ -63,7 +63,22 @@ class DataBrowserTests(unittest.TestCase):
         self.assertEqual(detail["points"][0]["pibPercent"], 95)
         self.assertIsNone(detail["points"][0]["smsrDb"])
         self.assertNotIn("wavelength", detail["points"][0])
+        self.assertNotIn("spectra", detail)
         self.assertEqual(hashlib.sha256(path.read_bytes()).digest(), before)
+
+        # When includeSpectra is requested, spectra must be parsed and returned
+        with_spectra = browser.inspect_data_record({"path": str(path), "includeSpectra": True})
+        self.assertIn("spectra", with_spectra)
+        self.assertIsNotNone(with_spectra["spectra"])
+        self.assertEqual(len(with_spectra["spectra"]), 1)
+        spec = with_spectra["spectra"][0]
+        self.assertEqual(spec["currentA"], 2.0)
+        self.assertEqual(len(spec["wavelengthNm"]), 500)
+        self.assertEqual(len(spec["intensity"]), 500)
+        self.assertAlmostEqual(spec["wavelengthNm"][0], 970.03)
+        self.assertEqual(spec["intensity"][0], 3)
+        self.assertEqual(spec["maxIntensity"], 502)
+
 
     def test_all_records_include_interrupted_legacy_broken_but_not_lockfiles(self):
         write_workbook(self.root / "SN-001" / "前" / "a.xlsx")

@@ -71,7 +71,7 @@ fn request_timeout(method: &str) -> Duration {
     let seconds = match method {
         "app.snapshot" => SNAPSHOT_REQUEST_TIMEOUT_SECS,
         "app.shutdown" => SHUTDOWN_REQUEST_TIMEOUT_SECS,
-        "shippingReport.inspect" | "shippingReport.batchInspect" | "dataBrowser.list" | "dataBrowser.inspect" => FILE_SCAN_REQUEST_TIMEOUT_SECS,
+        "shippingReport.inspect" | "shippingReport.batchInspect" | "dataBrowser.list" | "dataBrowser.inspect" | "dataBrowser.import" => FILE_SCAN_REQUEST_TIMEOUT_SECS,
         "shippingReport.preview"
         | "shippingReport.generate"
         | "shippingReport.batchGenerateItem" => REPORT_REQUEST_TIMEOUT_SECS,
@@ -949,6 +949,7 @@ mod tests {
     #[test]
     fn request_timeouts_match_operation_cost() {
         assert_eq!(request_timeout("app.snapshot").as_secs(), 15);
+        assert_eq!(request_timeout("dataBrowser.import").as_secs(), 120);
         assert_eq!(request_timeout("shippingReport.generate").as_secs(), 600);
         assert_eq!(request_timeout("app.shutdown").as_secs(), 90);
         assert_eq!(request_timeout("automatic.start").as_secs(), 60);

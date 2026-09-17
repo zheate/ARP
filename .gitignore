@@ -46,3 +46,6 @@ tmp/
 # of generated image and virtual-environment files on every workspace update.
 pixel2motion_arp_icon/.venv/
 pixel2motion_arp_icon/outputs/
+
+.codex/
+

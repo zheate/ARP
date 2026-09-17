@@ -20,6 +20,7 @@ BACKGROUND_FILE_TASK_METHODS = frozenset(
     {
         "dataBrowser.list",
         "dataBrowser.inspect",
+        "dataBrowser.import",
         "shippingReport.inspect",
         "shippingReport.batchInspect",
         "shippingReport.preview",
