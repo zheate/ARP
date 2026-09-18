@@ -51,6 +51,8 @@ struct PythonBridge {
 #[derive(Clone, Debug)]
 enum PythonBridgeError {
     Backend(String),
+    Remote { code: String, message: String, runtime_id: Option<String> },
+    Contextual { source: Box<PythonBridgeError>, request_id: String },
     Timeout(String),
     Transport(String),
 }
@@ -59,11 +61,51 @@ impl PythonBridgeError {
     fn message(self) -> String {
         match self {
             Self::Backend(message) | Self::Timeout(message) | Self::Transport(message) => message,
+            Self::Remote { message, .. } => message,
+            Self::Contextual { source, .. } => source.message(),
         }
     }
 
     fn is_transport(&self) -> bool {
-        matches!(self, Self::Transport(_))
+        match self {
+            Self::Contextual { source, .. } => source.is_transport(),
+            _ => matches!(self, Self::Transport(_)),
+        }
+    }
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BridgeFailure {
+    kind: String,
+    code: String,
+    message: String,
+    method: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    runtime_id: Option<String>,
+    outcome_unknown: bool,
+}
+
+impl PythonBridgeError {
+    fn failure(&self, method: &str) -> BridgeFailure {
+        let (kind, code, runtime_id) = match self {
+            Self::Contextual { source, request_id } => {
+                let mut failure = source.failure(method);
+                failure.request_id = Some(request_id.clone());
+                return failure;
+            }
+            Self::Remote { code, runtime_id, .. } => ("backend", code.as_str(), runtime_id.clone()),
+            Self::Backend(_) => ("backend", "action_failed", None),
+            Self::Timeout(_) => ("timeout", "request_timeout", None),
+            Self::Transport(_) => ("transport", "transport_failed", None),
+        };
+        BridgeFailure {
+            kind: kind.into(), code: code.into(), message: self.clone().message(),
+            method: method.into(), request_id: None, runtime_id,
+            outcome_unknown: kind == "timeout" || kind == "transport",
+        }
     }
 }
 
@@ -163,7 +205,11 @@ impl PythonBridge {
                             .pointer("/error/message")
                             .and_then(Value::as_str)
                             .unwrap_or("Python 后端返回未知错误");
-                        Err(PythonBridgeError::Backend(message.to_string()))
+                        Err(PythonBridgeError::Remote {
+                            message: message.to_string(),
+                            code: response.pointer("/error/code").and_then(Value::as_str).unwrap_or("action_failed").to_string(),
+                            runtime_id: response.pointer("/error/runtimeId").and_then(Value::as_str).map(str::to_string),
+                        })
                     };
                     let sender = pending
                         .lock()
@@ -281,6 +327,7 @@ impl PythonBridge {
     }
 
     fn spawn_with(python: &Path) -> Result<(Self, String), String> {
+        let started_at = Instant::now();
         let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
         let is_bundled_sidecar = python
             .file_stem()
@@ -322,9 +369,20 @@ impl PythonBridge {
             shutdown_confirmed: AtomicBool::new(false),
             force_exit_requested: AtomicBool::new(false),
         };
-        let ping = bridge
-            .request("system.ping", json!({}))
-            .map_err(PythonBridgeError::message)?;
+        let ping = match bridge.request("system.ping", json!({})) {
+            Ok(ping) => ping,
+            Err(error) => {
+                // No operator command has been sent to this newly spawned process.
+                bridge.allow_forced_exit();
+                return Err(error.message());
+            }
+        };
+        if ping.get("protocolVersion").and_then(Value::as_u64) != Some(2) {
+            // This new process has not accepted any device command.
+            bridge.allow_forced_exit();
+            return Err("前后端协议版本不兼容，请重新安装匹配版本".into());
+        }
+        eprintln!("ARP backend ready | handshake_ms={:.3}", started_at.elapsed().as_secs_f64() * 1000.0);
         let mode = ping
             .get("mode")
             .and_then(Value::as_str)
@@ -371,7 +429,7 @@ impl PythonBridge {
         &self,
         method: &str,
         params: Value,
-        _queued_at: Instant,
+        queued_at: Instant,
     ) -> Result<Value, PythonBridgeError> {
         let status = self
             .child
@@ -441,7 +499,12 @@ impl PythonBridge {
                 "Python 响应线程意外退出".to_string(),
             )),
         };
-        let result = result?;
+        if method != "app.snapshot" || queued_at.elapsed() >= Duration::from_millis(100) {
+            eprintln!("ARP bridge request | id={request_id} | method={method} | elapsed_ms={:.3} | ok={}", queued_at.elapsed().as_secs_f64() * 1000.0, result.is_ok());
+        }
+        let result = result.map_err(|source| PythonBridgeError::Contextual {
+            source: Box::new(source), request_id: request_id.clone(),
+        })?;
         validate_columnar_spectrum(&result)?;
         if method == "app.shutdown"
             && result.get("shutdownConfirmed").and_then(Value::as_bool) == Some(true)
@@ -727,14 +790,19 @@ async fn bridge_request(
     app: AppHandle,
     license_state: State<'_, LicenseState>,
     state: State<'_, BridgeState>,
-) -> Result<Value, String> {
-    authorize_bridge_request(&app, &license_state, &state, &method)?;
+) -> Result<Value, BridgeFailure> {
+    authorize_bridge_request(&app, &license_state, &state, &method).map_err(|message| BridgeFailure {
+        kind: "authorization".into(), code: "authorization_required".into(), message,
+        method: method.clone(), request_id: None, runtime_id: None, outcome_unknown: false,
+    })?;
     let shared_bridge = Arc::clone(&state.bridge);
+    let request_method = method.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        request_shared_bridge(&shared_bridge, &method, params)
+        request_shared_bridge_result(&shared_bridge, &request_method, params)
+            .map_err(|error| error.failure(&request_method))
     })
     .await
-    .map_err(|error| format!("Python 后端任务异常结束：{error}"))?
+    .map_err(|error| PythonBridgeError::Transport(format!("Python 后端任务异常结束：{error}")).failure(&method))?
 }
 
 fn start_bridge_stream(view: String, sender: StreamSender, state: &BridgeState) -> u64 {
@@ -750,7 +818,7 @@ fn start_bridge_stream(view: String, sender: StreamSender, state: &BridgeState) 
             |params| {
                 request_shared_bridge_result(&shared_bridge, "app.snapshot", params).map_err(
                     |error| match error {
-                        PythonBridgeError::Timeout(message) => StreamRequestError::Timeout(message),
+                        error if error.failure("app.snapshot").kind == "timeout" => StreamRequestError::Timeout(error.message()),
                         other => StreamRequestError::Fatal(other.message()),
                     },
                 )
@@ -916,6 +984,30 @@ mod tests {
         await_webview_send_result, request_timeout, should_reset_bridge, snapshot_interval_ms,
         stream_envelope, validate_columnar_spectrum, PythonBridge, PythonBridgeError,
     };
+
+    #[test]
+    fn bridge_contract_preserves_remote_identity_and_timeout_semantics() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!("../../../tests/fixtures/bridge-contract.json")).unwrap();
+        let error = PythonBridgeError::Contextual {
+            source: Box::new(PythonBridgeError::Remote {
+                code: fixture["errorResponse"]["error"]["code"].as_str().unwrap().into(),
+                message: fixture["errorResponse"]["error"]["message"].as_str().unwrap().into(),
+                runtime_id: Some("contract-runtime".into()),
+            }), request_id: "contract-2".into(),
+        };
+        let value = serde_json::to_value(error.failure("powerSupply.setCurrent")).unwrap();
+        assert_eq!(value["code"], "device_not_connected");
+        assert_eq!(value["requestId"], "contract-2");
+        assert_eq!(value["runtimeId"], "contract-runtime");
+        assert_eq!(value["outcomeUnknown"], false);
+        assert!(!error.is_transport());
+        let timeout = PythonBridgeError::Contextual {
+            source: Box::new(PythonBridgeError::Timeout("timeout".into())), request_id: "request-timeout".into(),
+        };
+        assert!(timeout.failure("powerSupply.setCurrent").outcome_unknown);
+        assert_eq!(timeout.failure("powerSupply.setCurrent").kind, "timeout");
+        assert!(!should_reset_bridge(&Err(timeout)));
+    }
 
     #[test]
     fn webview_send_callback_error_is_propagated() {

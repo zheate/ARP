@@ -56,6 +56,7 @@ from combined_test.tdk_power_supply import (
 )
 
 
+from .errors import CommandRejected
 from .command_safety import CommandSafetyGate, finite_number
 from .test_script_presets import normalize_script_presets
 from .station_automatic import StationAutomaticMixin
@@ -311,7 +312,7 @@ class StationRuntime(StationAutomaticMixin):
     def _require_power_supply(self) -> ControllerPowerSupply:
         supply = self._power_supply()
         if supply is None:
-            raise RuntimeError("请先连接电源控制器")
+            raise CommandRejected("device_not_connected", "请先连接电源控制器")
         if self.power_supply_identity_error:
             raise RuntimeError(f"电源状态异常：{self.power_supply_identity_error}")
         return supply

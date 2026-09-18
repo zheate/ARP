@@ -1,3 +1,6 @@
+import { commandRuntimeIsCurrent } from "@/lib/bridge-validation"
+import { BridgeRequestError } from "@/lib/bridge-error"
+import type { SnapshotCommand } from "@/lib/command-contract"
 import { useCallback, useEffect, useRef, useState } from "react"
 
 import { fetchBackendSnapshot, mergeBackendSnapshot, sendBackendCommand, subscribeBackendSnapshots, type AppConfiguration, type BackendSnapshot, type PowerMeterCoefficientLibrary, type PowerMeterCoefficientRevision, type SeriesRevisions, type SnapshotView } from "@/lib/backend"
@@ -191,11 +194,15 @@ export function useBackendSnapshot(view: SnapshotView) {
 
   const refresh = useCallback(() => loadSnapshot(true, view), [loadSnapshot, view])
 
-  const command = useCallback(async (method: string, params: Record<string, unknown> = {}) => {
+  const command = useCallback(async (method: SnapshotCommand, params: Record<string, unknown> = {}) => {
     if (method === "app.stopAll" && !DEMO_PREVIEW_ENABLED) {
       try {
         const requestedView = view
+        const startedRuntime = snapshotRef.current?.backend.runtimeId
         const response = await sendBackendCommand(method, params)
+        if (!commandRuntimeIsCurrent(startedRuntime, snapshotRef.current?.backend.runtimeId, response.backend.runtimeId)) {
+          throw new BridgeRequestError({ kind: "protocol", code: "stale_response", method, message: "后端会话已变化，已忽略旧命令响应" })
+        }
         const matchesView = latestViewRef.current === requestedView
         const nextSnapshot = matchesView ? mergeBackendSnapshot(snapshotRef.current, response) : response
         if (mountedRef.current && matchesView) {
@@ -381,7 +388,11 @@ export function useBackendSnapshot(view: SnapshotView) {
         return publishDemo(base)
       }
       const requestedView = view
+      const startedRuntime = snapshotRef.current?.backend.runtimeId
       const response = await sendBackendCommand(method, params)
+      if (!commandRuntimeIsCurrent(startedRuntime, snapshotRef.current?.backend.runtimeId, response.backend.runtimeId)) {
+        throw new BridgeRequestError({ kind: "protocol", code: "stale_response", method, message: "后端会话已变化，已忽略旧命令响应" })
+      }
       const matchesView = latestViewRef.current === requestedView
       const nextSnapshot = matchesView ? mergeBackendSnapshot(snapshotRef.current, response) : response
       if (mountedRef.current && matchesView) {

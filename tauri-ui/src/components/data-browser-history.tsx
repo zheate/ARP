@@ -1,24 +1,23 @@
-import { useEffect, useMemo, useState } from "react"
-import { Button } from "@/components/ui/button"
 import { CanvasLineChart } from "@/components/canvas-line-chart"
 import { TestConditionDiff } from "@/components/data-browser-conditions"
+import { Button } from "@/components/ui/button"
 import { sendBackendRequest } from "@/lib/backend"
 import {
-  DATA_METRICS,
-  MAX_COMPARISONS,
-  SERIES_COLORS,
-  commonMeasuredCurrents,
-  firstLatestChange,
-  historyMetricRows,
-  numberText,
-  sameSnHistory,
-  timeText,
-  validTestTime,
-  type DataDetail,
-  type DataList,
-  type DataRecord,
-  type HistoryMetric,
+DATA_METRICS,
+MAX_COMPARISONS,
+SERIES_COLORS,
+commonMeasuredCurrents,
+firstLatestChange,
+historyMetricRows,
+numberText,
+sameSnHistory,
+timeText,
+validTestTime,
+type DataDetail,
+type DataRecord,
+type HistoryMetric
 } from "@/lib/data-browser"
+import { useEffect, useMemo, useState } from "react"
 
 export function useSnHistory(sn: string, active: boolean, refresh: number) {
   const cache = useMemo(() => new Map<string, DataRecord[]>(), [refresh])
@@ -41,12 +40,12 @@ export function useSnHistory(sn: string, active: boolean, refresh: number) {
       try {
         // The existing endpoint searches substrings. Page summaries only, then require exact SN equality.
         const params = { source: "database", sn, pageSize: 200, refresh: false }
-        const first = await sendBackendRequest<DataList>("dataBrowser.list", { ...params, page: 1 })
+        const first = await sendBackendRequest("dataBrowser.list", { ...params, page: 1 })
         const records = [...first.records]
         for (let page = 2; page <= first.pageCount; page++) {
           if (cancelled) return
           records.push(
-            ...(await sendBackendRequest<DataList>("dataBrowser.list", { ...params, page }))
+            ...(await sendBackendRequest("dataBrowser.list", { ...params, page }))
               .records,
           )
         }

@@ -10,7 +10,7 @@ from typing import Iterable
 import numpy as np
 from scipy.signal import find_peaks, medfilt
 
-from .native_realtime import NativeRealtimeUnavailable, get_native_realtime_core
+from .native_realtime import NativeRealtimeUnavailable, get_native_realtime_core, report_native_fallback
 
 
 PIB_CENTER_NM = 976.0
@@ -228,8 +228,8 @@ def calculate_stats(wavelength: Iterable[float], intensity: Iterable[float]) -> 
                 ),
                 fwhm_nm=native.fwhm_nm,
             )
-        except (NativeRealtimeUnavailable, OSError, ValueError):
-            pass
+        except (NativeRealtimeUnavailable, OSError) as exc:
+            report_native_fallback("spectrum_stats", type(exc).__name__)
 
     peak_index = max(range(len(intensity_values)), key=intensity_values.__getitem__)
     return SpectrumStats(
@@ -269,8 +269,8 @@ def calculate_pib(
                 center_nm,
                 half_range_nm,
             )
-        except (NativeRealtimeUnavailable, OSError, ValueError):
-            pass
+        except (NativeRealtimeUnavailable, OSError) as exc:
+            report_native_fallback("pib", type(exc).__name__)
 
     x_array = np.asarray(wavelength_values, dtype=float)
     y_array = np.asarray(medfilt(np.asarray(intensity_values, dtype=float)), dtype=float)

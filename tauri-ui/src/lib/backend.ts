@@ -1,3 +1,6 @@
+import { validateCommandResponse, validateSnapshot } from "./bridge-validation"
+import type { CommandName, CommandParams, CommandResult, SnapshotCommand } from "./command-contract"
+import { normalizeBridgeError } from "./bridge-error"
 import { Channel, invoke } from "@tauri-apps/api/core"
 
 import { decodeColumnarSpectrum, mergeSpectrumColumns, type SpectrumColumns, type SpectrumColumnsPatch } from "@/lib/spectrum-columns"
@@ -357,6 +360,7 @@ export function decodeBackendSnapshotPatch(value: unknown): BackendSnapshotPatch
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("后端快照格式无效")
   }
+  validateSnapshot(value)
   const patch = value as BackendSnapshotPatch
   if (patch.measurements?.spectrum !== undefined) {
     decodeColumnarSpectrum(patch.measurements.spectrum)
@@ -410,10 +414,7 @@ function ensureTauri(): void {
 
 export async function fetchBackendSnapshot(view: SnapshotView, since?: SeriesRevisions, cursors?: SeriesCursors): Promise<BackendSnapshotPatch> {
   ensureTauri()
-  const value = await invoke<unknown>("bridge_request", {
-    method: "app.snapshot",
-    params: { view, ...(since ? { since } : {}), ...(cursors ? { cursors } : {}) },
-  })
+  const value = await sendBackendRequest("app.snapshot", { view, ...(since ? { since } : {}), ...(cursors ? { cursors } : {}) })
   return decodeBackendSnapshotPatch(value)
 }
 
@@ -594,26 +595,32 @@ export async function subscribeBackendSnapshots(
   }
 }
 
-export async function sendBackendCommand(
-  method: string,
-  params: Record<string, unknown> = {},
+export async function sendBackendCommand<M extends SnapshotCommand>(
+  method: M,
+  params: CommandParams<M> = {} as CommandParams<M>,
 ): Promise<BackendSnapshot> {
-  const value = await sendBackendRequest<unknown>(method, params)
+  const value = await sendBackendRequest(method, params)
   return decodeBackendSnapshotPatch(value) as BackendSnapshot
 }
 
-export async function sendBackendRequest<T>(
-  method: string,
-  params: Record<string, unknown> = {},
-): Promise<T> {
+export async function sendBackendRequest<M extends CommandName>(
+  method: M,
+  params: CommandParams<M>,
+): Promise<CommandResult<M>> {
   if (typeof window !== "undefined"
     && new URLSearchParams(window.location.search).get("demo") === "1") {
     if (method.startsWith("dataBrowser.")) {
       const { demoDataRequest } = await import("./data-browser-demo")
-      return demoDataRequest(method, params) as T
+      return demoDataRequest(method, params) as CommandResult<M>
     }
     throw new Error("虚拟演示模式不会调用真实后端")
   }
   ensureTauri()
-  return invoke<T>("bridge_request", { method, params })
+  try {
+    const value = await invoke<CommandResult<M>>("bridge_request", { method, params })
+    validateCommandResponse(method, value)
+    return value
+  } catch (reason) {
+    throw normalizeBridgeError(reason, method)
+  }
 }

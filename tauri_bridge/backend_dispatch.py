@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 from typing import Any, Callable
 
+from .errors import CommandRejected
 from .service import BACKGROUND_FILE_TASK_METHODS
 from .station_support import (
     MANUAL_CONTROL_METHODS,
@@ -34,8 +35,8 @@ class BackendDispatcher:
         st = backend.runtime
 
         if method in MANUAL_CONTROL_METHODS and not st.manual_controls_allowed():
-            raise RuntimeError(
-                "硬件控制权由自动测试持有；请先结束并安全下电"
+            raise CommandRejected(
+                "control_conflict", "硬件控制权由自动测试持有；请先结束并安全下电"
             )
 
         actions: dict[str, Callable[[dict[str, Any]], Any]] = {

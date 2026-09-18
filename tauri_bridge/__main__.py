@@ -12,8 +12,12 @@ from concurrent.futures import ThreadPoolExecutor
 
 from combined_test.runtime_logging import configure_runtime_logging, get_runtime_logger
 
+_ENTRY_IMPORT_STARTED = time.perf_counter()
+
 from .service import BACKGROUND_FILE_TASK_METHODS, SAFETY_TASK_METHODS, BridgeService
 
+
+_ENTRY_IMPORT_MS = (time.perf_counter() - _ENTRY_IMPORT_STARTED) * 1000.0
 
 _protocol_stdout: object | None = None
 _protocol_stdout_lock = threading.Lock()
@@ -78,8 +82,11 @@ def _run_read_only() -> int:
 def _run_headless_backend() -> int:
     """Serve requests without a GUI event loop or Qt dependency."""
 
+    started_at = time.perf_counter()
     from .headless_backend import HeadlessBackend
+    loaded_at = time.perf_counter()
     backend = HeadlessBackend()
+    initialized_at = time.perf_counter()
     service = BridgeService(backend)
     backend.start_remembered_device_discovery()
     writer_queue: queue.Queue[dict[str, object] | None] = queue.Queue()
@@ -120,6 +127,7 @@ def _run_headless_backend() -> int:
             )
         )
 
+    _LOGGER.info("后端启动阶段 | entry_import_ms=%.3f | backend_import_ms=%.3f | initialize_ms=%.3f | ready_ms=%.3f", _ENTRY_IMPORT_MS, (loaded_at - started_at) * 1000.0, (initialized_at - loaded_at) * 1000.0, (time.perf_counter() - started_at) * 1000.0)
     _LOGGER.info("Tauri headless Python hardware backend is ready")
     try:
         for line in _read_request_lines():

@@ -177,7 +177,7 @@ function useDetailLoader(refresh: number): DetailLoader {
       const pending =
         cache.pending.get(`${key}:true`) ?? cache.pending.get(requestKey)
       if (pending) return pending
-      const request = sendBackendRequest<DataDetail>("dataBrowser.inspect", {
+      const request = sendBackendRequest("dataBrowser.inspect", {
         ...(record.storage === "database"
           ? { recordId: record.id }
           : { path: record.sourcePath, version: record.version }),
@@ -427,7 +427,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
             const indexKey = JSON.stringify([params, refresh])
             let index = filteredIndex.current
             if (index?.key !== indexKey) {
-              const first = await sendBackendRequest<DataList>(
+              const first = await sendBackendRequest(
                 "dataBrowser.list",
                 {
                   ...params,
@@ -439,7 +439,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
               const records = [...first.records]
               for (let next = 2; next <= first.pageCount; next++) {
                 if (!guard.current(ticket)) return
-                const batch = await sendBackendRequest<DataList>(
+                const batch = await sendBackendRequest(
                   "dataBrowser.list",
                   { ...params, refresh: false, page: next, pageSize: 200 },
                 )
@@ -469,7 +469,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
               ),
             }
           } else {
-            result = await sendBackendRequest<DataList>("dataBrowser.list", {
+            result = await sendBackendRequest("dataBrowser.list", {
               ...params,
               refresh: scanStamp.current !== stamp,
               page,
@@ -706,11 +706,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
     setNotice("")
     setImportWarnings([])
     try {
-      const result = await sendBackendRequest<{
-        imported: number
-        skipped: number
-        warnings: string[]
-      }>("dataBrowser.import", { rootPath: root })
+      const result = await sendBackendRequest("dataBrowser.import", { rootPath: root })
       resetSelection()
       setSource("database")
       setRefresh((value) => value + 1)
