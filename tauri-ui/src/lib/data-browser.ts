@@ -273,3 +273,32 @@ export function metricYAxisDomain(details: DataDetail[], metric: DataMetricKey):
   const padding = Math.max((high - low) * 0.12, minimumPadding)
   return [low - padding, high + padding]
 }
+
+/** Same six-decimal current grouping as the existing comparison, with its provenance exposed. */
+export function measuredCurrentMatch<T extends { currentA: number }>(items: readonly T[], currentA: number) {
+  const matches = items.filter((item) => Number.isFinite(item.currentA)
+    && item.currentA.toFixed(6) === currentA.toFixed(6))
+  if (matches.length > 1) return { item: null, status: "重复电流点" } as const
+  if (!matches.length) return { item: null, status: "缺测" } as const
+  return { item: matches[0], status: matches[0].currentA === currentA ? "精确实测点" : "容差匹配" } as const
+}
+
+/** Date and time distinguish repeated SNs; a stable ID disambiguates simultaneous sessions. */
+export function comparisonLabels(records: DataRecord[]): Map<string, string> {
+  const labels = records.map((record) => `${record.sn || record.fileName} · ${timeText(record.timeMs)}`)
+  return new Map(records.map((record, index) => [record.id,
+    labels.filter((label) => label === labels[index]).length > 1
+      ? `${labels[index]} · ${index + 1} (${(record.sessionId || record.id).slice(-8)})`
+      : labels[index],
+  ]))
+}
+
+/** Display only: retain each spectrum's own wavelength grid and every valid native sample. */
+export function spectrumChartRows(series: readonly (SpectrumSeries | null)[]): Record<string, number | null>[] {
+  return series.flatMap((spectrum, index) => spectrum ? spectrum.wavelengthNm.flatMap((wavelength, sample) => {
+    const intensity = spectrum.intensity[sample]
+    return Number.isFinite(wavelength) && Number.isFinite(intensity)
+      ? [{ wavelengthNm: wavelength, [`series${index}`]: intensity }]
+      : []
+  }) : []).sort((a, b) => a.wavelengthNm - b.wavelengthNm)
+}
