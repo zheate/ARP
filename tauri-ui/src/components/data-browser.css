@@ -866,3 +866,86 @@
 .db-record-bottom {
   font-size: 12px;
 }
+
+/* Phase 1 analysis stays subordinate to the measured curve. */
+.db-characterization,
+.db-condition-diff {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+  display: grid;
+  gap: 8px;
+}
+.data-browser .db-section-toggle {
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 600;
+}
+.db-analysis-readouts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px 24px;
+  margin: 0;
+  font-size: 14px;
+}
+.db-analysis-readouts > div {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 8px;
+}
+.db-analysis-readouts dt {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.db-analysis-readouts dd {
+  margin: 0;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.db-cursors {
+  display: grid;
+  gap: 8px;
+}
+.db-cursor-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.db-cursor-row label { min-width: 260px; }
+.db-cursor-row select { flex: 1; }
+.db-cursor-row output { margin-left: auto; }
+.db-fit-result { display: grid; gap: 8px; }
+.db-fit-legend::before {
+  content: "";
+  display: inline-block;
+  vertical-align: middle;
+  width: 24px;
+  margin-right: 8px;
+  border-top: 1px dashed var(--muted-foreground);
+}
+.db-history { display: grid; gap: 8px; min-width: 0; }
+.db-history .db-history-chart { height: 300px; min-height: 260px; }
+.db-condition-diff p { margin: 0; }
+.db-condition-diff summary { padding-block: 8px; color: var(--muted-foreground); }
+.db-condition-table { table-layout: fixed; min-width: 620px; }
+.db-condition-table th,
+.db-condition-table td {
+  text-align: left;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  vertical-align: top;
+}
+.db-condition-table th:first-child { width: 180px; }
+.db-condition-table [data-diff="different"] {
+  background: color-mix(in srgb, var(--primary) 7%, var(--card));
+}
+.db-condition-table [data-diff="missing"] { color: var(--muted-foreground); }
+.db-history-table td:first-child { min-width: 240px; }
+.db-history-table small { max-width: 300px; white-space: normal; overflow-wrap: anywhere; }
+@media (max-width: 1450px) {
+  .db-cursor-row output { flex-basis: 100%; margin-left: 0; }
+  .db-actions { flex-wrap: wrap; }
+}

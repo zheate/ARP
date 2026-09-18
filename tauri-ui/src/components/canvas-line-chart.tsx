@@ -65,6 +65,10 @@ type CanvasLineChartProps = {
   xTickSuffix?: string
   yLabel?: string
   appearance?: Partial<AppearancePreferences>
+  /** Opt-in analysis only. Selects native samples, never a point on an interpolated line. */
+  onPointSelect?: (point: { rowIndex: number; seriesKey: string }) => void
+  selectedPoints?: CanvasChartAnnotation[]
+  xValueFormatter?: (value: number) => string
 }
 
 type ChartSize = { width: number; height: number }
@@ -534,6 +538,7 @@ function drawBaseChart(
   xTickSuffix?: string,
   yLabel?: string,
   appearance?: AppearancePreferences,
+  xValueFormatter?: (value: number) => string,
 ): void {
   const context = prepareCanvas(canvas, size)
   if (!context) return
@@ -618,8 +623,13 @@ function drawBaseChart(
   context.textAlign = "center"
   context.textBaseline = "top"
   for (const tick of layout.x.ticks) {
-    context.fillText(`${formatTick(tick, layout.x)}${xTickSuffix ?? ""}`, mapX(tick, layout), layout.top + layout.plotHeight + 7)
+    // Long date labels stay inside the plot; the default numerical axes keep their alignment.
+    if (xValueFormatter && layout.x.ticks.length > 1) {
+      context.textAlign = tick === layout.x.ticks[0] ? "left" : tick === layout.x.ticks[layout.x.ticks.length - 1] ? "right" : "center"
+    }
+    context.fillText(`${xValueFormatter ? xValueFormatter(tick) : formatTick(tick, layout.x)}${xTickSuffix ?? ""}`, mapX(tick, layout), layout.top + layout.plotHeight + 7)
   }
+  context.textAlign = "center"
   if (xLabel) {
     context.fillText(xLabel, layout.left + layout.plotWidth / 2, size.height - 2)
   }
@@ -859,7 +869,7 @@ function tooltipNumber(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }
 
-export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, annotations = [], annotationLegend = [], ariaLabel, preserveAllPoints = false, tightInsets = false, xLabel, xTickSuffix, yLabel, appearance: appearanceOverride }: CanvasLineChartProps) {
+export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, annotations = [], annotationLegend = [], ariaLabel, preserveAllPoints = false, tightInsets = false, xLabel, xTickSuffix, yLabel, appearance: appearanceOverride, onPointSelect, selectedPoints, xValueFormatter }: CanvasLineChartProps) {
   const { appearance } = useAppearance()
   const chartAppearance = useMemo(() => appearanceOverride ? { ...appearance, ...appearanceOverride } : appearance, [appearance, appearanceOverride])
   const containerRef = useRef<HTMLDivElement>(null)
@@ -932,6 +942,7 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     xTickSuffix?: string
     yLabel?: string
     appearance: AppearancePreferences
+    xValueFormatter?: (value: number) => string
   }>(null)
   const baseFrameRef = useRef<number | null>(null)
   const flushBaseDraw = useCallback(() => {
@@ -940,11 +951,11 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     const canvas = baseCanvasRef.current
     const container = containerRef.current
     if (!args || !canvas || !container || args.size.width <= 0 || args.size.height <= 0) return
-    drawBaseChart(canvas, container, args.size, args.layout, args.chartData, args.displayIndexes, args.xKey, args.lines, args.annotations, args.xLabel, args.xTickSuffix, args.yLabel, args.appearance)
+    drawBaseChart(canvas, container, args.size, args.layout, args.chartData, args.displayIndexes, args.xKey, args.lines, args.annotations, args.xLabel, args.xTickSuffix, args.yLabel, args.appearance, args.xValueFormatter)
   }, [])
 
   useEffect(() => {
-    baseDrawArgsRef.current = { size, layout, chartData, displayIndexes, xKey, lines, annotations, xLabel, xTickSuffix, yLabel, appearance: chartAppearance }
+    baseDrawArgsRef.current = { size, layout, chartData, displayIndexes, xKey, lines, annotations, xLabel, xTickSuffix, yLabel, appearance: chartAppearance, xValueFormatter }
     if (document.visibilityState === "hidden") {
       if (baseFrameRef.current !== null) {
         window.cancelAnimationFrame(baseFrameRef.current)
@@ -954,7 +965,7 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     } else if (baseFrameRef.current === null) {
       baseFrameRef.current = window.requestAnimationFrame(flushBaseDraw)
     }
-  }, [annotations, appearanceVersion, chartAppearance, chartData, displayIndexes, layout, lines, size, xKey, xLabel, xTickSuffix, yLabel, flushBaseDraw])
+  }, [annotations, appearanceVersion, chartAppearance, chartData, displayIndexes, layout, lines, size, xKey, xLabel, xTickSuffix, yLabel, flushBaseDraw, xValueFormatter])
 
   useEffect(() => () => {
     if (baseFrameRef.current !== null) window.cancelAnimationFrame(baseFrameRef.current)
@@ -1026,10 +1037,37 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
       className="relative h-full min-h-0 w-full touch-none overflow-hidden"
       onPointerLeave={() => scheduleHover(null)}
       onPointerMove={handlePointerMove}
+      onPointerDown={onPointSelect ? (event) => {
+        if (event.button !== 0) return
+        const rect = event.currentTarget.getBoundingClientRect()
+        const px = event.clientX - rect.left, py = event.clientY - rect.top
+        if (px < layout.left || px > layout.left + layout.plotWidth || py < layout.top || py > layout.top + layout.plotHeight) return
+        let nearest: { rowIndex: number; seriesKey: string } | null = null
+        let distance = 12 ** 2 // Click target radius in CSS pixels, not a data-matching tolerance.
+        for (const index of visibleIndexes) for (const line of lines) {
+          if (!line.showPoints) continue
+          const x = chartData.valueAt(index, xKey), y = chartData.valueAt(index, line.key)
+          if (x === null || y === null) continue
+          const scale = line.yAxisId === "right" && layout.rightY ? layout.rightY : layout.leftY
+          const d = (mapX(x, layout) - px) ** 2 + (mapY(y, scale, layout) - py) ** 2
+          if (d < distance) { distance = d; nearest = { rowIndex: index, seriesKey: line.key } }
+        }
+        if (nearest) onPointSelect(nearest)
+      } : undefined}
       ref={containerRef}
     >
       <canvas aria-label={ariaLabel} className="absolute inset-0 size-full" ref={baseCanvasRef} role="img" />
       <canvas aria-hidden="true" className="pointer-events-none absolute inset-0 size-full" ref={hoverCanvasRef} />
+      {selectedPoints && size.width > 0 && size.height > 0 && <svg aria-label="实测点游标" className="pointer-events-none absolute inset-0 size-full" viewBox={`0 0 ${size.width} ${size.height}`}>
+        {selectedPoints.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y) && p.x >= layout.x.min && p.x <= layout.x.max).map((point, index) => {
+          const x = mapX(point.x, layout), y = mapY(point.y, layout.leftY, layout)
+          return <g key={point.label} style={{ color: point.color ?? "var(--foreground)" }}>
+            <line x1={x} x2={x} y1={layout.top} y2={layout.top + layout.plotHeight} stroke="currentColor" strokeDasharray={index ? "2 4" : "5 4"} opacity={0.6} />
+            <circle cx={x} cy={y} r={5} stroke="currentColor" fill="var(--card)" strokeWidth={2} />
+            <text x={Math.min(x + 8, size.width - 20)} y={layout.top + 16 + index * 18} fill="currentColor" fontSize={14}>{point.label}</text>
+          </g>
+        })}
+      </svg>}
       {annotationLegend.length > 0 && (
         <div aria-label="峰值图例" className="pointer-events-none absolute right-3 top-2 z-[1] flex min-w-48 flex-col gap-1.5 rounded-lg border border-border/55 bg-card/90 px-3.5 py-2.5 text-[13px] font-medium leading-5 text-foreground/80 shadow-sm backdrop-blur-sm">
           {annotationLegend.map((item) => (
@@ -1050,7 +1088,7 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
           role="tooltip"
           style={{ left: tooltipLeft, top: tooltipTop }}
         >
-          <p className="mb-1.5 font-semibold">{xKey}: {tooltipNumber(finiteValue(hoverRow[xKey]) ?? 0)}</p>
+          <p className="mb-1.5 font-semibold">{xValueFormatter ? xValueFormatter(finiteValue(hoverRow[xKey]) ?? 0) : `${xKey}: ${tooltipNumber(finiteValue(hoverRow[xKey]) ?? 0)}`}</p>
           {lines.map((line) => {
             const value = finiteValue(hoverRow[line.key])
             return value === null ? null : <div className="flex items-center justify-between gap-5" key={line.key}><span className="flex items-center gap-2"><span className="size-2.5 rounded-full" style={{ backgroundColor: line.color }} />{line.label}</span><span className="font-semibold tabular-nums">{tooltipNumber(value)}</span></div>

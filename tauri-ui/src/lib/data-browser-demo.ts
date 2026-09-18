@@ -13,7 +13,8 @@ const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9).getT
 const records: DataRecord[] = Array.from({ length: 55 }, (_, index) => {
   const profile = profiles[index % profiles.length]
   const timeMs = start - index * 8 * 3600_000
-  const sn = `DEMO-LD-${String(Math.floor(index / 2) + 1).padStart(3, "0")}`
+  // Five repeated tests exercise characterization/history without reading a real database.
+  const sn = `DEMO-LD-${String(index < 5 ? 1 : Math.floor((index - 5) / 2) + 2).padStart(3, "0")}`
   return {
     id: `demo:record-${index + 1}`, storage: "database", sourcePath: `/demo/${sn}-${index + 1}.xlsx`,
     fileName: `${sn}-${index + 1}.xlsx`, version: "demo-v1", timeMs, modifiedAtMs: timeMs,
@@ -42,7 +43,11 @@ function detailFor(record: DataRecord, includeSpectra: boolean): DataDetail {
   })
   const result: DataDetail = {
     record: { ...record }, points,
-    metadata: { "数据性质": "虚拟演示，不代表实测结果", "测试条件": `${profile.temperature} · 连续电流扫描`, "会话编号": record.sessionId, "备注": "包含不同温度、不同站别和重复 SN 的示例，可筛选并选择最多五条记录对比。" },
+    metadata: { "数据性质": "虚拟演示，不代表实测结果", "测试条件": `${profile.temperature} · 连续电流扫描`, "会话编号": record.sessionId,
+      "测试配置": JSON.stringify({ powerMeterDriverKind: "caihuang", ...(index % 5 === 4 ? {} : { powerMeterSerialNumber: `DEMO-PM-${index % 2 + 1}` }),
+        softwareGain: 1, powerMeterProfileName: "演示方案", powerMeterProfileVersion: index % 2 + 1, powerMeterWavelengthNm: 976,
+        integrationTimeUs: index % 2 ? 2000 : 1000, autoIntegration: false, spectrumAverageFrames: 1, spectrumSmoothing: true }),
+      "备注": "包含不同温度、不同站别和同一 SN 五次测试的示例，可筛选并选择最多五条记录对比。" },
     columnLabels: Object.fromEntries(DATA_METRICS.map((item) => [item.key, item.label])),
     warnings: ["当前为虚拟测试数据，仅用于展示界面，不会写入真实测试数据库。"],
   }

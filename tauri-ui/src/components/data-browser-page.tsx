@@ -20,6 +20,9 @@ import {
   type CanvasChartLine,
 } from "@/components/canvas-line-chart"
 import { SpectralWaterfallChart } from "@/components/spectral-waterfall-chart"
+import { Characterization, useCharacterization } from "@/components/data-browser-characterization"
+import { ProductHistory, useSnHistory } from "@/components/data-browser-history"
+import { TestConditionDiff } from "@/components/data-browser-conditions"
 import { sendBackendRequest } from "@/lib/backend"
 import { openResultFile } from "@/lib/result-file"
 import {
@@ -342,6 +345,8 @@ export const DataBrowserPage = memo(function DataBrowserPage({
   const [compareError, setCompareError] = useState("")
   const [compareCurrent, setCompareCurrent] = useState<number | null>(null)
   const [comparing, setComparing] = useState(false)
+  const [historySn, setHistorySn] = useState<string | null>(null)
+  const historyMode = historySn !== null && historySn === currentRecord?.sn && !comparing
   const [tab, setTab] = useState<"curves" | "points" | "info">("curves")
   const [curveView, setCurveView] = useState<CurveView>("metrics")
   const [singleMetric, setSingleMetric] = useState<DataMetricKey>("powerW")
@@ -371,6 +376,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
   const detailScroll = useRef<HTMLDivElement>(null)
   const recordsScroll = useRef<HTMLDivElement>(null)
   const loadDetail = useDetailLoader(refresh)
+  const history = useSnHistory(currentRecord?.sn ?? "", visible && enabled && !comparing, refresh)
   const demoComparisonPending = useRef(
     typeof window !== "undefined" &&
       new URLSearchParams(window.location.search).get("demo") === "1" &&
@@ -388,7 +394,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
   }, [visible])
   useEffect(() => {
     if (detailScroll.current) detailScroll.current.scrollTop = 0
-  }, [currentRecord?.id, comparing, tab])
+  }, [currentRecord?.id, comparing, tab, historyMode])
   useEffect(() => {
     if (recordsScroll.current) recordsScroll.current.scrollTop = 0
   }, [page])
@@ -599,7 +605,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
     }
   }, [visible, enabled, comparing, compareTargets, loadDetail])
 
-  const needsSpectra = tab === "curves" && curveView !== "metrics"
+  const needsSpectra = !historyMode && tab === "curves" && curveView !== "metrics"
   useEffect(() => {
     let cancelled = false
     setSpectraBusy(false)
@@ -644,6 +650,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
     setCompareRecordIds([])
     setBaselineRecordId(null)
     setComparing(false)
+    setHistorySn(null)
     setCompareCurrent(null)
     setPointRows({})
     setSpectrumChoices({})
@@ -752,6 +759,8 @@ export const DataBrowserPage = memo(function DataBrowserPage({
     setCurveView("metrics")
   }
   function viewRecord(record: DataRecord) {
+    recordRegistry.current.set(record.id, record)
+    setHistorySn(null)
     setCurrentRecord(record)
     setComparing(false)
     setTab("curves")
@@ -832,6 +841,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
     availableMetrics[0] ??
     DATA_METRICS[0]
   const metricKey = metric.key
+  const analysis = useCharacterization(detail, metricKey)
   const changeMetric = (value: DataMetricKey) =>
     comparing ? setCompareMetric(value) : setSingleMetric(value)
   const labels = useMemo(
@@ -839,10 +849,11 @@ export const DataBrowserPage = memo(function DataBrowserPage({
     [compareTargets],
   )
   const colorFor = (id: string) => recordColorMap[id] ?? SERIES_COLORS[0]
-  const rows = useMemo(
-    () => metricChartRows(details, metricKey),
-    [details, metricKey],
+  const comparisonChartRows = useMemo(
+    () => comparing ? metricChartRows(details, metricKey) : [],
+    [details, metricKey, comparing],
   )
+  const rows = comparing ? comparisonChartRows : analysis.chartRows
   const yDomain = useMemo(
     () => metricYAxisDomain(details, metricKey),
     [details, metricKey],
@@ -890,6 +901,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
     interpolation: "linear",
     hideLegend: true,
   }))
+  if (!comparing && analysis.result?.fit) lines.push({ key: "fit", label: "线性拟合（计算）", color: "var(--muted-foreground)", dash: [6, 4], lineWidth: 1.5, interpolation: "linear", hideLegend: true })
   const annotatedPoint = comparing
     ? measuredCurrentMatch(
         details[baselineIndex]?.points ?? [],
@@ -1434,15 +1446,18 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                 <button
                   key={id}
                   role="tab"
-                  aria-selected={tab === id}
+                  aria-selected={!historyMode && tab === id}
                   aria-controls="db-analysis-panel"
-                  onClick={() => setTab(id)}
+                  onClick={() => { setHistorySn(null); setTab(id) }}
                 >
                   {label}
                 </button>
               ))}
             </div>
             <div className="db-actions">
+              {!comparing && history.records.length > 1 && <Button size="sm" variant="ghost" aria-pressed={historyMode}
+                onClick={() => setHistorySn(currentRecord!.sn)}>履历 · {history.records.length} 次测试</Button>}
+              {!comparing && history.busy && <span className="db-help">履历查询中…</span>}
               {comparing ? (
                 <Button
                   size="sm"
@@ -1529,7 +1544,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
             id="db-analysis-panel"
             role="tabpanel"
             aria-label={
-              tab === "info"
+              historyMode ? "产品履历" : tab === "info"
                 ? "记录信息"
                 : tab === "points"
                   ? comparing
@@ -1543,7 +1558,12 @@ export const DataBrowserPage = memo(function DataBrowserPage({
             ref={detailScroll}
             aria-busy={busy}
           >
-            {busy ? (
+            {historyMode ? (
+              !visible || !enabled ? <div className="db-empty">数据浏览当前不可用</div> : history.busy ? <div className="db-empty">正在查询同 SN 测试摘要…</div> : history.error ? <div role="alert" className="db-notice">{history.error}</div> :
+              <ProductHistory key={historySn} records={history.records} load={loadDetail}
+                onBack={() => setHistorySn(null)} onView={viewRecord} chosen={compareRecordIds} onToggle={toggleCompare}
+                onCompare={() => { setHistorySn(null); setComparing(true); setTab("info"); setCurveView("metrics") }} />
+            ) : busy ? (
               <div className="db-empty">正在读取测试数据…</div>
             ) : error ? (
               <div className="db-notice is-error" role="alert">
@@ -1567,6 +1587,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                 {!comparing && detail && (
                   <div className="db-record-heading">
                     <h2>{detail.record.sn || detail.record.fileName}</h2>
+                    {history.error && <p className="db-help" role="status">履历摘要查询失败：{history.error}。可点击刷新重试。</p>}
                     <div className="db-identity">
                       <span>
                         时间 {timeText(detail.record.timeMs)}
@@ -1692,6 +1713,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                             {metric.label}—电流{comparing ? "叠加" : "曲线"}
                           </strong>
                           <span>实测点 · {metric.unit}</span>
+                          {!comparing && analysis.result?.fit && <span className="db-fit-legend">线性拟合（计算，虚线）</span>}
                         </div>
                         <div className="db-chart">
                           {rows.length ? (
@@ -1703,6 +1725,8 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                               ariaLabel={`${comparing ? "多记录" : "单记录"}${metric.label}电流曲线`}
                               yLabel={`${metric.label} (${metric.unit})`}
                               annotations={annotations}
+                              selectedPoints={!comparing ? analysis.selectedPoints : undefined}
+                              onPointSelect={!comparing && analysis.state.enabled ? ({ rowIndex }) => analysis.selectChartPoint(analysis.chartRows[rowIndex].rowId) : undefined}
                               preserveAllPoints
                             />
                           ) : (
@@ -1894,7 +1918,8 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                         </dl>
                       </div>
                     )}
-                    {!comparing && maximum && finite(maximum.currentA) && (
+                    {!comparing && detail && curveView === "metrics" && <Characterization detail={detail} metricKey={metricKey} analysis={analysis} />}
+                    {!comparing && curveView !== "metrics" && maximum && finite(maximum.currentA) && (
                       <p className="db-help">
                         本记录最大功率 {numberText(maximum.powerW)} W @{" "}
                         {numberText(maximum.currentA)} A。读数显示至小数点后 3
@@ -2134,6 +2159,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                       </p>
                     </div>
                   ))}
+                {tab === "info" && comparing && <TestConditionDiff details={details} baselineRecordId={baseId ?? null} />}
                 {tab === "info" &&
                   details.map((item) => (
                     <section className="db-info-section" key={item.record.id}>
