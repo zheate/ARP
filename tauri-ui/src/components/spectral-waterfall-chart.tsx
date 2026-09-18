@@ -1,6 +1,7 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Activity } from "lucide-react"
 import type { SpectrumSeries } from "@/lib/data-browser"
+import "./spectral-waterfall-chart.css"
 
 interface SpectralWaterfallChartProps {
   spectra?: SpectrumSeries[] | null
@@ -9,6 +10,28 @@ interface SpectralWaterfallChartProps {
 
 type WaterfallMode = "heatmap" | "ridge"
 type ZoomMode = "focus" | "full"
+
+const CHART_FONT_FAMILY = "ui-monospace, SFMono-Regular, monospace"
+
+// Rendering and hit testing must use the same margins after the font grows.
+function chartLayout(canvas: HTMLCanvasElement, series: SpectrumSeries[]) {
+  const rect = canvas.getBoundingClientRect()
+  const fontSize = Math.max(14, Number.parseFloat(getComputedStyle(canvas).getPropertyValue("--chart-font-size")) || 14)
+  const ctx = canvas.getContext("2d")!
+  ctx.save()
+  ctx.font = `${fontSize}px ${CHART_FONT_FAMILY}`
+  const currentWidth = Math.max(...series.map((item) => ctx.measureText(`${item.currentA.toFixed(2)}A`).width), 0)
+  ctx.restore()
+  const padLeft = Math.ceil(currentWidth) + 20
+  const padBottom = fontSize * 2 + 24
+  const padTop = fontSize + 12
+  const padRight = 36
+  return {
+    fontSize, padLeft, padBottom, padTop, padRight,
+    plotW: Math.max(10, rect.width - padLeft - padRight),
+    plotH: Math.max(10, rect.height - padTop - padBottom),
+  }
+}
 
 // Inferno colormap: 0 (black/dark-blue) -> 0.35 (purple) -> 0.7 (orange-red) -> 1.0 (bright yellow)
 function getInfernoColor(t: number): string {
@@ -54,6 +77,7 @@ export const SpectralWaterfallChart = memo(function SpectralWaterfallChart({
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const tooltipRef = useRef<HTMLDivElement | null>(null)
 
   // Sort and filter valid series
   const validSeries = useMemo(() => {
@@ -181,13 +205,7 @@ export const SpectralWaterfallChart = memo(function SpectralWaterfallChart({
     const h = rect.height
     ctx.clearRect(0, 0, w, h)
 
-    const padLeft = 54
-    const padBottom = 32
-    const padTop = 18
-    const padRight = 24
-
-    const plotW = Math.max(10, w - padLeft - padRight)
-    const plotH = Math.max(10, h - padTop - padBottom)
+    const { fontSize, padLeft, padTop, plotW, plotH } = chartLayout(canvas, validSeries)
 
     // Dark plot background
     ctx.fillStyle = "#0c0d10"
@@ -199,16 +217,16 @@ export const SpectralWaterfallChart = memo(function SpectralWaterfallChart({
     const maxInt = Math.max(1, domain.globalMaxInt)
 
     // Draw X-axis ticks (Wavelength)
-    ctx.fillStyle = "#8a8f98"
-    ctx.font = "11px ui-monospace, SFMono-Regular, monospace"
+    ctx.fillStyle = "#b1b6c0"
+    ctx.font = `${fontSize}px ${CHART_FONT_FAMILY}`
     ctx.textAlign = "center"
 
-    const tickCount = Math.max(4, Math.min(8, Math.floor(plotW / 80)))
+    const tickCount = Math.max(2, Math.min(8, Math.floor(plotW / (fontSize * 6))))
     const wlStep = wlSpan / (tickCount - 1)
     for (let i = 0; i < tickCount; i++) {
       const wlVal = minWl + i * wlStep
       const x = padLeft + ((wlVal - minWl) / wlSpan) * plotW
-      ctx.fillText(`${wlVal.toFixed(1)}`, x, padTop + plotH + 16)
+      ctx.fillText(`${wlVal.toFixed(1)}`, x, padTop + plotH + fontSize + 8)
       ctx.strokeStyle = "rgba(255, 255, 255, 0.07)"
       ctx.lineWidth = 1
       ctx.beginPath()
@@ -216,7 +234,7 @@ export const SpectralWaterfallChart = memo(function SpectralWaterfallChart({
       ctx.lineTo(x, padTop + plotH)
       ctx.stroke()
     }
-    ctx.fillText("中心波长 λ (nm)", padLeft + plotW / 2, padTop + plotH + 28)
+    ctx.fillText("中心波长 λ (nm)", padLeft + plotW / 2, padTop + plotH + fontSize * 2 + 16)
 
     if (mode === "heatmap") {
       // --- 2D HEATMAP ---
@@ -229,7 +247,7 @@ export const SpectralWaterfallChart = memo(function SpectralWaterfallChart({
         const yCenter = padTop + plotH - (idx + 0.5) * rowH
         // Show tick label on every few rows to prevent overlapping
         if (rowCount <= 10 || idx === 0 || idx === rowCount - 1 || idx % Math.ceil(rowCount / 8) === 0) {
-          ctx.fillStyle = "#8a8f98"
+          ctx.fillStyle = "#b1b6c0"
           ctx.fillText(`${series.currentA.toFixed(2)}A`, padLeft - 8, yCenter + 4)
           ctx.strokeStyle = "rgba(255, 255, 255, 0.05)"
           ctx.beginPath()
@@ -275,10 +293,12 @@ export const SpectralWaterfallChart = memo(function SpectralWaterfallChart({
         ctx.stroke()
         ctx.setLineDash([])
 
-        ctx.fillStyle = "rgba(148, 163, 184, 0.8)"
-        ctx.font = "10px ui-monospace, SFMono-Regular, monospace"
+        ctx.fillStyle = "#b1b6c0"
+        ctx.font = `${fontSize}px ${CHART_FONT_FAMILY}`
         ctx.textAlign = "left"
-        ctx.fillText(`λc初值: ${initialPeakWl.toFixed(2)} nm`, initX + 4, padTop + 14)
+        const initialLabel = `λc初值: ${initialPeakWl.toFixed(2)} nm`
+        const labelX = Math.max(padLeft, Math.min(initX + 4, padLeft + plotW - ctx.measureText(initialLabel).width))
+        ctx.fillText(initialLabel, labelX, padTop - 8)
       }
 
       // Center wavelength drift trajectory connecting peaks
@@ -315,13 +335,14 @@ export const SpectralWaterfallChart = memo(function SpectralWaterfallChart({
           const px = padLeft + ((midSeries.peakWavelengthNm - minWl) / wlSpan) * plotW
           const py = padTop + plotH - (midIdx + 0.5) * rowH
           const slopeSign = physicsMetrics.slope >= 0 ? "+" : ""
-          const slopeText = `中心波长斜率 dλc/dI = ${slopeSign}${physicsMetrics.slope.toFixed(3)} nm/A`
-
-          ctx.font = "bold 11px ui-monospace, SFMono-Regular, monospace"
+          ctx.font = `bold ${fontSize}px ${CHART_FONT_FAMILY}`
+          const slopeValue = `dλc/dI = ${slopeSign}${physicsMetrics.slope.toFixed(3)} nm/A`
+          const fullSlopeText = `中心波长斜率 ${slopeValue}`
+          const slopeText = ctx.measureText(fullSlopeText).width + 24 <= plotW ? fullSlopeText : slopeValue
           const textW = ctx.measureText(slopeText).width
           const badgeW = textW + 16
-          const badgeH = 22
-          const badgeX = px + 18 + badgeW < padLeft + plotW ? px + 18 : Math.max(padLeft + 4, px - 18 - badgeW)
+          const badgeH = fontSize + 16
+          const badgeX = Math.max(padLeft + 4, Math.min(px + 18 + badgeW < padLeft + plotW ? px + 18 : px - 18 - badgeW, padLeft + plotW - badgeW - 4))
           const badgeY = py - badgeH / 2
 
           // Leader line
@@ -356,7 +377,7 @@ export const SpectralWaterfallChart = memo(function SpectralWaterfallChart({
     } else {
       // --- 3D RIDGE WATERFALL ---
       ctx.textAlign = "right"
-      ctx.fillStyle = "#8a8f98"
+      ctx.fillStyle = "#b1b6c0"
       const first = validSeries[0]
       const last = validSeries[validSeries.length - 1]
       if (last) ctx.fillText(`${last.currentA.toFixed(2)}A`, padLeft - 8, padTop + 24)
@@ -460,12 +481,7 @@ export const SpectralWaterfallChart = memo(function SpectralWaterfallChart({
     const x = event.clientX - rect.left
     const y = event.clientY - rect.top
 
-    const padLeft = 54
-    const padBottom = 32
-    const padTop = 18
-    const padRight = 24
-    const plotW = rect.width - padLeft - padRight
-    const plotH = rect.height - padTop - padBottom
+    const { padLeft, padTop, plotW, plotH } = chartLayout(canvas, validSeries)
 
     if (x >= padLeft && x <= padLeft + plotW && y >= padTop && y <= padTop + plotH) {
       const rowCount = validSeries.length
@@ -507,19 +523,35 @@ export const SpectralWaterfallChart = memo(function SpectralWaterfallChart({
     renderCanvas()
   }, [renderCanvas])
 
-  // Resize listener
+  useLayoutEffect(() => {
+    const tooltip = tooltipRef.current
+    const canvas = canvasRef.current
+    if (!tooltip || !canvas || !hoveredData) return
+    const { width, height } = tooltip.getBoundingClientRect()
+    const x = hoveredData.x + width + 12 < canvas.clientWidth
+      ? hoveredData.x + 12 : hoveredData.x - width - 12
+    tooltip.style.left = `${Math.max(8, Math.min(x, canvas.clientWidth - width - 8))}px`
+    tooltip.style.top = `${Math.max(8, Math.min(hoveredData.y - height / 2, canvas.clientHeight - height - 8))}px`
+  }, [hoveredData])
+
+  // Detail expansion changes the canvas width without a window resize.
   useEffect(() => {
     const handleResize = () => renderCanvas()
+    const observer = new ResizeObserver(handleResize)
+    if (canvasRef.current) observer.observe(canvasRef.current)
     window.addEventListener("resize", handleResize)
-    return () => window.removeEventListener("resize", handleResize)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener("resize", handleResize)
+    }
   }, [renderCanvas])
 
   if (validSeries.length === 0) {
     return (
-      <div className="db-empty p-8 text-center border border-dashed border-border rounded-xl bg-card/40 my-4">
+      <div className="spectral-waterfall db-empty p-8 text-center border border-dashed border-border rounded-xl bg-card/40 my-4">
         <Activity size={32} className="mx-auto text-muted-foreground/60 mb-2" />
-        <h4 className="text-sm font-semibold text-foreground">此记录未包含完整光谱数据</h4>
-        <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
+        <h4 className="sw-title font-semibold text-foreground">此记录未包含完整光谱数据</h4>
+        <p className="sw-caption text-muted-foreground mt-1 max-w-md mx-auto">
           当前测试文件仅保存了标量 LIV 指标（功率、电压、效率等），未在测试时启用或记录光谱仪波长阵列。可在后续测试时确保光谱仪已勾选保存。
         </p>
       </div>
@@ -527,20 +559,20 @@ export const SpectralWaterfallChart = memo(function SpectralWaterfallChart({
   }
 
   return (
-    <div className="space-y-3" ref={containerRef}>
+    <div className="spectral-waterfall space-y-3" ref={containerRef}>
       {/* Top Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 bg-card border border-border px-3 py-2 rounded-lg">
-        <div className="flex items-center gap-2">
+      <div className="sw-toolbar flex flex-wrap items-center justify-between gap-3 bg-card border border-border px-3 py-3 rounded-lg">
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
           <Activity size={16} className="text-primary" />
-          <span className="text-sm font-medium text-foreground">光谱演化瀑布图</span>
-          <span className="text-xs text-muted-foreground font-mono">
+          <span className="sw-title font-medium text-foreground">光谱演化瀑布图</span>
+          <span className="sw-caption text-muted-foreground font-mono">
             {validSeries.length} 个电流步进 · {domain.minWl.toFixed(1)}~{domain.maxWl.toFixed(1)} nm
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
           {/* Zoom toggle */}
-          <div className="inline-flex rounded-md border border-border bg-muted/30 p-0.5 text-xs">
+          <div className="inline-flex rounded-md border border-border bg-muted/30 p-0.5 sw-controls">
             <button
               type="button"
               className={`px-2 py-1 rounded font-medium transition-all ${
@@ -568,7 +600,7 @@ export const SpectralWaterfallChart = memo(function SpectralWaterfallChart({
           </div>
 
           {/* Mode Switcher */}
-          <div className="inline-flex rounded-md border border-border bg-muted/30 p-0.5 text-xs">
+          <div className="inline-flex rounded-md border border-border bg-muted/30 p-0.5 sw-controls">
             <button
               type="button"
               className={`px-2.5 py-1 rounded font-medium transition-all ${
@@ -596,9 +628,11 @@ export const SpectralWaterfallChart = memo(function SpectralWaterfallChart({
       </div>
 
       {/* Canvas Area */}
-      <div className="relative bg-[#0c0d10] border border-border rounded-xl overflow-hidden shadow-inner h-[380px]">
+      <div className="sw-plot relative bg-[#0c0d10] border border-border rounded-xl overflow-hidden shadow-inner">
         <canvas
           ref={canvasRef}
+          role="img"
+          aria-label={mode === "heatmap" ? "光谱演化热力图" : "光谱演化瀑布脊线图"}
           className="w-full h-full block cursor-crosshair"
           onMouseMove={handleMouseMove}
           onMouseLeave={() => setHoveredData(null)}
@@ -608,11 +642,11 @@ export const SpectralWaterfallChart = memo(function SpectralWaterfallChart({
         {physicsMetrics && (
           <div className="absolute top-3 right-3 flex flex-col items-end gap-1.5 pointer-events-none select-none">
             <div className="bg-zinc-950/85 backdrop-blur-md border border-zinc-700/80 px-3 py-2 rounded-lg shadow-xl text-right">
-              <div className="text-[10px] text-zinc-400 font-medium tracking-wide">中心波长温漂斜率 dλc/dI</div>
-              <div className="text-base font-mono font-bold text-amber-400">
-                {physicsMetrics.slope >= 0 ? "+" : ""}{physicsMetrics.slope.toFixed(3)} <span className="text-xs font-normal text-amber-300/80">nm/A</span>
+              <div className="sw-caption text-zinc-400 font-medium tracking-wide">中心波长温漂斜率 dλc/dI</div>
+              <div className="sw-hud-value font-mono font-bold text-amber-400">
+                {physicsMetrics.slope >= 0 ? "+" : ""}{physicsMetrics.slope.toFixed(3)} <span className="sw-caption font-normal text-amber-300/80">nm/A</span>
               </div>
-              <div className="flex items-center justify-end gap-2 text-[10px] font-mono text-zinc-400 mt-0.5">
+              <div className="flex items-center justify-end gap-2 sw-caption font-mono text-zinc-400 mt-0.5">
                 <span>Δλc: <strong className="text-cyan-400">{physicsMetrics.deltaWl >= 0 ? "+" : ""}{physicsMetrics.deltaWl.toFixed(3)} nm</strong></span>
                 <span className="text-zinc-600">|</span>
                 <span>R²: <strong className="text-emerald-400">{physicsMetrics.r2.toFixed(3)}</strong></span>
@@ -624,11 +658,9 @@ export const SpectralWaterfallChart = memo(function SpectralWaterfallChart({
         {/* Hover Inspector Tooltip */}
         {hoveredData && (
           <div
-            className="absolute pointer-events-none bg-zinc-950/95 border border-zinc-700/90 text-zinc-100 text-[11px] px-2.5 py-1.5 rounded-md shadow-xl font-mono z-10 transition-transform duration-75"
-            style={{
-              left: `${Math.min(hoveredData.x + 12, (containerRef.current?.clientWidth ?? 600) - 170)}px`,
-              top: `${Math.max(10, hoveredData.y - 50)}px`,
-            }}
+            className="sw-tooltip absolute pointer-events-none bg-zinc-950/95 border border-zinc-700/90 text-zinc-100 px-3 py-2 rounded-md shadow-xl font-mono z-10"
+            ref={tooltipRef}
+            role="tooltip"
           >
             <div>电流: <span className="text-amber-400 font-semibold">{hoveredData.currentA.toFixed(2)} A</span></div>
             <div>中心波长 (λc): <span className="text-cyan-400 font-semibold">{hoveredData.centerWl.toFixed(2)} nm</span></div>
@@ -640,43 +672,43 @@ export const SpectralWaterfallChart = memo(function SpectralWaterfallChart({
 
       {/* Physical Analysis Metric Cards */}
       {physicsMetrics && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
-          <div className="p-2.5 bg-card border border-border rounded-lg">
-            <span className="text-muted-foreground block text-[11px]">中心波长漂移量 Δλc</span>
-            <strong className="text-sm font-mono text-cyan-400 mt-0.5 block">
-              {physicsMetrics.deltaWl >= 0 ? "+" : ""}{physicsMetrics.deltaWl.toFixed(3)} <small className="text-muted-foreground font-normal">nm</small>
+        <div className="sw-metrics">
+          <div className="sw-metric bg-card border border-border rounded-lg">
+            <span className="text-muted-foreground block sw-caption">中心波长漂移量 Δλc</span>
+            <strong className="sw-metric-value font-mono text-cyan-400 mt-0.5 block">
+              {physicsMetrics.deltaWl >= 0 ? "+" : ""}{physicsMetrics.deltaWl.toFixed(3)} <small className="sw-caption text-muted-foreground font-normal">nm</small>
             </strong>
-            <span className="text-[10px] text-muted-foreground mt-0.5 block truncate">
+            <span className="sw-caption text-muted-foreground mt-0.5 block">
               {physicsMetrics.firstPeakWl.toFixed(2)} → {physicsMetrics.lastPeakWl.toFixed(2)} nm
             </span>
           </div>
 
-          <div className="p-2.5 bg-card border border-border rounded-lg">
-            <span className="text-muted-foreground block text-[11px]">中心波长温漂斜率 dλc/dI</span>
-            <strong className="text-sm font-mono text-amber-400 mt-0.5 block">
-              {physicsMetrics.slope >= 0 ? "+" : ""}{physicsMetrics.slope.toFixed(3)} <small className="text-muted-foreground font-normal">nm/A</small>
+          <div className="sw-metric bg-card border border-border rounded-lg">
+            <span className="text-muted-foreground block sw-caption">中心波长温漂斜率 dλc/dI</span>
+            <strong className="sw-metric-value font-mono text-amber-400 mt-0.5 block">
+              {physicsMetrics.slope >= 0 ? "+" : ""}{physicsMetrics.slope.toFixed(3)} <small className="sw-caption text-muted-foreground font-normal">nm/A</small>
             </strong>
-            <span className="text-[10px] text-muted-foreground mt-0.5 block">
+            <span className="sw-caption text-muted-foreground mt-0.5 block">
               线性度 R² = {physicsMetrics.r2.toFixed(3)} · 反映结温热阻
             </span>
           </div>
 
-          <div className="p-2.5 bg-card border border-border rounded-lg">
-            <span className="text-muted-foreground block text-[11px]">测试电流覆盖区间</span>
-            <strong className="text-sm font-mono text-foreground mt-0.5 block">
-              {physicsMetrics.firstCurrentA.toFixed(2)} ~ {physicsMetrics.lastCurrentA.toFixed(2)} <small className="text-muted-foreground font-normal">A</small>
+          <div className="sw-metric bg-card border border-border rounded-lg">
+            <span className="text-muted-foreground block sw-caption">测试电流覆盖区间</span>
+            <strong className="sw-metric-value font-mono text-foreground mt-0.5 block">
+              {physicsMetrics.firstCurrentA.toFixed(2)} ~ {physicsMetrics.lastCurrentA.toFixed(2)} <small className="sw-caption text-muted-foreground font-normal">A</small>
             </strong>
-            <span className="text-[10px] text-muted-foreground mt-0.5 block">
+            <span className="sw-caption text-muted-foreground mt-0.5 block">
               共采集 {physicsMetrics.stepCount} 个电流点
             </span>
           </div>
 
-          <div className="p-2.5 bg-card border border-border rounded-lg">
-            <span className="text-muted-foreground block text-[11px]">全场最高峰值光强</span>
-            <strong className="text-sm font-mono text-emerald-400 mt-0.5 block">
-              {Math.round(physicsMetrics.maxIntensity).toLocaleString()} <small className="text-muted-foreground font-normal">cts</small>
+          <div className="sw-metric bg-card border border-border rounded-lg">
+            <span className="text-muted-foreground block sw-caption">全场最高峰值光强</span>
+            <strong className="sw-metric-value font-mono text-emerald-400 mt-0.5 block">
+              {Math.round(physicsMetrics.maxIntensity).toLocaleString()} <small className="sw-caption text-muted-foreground font-normal">cts</small>
             </strong>
-            <span className="text-[10px] text-muted-foreground mt-0.5 block">
+            <span className="sw-caption text-muted-foreground mt-0.5 block">
               未饱和正常读数
             </span>
           </div>

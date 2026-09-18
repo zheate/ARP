@@ -1202,13 +1202,13 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                     <div className="space-y-6">
                       {details.map((item, idx) => (
                         <div key={item.record.id || idx} className="space-y-2">
-                          <div className="flex items-center gap-2 text-sm font-semibold text-foreground px-1">
+                          <div className="db-spectrum-record-title flex flex-wrap items-center gap-2 font-semibold text-foreground px-1">
                             <i
                               className="inline-block w-2.5 h-2.5 rounded-full"
                               style={{ background: SERIES_COLORS[idx % SERIES_COLORS.length] }}
                             />
                             <span>{item.record.sn || `样本 ${idx + 1}`} - 光谱演化</span>
-                            <span className="text-xs text-muted-foreground font-normal">({recordLabel(item.record)})</span>
+                            <span className="db-spectrum-record-meta text-muted-foreground font-normal">({recordLabel(item.record)})</span>
                           </div>
                           <SpectralWaterfallChart
                             spectra={item.spectra}
