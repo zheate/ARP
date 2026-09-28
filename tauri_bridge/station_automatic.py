@@ -28,7 +28,7 @@ from combined_test.automatic_samples import (
     AutomaticSecondSample,
     automatic_sample_path,
 )
-from combined_test.core import WavelengthStabilityDetector
+from combined_test.core import OPHIR_POWER_STABILITY_SPAN_W, WavelengthStabilityDetector
 from combined_test.excel_export import ExcelTestRecord, save_test_records
 from combined_test.models import PowerMeterReading, SpectrumFrame
 from combined_test.record_store import AttemptValidity, SessionStatus
@@ -74,8 +74,12 @@ def automatic_wavelength_stability_tolerance_nm(current_a: float | None) -> floa
     return STANDARD_WAVELENGTH_STABILITY_TOLERANCE_NM
 
 
-def automatic_power_stability_span_limit_w(current_a: float | None) -> float | None:
-    """Use 0.1 W peak-to-peak below 2 A and 0.2 W at 2 A."""
+def automatic_power_stability_span_limit_w(
+    current_a: float | None, driver_kind: str = "",
+) -> float | None:
+    """Use the Ophir 1 W criterion, otherwise retain current-specific limits."""
+    if driver_kind == "ophir":
+        return OPHIR_POWER_STABILITY_SPAN_W
     if current_a is not None and 0.0 <= float(current_a) < RELAXED_STABILITY_CURRENT_A:
         return LOW_POWER_STABILITY_SPAN_W
     if current_a is not None and math.isclose(
@@ -794,7 +798,9 @@ class StationAutomaticMixin:
                 current_a,
             ),
             float(self.configuration["stabilityLimitPercent"]),
-            automatic_power_stability_span_limit_w(current_a),
+            automatic_power_stability_span_limit_w(
+                current_a, str(self.configuration.get("powerMeterDriverKind", "")),
+            ),
         )
         stability_generation = reader.reset_stability_window()
         with self._lock:

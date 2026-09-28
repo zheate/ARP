@@ -164,7 +164,10 @@ class SnapshotBuilder:
             ),
             "holdRequiredS": hold_required_s,
             "spanW": finite(stability_reading.stable_span_w) if stability_reading else None,
-            "spanLimitW": automatic_power_stability_span_limit_w(active_st.automatic.current_a),
+            "spanLimitW": automatic_power_stability_span_limit_w(
+                active_st.automatic.current_a,
+                str(active_st.configuration.get("powerMeterDriverKind", "")),
+            ),
             "percent": finite(stability_reading.stability_percent) if stability_reading else None,
             "limitPercent": float(active_st.configuration["stabilityLimitPercent"]),
             "quality": stability_quality,

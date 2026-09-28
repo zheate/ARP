@@ -396,6 +396,23 @@ class StationRuntimeTests(unittest.TestCase):
                     )
                     reader.reset_stability_window.assert_called_once_with()
 
+    def test_ophir_point_limits_and_snapshot_use_one_watt_with_existing_windows(self) -> None:
+        station = self.backend.runtime
+        station.configuration["powerMeterDriverKind"] = "ophir"
+        reader = MagicMock()
+        station.power_meter_reader = reader
+        for current_a, window_s in ((0.6, 10.0), (2.0, 5.0), (20.0, 5.0)):
+            with self.subTest(current_a=current_a):
+                station._begin_automatic_measurement_window(current_a)
+                reader.update_stability_settings.assert_called_with(window_s, 0.2, 1.0)
+                snapshot = self.backend.snapshot()["automaticTest"]["stability"]
+                self.assertEqual(snapshot["spanLimitW"], 1.0)
+        for driver in ("caihuang", "coherent", "laserpoint"):
+            station.configuration["powerMeterDriverKind"] = driver
+            station._begin_automatic_measurement_window(20.0)
+            reader.update_stability_settings.assert_called_with(5.0, 0.2, None)
+            self.assertIsNone(self.backend.snapshot()["automaticTest"]["stability"]["spanLimitW"])
+
     def test_low_current_point_timeout_allows_ten_second_stability_window(self) -> None:
         station = self.backend.runtime
         station.configuration.update({"initialCurrentA": 0.6, "pointTimeoutS": 19.9})
