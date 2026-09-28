@@ -138,18 +138,29 @@ def _create_ophir_controller() -> tuple[Any, Any | None]:
 
 
 def _release_ophir_controller(controller: Any) -> None:
-    """Close any handles owned by a COM controller.
-
-    The caller must drop its own controller reference before uninitializing
-    COM. Keeping that final step outside this helper avoids blocking when the
-    caller still has a local reference to the Dispatch wrapper.
-    """
+    """Close handles and release native COM references before CoUninitialize."""
     try:
         close_all = getattr(controller, "CloseAll", None)
         if callable(close_all):
             close_all()
     except Exception:
         pass
+    finally:
+        # Dropping only the caller's reference is insufficient: a failed
+        # set_wavelength frame can retain getter/setter bound to this wrapper.
+        # Detach the Python-owned interfaces instead of calling _Release_:
+        # some pywin32 versions implement it using a nonexistent
+        # PyIDispatch.Release(). PyIDispatch releases itself on deallocation.
+        # Both dynamic and generated wrappers store their native interface in
+        # _oleobj_; dynamic wrappers also retain COM type information.
+        state = vars(controller)
+        for name in ("_oleobj_", "_lazydata_", "_olerepr_", "_enum_"):
+            if name in state:
+                state[name] = None
+        for name in ("_mapCachedItems_", "_builtMethods_"):
+            cached = state.get(name)
+            if isinstance(cached, dict):
+                cached.clear()
 
 
 def configure_caihuang(inst: pyvisa.resources.Resource, timeout_ms: int = 1000) -> None:
@@ -894,7 +905,7 @@ class OphirPowerMeter:
         if not callable(getter) or not callable(setter):
             raise RuntimeError("当前 Ophir COM 组件不支持设置校准波长")
 
-        _current_index, options = _com_outputs(
+        current_index, options = _com_outputs(
             getter(self.handle, self.channel),
             2,
         )
@@ -929,6 +940,56 @@ class OphirPowerMeter:
             None,
         )
         if exact_match is None:
+            extra = getattr(self.controller, "GetWavelengthsExtra", None)
+            modify = getattr(self.controller, "ModifyWavelength", None)
+            if numeric_options and callable(extra) and callable(modify):
+                modifiable, minimum, maximum = _com_outputs(
+                    extra(self.handle, self.channel), 3
+                )
+                if modifiable in (True, -1):
+                    # GetWavelengths lists favorite slots, not every supported
+                    # wavelength for a continuous-spectrum sensor. Reuse the
+                    # active slot only after checking the device's limits.
+                    if not float(minimum) <= target <= float(maximum):
+                        raise RuntimeError(
+                            f"Ophir 校准波长 {format_wavelength_nm(target)} nm 超出探头范围："
+                            f"{minimum}–{maximum} nm"
+                        )
+                    if not math.isclose(
+                        target, round(target), rel_tol=0.0,
+                        abs_tol=OPHIR_WAVELENGTH_MATCH_TOLERANCE_NM,
+                    ):
+                        raise RuntimeError("Ophir 自定义校准波长仅支持整数 nm，请检查系数方案")
+                    selected_index = int(current_index)
+                    if not 0 <= selected_index < len(option_values):
+                        raise RuntimeError("Ophir 返回了无效的当前波长索引")
+                    modify(self.handle, self.channel, selected_index, int(round(target)))
+                    setter(self.handle, self.channel, selected_index)
+                    actual_index, actual_options = _com_outputs(
+                        getter(self.handle, self.channel), 2
+                    )
+                    actual_values = _com_sequence(actual_options)
+                    actual_text = (
+                        str(actual_values[selected_index]).strip()
+                        if selected_index < len(actual_values) else ""
+                    )
+                    match = re.fullmatch(
+                        r"([-+]?(?:\d+(?:\.\d*)?|\.\d+))\s*(?:nm)?",
+                        actual_text, re.IGNORECASE,
+                    )
+                    if (
+                        int(actual_index) != selected_index
+                        or match is None
+                        or not math.isclose(
+                            float(match.group(1)), target, rel_tol=0.0,
+                            abs_tol=OPHIR_WAVELENGTH_MATCH_TOLERANCE_NM,
+                        )
+                    ):
+                        raise RuntimeError(
+                            f"Ophir 校准波长写入后校验失败：请求 {format_wavelength_nm(target)} nm，"
+                            f"返回 {actual_text or '空值'}，索引 {actual_index}"
+                        )
+                    return
             if numeric_options:
                 available = ", ".join(format_wavelength_nm(value) for _, value in numeric_options)
                 raise RuntimeError(

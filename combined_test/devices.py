@@ -24,7 +24,7 @@ from .concurrency import Signal, WorkerThread
 
 from tools.visa_session import visa_resource_manager
 
-from .core import PowerStabilityDetector, decode_i2c_value
+from .core import OPHIR_POWER_STABILITY_SPAN_W, PowerStabilityDetector, decode_i2c_value
 from .models import (
     PowerMeterOption,
     PowerMeterReading,
@@ -464,7 +464,9 @@ class PowerMeterReaderThread(WorkerThread):
         self._stability_generation = 0
         self._stable_window_s = float(settings.stable_window_s)
         self._stability_limit_percent = float(settings.stability_limit_percent)
-        self._absolute_span_limit_w: float | None = None
+        self._absolute_span_limit_w: float | None = (
+            OPHIR_POWER_STABILITY_SPAN_W if settings.driver_kind == "ophir" else None
+        )
         self.is_ready = False
 
     def stop(self) -> None:
@@ -498,7 +500,9 @@ class PowerMeterReaderThread(WorkerThread):
             self._stable_window_s = float(window_s)
             self._stability_limit_percent = float(limit_percent)
             self._absolute_span_limit_w = (
-                None if absolute_span_limit_w is None else float(absolute_span_limit_w)
+                OPHIR_POWER_STABILITY_SPAN_W
+                if self.settings.driver_kind == "ophir"
+                else None if absolute_span_limit_w is None else float(absolute_span_limit_w)
             )
 
     def run(self) -> None:
@@ -553,6 +557,11 @@ class PowerMeterReaderThread(WorkerThread):
                     candidate.set_wavelength(self.settings.wavelength_nm)
                     return candidate
                 except Exception:
+                    _LOGGER.exception(
+                        "功率计初始化失败 | driver=%s | resource=%s",
+                        self.settings.driver_kind,
+                        self.settings.resource,
+                    )
                     try:
                         candidate.close()
                     except Exception:

@@ -9,6 +9,9 @@ from statistics import median
 from typing import Deque, Iterable
 
 
+OPHIR_POWER_STABILITY_SPAN_W = 1.0
+
+
 CSV_HEADER = [
     "timestamp",
     "elapsed_s",

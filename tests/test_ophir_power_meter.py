@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from combined_test.devices import PowerMeterReaderThread
 from combined_test.models import PowerMeterSettings
@@ -54,7 +54,194 @@ class _InterruptedOphirController:
         return (), (), ()
 
 
+class _AdjustableWavelengthController:
+    def __init__(self, *, modifiable=True, accept_write=True) -> None:
+        self.options = ["971", "755", "808", "888", "1550", "2100"]
+        self.current_index = 0
+        self.modifiable = modifiable
+        self.accept_write = accept_write
+        self.modifications = []
+        self.selections = []
+
+    def GetWavelengths(self, _handle, _channel):
+        return self.current_index, tuple(self.options)
+
+    def GetWavelengthsExtra(self, _handle, _channel):
+        return self.modifiable, 250, 2200
+
+    def ModifyWavelength(self, handle, channel, index, wavelength):
+        self.modifications.append((handle, channel, index, wavelength))
+        if self.accept_write:
+            self.options[index] = str(wavelength)
+
+    def SetWavelength(self, handle, channel, index):
+        self.selections.append((handle, channel, index))
+        self.current_index = index
+
+
 class OphirPowerMeterReadTests(unittest.TestCase):
+    def test_ophir_one_watt_steps_require_full_window_and_reset_above_limit(self) -> None:
+        for update_settings in (False, True):
+            with self.subTest(update_settings=update_settings):
+                clock = _SampleClock()
+                reader = PowerMeterReaderThread(
+                    PowerMeterSettings("OPHIR::USB::TEST", 976.0, 1.0, 0, 5.0, 0.2, "ophir")
+                )
+                if update_settings:
+                    # Automatic point changes or configuration saves must not
+                    # replace the Ophir criterion with a generic limit.
+                    reader.update_stability_settings(5.0, 0.2, 0.2)
+                values = iter([322.0, 323.0] * 6 + [323.01])
+                readings, errors = [], []
+
+                def read_power():
+                    clock.sleep(0.5)
+                    return next(values)
+
+                def capture(reading):
+                    readings.append(reading)
+                    if len(readings) == 13:
+                        reader.stop()
+
+                meter = Mock()
+                meter.test.return_value = "OK"
+                meter.read_power_w.side_effect = read_power
+                reader.reading.connect(capture)
+                reader.failed.connect(errors.append)
+                with (
+                    patch.object(power_meter_mvp, "OphirPowerMeter", return_value=meter),
+                    patch("combined_test.devices.time.monotonic", clock.monotonic),
+                ):
+                    reader.run()
+
+                self.assertEqual(errors, [])
+                self.assertEqual(len(readings), 13)
+                self.assertTrue(all(not reading.stable for reading in readings[:10]))
+                self.assertTrue(readings[10].stable)
+                self.assertTrue(readings[11].stable)
+                self.assertGreater(readings[11].stability_percent, 0.2)
+                self.assertEqual(readings[11].stable_span_w, 1.0)
+                self.assertFalse(readings[12].stable)
+                self.assertLess(readings[12].stable_duration_s, 5.0)
+
+    def test_continuous_probe_can_use_976_missing_from_favorite_slots(self) -> None:
+        controller = _AdjustableWavelengthController()
+        meter = self._meter(controller)
+        meter.set_wavelength(976.0)
+        self.assertEqual(controller.modifications, [(1000, 0, 0, 976)])
+        self.assertEqual(controller.selections, [(1000, 0, 0)])
+        self.assertEqual(controller.options, ["976", "755", "808", "888", "1550", "2100"])
+        meter.set_wavelength(976.0)
+        self.assertEqual(len(controller.modifications), 1)
+
+    def test_continuous_probe_modifies_the_active_slot(self) -> None:
+        controller = _AdjustableWavelengthController()
+        controller.current_index = 3
+        self._meter(controller).set_wavelength(976.0)
+        self.assertEqual(controller.modifications, [(1000, 0, 3, 976)])
+        self.assertEqual(controller.options[0], "971")
+
+    def test_discrete_probe_is_not_modified(self) -> None:
+        controller = _AdjustableWavelengthController(modifiable=False)
+        with self.assertRaisesRegex(RuntimeError, "不支持校准波长"):
+            self._meter(controller).set_wavelength(976.0)
+        self.assertEqual(controller.modifications, [])
+        self.assertEqual(controller.selections, [])
+
+    def test_out_of_range_or_fractional_wavelength_is_not_written(self) -> None:
+        for target, message in [(4000.0, "超出探头范围"), (975.8, "整数 nm")]:
+            with self.subTest(target=target):
+                controller = _AdjustableWavelengthController()
+                with self.assertRaisesRegex(RuntimeError, message):
+                    self._meter(controller).set_wavelength(target)
+                self.assertEqual(controller.modifications, [])
+                self.assertEqual(controller.selections, [])
+
+    def test_wavelength_write_must_be_confirmed_by_readback(self) -> None:
+        controller = _AdjustableWavelengthController(accept_write=False)
+        with self.assertRaisesRegex(RuntimeError, "写入后校验失败"):
+            self._meter(controller).set_wavelength(976.0)
+
+    def test_initialization_error_releases_com_before_uninitializing(self) -> None:
+        events = []
+
+        class NativeInterface:
+            # Like PyIDispatch, this has no public Release method.
+            def __del__(self):
+                events.append("release")
+
+        class Controller:
+            def __init__(self):
+                self._oleobj_ = NativeInterface()
+
+            def GetWavelengths(self, _handle, _channel):
+                return 0, ("532", "1064")
+
+            def SetWavelength(self, _handle, _channel, _index):
+                raise AssertionError("unsupported wavelength must not be selected")
+
+            def Close(self, _handle):
+                events.append("close")
+
+            def CloseAll(self):
+                events.append("close_all")
+
+        class PythonCom:
+            def CoUninitialize(self):
+                # The real driver can block here if the failed frame retains
+                # bound methods and thus a native controller reference.
+                if "release" not in events:
+                    raise RuntimeError("COM controller is still live")
+                events.append("uninitialize")
+
+        meter = self._meter(Controller())
+        meter._pythoncom = PythonCom()
+        reader = PowerMeterReaderThread(
+            PowerMeterSettings("OPHIR::USB::TEST", 976.0, 1.0, 0, 3.0, 0.2, "ophir")
+        )
+        errors = []
+        readings = []
+        reader.failed.connect(errors.append)
+        reader.reading.connect(readings.append)
+        with (
+            patch.object(power_meter_mvp, "OphirPowerMeter", return_value=meter),
+            patch.object(meter, "test", return_value="OK"),
+        ):
+            reader.run()
+
+        self.assertEqual(events, ["close", "close_all", "release", "uninitialize"])
+        self.assertEqual(len(errors), 1)
+        self.assertIn("不支持校准波长 976 nm", errors[0])
+        self.assertEqual(readings, [])
+        self.assertFalse(reader.is_ready)
+        meter.close()
+        self.assertEqual(events.count("uninitialize"), 1)
+
+    def test_release_runs_even_when_close_all_fails(self) -> None:
+        events = []
+
+        class NativeInterface:
+            def __del__(self):
+                events.append("release")
+
+        class Controller:
+            def __init__(self):
+                self._oleobj_ = NativeInterface()
+                self._lazydata_ = (NativeInterface(),)
+
+            def CloseAll(self):
+                raise RuntimeError("device disconnected")
+
+            def _Release_(self):
+                raise AssertionError("broken pywin32 _Release_ must not be called")
+
+        controller = Controller()
+        # Retain a bound method as an exception traceback would.
+        retained = controller.CloseAll
+        power_meter_mvp._release_ophir_controller(controller)
+        self.assertEqual(events, ["release", "release"])
+        self.assertIsNone(retained.__self__._oleobj_)
+
     @staticmethod
     def _meter(controller) -> OphirPowerMeter:
         meter = OphirPowerMeter.__new__(OphirPowerMeter)
