@@ -126,7 +126,7 @@ function getStoredLatestPointMarkerStyle(): LatestPointMarkerStyle {
   if (typeof window === "undefined") return "point"
   try {
     const storedStyle = window.localStorage.getItem(LATEST_POINT_MARKER_STORAGE_KEY)
-    if (storedStyle === "point" || storedStyle === "paper-plane" || storedStyle === "paw" || storedStyle === "comet" || storedStyle === "ecg") return storedStyle
+    if (storedStyle === "point" || storedStyle === "paper-plane" || storedStyle === "paw" || storedStyle === "comet" || storedStyle === "ecg" || storedStyle === "flappy-bird") return storedStyle
   } catch {
     // Use the original point marker if storage is unavailable.
   }

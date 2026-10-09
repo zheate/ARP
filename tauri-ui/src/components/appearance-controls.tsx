@@ -150,7 +150,7 @@ export function AppearanceSettings({ theme, accentTheme, curveLineStyle, latestP
         <div className="appearance-chart-options">
           <label>尾迹时长<select aria-label="尾迹时长" disabled={!appearance.trailEnabled} value={appearance.trailSeconds} onChange={(event) => updateAppearance({ trailSeconds: Number(event.target.value) })}>{[3, 5, 10, 15].map((seconds) => <option value={seconds} key={seconds}>{seconds} 秒</option>)}</select></label>
           <label>曲线线型<select aria-label="自动测试功率实时曲线线型" value={curveLineStyle} onChange={(event) => onCurveLineStyleChange(event.target.value as CurveLineStyle)}><option value="solid">实线</option><option value="dashed">虚线</option><option value="dotted">点线</option></select></label>
-          <label>末端样式<select aria-label="自动测试功率实时曲线末端样式" value={latestPointMarkerStyle} onChange={(event) => onLatestPointMarkerStyleChange(event.target.value as LatestPointMarkerStyle)}><option value="point">圆点</option><option value="paper-plane">纸飞机</option><option value="paw">爪印</option><option value="comet">彗星</option><option value="ecg">心电图</option></select></label>
+          <label>末端样式<select aria-label="自动测试功率实时曲线末端样式" value={latestPointMarkerStyle} onChange={(event) => onLatestPointMarkerStyleChange(event.target.value as LatestPointMarkerStyle)}><option value="point">圆点</option><option value="paper-plane">纸飞机</option><option value="paw">爪印</option><option value="comet">彗星</option><option value="ecg">心电图</option><option value="flappy-bird">Flappy Bird 小鸟</option></select></label>
         </div>
       </div>
 

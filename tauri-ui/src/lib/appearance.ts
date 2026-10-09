@@ -10,7 +10,7 @@ export const ACCENT_THEMES = [
 export type AccentTheme = typeof ACCENT_THEMES[number]["id"]
 export type Theme = "dark" | "light"
 export type CurveLineStyle = "solid" | "dashed" | "dotted"
-export type LatestPointMarkerStyle = "point" | "paper-plane" | "paw" | "comet" | "ecg"
+export type LatestPointMarkerStyle = "point" | "paper-plane" | "paw" | "comet" | "ecg" | "flappy-bird"
 export type ChartCanvasStyle = "clean" | "fine" | "engineering"
 export type InterfaceDensity = "compact" | "comfortable" | "distant"
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { traceMonotoneCurve, type CurvePoint } from "@/lib/monotone-curve"
 import { useAppearance } from "@/hooks/use-appearance"
 import { chartTrailBoundary, type AppearancePreferences, type LatestPointMarkerStyle } from "@/lib/appearance"
+import { FlappyBirdMarker } from "./flappy-bird-marker"
 
 export type CanvasChartLine = {
   key: string
@@ -243,7 +244,10 @@ function buildLayout(
 ): ChartLayout {
   const hasRightAxis = lines.some((line) => line.yAxisId === "right")
   const left = tightInsets ? 52 : 64
-  const right = hasRightAxis ? (tightInsets ? 48 : 60) : (tightInsets ? 12 : 20)
+  // The 24 px sprite needs a little room beyond its half-width, including
+  // fractional CSS widths at the rightmost sample.
+  const birdGutter = lines.some((line) => line.showLatestPoint && !line.showPoints && line.latestPointStyle === "flappy-bird") ? 14 : 0
+  const right = Math.max(birdGutter, hasRightAxis ? (tightInsets ? 48 : 60) : (tightInsets ? 12 : 20))
   const top = yLabel ? 28 : (tightInsets ? 8 : 12)
   const bottom = xLabel ? (tightInsets ? 34 : 44) : (tightInsets ? 20 : 30)
   const plotHeight = Math.max(1, size.height - top - bottom)
@@ -755,7 +759,7 @@ function drawBaseChart(
   // The line stays clipped to the plotting area, while the marker can use the
   // chart gutter that is already reserved for axis labels.
   for (const line of lines) {
-    if (line.showPoints || !line.showLatestPoint) continue
+    if (line.showPoints || !line.showLatestPoint || line.latestPointStyle === "flappy-bird") continue
     const scale = line.yAxisId === "right" && layout.rightY ? layout.rightY : layout.leftY
     let latestPoint: { x: number; y: number } | null = null
     let previousPoint: { x: number; y: number } | null = null
@@ -893,6 +897,20 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     () => buildLayout(chartData, xKey, lines, size, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, xLabel, yLabel, tightInsets),
     [chartData, lines, rightYDomain, size, tightInsets, xDomain, xKey, xLabel, xTicks, yDomain, yLabel, yMinimumLimit],
   )
+  const birdMarkers = useMemo(() => {
+    if (size.width <= 0 || size.height <= 0) return []
+    return lines.flatMap((line) => {
+      if (line.showPoints || !line.showLatestPoint || line.latestPointStyle !== "flappy-bird") return []
+      const scale = line.yAxisId === "right" && layout.rightY ? layout.rightY : layout.leftY
+      for (let index = chartData.length - 1; index >= 0; index -= 1) {
+        const x = chartData.valueAt(index, xKey)
+        const y = chartData.valueAt(index, line.key)
+        if (x === null || y === null || x < layout.x.min || x > layout.x.max) continue
+        return [{ key: line.key, x: Math.round(mapX(x, layout)), y: Math.round(mapY(y, scale, layout)), size: line.pointSize ?? 24 }]
+      }
+      return []
+    })
+  }, [chartData, layout, lines, size, xKey])
   const visibleIndexes = useMemo(
     () => {
       const indexes: number[] = []
@@ -1057,6 +1075,7 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
       ref={containerRef}
     >
       <canvas aria-label={ariaLabel} className="absolute inset-0 size-full" ref={baseCanvasRef} role="img" />
+      {birdMarkers.map((marker) => <FlappyBirdMarker key={marker.key} x={marker.x} y={marker.y} size={marker.size} />)}
       <canvas aria-hidden="true" className="pointer-events-none absolute inset-0 size-full" ref={hoverCanvasRef} />
       {selectedPoints && size.width > 0 && size.height > 0 && <svg aria-label="实测点游标" className="pointer-events-none absolute inset-0 size-full" viewBox={`0 0 ${size.width} ${size.height}`}>
         {selectedPoints.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y) && p.x >= layout.x.min && p.x <= layout.x.max).map((point, index) => {
