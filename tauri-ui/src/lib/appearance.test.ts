@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { changedDigitIndexes, chartTrailBoundary, DEFAULT_APPEARANCE, normalizeAppearance } from "./appearance.ts"
+import { chartTrailBoundary, DEFAULT_APPEARANCE, normalizeAppearance } from "./appearance.ts"
 
 test("invalid stored appearance falls back safely and numeric ranges stay bounded", () => {
   for (const value of [null, [], "dark", undefined]) assert.deepEqual(normalizeAppearance(value), DEFAULT_APPEARANCE)
@@ -22,12 +22,4 @@ test("trail uses sample time and clamps to the visible domain", () => {
   assert.equal(chartTrailBoundary(null, 5, [0, 60]), null)
   assert.equal(chartTrailBoundary(NaN, 5, [0, 60]), null)
   assert.equal(chartTrailBoundary(60, 0, [0, 60]), null)
-})
-
-test("readout highlights only changed digits without moving punctuation or entering from missing data", () => {
-  assert.deepEqual(changedDigitIndexes("0.860", "0.861"), [4])
-  assert.deepEqual(changedDigitIndexes("0.899", "0.900"), [2, 3, 4])
-  assert.deepEqual(changedDigitIndexes("0.860", "0.860"), [])
-  assert.deepEqual(changedDigitIndexes("—", "0.861"), [])
-  assert.deepEqual(changedDigitIndexes("9.999", "10.000"), [])
 })

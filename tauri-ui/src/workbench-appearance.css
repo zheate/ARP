@@ -156,7 +156,8 @@
 .power-stability-status[data-tone="success"] > span:first-child { color: var(--app-success); }
 .power-stability-status[data-tone="warning"] > span:first-child { color: var(--app-warning); }
 .numeric-readout { display: inline-flex; justify-content: flex-end; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.numeric-readout__digit { display: inline-block; width: 1ch; text-align: center; }
+.numeric-readout__flow { --number-flow-mask-height: 0.08em; font-variant-numeric: tabular-nums; }
+.numeric-readout__flow::part(digit) { width: 1ch; text-align: center; }
 
 .automatic-completion-summary { flex-shrink: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 0.625rem 1.25rem; background: var(--card); animation: completion-reveal 180ms ease-out; }
 .automatic-completion-summary__main { display: flex; align-items: center; gap: 1rem; }

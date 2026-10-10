@@ -33,7 +33,7 @@ export interface AppearancePreferences {
   trailEnabled: boolean
   trailSeconds: number
   density: InterfaceDensity
-  highlightChanges: boolean
+  highlightChanges: boolean // Retain the stored key for the numeric animation switch.
 }
 
 export const APPEARANCE_STORAGE_KEY = "power-test.appearance.v1"
@@ -81,9 +81,4 @@ export function readAppearance(): AppearancePreferences {
 export function chartTrailBoundary(latestX: number | null, seconds: number, domain: [number, number]): number | null {
   if (latestX === null || !Number.isFinite(latestX) || !Number.isFinite(seconds) || seconds <= 0 || domain[1] <= domain[0]) return null
   return Math.max(domain[0], Math.min(domain[1], latestX - seconds))
-}
-
-export function changedDigitIndexes(previous: string, current: string): number[] {
-  if (previous.length !== current.length || !/^\d/.test(previous)) return []
-  return [...current].flatMap((character, index) => /\d/.test(character) && character !== previous[index] ? [index] : [])
 }

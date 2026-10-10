@@ -155,7 +155,7 @@ export function AppearanceSettings({ theme, accentTheme, curveLineStyle, latestP
       </div>
 
       <div className="appearance-section"><DensityChoice value={appearance.density} onChange={(density) => updateAppearance({ density })} /></div>
-      <div className="appearance-option-row appearance-section"><div><h2>数值变化提示</h2><p className="appearance-help">可选 · 变化的数字短暂高亮，约 0.7 秒后恢复，位置保持不动。</p></div><AppearanceSwitch checked={appearance.highlightChanges} label="数值变化提示" onChange={(highlightChanges) => updateAppearance({ highlightChanges })} /></div>
+      <div className="appearance-option-row appearance-section"><div><h2>数值变化动效</h2><p className="appearance-help">可选 · 变化的数字短暂滚动，小数位和单位保持稳定。</p></div><AppearanceSwitch checked={appearance.highlightChanges} label="数值变化动效" onChange={(highlightChanges) => updateAppearance({ highlightChanges })} /></div>
       <button className="appearance-reset" onClick={reset} type="button"><RotateCcw className="size-4" />恢复外观默认值</button>
     </div>
 
@@ -169,7 +169,7 @@ export function AppearanceSettings({ theme, accentTheme, curveLineStyle, latestP
         <div className="appearance-preview__metrics">{[["实时功率", "0.860", "W"], ["中心波长", "976.200", "nm"], ["FWHM", "0.776", "nm"], ["PIB", "96.85", "%"]].map(([label, value, unit]) => <div key={label}><small>{label}</small><strong>{value}<small>{unit}</small></strong></div>)}</div>
       </div>
       <p className="appearance-preview__caption">{CHART_CANVASES.find((item) => item.id === appearance.canvas)?.label} · {INTERFACE_DENSITIES.find((item) => item.id === appearance.density)?.label} · {appearance.trailEnabled ? `尾迹 ${appearance.trailSeconds} s` : "尾迹关闭"}</p>
-      <div className="appearance-readout-example"><small>实时功率 · 数字变化示例</small><strong><NumericReadout value={previewValue} /><small>W</small></strong><p className="appearance-help">{appearance.highlightChanges ? "0.860 ↔ 0.861：末位变化时高亮，并带有轻微光晕。" : "调整左侧选项，在这里查看效果。"}</p></div>
+      <div className="appearance-readout-example"><small>实时功率 · 数字变化示例</small><strong><NumericReadout value={previewValue} /><small>W</small></strong><p className="appearance-help">{appearance.highlightChanges ? "0.860 ↔ 0.861：末位数字滚动；系统减少动态效果时直接更新。" : "开启数值变化动效，在这里查看数字滚动效果。"}</p></div>
     </aside>
   </div>
 }
