@@ -2,6 +2,10 @@
   "name": "arp",
   "private": true,
   "scripts": {
+    "mini:prepare": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./mini-controller/build.ps1 -PrepareOnly",
+    "mini:start": "conda run --no-capture-output -n sth_eb314 python ./mini-controller/app.py",
+    "mini:test": "conda run -n sth_eb314 python -m unittest discover -s mini-controller/tests -v",
+    "mini:build": "pwsh -NoProfile -ExecutionPolicy Bypass -File ./mini-controller/build.ps1",
     "start": "npm --prefix tauri-ui start",
     "test:python": "conda run -n sth_eb314 python -m unittest discover -v",
     "test:frontend": "npm --prefix tauri-ui test",
