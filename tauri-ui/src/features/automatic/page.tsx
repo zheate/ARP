@@ -14,9 +14,10 @@ import { automaticStartPresentation } from "@/lib/automatic-presentation"
 import { type AppConfiguration, type BackendSnapshot, type TestScript } from "@/lib/backend"
 import { powerMeterResourceValue } from "@/lib/power-meter-resource"
 import { scriptPresetCompatible } from "@/lib/test-script-presets"
-import { open as openDialog } from "@tauri-apps/plugin-dialog"
-import { FileText, FolderOpen, Gauge, Milestone, Pencil, Plus, Power, QrCode, Radio, Save, Thermometer } from "lucide-react"
-import { memo, useCallback, useEffect, useState } from "react"
+import { confirm, open as openDialog } from "@tauri-apps/plugin-dialog"
+import { FileText, FolderOpen, Gauge, Milestone, Pencil, Plus, Power, QrCode, Radio, Save, Thermometer, Trash2 } from "lucide-react"
+import { memo, useCallback, useEffect, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 
 type AutomaticSetupProps = {
   config: AppConfiguration
@@ -30,10 +31,12 @@ type AutomaticSetupProps = {
   onScriptSelect: (scriptId: string) => void
   onNewScript: () => void
   onEditScript: () => void
+  onDeleteScript: () => void
   onNotify?: (notice: { level?: "error" | "info" | "warning"; title: string; message: string; durationMs?: number }) => void
 }
 
-const AutomaticSetup = memo(function AutomaticSetup({ config, update, active, dirty, controlsLocked, pending, saveConfiguration, testScripts, onScriptSelect, onNewScript, onEditScript, onNotify }: AutomaticSetupProps) {
+const AutomaticSetup = memo(function AutomaticSetup({ config, update, active, dirty, controlsLocked, pending, saveConfiguration, testScripts, onScriptSelect, onNewScript, onEditScript, onDeleteScript, onNotify }: AutomaticSetupProps) {
+  const selectedPreset = config.testScriptPresets?.find((preset) => preset.id === config.selectedScriptPresetId)
   const availableTestScripts = testScripts.filter((script) => (
     !script.powerSupplyKinds || script.powerSupplyKinds.includes(config.powerSupplyKind)
   ))
@@ -98,20 +101,6 @@ const AutomaticSetup = memo(function AutomaticSetup({ config, update, active, di
             value={config.station}
           />
         </div>
-        <div className="sample-nameplate__script automatic-setup-field--large-type space-y-1.5 min-w-0">
-          <Label className="text-[13px] font-medium text-muted-foreground">
-            <FileText className="mr-1 inline size-3.5" />脚本选择
-          </Label>
-          <div className="sample-nameplate__script-controls">
-            <NativeSelect aria-label="脚本选择" disabled={controlsLocked || pending} value={config.selectedScriptPresetId || config.selectedScriptId} onChange={onScriptSelect}>
-              {availableTestScripts.map((script) => <option key={script.id} value={script.id}>{script.name}</option>)}
-              {(config.testScriptPresets ?? []).map((preset) => <option disabled={!scriptPresetCompatible(config, preset)} key={preset.id} value={preset.id}>{preset.name}</option>)}
-            </NativeSelect>
-            <Button aria-haspopup="dialog" disabled={!active || pending || controlsLocked} onClick={onNewScript} title="另存为新脚本" variant="outline"><Plus className="size-4" />添加</Button>
-            <Button disabled={!dirty || !active || pending || controlsLocked} onClick={() => void saveConfiguration().catch((reason) => onNotify?.({ level: "error", title: "保存失败", message: reason instanceof Error ? reason.message : String(reason) }))} variant="outline"><Save className="size-4" />保存</Button>
-            <Button aria-haspopup="dialog" disabled={!active || pending || controlsLocked} onClick={onEditScript} variant="outline"><Pencil className="size-4" />编辑</Button>
-          </div>
-        </div>
         <div className="sample-nameplate__output space-y-1.5 min-w-0">
           <Label className="text-[13px] font-medium text-muted-foreground" htmlFor="automatic-output-directory">
             <FolderOpen className="mr-1 inline size-3.5" />输出目录
@@ -123,6 +112,7 @@ const AutomaticSetup = memo(function AutomaticSetup({ config, update, active, di
               id="automatic-output-directory"
               onChange={(event) => update("outputDir", event.target.value)}
               placeholder="测试数据保存目录"
+              title={config.outputDir}
               value={config.outputDir}
             />
             <Button
@@ -138,11 +128,27 @@ const AutomaticSetup = memo(function AutomaticSetup({ config, update, active, di
             </Button>
           </div>
         </div>
+        <div className="sample-nameplate__script automatic-setup-field--large-type space-y-1.5 min-w-0">
+          <Label className="text-[13px] font-medium text-muted-foreground">
+            <FileText className="mr-1 inline size-3.5" />脚本选择
+          </Label>
+          <div className="sample-nameplate__script-controls">
+            <NativeSelect aria-label="脚本选择" disabled={controlsLocked || pending} value={config.selectedScriptPresetId || config.selectedScriptId} onChange={onScriptSelect}>
+              {availableTestScripts.map((script) => <option key={script.id} value={script.id}>{script.name}</option>)}
+              {(config.testScriptPresets ?? []).map((preset) => <option disabled={!scriptPresetCompatible(config, preset)} key={preset.id} value={preset.id}>{preset.name}</option>)}
+            </NativeSelect>
+            <Button aria-label="添加脚本" aria-haspopup="dialog" disabled={!active || pending || controlsLocked} onClick={onNewScript} size="icon" title="另存为新脚本" variant="outline"><Plus className="size-4" /></Button>
+            <Button aria-label="保存脚本" disabled={!dirty || !active || pending || controlsLocked} onClick={() => void saveConfiguration().catch((reason) => onNotify?.({ level: "error", title: "保存失败", message: reason instanceof Error ? reason.message : String(reason) }))} size="icon" title="保存脚本" variant="outline"><Save className="size-4" /></Button>
+            <Button aria-label="编辑脚本" aria-haspopup="dialog" disabled={!active || pending || controlsLocked} onClick={onEditScript} size="icon" title="编辑脚本" variant="outline"><Pencil className="size-4" /></Button>
+            <Button aria-label="删除脚本" aria-haspopup="dialog" disabled={!selectedPreset || !active || pending || controlsLocked} onClick={onDeleteScript} size="icon" title={selectedPreset ? "删除当前自定义脚本" : "内置脚本不能删除"} variant="outline"><Trash2 className="size-4" /></Button>
+          </div>
+        </div>
       </div>
   )
 })
 
 export const AutomaticPage = memo(function AutomaticPage({
+  toolbarHost,
   snapshot,
   config,
   update,
@@ -157,6 +163,7 @@ export const AutomaticPage = memo(function AutomaticPage({
   testScripts,
   onScriptSelect,
   onCreateScript,
+  onDeleteScript,
   onNextDevice,
   onViewData,
   onRetryExport,
@@ -164,6 +171,7 @@ export const AutomaticPage = memo(function AutomaticPage({
   onShowCompletion,
   onNotify,
 }: {
+  toolbarHost: HTMLDivElement | null
   snapshot: BackendSnapshot | null
   config: AppConfiguration
   update: UpdateConfig
@@ -178,6 +186,7 @@ export const AutomaticPage = memo(function AutomaticPage({
   testScripts: TestScript[]
   onScriptSelect: (scriptId: string) => void
   onCreateScript: (name: string) => Promise<void>
+  onDeleteScript: (presetId: string) => Promise<void>
   onNextDevice: () => void
   onViewData: () => void
   onRetryExport: () => void
@@ -191,6 +200,30 @@ export const AutomaticPage = memo(function AutomaticPage({
   const [specificationsOpen, setSpecificationsOpen] = useState(false)
   const [testSettingsOpen, setTestSettingsOpen] = useState(false)
   const [newScriptOpen, setNewScriptOpen] = useState(false)
+  const [deletingScript, setDeletingScript] = useState(false)
+  const deleteLock = useRef(false)
+  const deleteEligibility = useRef({ active, pending, controlsLocked, presetId: config.selectedScriptPresetId })
+  deleteEligibility.current = { active, pending, controlsLocked, presetId: config.selectedScriptPresetId }
+  const deleteSelectedScript = async () => {
+    const preset = config.testScriptPresets?.find((item) => item.id === config.selectedScriptPresetId)
+    if (!preset || !active || pending || controlsLocked || deleteLock.current) return
+    deleteLock.current = true
+    setDeletingScript(true)
+    try {
+      const accepted = await confirm(`确定删除脚本“${preset.name}”吗？删除后无法恢复，当前测试参数和历史数据会保留。`, { title: "删除脚本", kind: "warning", okLabel: "删除", cancelLabel: "取消" })
+      if (!accepted) return
+      const latest = deleteEligibility.current
+      if (!latest.active || latest.pending || latest.controlsLocked || latest.presetId !== preset.id) {
+        throw new Error("当前状态或所选脚本已改变，请重新确认删除")
+      }
+      await onDeleteScript(preset.id)
+    } catch (reason) {
+      onNotify?.({ level: "error", title: "删除失败", message: reason instanceof Error ? reason.message : String(reason) })
+    } finally {
+      deleteLock.current = false
+      setDeletingScript(false)
+    }
+  }
   const closeSettings = () => setOpenSettings(null)
   const openNewScript = useCallback(() => setNewScriptOpen(true), [])
   const openTestSettings = useCallback(() => setTestSettingsOpen(true), [])
@@ -249,8 +282,10 @@ export const AutomaticPage = memo(function AutomaticPage({
 
   return (
     <>
-      {completed && snapshot ? <AutomaticCompletionSummary snapshot={snapshot} config={config} active={active} pending={pending} onNextDevice={onNextDevice} onViewData={onViewData} onRetryExport={onRetryExport} onChooseExportDirectory={onChooseExportDirectory} onShowDetails={onShowCompletion} /> :
-      <AutomaticSetup config={config} update={update} active={active} dirty={dirty} controlsLocked={controlsLocked} pending={pending} saveConfiguration={saveConfiguration} testScripts={testScripts} onScriptSelect={onScriptSelect} onNewScript={openNewScript} onEditScript={openTestSettings} onNotify={onNotify} />}
+      {completed && snapshot ? <AutomaticCompletionSummary snapshot={snapshot} config={config} active={active} pending={pending} onNextDevice={onNextDevice} onViewData={onViewData} onRetryExport={onRetryExport} onChooseExportDirectory={onChooseExportDirectory} onShowDetails={onShowCompletion} /> : toolbarHost ? createPortal(
+        <AutomaticSetup config={config} update={update} active={active} dirty={dirty} controlsLocked={controlsLocked} pending={pending || deletingScript} saveConfiguration={saveConfiguration} testScripts={testScripts} onScriptSelect={onScriptSelect} onNewScript={openNewScript} onEditScript={openTestSettings} onDeleteScript={() => void deleteSelectedScript()} onNotify={onNotify} />,
+        toolbarHost,
+      ) : null}
 
       <section className="automatic-device-rail" aria-label="测试设备与控制">
         <DeviceCard title="电源" icon={Power} device={snapshot?.devices.powerSupply} model={config.powerSupplyKind === "tdk" ? "TDK" : "CH341"} details={[["接口", config.powerSupplyKind === "tdk" ? config.tdkResource : config.ch341SelectedLocationPath], ["电流计划", currentPlanSummary], ["目标电压", config.powerSupplyKind === "tdk" ? `${config.tdkVoltageV} V` : "不适用"]]} disabled={controlsLocked} onOpenSettings={openPowerSupply} summary={powerSupplySummary} visibleSummary={powerSupplyVisibleSummary} />
@@ -306,7 +341,8 @@ export const AutomaticPage = memo(function AutomaticPage({
     </>
   )
 }, (previous, next) => (
-  previous.active === next.active
+  previous.toolbarHost === next.toolbarHost
+  && previous.active === next.active
   && previous.dirty === next.dirty
   && previous.controlsLocked === next.controlsLocked
   && previous.curveLineStyle === next.curveLineStyle

@@ -2,7 +2,7 @@ import { applyTestScript, BUILTIN_TEST_SCRIPT_OPTIONS, configurationPayload, con
 import type { AppConfiguration, BackendSnapshot } from "@/lib/backend"
 import { ConfigurationDraft } from "@/lib/configuration-draft"
 import { mergeAuthoritativePowerMeterConfiguration } from "@/lib/power-meter-configuration"
-import { applyScriptPreset, captureScriptParameters, scriptPresetCompatible } from "@/lib/test-script-presets"
+import { applyScriptPreset, captureScriptParameters, removeScriptPreset, scriptPresetCompatible } from "@/lib/test-script-presets"
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react"
 
 type Configure = (method: "app.configure", params: Record<string, unknown>) => Promise<BackendSnapshot>
@@ -13,6 +13,8 @@ export function useConfigurationEditor(snapshot: BackendSnapshot | null, operati
   const store = storeRef.current
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot)
   const flight = useRef<Promise<void> | null>(null)
+  const deletionAllowed = useRef(false)
+  deletionAllowed.current = operational && Boolean(snapshot && ["idle", "completed"].includes(snapshot.automaticTest.state))
 
   useEffect(() => {
     if (snapshot?.configuration) store.hydrate(snapshot.configuration)
@@ -54,6 +56,20 @@ export function useConfigurationEditor(snapshot: BackendSnapshot | null, operati
     store.edit({ ...store.getSnapshot().value, [key]: value })
   }, [store])
 
+  const deleteTestScript = useCallback((presetId: string): Promise<void> => {
+    if (!deletionAllowed.current) return Promise.reject(new Error("当前无法删除脚本，请在测试结束且软件就绪后重试"))
+    if (flight.current) return Promise.reject(new Error("配置正在保存，请稍后重试"))
+    const { value: current, revision } = store.getSnapshot()
+    let next: AppConfiguration
+    try { next = removeScriptPreset(current, presetId) }
+    catch (reason) { return Promise.reject(reason) }
+    const pending = command("app.configure", configurationPayload(next)).then((saved) => {
+      store.acknowledge(revision, saved.configuration ?? next)
+    }).finally(() => { flight.current = null })
+    flight.current = pending
+    return pending
+  }, [command, store])
+
   const selectTestScript = useCallback((scriptId: string) => {
     const current = store.getSnapshot().value
     const preset = current.testScriptPresets?.find((item) => item.id === scriptId)
@@ -71,5 +87,5 @@ export function useConfigurationEditor(snapshot: BackendSnapshot | null, operati
   const current = useCallback(() => store.getSnapshot(), [store])
   const waitForSave = useCallback(async () => { await flight.current }, [])
   const accept = useCallback((patch: Partial<AppConfiguration>) => store.accept({ ...store.getSnapshot().value, ...patch }), [store])
-  return { config: state.value, dirty: state.dirty, current, waitForSave, accept, acceptCommand, saveConfiguration, createTestScript, update, selectTestScript }
+  return { config: state.value, dirty: state.dirty, current, waitForSave, accept, acceptCommand, saveConfiguration, createTestScript, deleteTestScript, update, selectTestScript }
 }

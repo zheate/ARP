@@ -1,5 +1,3 @@
-import { DisplayMenu } from "@/components/appearance-controls"
-import { AutomaticPhaseTrack } from "@/components/automatic-overview"
 import { deferredPage } from "@/components/deferred-page"
 import { isModalOpen } from "@/components/dialog-portal"
 import { ActivationView } from "@/components/license/ActivationView"
@@ -9,6 +7,7 @@ import { AutomaticCompletionDialog, AutomaticPauseDialog, PowerProtectionDialog,
 import { AutomaticPage } from "@/features/automatic/page"
 import { BUILTIN_TEST_SCRIPT_OPTIONS, configurationPayload } from "@/features/configuration/model"
 import { ManualPage } from "@/features/manual/page"
+import { ManualSampleControls } from "@/features/manual/sample-controls"
 import { PdPage } from "@/features/pd/page"
 import { SystemSettingsPage } from "@/features/settings/page"
 import { RunCommand } from "@/features/shared/controls"
@@ -17,7 +16,7 @@ import { useBackendSnapshot } from "@/hooks/use-backend-snapshot"
 import { useConfigurationEditor } from "@/hooks/use-configuration-editor"
 import { ACCENT_THEMES, type AccentTheme, type CurveLineStyle, type LatestPointMarkerStyle, type Theme } from "@/lib/appearance"
 import { automaticPauseCommand } from "@/lib/automatic-pause"
-import { sendBackendRequest, type AutomaticPauseAction, type BackendSnapshot, type SnapshotView } from "@/lib/backend"
+import { sendBackendRequest, type AutomaticPauseAction, type SnapshotView } from "@/lib/backend"
 import { getLicenseStatus, installLicense, licenseReasonLabels, type LicenseStatus } from "@/lib/license"
 import { automaticTerminalTitle } from "@/lib/safety-state"
 import { invoke } from "@tauri-apps/api/core"
@@ -31,10 +30,9 @@ import {
   LoaderCircle,
   OctagonAlert,
   Pause,
-  Save,
   Settings,
 } from "lucide-react"
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentProps } from "react"
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type ReactNode } from "react"
 
 const loadDataBrowser = () => import("@/components/data-browser-page").then(({ DataBrowserPage }) => ({ default: DataBrowserPage }))
 const loadShippingReport = () => import("@/features/shipping/report").then(({ ShippingReportPage }) => ({ default: ShippingReportPage }))
@@ -186,23 +184,14 @@ function pendingCommandLabel(method: string | null): string {
   return "正在处理操作"
 }
 
-const TitlebarActions = memo(function TitlebarActions({ showSave, onOpenAppearance, active, canPause, commandPending, controlsLocked, dirty, run, saveConfiguration }: Omit<ComponentProps<typeof AppTitlebar>, "snapshot" | "showPhase">) {
+const TitlebarActions = memo(function TitlebarActions({ active, canPause, commandPending, run }: Pick<ComponentProps<typeof AppTitlebar>, "active" | "canPause" | "commandPending" | "run">) {
   return (
     <div className="app-titlebar__actions">
-        <DisplayMenu onOpenSettings={onOpenAppearance} />
         {canPause && (
           <Button disabled={!active || commandPending} onClick={() => void run("automatic.pause")} size="sm" variant="outline">
             <Pause className="size-4" />暂停测试
           </Button>
         )}
-        {showSave && <Button
-          disabled={!dirty || !active || commandPending || controlsLocked}
-          onClick={() => void saveConfiguration()}
-          size="sm"
-          variant="outline"
-        >
-          <Save className="size-4" />保存设置
-        </Button>}
         <Button
           className="app-emergency-stop"
           disabled={!active}
@@ -217,34 +206,24 @@ const TitlebarActions = memo(function TitlebarActions({ showSave, onOpenAppearan
 })
 
 function AppTitlebar({
-  snapshot,
-  showPhase,
-  showSave,
-  onOpenAppearance,
+  automaticControls,
+  manualControls,
   active,
   canPause,
   commandPending,
-  controlsLocked,
-  dirty,
   pendingCommand,
   run,
-  saveConfiguration,
 }: {
-  snapshot: BackendSnapshot | null
-  showPhase: boolean
-  showSave: boolean
-  onOpenAppearance: () => void
+  automaticControls?: ReactNode
+  manualControls?: ReactNode
   active: boolean
   canPause: boolean
   commandPending: boolean
-  controlsLocked: boolean
-  dirty: boolean
   pendingCommand: string | null
   run: RunCommand
-  saveConfiguration: () => Promise<void>
 }) {
   return (
-    <header className="app-titlebar" data-tauri-drag-region>
+    <header className="app-titlebar" data-automatic-controls={Boolean(automaticControls)} data-manual-controls={Boolean(manualControls)} data-tauri-drag-region>
       <div className="app-titlebar__brand" data-tauri-drag-region>
         <span data-tauri-drag-region>Power Test</span>
         {commandPending && (
@@ -254,8 +233,9 @@ function AppTitlebar({
           </span>
         )}
       </div>
-      {showPhase && <AutomaticPhaseTrack snapshot={snapshot} />}
-      <TitlebarActions showSave={showSave} onOpenAppearance={onOpenAppearance} active={active} canPause={canPause} commandPending={commandPending} controlsLocked={controlsLocked} dirty={dirty} pendingCommand={pendingCommand} run={run} saveConfiguration={saveConfiguration} />
+      {automaticControls}
+      {manualControls}
+      <TitlebarActions active={active} canPause={canPause} commandPending={commandPending} run={run} />
     </header>
   )
 }
@@ -312,6 +292,7 @@ function LicensedApp({
 }) {
   const [page, setPage] = useState<Page>(() => (typeof window !== "undefined" && (new URLSearchParams(window.location.search).get("page") as Page)) || "automatic")
   const [dataBrowserVisited, setDataBrowserVisited] = useState(page === "data")
+  const [automaticToolbarHost, setAutomaticToolbarHost] = useState<HTMLDivElement | null>(null)
   const [theme, setTheme] = useState<Theme>(getStoredTheme)
   const [accentTheme, setAccentTheme] = useState<AccentTheme>(getStoredAccentTheme)
   const [curveLineStyle, setCurveLineStyle] = useState<CurveLineStyle>(getStoredCurveLineStyle)
@@ -326,7 +307,7 @@ function LicensedApp({
   const pageScrollPositionsRef = useRef<Record<Page, number>>({ automatic: 0, manual: 0, pd: 0, data: 0, shipping: 0, settings: 0 })
   const active = snapshot?.backend.mode === "active"
   const operational = active && licenseStatus.valid
-  const { config, dirty, current: currentConfiguration, waitForSave, accept: acceptConfiguration, acceptCommand, saveConfiguration, createTestScript, update, selectTestScript } = useConfigurationEditor(snapshot, operational, command)
+  const { config, dirty, current: currentConfiguration, waitForSave, accept: acceptConfiguration, acceptCommand, saveConfiguration, createTestScript, deleteTestScript, update, selectTestScript } = useConfigurationEditor(snapshot, operational, command)
   const automaticWorkflowActive = Boolean(snapshot && !["idle", "completed"].includes(snapshot.automaticTest.state))
   const automaticPaused = snapshot?.automaticTest.state === "paused"
   const automaticInteractionLocked = automaticWorkflowActive || pendingCommand === "automatic.start"
@@ -476,7 +457,6 @@ function LicensedApp({
     setPage(nextPage)
   }, [page, pageIsBlocked])
 
-  const openAppearance = useCallback(() => changePage("settings"), [changePage])
 
   useLayoutEffect(() => {
     const targetY = pageScrollPositionsRef.current[page] ?? 0
@@ -645,18 +625,13 @@ function LicensedApp({
   return (
     <div className="app-shell flex h-screen flex-col overflow-hidden bg-background text-foreground" data-native={TAURI_RUNTIME_AVAILABLE}>
       <AppTitlebar
-        snapshot={snapshot}
-        showPhase={page === "automatic" || automaticWorkflowActive}
-        showSave={page !== "automatic"}
-        onOpenAppearance={openAppearance}
+        automaticControls={page === "automatic" ? <div className="automatic-titlebar-controls" ref={setAutomaticToolbarHost} /> : undefined}
+        manualControls={page === "manual" ? <ManualSampleControls config={config} update={update} active={operational} controlsAllowed={snapshot?.safety.manualControlsAllowed === true} pending={commandPending} pendingPointCount={snapshot?.manualTest?.pendingCount ?? 0} run={run} /> : undefined}
         active={active}
         canPause={Boolean(page === "automatic" && snapshot?.automaticTest.canPause)}
         commandPending={commandPending}
-        controlsLocked={automaticInteractionLocked}
-        dirty={dirty}
         pendingCommand={pendingCommand}
         run={run}
-        saveConfiguration={saveConfiguration}
       />
       {!licenseStatus.valid && (
         <div className="license-runtime-warning" role="alert">
@@ -723,7 +698,7 @@ function LicensedApp({
             data-page={page}
             key={page}
           >
-            {page === "automatic" && <AutomaticPage snapshot={snapshot} config={config} update={update} active={operational} dirty={dirty} controlsLocked={automaticInteractionLocked || !licenseStatus.valid} curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} pending={commandPending} run={run} saveConfiguration={saveConfiguration} testScripts={snapshot?.testScripts ?? BUILTIN_TEST_SCRIPT_OPTIONS} onScriptSelect={selectTestScript} onCreateScript={createTestScript} onNextDevice={() => void prepareNextDevice()} onViewData={() => changePage("data")} onRetryExport={() => void retryAutomaticExport()} onChooseExportDirectory={() => void chooseAutomaticExportDirectory()} onShowCompletion={() => { const auto = snapshot?.automaticTest; if (auto?.terminalOutcome) setAutomaticCompletion({ title: automaticTerminalTitle(auto.terminalOutcome), message: auto.detail }) }} onNotify={notify} />}
+            {page === "automatic" && <AutomaticPage toolbarHost={automaticToolbarHost} snapshot={snapshot} config={config} update={update} active={operational} dirty={dirty} controlsLocked={automaticInteractionLocked || !licenseStatus.valid} curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} pending={commandPending} run={run} saveConfiguration={saveConfiguration} testScripts={snapshot?.testScripts ?? BUILTIN_TEST_SCRIPT_OPTIONS} onScriptSelect={selectTestScript} onCreateScript={createTestScript} onDeleteScript={deleteTestScript} onNextDevice={() => void prepareNextDevice()} onViewData={() => changePage("data")} onRetryExport={() => void retryAutomaticExport()} onChooseExportDirectory={() => void chooseAutomaticExportDirectory()} onShowCompletion={() => { const auto = snapshot?.automaticTest; if (auto?.terminalOutcome) setAutomaticCompletion({ title: automaticTerminalTitle(auto.terminalOutcome), message: auto.detail }) }} onNotify={notify} />}
             {page === "manual" && <ManualPage snapshot={snapshot} config={config} update={update} active={operational} pending={commandPending} run={run} saveConfiguration={saveConfiguration} onNotify={notify} />}
             {page === "pd" && <PdPage snapshot={snapshot} active={operational} pending={commandPending} run={run} />}
             {page === "shipping" && <ShippingReportPage active={operational} controlsLocked={automaticInteractionLocked || !licenseStatus.valid} pending={commandPending} />}

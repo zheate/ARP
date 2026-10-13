@@ -1,6 +1,5 @@
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { PowerEfficiencyChart, PowerRealtimeChart, SpectrumRealtimeChart } from "@/features/charts/realtime"
 import { configurationsEqual, UpdateConfig } from "@/features/configuration/model"
@@ -9,8 +8,7 @@ import { formatNumber, formatTrimmedNumber, NumberInput, RealtimeMetricCards, Ru
 import { sameDeviceSnapshot, sameMeasurements } from "@/features/shared/snapshot-equality"
 import { type AppConfiguration, type BackendSnapshot } from "@/lib/backend"
 import { powerMeterCoefficientLibraryForResource, powerMeterResourceValue } from "@/lib/power-meter-resource"
-import { open as openDialog } from "@tauri-apps/plugin-dialog"
-import { ChevronRight, FolderOpen, Gauge, LoaderCircle, Milestone, Play, Power, QrCode, Radio, Save, Square } from "lucide-react"
+import { ChevronRight, Gauge, Play, Power, Radio, Square } from "lucide-react"
 import { memo, useEffect, useRef, useState } from "react"
 
 export const ManualPage = memo(function ManualPage({
@@ -87,105 +85,12 @@ export const ManualPage = memo(function ManualPage({
   const isPsuActive = Boolean(psu?.connected || psu?.outputEnabled)
   const isMeterActive = Boolean(meter?.running)
   const isSpectrumActive = Boolean(spectrum?.running)
-  const manualTest = snapshot?.manualTest
-  const pendingManualPointCount = manualTest?.pendingCount ?? 0
-  const manualSaveReady = Boolean(
-    active
-    && manualControlsAllowed
-    && !pending
-    && pendingManualPointCount > 0
-    && config.sn.trim()
-    && config.station.trim()
-    && config.outputDir.trim()
-  )
-  const chooseOutputDir = async () => {
-    if (!active || !manualControlsAllowed || pending) return
-    try {
-      const selected = await openDialog({
-        multiple: false,
-        directory: true,
-        title: "选择手动测试数据输出目录",
-        defaultPath: config.outputDir.trim() || undefined,
-      })
-      if (typeof selected === "string" && selected) {
-        update("outputDir", selected)
-      }
-    } catch {
-      // dialog cancelled or failed
-    }
-  }
-
   const psuIdentitySummary = config.powerSupplyKind === "tdk"
     ? (config.tdkResource ? `TDK RS232 · ${config.tdkResource}` : "TDK RS232 · 未选串口")
     : (config.ch341SelectedLocationPath ? `CH341 I²C · ${config.ch341SelectedLocationPath}` : "CH341 I²C · 自动分配")
 
   return (
     <div className="manual-page flex min-h-0 flex-1 flex-col gap-3">
-      <section className="grid shrink-0 grid-cols-1 items-end gap-3 rounded-lg border border-border/70 bg-card/40 p-3 md:grid-cols-2 xl:grid-cols-[minmax(170px,0.75fr)_minmax(170px,0.75fr)_minmax(300px,1.5fr)_minmax(180px,auto)]">
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground" htmlFor="manual-sn">
-            <QrCode className="mr-1 inline size-3.5" />产品 SN
-          </Label>
-          <Input
-            className="h-9 rounded-lg font-mono text-[18px] leading-none"
-            disabled={!active || !manualControlsAllowed || pending}
-            id="manual-sn"
-            onChange={(event) => update("sn", event.target.value)}
-            placeholder="例如 HAM540001"
-            value={config.sn}
-          />
-        </div>
-        <div className="space-y-1">
-          <Label className="text-xs text-muted-foreground" htmlFor="manual-station">
-            <Milestone className="mr-1 inline size-3.5" />测试站别
-          </Label>
-          <Input
-            className="h-9 rounded-lg text-[18px] leading-none"
-            disabled={!active || !manualControlsAllowed || pending}
-            id="manual-station"
-            onChange={(event) => update("station", event.target.value)}
-            placeholder="例如 老化"
-            value={config.station}
-          />
-        </div>
-        <div className="min-w-0 space-y-1">
-          <Label className="text-xs text-muted-foreground" htmlFor="manual-output-directory">
-            <FolderOpen className="mr-1 inline size-3.5" />输出目录
-          </Label>
-          <div className="flex items-center gap-1.5">
-            <Input
-              className="h-9 min-w-0 flex-1 rounded-lg text-[18px] leading-none"
-              disabled={!active || !manualControlsAllowed || pending}
-              id="manual-output-directory"
-              onChange={(event) => update("outputDir", event.target.value)}
-              placeholder="测试数据保存目录"
-              value={config.outputDir}
-            />
-            <Button
-              className="size-9 shrink-0 px-0"
-              disabled={!active || !manualControlsAllowed || pending}
-              onClick={() => void chooseOutputDir()}
-              size="sm"
-              title="选择输出目录"
-              type="button"
-              variant="outline"
-            >
-              <FolderOpen className="size-4" />
-            </Button>
-          </div>
-        </div>
-        <div className="flex items-end justify-end self-end">
-          <Button
-            className="h-9 w-full max-w-[220px]"
-            disabled={!manualSaveReady}
-            onClick={() => void runManualCommand("manual.saveExcel", {}, true)}
-            type="button"
-          >
-            {pending ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}
-            保存当前测试点
-          </Button>
-        </div>
-      </section>
       {!manualControlsAllowed && (
         <div className="rounded-lg border border-[color-mix(in_srgb,var(--app-warning)_40%,transparent)] bg-[var(--app-warning-soft)] px-4 py-3 text-sm text-foreground" role="status">
           <p className="font-semibold text-[var(--app-warning)]">手动控制已锁定</p>
