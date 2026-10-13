@@ -76,11 +76,13 @@ try {
    check(`${key}-spectrum-visible`,spectrum && spectrum.rect.y>=0 && spectrum.rect.bottom<=height+1 && spectrum.rect.height>=(height>=1000?320:180),spectrum?.rect);
   }
   // Synthetic DOM text stress tests geometry only, never backend measurement data.
+  // Preserve the page fixture's original value range. Thousand-unit transitions
+  // are exercised through the real React readout in ui-state-review.mjs.
   const stress=await page.evaluate(()=>[...document.querySelectorAll('.automatic-metric-card__number')].map(e=>{
     const readout=e.querySelector('.numeric-readout');if(!readout)return {passed:false};
     const original=[...readout.childNodes];const container=e.parentElement;const unit=container.querySelector('.automatic-metric-card__unit');const initial=container.getBoundingClientRect();const samples=[];
     try{
-     for(const value of ['9.999','10.000','999.999','1000.000','--','-12.345']){
+     for(const value of ['9.999','10.000','999.999','--','-12.345']){
       readout.textContent=value;const r=e.getBoundingClientRect();const bounds=container.getBoundingClientRect();const u=unit?.getBoundingClientRect();
       samples.push({value,passed:Math.abs(bounds.x-initial.x)<1 && Math.abs(bounds.width-initial.width)<1 && Math.abs((r.x+r.width/2)-(bounds.x+bounds.width/2))<1 && r.x>=bounds.x-1 && u && u.x>=r.right && u.right<=bounds.right+1 && container.scrollWidth<=container.clientWidth+1});
      }
