@@ -4,9 +4,10 @@ import json
 import sqlite3
 import tempfile
 import unittest
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from combined_test.data_library import DataLibrary
 from combined_test.record_store import SessionRecordStore, SessionStatus
@@ -109,3 +110,95 @@ class DataLibraryTests(unittest.TestCase):
         self.assertEqual(listing["total"], 1)
         detail = backend.dispatcher.dispatch_file_task("dataBrowser.inspect", {"recordId": listing["records"][0]["id"]})
         self.assertEqual(detail["record"]["sn"], "SN-001")
+
+    def test_inspect_projects_before_python_decode_and_preserves_stored_detail(self):
+        self.store()
+        record_id = self.library.list({})["records"][0]["id"]
+        with sqlite3.connect(self.library.path) as db:
+            original = db.execute("SELECT detail FROM records WHERE id=?", (record_id,)).fetchone()[0]
+            detail = json.loads(original)
+            detail["extension"] = {"中文": [None, True, 1.2345678901234567]}
+            original = json.dumps(detail, ensure_ascii=False)
+            db.execute("UPDATE records SET detail=? WHERE id=?", (original, record_id))
+        decode = json.loads
+        for include_spectra in (False, True):
+            excluded = {"attempts", "session"} | (set() if include_spectra else {"spectra"})
+            with patch("combined_test.data_library.json.loads", wraps=decode) as loads:
+                result = self.library.inspect(record_id, include_spectra=include_spectra)
+            self.assertEqual(result, {k: v for k, v in detail.items() if k not in excluded})
+            # Assert the expensive discarded arrays never reach Python's decoder.
+            decoded_input = decode(loads.call_args.args[0])
+            if not include_spectra:
+                self.assertTrue(excluded.isdisjoint(decoded_input))
+        with sqlite3.connect(self.library.path) as db:
+            self.assertEqual(db.execute("SELECT detail FROM records WHERE id=?", (record_id,)).fetchone()[0], original)
+
+    def test_recovery_reuses_index_for_unchanged_journals_but_detects_completion(self):
+        store = self.store(SessionStatus.STOPPED_BY_OPERATOR)
+        self.library.recover(self.journals)
+        with patch.object(self.library, "_connect", wraps=self.library._connect) as connect:
+            self.assertEqual(self.library.recover(self.journals), [])
+        self.assertEqual(connect.call_count, 1)
+        events = [json.loads(line) for line in store.journal_path.read_text().splitlines()]
+        completion = next(event for event in events if event["type"] == "session_completed")
+        completion["session"]["status"] = "completed"
+        with store.journal_path.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps(completion) + "\n")
+        self.assertEqual(self.library.recover(self.journals), [])
+        self.assertEqual(self.library.list({})["total"], 1)
+
+    def test_recovery_batches_unchanged_journals(self):
+        for index in range(5):
+            path = self.journals / str(index) / "events.jsonl"
+            path.parent.mkdir(parents=True)
+            path.write_text("", encoding="utf-8")
+        self.library.recover(self.journals)
+        with patch.object(self.library, "_connect", wraps=self.library._connect) as connect:
+            self.assertEqual(self.library.recover(self.journals), [])
+        self.assertEqual(connect.call_count, 1)
+
+    def test_inspect_without_sqlite_json_functions_falls_back_but_does_not_hide_errors(self):
+        self.store()
+        record_id = self.library.list({})["records"][0]["id"]
+        expected = self.library.inspect(record_id)
+        connect = self.library._connect
+
+        @contextmanager
+        def failing_projection(message):
+            with connect() as db:
+                proxy = Mock(wraps=db)
+
+                def execute(sql, *args):
+                    if "json_remove" in sql:
+                        raise sqlite3.OperationalError(message)
+                    return db.execute(sql, *args)
+
+                proxy.execute.side_effect = execute
+                yield proxy
+
+        with patch.object(self.library, "_connect", lambda: failing_projection("no such function: json_remove")):
+            self.assertEqual(self.library.inspect(record_id), expected)
+        with patch.object(self.library, "_connect", lambda: failing_projection("database is locked")):
+            with self.assertRaisesRegex(sqlite3.OperationalError, "database is locked"):
+                self.library.inspect(record_id)
+
+    def test_inspect_missing_optional_fields_and_missing_record(self):
+        detail = {"record": {"id": "minimal", "sn": "SN", "station": "", "timeMs": 1,
+                             "flowStatus": "completed", "validPointCount": 1},
+                  "points": [{"currentA": 1, "powerW": 0}], "metadata": {"session": "keep nested key"}}
+        self.library.save(detail)
+        for include_spectra in (False, True):
+            self.assertEqual(self.library.inspect("minimal", include_spectra=include_spectra), detail)
+            with self.assertRaisesRegex(ValueError, "未找到"):
+                self.library.inspect("missing", include_spectra=include_spectra)
+
+    def test_recovery_retries_bad_journals_and_imports_new_ones(self):
+        path = self.journals / "new" / "events.jsonl"
+        path.parent.mkdir(parents=True)
+        path.write_text("invalid json", encoding="utf-8")
+        for _ in range(2):
+            self.assertEqual(len(self.library.recover(self.journals)), 1)
+        path.write_text("", encoding="utf-8")
+        self.assertEqual(self.library.recover(self.journals), [])
+        with sqlite3.connect(self.library.path) as db:
+            self.assertIsNotNone(db.execute("SELECT version FROM journals WHERE path=?", (str(path),)).fetchone())

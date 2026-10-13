@@ -1,5 +1,37 @@
 # 技术栈整理与性能基线
 
+## 2026-10-13：数据浏览读取与归档刷新优化
+
+本轮优化 Python 数据浏览后端的两处重复工作。普通详情原先完整读取并解析光谱和原始测量尝试，再删除这些字段；现在由 SQLite 在返回结果前排除这些字段，减少 Python 解码和对象分配。请求完整光谱时仍使用原读取路径。SQLite 缺少 JSON 函数时回退到旧路径，其他数据库错误正常上报。数据库结构和已存原文均不修改。
+
+刷新本地数据库列表时，原先每个会话文件都建立一次 SQLite 连接并检查版本。现在每次扫描先读取一次版本索引，逐文件核对修改时间和大小，只对新增或变化的文件执行原有归档流程。索引只在本次调用内使用；文件变化后的稳定读取检查和失败重试仍然保留。
+
+同一台 Apple Silicon Mac、Python 3.11.15、SQLite 3.53.3，固定合成数据，预热后重复 9 次取中位数。每次公开接口调用都重新建立连接，文件系统缓存已预热。所有数据库、会话文件均由工具在临时目录生成，不读取用户记录，不接触仪器。
+
+| 后端操作 | 改动前 | 改动后 | 耗时降低 |
+| --- | ---: | ---: | ---: |
+| 普通详情：20 个电流点 × 3648 个光谱点，约 2 MB JSON | 15.17 ms | 2.80 ms | 81.5% |
+| 普通详情：100 个电流点 × 8192 个光谱点，约 22.5 MB JSON | 167.14 ms | 27.63 ms | 83.5% |
+| 大记录完整光谱读取 | 167.30 ms | 164.31 ms | 基本持平 |
+| 扫描 200 个未变化会话文件 | 62.94 ms | 3.94 ms | 93.7% |
+
+大记录普通详情读取的 `tracemalloc` 峰值由 93.27 MiB 降到约 0.03 MiB。该值仅反映 Python 分配，不包括 SQLite 原生内存，不能解释为整个应用内存减少同样数值。SQLite 仍需读取并解析完整 JSON；本轮未优化磁盘冷读或完整光谱页面。
+
+第二次执行得到大记录普通详情 27.15 ms、未变化会话扫描 4.07 ms。4 组新旧返回对象等值对比全部通过，覆盖两个数据规模和普通/完整光谱两种请求。37 项聚焦测试通过，覆盖数据浏览、数据归档、会话日志和无界面后端，包括原文保留、变化会话重新导入、坏文件重试、可选字段、SQLite 兼容回退与错误传播。两个新增回归检查在修改前失败，修改后通过：不需要的数组不再进入 Python 解码器；多个未变化日志共用一次索引读取。
+
+这些数字表示后端操作耗时，不是界面点击到绘制完成的耗时。本轮未修改界面、实时刷新频率、光谱点数或计算公式；未运行全套测试、打包、原生 Tauri 窗口或真实设备验收。
+
+复现：
+
+```sh
+/Users/zh/miniconda3/envs/sth_eb314/bin/python -m tools.benchmark_data_library --output output/performance-20261013/repeat.json
+/Users/zh/miniconda3/envs/sth_eb314/bin/python -m unittest tests.test_data_library tests.test_data_browser tests.test_session_journal tests.test_headless_backend -v
+```
+
+原始记录：[改动前](../output/performance-20261013/before.json)、[改动后](../output/performance-20261013/after.json)、[复测](../output/performance-20261013/repeat.json)、[测试日志](../output/performance-20261013/tests.txt)。
+
+## 2026-09-18：技术栈整理
+
 日期：2026-09-18。提交分支：`audit/arp-ui-final-20260914`。
 
 本轮保留 Tauri、React、TypeScript 和 Python，整理前端职责、强化前后端通信约束，并建立 Python/Rust 计算对照。没有迁移 Vue，也没有更改 Windows 安装包形式。

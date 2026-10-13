@@ -128,8 +128,17 @@ class DataLibrary:
     def recover(self, journal_root: Path) -> list[str]:
         warnings = []
         if journal_root.exists():
+            # A refresh usually sees only unchanged journals. Read the index
+            # once instead of opening and initializing SQLite for every file.
+            # Changed files still pass through ingest_journal's stable-read check.
+            with self._connect() as db:
+                indexed_versions = dict(db.execute("SELECT path, version FROM journals"))
             for path in sorted(journal_root.glob("*/*.jsonl")):
                 try:
+                    stat = path.stat()
+                    version = f"{stat.st_mtime_ns}:{stat.st_size}"
+                    if indexed_versions.get(str(path)) == version:
+                        continue
                     self.ingest_journal(path)
                 except (OSError, ValueError, KeyError, TypeError) as exc:
                     warnings.append(f"会话 {path.stem} 尚未同步：{exc}")
@@ -166,7 +175,20 @@ class DataLibrary:
 
     def inspect(self, record_id: str, *, include_spectra: bool = False) -> dict[str, Any]:
         with self._connect() as db:
-            row = db.execute("SELECT detail FROM records WHERE id=?", (record_id,)).fetchone()
+            # Scalar charts do not use the full-resolution spectra or raw
+            # attempts. Drop those fields before crossing into Python to avoid
+            # allocating millions of floats only to discard them immediately.
+            projection = "json_remove(detail, '$.spectra', '$.attempts', '$.session')"
+            if include_spectra:
+                projection = "detail"
+            try:
+                row = db.execute(f"SELECT {projection} FROM records WHERE id=?", (record_id,)).fetchone()
+            except sqlite3.OperationalError as exc:
+                # Retain compatibility with Python distributions built without
+                # SQLite's optional JSON functions. Other database errors matter.
+                if include_spectra or "no such function: json_remove" not in str(exc):
+                    raise
+                row = db.execute("SELECT detail FROM records WHERE id=?", (record_id,)).fetchone()
         if row is None:
             raise ValueError("数据库中未找到此测试记录，请刷新")
         detail = json.loads(row[0])
