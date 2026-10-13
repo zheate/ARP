@@ -17,7 +17,9 @@ await writeFile(resolve(fixtureDir, 'index.html'), `<!doctype html><html lang="z
 const entry = `
 import {createElement as h, useState} from 'react';
 import {createRoot} from 'react-dom/client';
-import {PowerProtectionDialog, AutomaticPauseDialog, ShutdownFailureDialog, PdPage, AutomaticMetricCard} from './src/App.tsx';
+import {PowerProtectionDialog, AutomaticPauseDialog, ShutdownFailureDialog} from './src/features/automatic/lifecycle-dialogs.tsx';
+import {PdPage} from './src/features/pd/page.tsx';
+import {AutomaticMetricCard} from './src/features/shared/controls.tsx';
 import {DEMO_SNAPSHOT} from './src/lib/demo-snapshot.ts';
 const name=new URLSearchParams(location.search).get('fixture');
 const message=Array.from({length:70},(_,i)=>'诊断 '+(i+1)+'：请检查仪器连接、实体电源面板与测试记录。 C:\\\\test-records\\\\long-device-id-01234567890123456789').join('\\n');
@@ -38,7 +40,7 @@ function Fixture(){
 }
 createRoot(document.getElementById('root')).render(h(Fixture));
 `;
-await build({stdin:{contents:entry,resolveDir:process.cwd(),loader:'jsx'},outfile:resolve(fixtureDir,'fixture.js'),bundle:true,format:'esm',platform:'browser',tsconfig:'tsconfig.json',loader:{'.css':'empty'},define:{'import.meta.env':'{"DEV":false,"PROD":true}'},plugins:[{name:'review-only-exports',setup(builder){builder.onLoad({filter:/App\.tsx$/},async({path})=>({contents:`${await readFile(path,'utf8')}\nexport {PowerProtectionDialog,AutomaticPauseDialog,ShutdownFailureDialog,PdPage,AutomaticMetricCard};`,loader:'tsx'}));}}]});
+await build({stdin:{contents:entry,resolveDir:process.cwd(),loader:'jsx'},outfile:resolve(fixtureDir,'fixture.js'),bundle:true,format:'esm',platform:'browser',tsconfig:'tsconfig.json',loader:{'.css':'empty'},define:{'import.meta.env':'{"DEV":false,"PROD":true}'}});
 const modulePath=process.env.ARP_PLAYWRIGHT_MODULE??'playwright';
 const {chromium}=await import(isAbsolute(modulePath)?pathToFileURL(modulePath).href:modulePath);
 const browser=await chromium.launch({headless:true});

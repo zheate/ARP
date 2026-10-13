@@ -78,11 +78,16 @@ try {
   // Synthetic DOM text stress tests geometry only, never backend measurement data.
   const stress=await page.evaluate(()=>[...document.querySelectorAll('.automatic-metric-card__number')].map(e=>{
     const readout=e.querySelector('.numeric-readout');if(!readout)return {passed:false};
-    const original=[...readout.childNodes];const initial=e.getBoundingClientRect();let passed=true;
-    for(const value of ['9.999','10.000','999.999','--','-12.345']){readout.textContent=value;const r=e.getBoundingClientRect();passed=passed && Math.abs(r.x-initial.x)<1 && Math.abs(r.width-initial.width)<1;}
-    readout.replaceChildren(...original);return {passed};
+    const original=[...readout.childNodes];const container=e.parentElement;const unit=container.querySelector('.automatic-metric-card__unit');const initial=container.getBoundingClientRect();const samples=[];
+    try{
+     for(const value of ['9.999','10.000','999.999','1000.000','--','-12.345']){
+      readout.textContent=value;const r=e.getBoundingClientRect();const bounds=container.getBoundingClientRect();const u=unit?.getBoundingClientRect();
+      samples.push({value,passed:Math.abs(bounds.x-initial.x)<1 && Math.abs(bounds.width-initial.width)<1 && Math.abs((r.x+r.width/2)-(bounds.x+bounds.width/2))<1 && r.x>=bounds.x-1 && u && u.x>=r.right && u.right<=bounds.right+1 && container.scrollWidth<=container.clientWidth+1});
+     }
+    }finally{readout.replaceChildren(...original);}
+    return {passed:samples.every(s=>s.passed),samples};
   }));
-  check(`${key}-synthetic-numeric-width`,stress.length>0 && stress.every(s=>s.passed),stress);
+  check(`${key}-synthetic-numeric-layout`,stress.length===4 && stress.every(s=>s.passed),stress);
   if(dpr===1 && width!==2560 || dpr===2){
    await page.goto(idle.href,{waitUntil:'networkidle'});
    for(let index=0;index<3;index++){
@@ -118,7 +123,7 @@ try {
     check(`${key}-dialog-${index}-focus-restored`,await launcher.evaluate(e=>e===document.activeElement));
    }
    if(dpr===1){
-    for(const [name,launcher] of [['specifications',page.getByRole('button',{name:'编辑',exact:true})],['save-script',page.getByTitle('另存为新脚本')]]){
+    for(const [name,launcher] of [['specifications',page.getByRole('button',{name:'编辑脚本',exact:true})],['save-script',page.getByRole('button',{name:'添加脚本',exact:true})]]){
      await launcher.click();const dialog=page.getByRole('dialog').last();await dialog.waitFor();await page.waitForTimeout(250);
      await capture(page,`${key}-${name}`);await checkFocus(page,dialog,`${key}-${name}`);
      await page.keyboard.press('Escape');await page.waitForTimeout(80);

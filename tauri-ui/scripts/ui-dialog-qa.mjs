@@ -1,5 +1,5 @@
 /** Mount real frontend components with inert callbacks; no Tauri app or hardware. */
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import { resolve, isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'esbuild';
@@ -9,11 +9,13 @@ const modulePath = process.env.ARP_PLAYWRIGHT_MODULE ?? 'playwright';
 const { chromium } = await import(isAbsolute(modulePath) ? pathToFileURL(modulePath).href : modulePath);
 const out = resolve('../qa-evidence/dialogs');
 await mkdir(out,{recursive:true}); await mkdir('dist/__qa',{recursive:true});
-const expose = ['PowerProtectionDialog','AutomaticPauseDialog','AutomaticCompletionDialog','ShutdownFailureDialog','AutomaticSpecificationsDialog','PowerMeterProfileDialog','PdPage','ManualPage'];
 await build({
  stdin:{resolveDir:process.cwd(),loader:'tsx',contents:`
 import {useState} from 'react'; import {createRoot} from 'react-dom/client';
-import {${expose.join(',')}} from './src/App';
+import {PowerProtectionDialog,AutomaticPauseDialog,AutomaticCompletionDialog,ShutdownFailureDialog} from './src/features/automatic/lifecycle-dialogs';
+import {AutomaticSpecificationsDialog,PowerMeterProfileDialog} from './src/features/devices/settings';
+import {PdPage} from './src/features/pd/page';
+import {ManualPage} from './src/features/manual/page';
 import {SaveScriptDialog} from './src/components/save-script-dialog';
 import {DEMO_SNAPSHOT} from './src/lib/demo-snapshot';
 const kind=new URLSearchParams(location.search).get('fixture');
@@ -40,7 +42,6 @@ function Harness(){const[open,setOpen]=useState(false);const close=()=>setOpen(f
 }
 createRoot(document.getElementById('root')).render(<Harness/>);`},
  bundle:true,format:'esm',platform:'browser',outfile:'dist/__qa/fixture.js',tsconfig:'tsconfig.json',loader:{'.css':'empty'},define:{'process.env.NODE_ENV':'"production"'},
- plugins:[{name:'qa-only-exports',setup(builder){builder.onLoad({filter:/App\.tsx$/},async({path})=>({contents:`${await readFile(path,'utf8')}\nexport {${expose.join(',')}};`,loader:'tsx'}));}}],
 });
 const styles=(await readdir('dist/assets')).filter(name=>name.endsWith('.css')).map(name=>`<link rel="stylesheet" href="/assets/${name}">`).join('');
 await writeFile('dist/__qa/index.html',`<!doctype html><html class="dark" data-theme="dark" lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${styles}</head><body><div id="root"></div><script type="module" src="/__qa/fixture.js"></script></body></html>`);
