@@ -99,21 +99,21 @@ test("both automatic layouts show five seconds of confirmation after acceptance"
     props.snapshot.automaticTest.stability = { ...stability }
     Object.assign(props.snapshot.devices.powerMeter, { stable: false, stableElapsedS: null, quality: "live" })
     let html = renderToStaticMarkup(createElement(AutomaticPage, props))
-    assert.match(html, /功率稳定状态：判稳中，0.0 \/ 5 秒/)
+    assert.match(html, /功率稳定状态：判稳中，0.0 \/ 5\.0 秒/)
     props.snapshot.automaticTest.state = "waiting_voltage"
     Object.assign(props.snapshot.automaticTest.stability, { powerStable: true, elapsedS: 10, holdElapsedS: 2.3 })
     Object.assign(props.snapshot.devices.powerMeter, { stable: true, stableElapsedS: 97 })
     html = renderToStaticMarkup(createElement(AutomaticPage, props))
-    assert.match(html, /功率稳定状态：保持中，2.3 \/ 5 秒/)
+    assert.match(html, /功率稳定状态：保持中，2.3 \/ 5\.0 秒/)
     assert.doesNotMatch(html, /持续 97 s/)
     props.snapshot.automaticTest.stability.quality = "stale"
     props.snapshot.devices.powerMeter.quality = "stale"
     html = renderToStaticMarkup(createElement(AutomaticPage, props))
-    assert.match(html, /功率稳定状态：等待采样，0.0 \/ 5 秒/)
+    assert.match(html, /功率稳定状态：等待采样，0.0 \/ 5\.0 秒/)
     props.snapshot.automaticTest.state = "setting_current"
     props.snapshot.automaticTest.stability = { ...stability }
     html = renderToStaticMarkup(createElement(AutomaticPage, props))
-    assert.match(html, /功率稳定状态：等待判稳，0.0 \/ 5 秒/)
+    assert.match(html, /功率稳定状态：等待判稳，0.0 \/ 5\.0 秒/)
   }
 })
 

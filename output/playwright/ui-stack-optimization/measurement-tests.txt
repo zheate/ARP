@@ -1,0 +1,31 @@
+✔ confirmation starts only after stability and completes after five seconds (1.97825ms)
+✔ new points, lost stability and stale readings clear the confirmation clock (16.793625ms)
+✔ final-point display uses the backend ten-second target (0.299417ms)
+✔ spectral testing also waits for wavelength stability before confirmation (0.163083ms)
+✔ paused and finished runs retain their recorded confirmation interval (2.671542ms)
+✔ older timing fields cannot be mistaken for the post-stability hold (0.481625ms)
+✔ entering SN unlocks start even while the saved snapshot still has an empty SN (1.161958ms)
+✔ SN and output directory are checked from the current form without a separate save (0.191917ms)
+✔ clearing either required field disables start despite a previously ready snapshot (0.527958ms)
+✔ editing SN preserves device, current, settings and unknown backend blockers (0.422167ms)
+✔ editing SN cannot enable start while a test is active or readiness is unavailable (0.180666ms)
+✔ legacy settings errors remain visible when structured readiness is unavailable (0.119875ms)
+✔ phase track distinguishes recording, ramp down, pause and confirmed completion (1.113625ms)
+✔ only an in-flight phase animates, so the track cannot imply progress while stopped (1.970334ms)
+✔ a reported hold drives the light as real progress instead of a looping sweep (1.416292ms)
+✔ completion uses recorded count instead of the attempted point index (0.13875ms)
+✔ power stability requires a live reading and a backend duration instead of a local timer (0.271542ms)
+✔ summary keeps journal persistence separate from export failures (0.162792ms)
+✔ summary duration handles unavailable, minute and hour ranges (0.114834ms)
+✔ a delayed profile response cannot overwrite a newly staged resource (1.273042ms)
+✔ the matching resource receives authoritative profile fields and keeps unrelated drafts (0.258167ms)
+✔ spectrum peak markers point to peak wavelength instead of centroid (2.411583ms)
+✔ spectrum peak legend only includes detected peaks with wavelength values (0.431084ms)
+ℹ tests 23
+ℹ suites 0
+ℹ pass 23
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 300.907875

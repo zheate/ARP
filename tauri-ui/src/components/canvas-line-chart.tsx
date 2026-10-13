@@ -91,6 +91,9 @@ type ChartLayout = {
 
 const EMPTY_SIZE: ChartSize = { width: 0, height: 0 }
 const EMPTY_ROWS: NumericRow[] = []
+// Hover state only changes the overlay, not the base chart's effect inputs.
+const EMPTY_ANNOTATIONS: CanvasChartAnnotation[] = []
+const EMPTY_ANNOTATION_LEGEND: CanvasChartAnnotationLegendItem[] = []
 const NUMERIC_ZERO_EPSILON = 1e-12
 const ECG_MARKER_COLOR = "#ff375f"
 const TOOLTIP_ESTIMATED_WIDTH = 208
@@ -873,7 +876,7 @@ function tooltipNumber(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }
 
-export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, annotations = [], annotationLegend = [], ariaLabel, preserveAllPoints = false, tightInsets = false, xLabel, xTickSuffix, yLabel, appearance: appearanceOverride, onPointSelect, selectedPoints, xValueFormatter }: CanvasLineChartProps) {
+export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, annotations = EMPTY_ANNOTATIONS, annotationLegend = EMPTY_ANNOTATION_LEGEND, ariaLabel, preserveAllPoints = false, tightInsets = false, xLabel, xTickSuffix, yLabel, appearance: appearanceOverride, onPointSelect, selectedPoints, xValueFormatter }: CanvasLineChartProps) {
   const { appearance } = useAppearance()
   const chartAppearance = useMemo(() => appearanceOverride ? { ...appearance, ...appearanceOverride } : appearance, [appearance, appearanceOverride])
   const containerRef = useRef<HTMLDivElement>(null)
@@ -932,15 +935,17 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
   useLayoutEffect(() => {
     const container = containerRef.current
     if (!container) return
-    const update = () => {
-      const rectangle = container.getBoundingClientRect()
+    // ResizeObserver delivers the initial size as well as later changes before
+    // paint. Reading the rect here used to force layout for each newly mounted
+    // chart during navigation, then repeat that read in the observer callback.
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry) return
+      const rectangle = entry.contentRect
       setSize((current) => {
         const next = { width: Math.round(rectangle.width), height: Math.round(rectangle.height) }
         return current.width === next.width && current.height === next.height ? current : next
       })
-    }
-    update()
-    const observer = new ResizeObserver(update)
+    })
     observer.observe(container)
     return () => observer.disconnect()
   }, [])

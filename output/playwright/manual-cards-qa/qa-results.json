@@ -1,0 +1,116 @@
+{
+  "viewports": [
+    {
+      "vp": "1440x900",
+      "cardCount": 3,
+      "cardHeights": [
+        266,
+        266,
+        266
+      ],
+      "cardTops": [
+        197,
+        197,
+        197
+      ],
+      "footerBottoms": [
+        438,
+        438,
+        438
+      ],
+      "chartTop": 475,
+      "overflow": false
+    },
+    {
+      "vp": "1180x800",
+      "cardCount": 3,
+      "cardHeights": [
+        266,
+        266,
+        266
+      ],
+      "cardTops": [
+        265,
+        265,
+        265
+      ],
+      "footerBottoms": [
+        506,
+        506,
+        506
+      ],
+      "chartTop": 543,
+      "overflow": false
+    },
+    {
+      "vp": "1000x750_narrow",
+      "cardCount": 3,
+      "cardHeights": [
+        266,
+        266,
+        266
+      ],
+      "cardTops": [
+        265,
+        543,
+        822
+      ],
+      "footerBottoms": [
+        506,
+        785,
+        1063
+      ],
+      "chartTop": 1100,
+      "overflow": false
+    },
+    {
+      "vp": "1280x720_dpr1.5",
+      "cardCount": 3,
+      "cardHeights": [
+        266,
+        266,
+        266
+      ],
+      "cardTops": [
+        197,
+        197,
+        197
+      ],
+      "footerBottoms": [
+        438,
+        438,
+        438
+      ],
+      "chartTop": 475,
+      "overflow": false
+    }
+  ],
+  "dialogs": [
+    {
+      "psuDialogOpen": true,
+      "scriptFormPresent": false,
+      "psuDialogClosed": true,
+      "meterDialogOpen": true,
+      "meterDialogZeroButtons": 0,
+      "meterDialogStartButtons": 0,
+      "meterDialogClosed": true,
+      "specDialogOpen": true,
+      "specDialogStartButtons": 0,
+      "specDialogClosed": true,
+      "hasOutputOn": true,
+      "hasOutputOff": true,
+      "outputOnDisabled": false,
+      "outputOffDisabled": true
+    }
+  ],
+  "errors": [
+    {
+      "vp": "1440x900",
+      "console": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    }
+  ],
+  "autoRegression": {
+    "autoPsuDialogOpen": false,
+    "autoScriptFormPresent": true
+  }
+}

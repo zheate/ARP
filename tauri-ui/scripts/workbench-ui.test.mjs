@@ -1,5 +1,4 @@
 import assert from "node:assert/strict"
-import { readFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { fileURLToPath } from "node:url"
 import test from "node:test"
@@ -9,17 +8,25 @@ import { build } from "esbuild"
 
 const root = fileURLToPath(new URL("..", import.meta.url))
 const result = await build({
-  stdin: { contents: 'export { Field } from "./src/components/field"; export { Input } from "./src/components/ui/input"; export { NativeSelect } from "./src/components/native-select"; export { PdPage } from "./src/App"; export { DEMO_SNAPSHOT } from "./src/lib/demo-snapshot";', resolveDir: root },
+  stdin: { contents: 'export { Field } from "./src/components/field"; export { Input } from "./src/components/ui/input"; export { NativeSelect } from "./src/components/native-select"; export { DeviceCard } from "./src/features/devices/settings"; export { PdPage } from "./src/features/pd/page"; export { DEMO_SNAPSHOT } from "./src/lib/demo-snapshot";', resolveDir: root },
   tsconfig: `${root}/tsconfig.json`, bundle: true, write: false, platform: "node", format: "cjs",
   loader: { ".css": "empty" }, external: ["react", "react-dom", "react-dom/*"],
-  plugins: [{ name: "expose-pd-for-render-test", setup(builder) {
-    builder.onLoad({ filter: /App\.tsx$/ }, async ({ path }) => ({ contents: `${await readFile(path, "utf8")}\nexport { PdPage };`, loader: "tsx" }))
-  } }],
 })
 const module = { exports: {} }
 new Function("require", "module", "exports", result.outputFiles[0].text)(createRequire(import.meta.url), module, module.exports)
-const { Field, Input, NativeSelect, PdPage, DEMO_SNAPSHOT } = module.exports
+const { Field, Input, NativeSelect, DeviceCard, PdPage, DEMO_SNAPSHOT } = module.exports
 const noop = () => {}
+
+test("device rail skips telemetry-only updates but retains all displayed states and callbacks", () => {
+  const previous = { title: "功率计", icon: noop, device: DEMO_SNAPSHOT.devices.powerMeter, model: "CHLP-P", details: [["设备", "A"]], summary: "A", visibleSummary: "A", disabled: false, onOpenSettings: noop }
+  assert.equal(DeviceCard.compare(previous, { ...previous, device: { ...previous.device, powerW: 25, ageMs: 200 } }), true)
+  for (const patch of [{ state: "error" }, { detail: "失去连接" }, { detecting: true }, { running: !previous.device.running }, { outputEnabled: true }]) {
+    assert.equal(DeviceCard.compare(previous, { ...previous, device: { ...previous.device, ...patch } }), false)
+  }
+  for (const patch of [{ disabled: true }, { details: [["设备", "B"]] }, { visibleSummary: "B" }, { summary: "B" }, { onOpenSettings: () => {} }, { icon: () => null }, { model: "B" }, { title: "B" }]) {
+    assert.equal(DeviceCard.compare(previous, { ...previous, ...patch }), false)
+  }
+})
 
 test("composite form labels reach inputs and local comboboxes without duplicate IDs", () => {
   for (const control of [h(Input), h(NativeSelect, { value: "dev", onChange: noop }, h("option", { value: "dev" }, "仪器"))]) {

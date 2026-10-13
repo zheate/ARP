@@ -1,3 +1,4 @@
+import { ControlRow, ControlGrid, ParameterControl } from "@/components/control-layout"
 import type { CommandName } from "@/lib/command-contract"
 import { DeviceDetectButton } from "@/components/device-detect-button"
 import { DialogPortal } from "@/components/dialog-portal"
@@ -10,9 +11,9 @@ import { BUILTIN_TEST_SCRIPT_OPTIONS, UpdateConfig, applyTestScript } from "@/fe
 import { NumberField, NumberInput, RunCommand, StatusDot, formatDuration, formatMeasurementAge, formatNumber, formatTrimmedNumber } from "@/features/shared/controls"
 import { type AppConfiguration, type BackendSnapshot, type DeviceSnapshot, type PowerMeterCoefficientLibrary, type PowerMeterCoefficientRevision } from "@/lib/backend"
 import { powerMeterCoefficientLibraryForResource, powerMeterIdentityForResource, powerMeterResourceValue } from "@/lib/power-meter-resource"
-import { ChevronRight, Gauge, Play, Plus, Power, Radio, RotateCcw, Save, Settings, SlidersHorizontal, Square, X } from "lucide-react"
+import { ChevronRight, Gauge, Play, Plus, Power, Radio, RotateCcw, Save, Settings, SlidersHorizontal, Square, X, type LucideIcon } from "lucide-react"
 import { Tooltip } from "radix-ui"
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { memo, useEffect, useRef, useState } from "react"
 
 export const I2C_CURRENT_LIMIT_A = 20
 
@@ -54,7 +55,7 @@ export function Ch341PortSelector({
   return (
     <div className="flex flex-col gap-2">
       <Field label="CH341 设备" layout={layout}>
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+        <ControlRow>
           <NativeSelect
             disabled={!active || pending || detecting || isConnected}
             value={currentPort ? selectedLoc : ""}
@@ -78,7 +79,7 @@ export function Ch341PortSelector({
             disabled={!active || pending || detecting || isConnected}
             onClick={onRefresh}
           />
-        </div>
+        </ControlRow>
       </Field>
     </div>
   )
@@ -86,7 +87,7 @@ export function Ch341PortSelector({
 
 export type DeviceSettingsKind = "powerSupply" | "powerMeter" | "spectrometer"
 
-export function DeviceCard({ title, icon, device, model, details, summary, visibleSummary, disabled = false, onOpenSettings }: { title: string; icon: ReactNode; device?: DeviceSnapshot; model: string; details: Array<[string, string]>; summary?: string; visibleSummary?: string; disabled?: boolean; onOpenSettings: () => void }) {
+export const DeviceCard = memo(function DeviceCard({ title, icon: Icon, device, model, details, summary, visibleSummary, disabled = false, onOpenSettings }: { title: string; icon: LucideIcon; device?: DeviceSnapshot; model: string; details: Array<[string, string]>; summary?: string; visibleSummary?: string; disabled?: boolean; onOpenSettings: () => void }) {
   const connectionLabel = device?.detecting ? "识别中"
     : device?.state === "connected" ? "在线"
     : device?.state === "connecting" ? "连接中"
@@ -103,7 +104,7 @@ export function DeviceCard({ title, icon, device, model, details, summary, visib
           onClick={() => { if (!disabled) onOpenSettings() }}
           type="button"
         >
-          <span className="device-rail-item__icon" data-active={device?.outputEnabled}>{icon}</span>
+          <span className="device-rail-item__icon" data-active={device?.outputEnabled}><Icon className="size-4" /></span>
           <span className="device-rail-item__copy"><span><strong>{title}</strong><small title={model}>{model}</small></span><span className="device-rail-item__state"><StatusDot state={device?.detecting ? "connecting" : device?.state} />{connectionLabel}{activityLabel && <> · {activityLabel}</>}</span><span aria-hidden={!visibleSummary} className={`device-rail-item__summary ${visibleSummary ? "" : "is-empty"}`} title={visibleSummary}>{visibleSummary || "占位"}</span></span>
           <ChevronRight className="device-rail-item__chevron size-4" />
         </button>
@@ -118,7 +119,22 @@ export function DeviceCard({ title, icon, device, model, details, summary, visib
       </Tooltip.Content></Tooltip.Portal>
     </Tooltip.Root>
   </Tooltip.Provider>
-}
+}, (previous, next) => (
+  previous.title === next.title
+  && previous.icon === next.icon
+  && previous.model === next.model
+  && previous.summary === next.summary
+  && previous.visibleSummary === next.visibleSummary
+  && previous.disabled === next.disabled
+  && previous.onOpenSettings === next.onOpenSettings
+  && previous.device?.state === next.device?.state
+  && previous.device?.detail === next.device?.detail
+  && previous.device?.detecting === next.device?.detecting
+  && previous.device?.running === next.device?.running
+  && previous.device?.outputEnabled === next.device?.outputEnabled
+  && previous.details.length === next.details.length
+  && previous.details.every(([label, value], index) => label === next.details[index][0] && value === next.details[index][1])
+))
 
 export function CustomCurrentPlanEditor({ config, update, disabled, maximumCurrentA }: {
   config: AppConfiguration
@@ -210,19 +226,19 @@ export function TestScriptSettingsForm({ snapshot, config, update, active, pendi
               .map((script) => <option key={script.id} value={script.id}>{script.name}</option>)}
           </NativeSelect>
         </Field>
-        <div className="power-settings-parameter-grid">
+        <ControlGrid className="power-settings-parameter-grid">
           <NumberField disabled={agingMode} label="起始电流 (A)" value={config.initialCurrentA} onChange={(v) => update("initialCurrentA", v)} max={currentInputMaximum(config, snapshot)} />
           <NumberField disabled={agingMode} label="目标电流 (A)" value={config.targetCurrentA} onChange={(v) => update("targetCurrentA", v)} max={currentInputMaximum(config, snapshot)} />
           <NumberField disabled={agingMode} label="电流间隔 (A)" value={config.currentStepA} onChange={(v) => update("currentStepA", v)} max={currentInputMaximum(config, snapshot)} />
-        </div>
+        </ControlGrid>
         {agingMode ? <div className="custom-current-plan">
           <p className="custom-current-plan__hint">CH341 从 2 A 开始，每步增加 2 A；每步等待 1 s，硬件命令保护下实际下发间隔不短于 1.1 s。到达 20 A 后不判稳，立即开始 2 小时老化计时。</p>
         </div> : config.currentPlanMode === "custom" && <CustomCurrentPlanEditor config={config} disabled={pending} maximumCurrentA={currentInputMaximum(config, snapshot)} update={update} />}
-        <div className="power-settings-parameter-grid power-settings-parameter-grid--safety">
+        <ControlGrid className="power-settings-parameter-grid power-settings-parameter-grid--safety">
           <NumberField label="单点超时 (s)" value={config.pointTimeoutS} onChange={(v) => update("pointTimeoutS", v)} />
           <NumberField label="下电步长 (A)" value={config.rampDownStepA} onChange={(v) => update("rampDownStepA", v)} max={currentInputMaximum(config, snapshot)} />
           <NumberField label="下电间隔 (s)" value={config.rampDownIntervalS} onChange={(v) => update("rampDownIntervalS", v)} step="0.1" />
-        </div>
+        </ControlGrid>
       </div>
     </section>
   )
@@ -237,7 +253,7 @@ export function PowerSupplySettingsForm({ snapshot, config, update, active, pend
   const selectedResource = config.tdkResource.trim()
   const agingMode = config.selectedScriptId === "aging"
   return (
-    <div className="power-settings-layout">
+    <div className="power-settings-layout" data-mode={mode}>
       <section className="power-settings-section">
         <div className="power-settings-section-heading">
           <p className="power-settings-section-title">{mode === "manual" ? "硬件配置与读取" : "手动控制"}</p>
@@ -246,14 +262,14 @@ export function PowerSupplySettingsForm({ snapshot, config, update, active, pend
         <div className="power-settings-fields">
           <Field label="控制器"><NativeSelect disabled={!active || pending || psu?.detecting || psu?.connected} value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option disabled={agingMode} value="tdk">{agingMode ? "TDK RS232（AU 老化测试不可用）" : "TDK RS232"}</option></NativeSelect></Field>
           {config.powerSupplyKind === "tdk" ? <Field label="TDK 串口">
-            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+            <ControlRow>
               <NativeSelect disabled={!active || pending || psu?.detecting || psu?.connected} value={selectedResource} onChange={(value) => update("tdkResource", value)}>
                 <option value="">请点击识别电源</option>
                 {selectedResource && !resources.includes(selectedResource) && <option value={selectedResource}>{selectedResource}</option>}
                 {resources.map((resource) => <option key={resource} value={resource}>{resource}</option>)}
               </NativeSelect>
               <DeviceDetectButton detecting={psu?.detecting} disabled={!active || pending || psu?.detecting || psu?.connected} onClick={() => run("device.refresh", { device: "powerSupply" }, true)} />
-            </div>
+            </ControlRow>
           </Field> : (
             <Ch341PortSelector
               config={config}
@@ -268,11 +284,11 @@ export function PowerSupplySettingsForm({ snapshot, config, update, active, pend
           {mode === "manual" ? (
             <>
               {config.powerSupplyKind === "tdk" && (
-                <div className="power-settings-value-grid">
+                <ControlGrid className="power-settings-value-grid">
                   <NumberField label="输出电压 (V)" value={config.tdkVoltageV} onChange={(v) => update("tdkVoltageV", v)} step="0.1" />
-                </div>
+                </ControlGrid>
               )}
-              <div className="power-settings-action-grid">
+              <ControlGrid className="power-settings-action-grid">
                 <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline">读取输出电压</Button>
                 <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline">读取输出电流</Button>
                 {config.powerSupplyKind === "ch341" && (
@@ -281,20 +297,27 @@ export function PowerSupplySettingsForm({ snapshot, config, update, active, pend
                     <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "temperature" })} size="sm" variant="outline">读取模块温度</Button>
                   </>
                 )}
-              </div>
+              </ControlGrid>
             </>
           ) : (
             <>
-              <div className="power-settings-value-grid">
-                {config.powerSupplyKind === "tdk" && <NumberField label="输出电压 (V)" value={config.tdkVoltageV} onChange={(v) => update("tdkVoltageV", v)} step="0.1" />}
-                <NumberField label="设定电流 (A)" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
-              </div>
-              {config.powerSupplyKind === "tdk" ? <div className="power-settings-action-grid">
-                <Button aria-disabled={psu?.detecting || undefined} disabled={!active || pending} onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接 TDK"}</Button>
-                <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setVoltage", { voltageV: config.tdkVoltageV }, true)} variant="outline">设置电压</Button>
-                <Button className={psu?.outputEnabled ? "btn-power-active" : ""} disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled ? <><span className="size-2 rounded-full bg-white animate-pulse shrink-0 mr-1.5 inline-block" />关闭输出</> : "开启输出"}</Button>
-                <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
-              </div> : <div className="power-settings-action-grid">
+              {config.powerSupplyKind === "tdk" ? <>
+                <ControlGrid className="power-settings-action-grid">
+                  <Button aria-disabled={psu?.detecting || undefined} disabled={!active || pending} onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接 TDK"}</Button>
+                  <Button className={psu?.outputEnabled ? "btn-power-active" : ""} disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled ? <><span className="size-2 rounded-full bg-white animate-pulse shrink-0 mr-1.5 inline-block" />关闭输出</> : "开启输出"}</Button>
+                </ControlGrid>
+                <ControlGrid className="power-settings-value-grid">
+                  <ParameterControl>
+                    <NumberField label="输出电压 (V)" value={config.tdkVoltageV} onChange={(v) => update("tdkVoltageV", v)} step="0.1" />
+                    <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setVoltage", { voltageV: config.tdkVoltageV }, true)} variant="outline">设置电压</Button>
+                  </ParameterControl>
+                  <ParameterControl>
+                    <NumberField label="设定电流 (A)" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
+                    <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)} variant="outline">设置电流</Button>
+                  </ParameterControl>
+                </ControlGrid>
+              </> : <>
+                <div className="power-settings-connection">
                 {(() => {
                   const selectedLoc = config.ch341SelectedLocationPath
                   const port = snapshot?.devices?.powerSupply?.ch341?.ports?.find((p) => p.locationPath === selectedLoc)
@@ -317,7 +340,14 @@ export function PowerSupplySettingsForm({ snapshot, config, update, active, pend
                     </Button>
                   )
                 })()}
-                <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
+                </div>
+                <Field label="设定电流 (A)">
+                  <ControlRow className="gap-2.5">
+                    <NumberInput value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
+                    <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
+                  </ControlRow>
+                </Field>
+                <ControlGrid className="power-settings-action-grid">
                 <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline">读取输出电压</Button>
                 <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline">读取输出电流</Button>
                 <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "inputVoltage" })} size="sm" variant="outline">读取输入电压</Button>
@@ -325,7 +355,8 @@ export function PowerSupplySettingsForm({ snapshot, config, update, active, pend
                 <p className="col-span-full text-xs text-muted-foreground">
                   回读：输入 {formatNumber(psu?.inputVoltageV, " V", 2)} · 输出 {formatNumber(psu?.outputVoltageV, " V", 2)} · 电流 {formatNumber(psu?.outputCurrentA, " A", 2)} · 温度 {formatNumber(psu?.temperatureC, " °C", 2)}
                 </p>
-              </div>}
+                </ControlGrid>
+              </>}
             </>
           )}
         </div>
@@ -554,15 +585,15 @@ export function PowerMeterProfileEditor({ snapshot, config, active, pending, run
           <span>保存前不会改变当前测量参数</span>
         </div>
         <Field label="方案名称"><Input disabled={mutationLocked} maxLength={60} value={draft.name} onChange={(event) => updateDraft("name", event.target.value)} /></Field>
-        <div className="device-settings-field-grid">
+        <ControlGrid className="device-settings-field-grid">
           <NumberField disabled={mutationLocked} label="功率系数" min={0.000001} step="0.001" value={draft.softwareGain} onChange={(value) => updateDraft("softwareGain", value)} />
           <NumberField disabled={mutationLocked} label="校准波长 (nm)" min={0.000001} step="0.1" value={draft.wavelengthNm} onChange={(value) => updateDraft("wavelengthNm", value)} />
-        </div>
+        </ControlGrid>
         <Field label="条件备注"><textarea className="power-meter-profile__textarea" disabled={mutationLocked} maxLength={300} rows={2} value={draft.notes} onChange={(event) => updateDraft("notes", event.target.value)} /></Field>
-        <div className="device-settings-field-grid">
+        <ControlGrid className="device-settings-field-grid">
           <Field label="修改人（可选）"><Input disabled={mutationLocked} maxLength={60} value={draft.operator} onChange={(event) => updateDraft("operator", event.target.value)} /></Field>
           <Field label="修改原因（可选）"><Input disabled={mutationLocked} maxLength={120} value={draft.reason} onChange={(event) => updateDraft("reason", event.target.value)} /></Field>
-        </div>
+        </ControlGrid>
         <div className="power-meter-profile__draft-actions">
           <Button disabled={busy} onClick={() => { setDraftIntent(null); setDraftTarget(null); setError("") }} size="sm" variant="outline">取消</Button>
           <Button disabled={mutationLocked} onClick={() => void saveDraft()} size="sm"><Save className="size-3.5" />{busy ? "保存中…" : "保存方案"}</Button>
@@ -618,13 +649,13 @@ export function PowerMeterSettingsForm({ snapshot, config, update, active, pendi
   return (
     <div className="device-settings-form">
       <Field label="串口资源">
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+        <ControlRow>
           <NativeSelect disabled={!active || pending || meter?.detecting || meter?.running} value={displayedResource} onChange={selectResource}>
             <option value="">请选择串口资源</option>
             {resources.map((item) => <option key={item} value={powerMeterResourceValue(item)}>{item}</option>)}
           </NativeSelect>
           <DeviceDetectButton detecting={meter?.detecting} disabled={!active || pending || meter?.detecting || meter?.running} onClick={() => run("device.refresh", { device: "powerMeter" }, true)} />
-        </div>
+        </ControlRow>
       </Field>
       <PowerMeterProfileEditor active={active} config={config} pending={pending} run={run} snapshot={snapshot} />
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
@@ -633,8 +664,8 @@ export function PowerMeterSettingsForm({ snapshot, config, update, active, pendi
       </div>
       {mode === "auto" && (
         <>
-          <div className="device-settings-action-grid"><Button aria-disabled={meter?.detecting || undefined} disabled={!active || pending || meter?.running || !selectedResourceAvailable} onClick={() => void run("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button aria-disabled={meter?.detecting || undefined} disabled={!active || pending || meter?.running || !selectedResourceAvailable} onClick={() => void run("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></div>
-          <Button className={`w-full transition-all ${meter?.running ? "btn-running-pulse" : ""}`} aria-disabled={meter?.detecting || undefined} disabled={!active || pending || (!meter?.running && !selectedResourceAvailable)} onClick={() => void run(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
+          <ControlGrid className="device-settings-action-grid"><Button aria-disabled={meter?.detecting || undefined} disabled={!active || pending || meter?.running || !selectedResourceAvailable} onClick={() => void run("powerMeter.setRelativeZero", { enabled: true }, true)} variant="outline">相对调零</Button><Button aria-disabled={meter?.detecting || undefined} disabled={!active || pending || meter?.running || !selectedResourceAvailable} onClick={() => void run("powerMeter.setRelativeZero", { enabled: false }, true)} variant="outline">取消调零</Button></ControlGrid>
+          <Button className={`w-full transition-colors ${meter?.running ? "btn-running-pulse" : ""}`} aria-disabled={meter?.detecting || undefined} disabled={!active || pending || (!meter?.running && !selectedResourceAvailable)} onClick={() => void run(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)} variant={meter?.running ? "destructive" : "default"}>{meter?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
           <p className="text-xs text-muted-foreground">{measurementSummary}</p>
         </>
       )}
@@ -660,29 +691,29 @@ export function SpectrometerSettingsForm({ snapshot, config, update, active, pen
   return (
     <div className="device-settings-form">
       <Field label="设备资源">
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+        <ControlRow>
           <NativeSelect disabled={!active || pending || spectrum?.detecting || spectrum?.running} value={displayedResource} onChange={(v) => update("spectrometerResource", v)}>
             <option value="">{defaultSpectrometerResourceLabel}</option>
             {resources.map((item) => <option key={item} value={item}>{item}</option>)}
           </NativeSelect>
           <DeviceDetectButton detecting={spectrum?.detecting} disabled={!active || pending || spectrum?.detecting || spectrum?.running} onClick={() => run("device.refresh", { device: "spectrometer" }, true)} />
-        </div>
+        </ControlRow>
       </Field>
-      <div className="device-settings-field-grid">
+      <ControlGrid className="device-settings-field-grid">
         <NumberField label="积分时间 (μs)" value={config.integrationTimeUs} onChange={(v) => update("integrationTimeUs", v)} />
         <NumberField label="刷新间隔 (ms)" value={config.spectrometerIntervalMs} onChange={(v) => update("spectrometerIntervalMs", v)} />
         <NumberField label="平均帧数" min={1} max={20} value={config.spectrumAverageFrames} onChange={(v) => update("spectrumAverageFrames", Math.max(1, Math.min(20, Math.round(v))))} />
         <Field label="采集模式"><label className="device-settings-checkbox"><input checked={config.autoIntegration} onChange={(e) => update("autoIntegration", e.target.checked)} type="checkbox" />自动积分</label></Field>
         <NumberField label="PIB 中心波长 (nm)" step="0.1" value={config.pibCenterWavelengthNm} onChange={(v) => update("pibCenterWavelengthNm", v)} />
         <NumberField label="PIB 半带宽 (nm)" step="0.1" value={config.pibHalfRangeNm} onChange={(v) => update("pibHalfRangeNm", v)} />
-      </div>
+      </ControlGrid>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
         <label className="device-settings-checkbox"><input checked={config.spectrumSmoothing ?? true} onChange={(e) => update("spectrumSmoothing", e.target.checked)} type="checkbox" />光谱曲线平滑</label>
         <span className="text-xs text-muted-foreground">仅影响显示，不改变测量数据</span>
       </div>
       {mode === "auto" && (
         <>
-          <Button className={`w-full transition-all ${spectrum?.running ? "btn-running-pulse" : ""}`} aria-disabled={spectrum?.detecting || undefined} disabled={!active || pending || (!spectrum?.running && !selectedResourceAvailable)} onClick={() => void run(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
+          <Button className={`w-full transition-colors ${spectrum?.running ? "btn-running-pulse" : ""}`} aria-disabled={spectrum?.detecting || undefined} disabled={!active || pending || (!spectrum?.running && !selectedResourceAvailable)} onClick={() => void run(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)} variant={spectrum?.running ? "destructive" : "default"}>{spectrum?.running ? <><Square className="size-4" />停止采集</> : <><Play className="size-4" />开始采集</>}</Button>
           <p className="text-xs text-muted-foreground">{measurementSummary}</p>
         </>
       )}
@@ -723,7 +754,7 @@ export function DeviceSettingsDialog({ kind, open, onClose, onSave, onScriptSele
 
   if (!open) return null
   const details = {
-    powerSupply: { title: "电源设置", description: "配置电源控制器、输出参数并执行安全控制", icon: <Power className="size-5" /> },
+    powerSupply: { title: "电源设置", description: mode === "manual" ? "选择电源设备并读取状态；加电操作位于主页面的电源控制卡片" : "配置电源控制器、输出参数并执行安全控制", icon: <Power className="size-5" /> },
     powerMeter: { title: "功率计设置", description: "选择功率计资源并管理探头系数方案", icon: <Gauge className="size-5" /> },
     spectrometer: { title: "光谱仪设置", description: "配置光谱仪硬件资源与光谱采集参数", icon: <Radio className="size-5" /> },
   }[kind]
@@ -753,7 +784,7 @@ export function DeviceSettingsDialog({ kind, open, onClose, onSave, onScriptSele
   return (
     <DialogPortal>
       <div className="dialog-overlay motion-overlay-enter" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-        <div aria-labelledby={`${kind}-settings-title`} aria-modal="true" className="device-settings-dialog motion-dialog-enter" data-kind={kind} role="dialog">
+        <div aria-labelledby={`${kind}-settings-title`} aria-modal="true" className="device-settings-dialog motion-dialog-enter" data-kind={kind} data-mode={mode} role="dialog">
           <div className="device-settings-dialog__header">
             <div className="device-settings-dialog__identity">
               <div className="device-settings-dialog__icon">{details.icon}</div>
@@ -1017,13 +1048,13 @@ export function AutomaticSpecificationsDialog({ config, update, active, pending,
                   </div>
                   <Badge variant="outline">当前工位</Badge>
                 </div>
-                <div className="device-settings-field-grid">
+                <ControlGrid className="device-settings-field-grid">
                   <NumberField label="中心波长规格 (nm)" step="0.1" value={draft.centerWavelengthSpecNm} onChange={(value) => updateDraft("centerWavelengthSpecNm", value)} />
                   <NumberField label="中心波长允许偏差 (± nm)" min={0} step="0.1" value={draft.centerWavelengthToleranceNm} onChange={(value) => updateDraft("centerWavelengthToleranceNm", value)} />
                   <NumberField label="FWHM 上限 (nm)" min={0} step="0.01" value={draft.fwhmMaximumNm} onChange={(value) => updateDraft("fwhmMaximumNm", value)} />
                   <NumberField label="PIB 下限 (%)" min={0} max={100} step="0.1" value={draft.pibMinimumPercent} onChange={(value) => updateDraft("pibMinimumPercent", value)} />
                   <NumberField label="PIB 半带宽 (nm)" min={0} step="0.1" value={draft.pibHalfRangeNm} onChange={(value) => updateDraft("pibHalfRangeNm", value)} />
-                </div>
+                </ControlGrid>
               </div>
             </fieldset>
             {error && <p className="mt-3 text-xs text-destructive" role="alert">保存失败：{error}</p>}

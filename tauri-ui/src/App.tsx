@@ -1,6 +1,6 @@
 import { DisplayMenu } from "@/components/appearance-controls"
 import { AutomaticPhaseTrack } from "@/components/automatic-overview"
-import { DataBrowserPage } from "@/components/data-browser-page"
+import { deferredPage } from "@/components/deferred-page"
 import { isModalOpen } from "@/components/dialog-portal"
 import { ActivationView } from "@/components/license/ActivationView"
 import { AnimatedToastStack, type ToastStatus } from "@/components/motion/animated-toast-stack"
@@ -12,7 +12,6 @@ import { ManualPage } from "@/features/manual/page"
 import { PdPage } from "@/features/pd/page"
 import { SystemSettingsPage } from "@/features/settings/page"
 import { RunCommand } from "@/features/shared/controls"
-import { ShippingReportPage } from "@/features/shipping/report"
 import { AppearanceProvider } from "@/hooks/use-appearance"
 import { useBackendSnapshot } from "@/hooks/use-backend-snapshot"
 import { useConfigurationEditor } from "@/hooks/use-configuration-editor"
@@ -35,7 +34,17 @@ import {
   Save,
   Settings,
 } from "lucide-react"
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentProps } from "react"
+
+const loadDataBrowser = () => import("@/components/data-browser-page").then(({ DataBrowserPage }) => ({ default: DataBrowserPage }))
+const loadShippingReport = () => import("@/features/shipping/report").then(({ ShippingReportPage }) => ({ default: ShippingReportPage }))
+const DataBrowserPage = deferredPage(loadDataBrowser, { source: "src/components/data-browser-page.tsx", exportName: "DataBrowserPage" })
+const ShippingReportPage = deferredPage(loadShippingReport, { source: "src/features/shipping/report.tsx", exportName: "ShippingReportPage" })
+
+function preloadPage(page: Page) {
+  const load = page === "data" ? loadDataBrowser : page === "shipping" ? loadShippingReport : null
+  if (load) void load().catch(() => undefined)
+}
 
 type Page = "automatic" | "manual" | "pd" | "data" | "shipping" | "settings"
 
@@ -177,6 +186,36 @@ function pendingCommandLabel(method: string | null): string {
   return "正在处理操作"
 }
 
+const TitlebarActions = memo(function TitlebarActions({ showSave, onOpenAppearance, active, canPause, commandPending, controlsLocked, dirty, run, saveConfiguration }: Omit<ComponentProps<typeof AppTitlebar>, "snapshot" | "showPhase">) {
+  return (
+    <div className="app-titlebar__actions">
+        <DisplayMenu onOpenSettings={onOpenAppearance} />
+        {canPause && (
+          <Button disabled={!active || commandPending} onClick={() => void run("automatic.pause")} size="sm" variant="outline">
+            <Pause className="size-4" />暂停测试
+          </Button>
+        )}
+        {showSave && <Button
+          disabled={!dirty || !active || commandPending || controlsLocked}
+          onClick={() => void saveConfiguration()}
+          size="sm"
+          variant="outline"
+        >
+          <Save className="size-4" />保存设置
+        </Button>}
+        <Button
+          className="app-emergency-stop"
+          disabled={!active}
+          onClick={() => void run("app.stopAll")}
+          size="sm"
+          variant="outline"
+        >
+          <OctagonAlert className="size-4" />急停
+        </Button>
+      </div>
+  )
+})
+
 function AppTitlebar({
   snapshot,
   showPhase,
@@ -216,34 +255,53 @@ function AppTitlebar({
         )}
       </div>
       {showPhase && <AutomaticPhaseTrack snapshot={snapshot} />}
-      <div className="app-titlebar__actions">
-        <DisplayMenu onOpenSettings={onOpenAppearance} />
-        {canPause && (
-          <Button disabled={!active || commandPending} onClick={() => void run("automatic.pause")} size="sm" variant="outline">
-            <Pause className="size-4" />暂停测试
-          </Button>
-        )}
-        {showSave && <Button
-          disabled={!dirty || !active || commandPending || controlsLocked}
-          onClick={() => void saveConfiguration()}
-          size="sm"
-          variant="outline"
-        >
-          <Save className="size-4" />保存设置
-        </Button>}
-        <Button
-          className="app-emergency-stop"
-          disabled={!active}
-          onClick={() => void run("app.stopAll")}
-          size="sm"
-          variant="outline"
-        >
-          <OctagonAlert className="size-4" />急停
-        </Button>
-      </div>
+      <TitlebarActions showSave={showSave} onOpenAppearance={onOpenAppearance} active={active} canPause={canPause} commandPending={commandPending} controlsLocked={controlsLocked} dirty={dirty} pendingCommand={pendingCommand} run={run} saveConfiguration={saveConfiguration} />
     </header>
   )
 }
+
+const NavigationSidebar = memo(function NavigationSidebar({ page, pageIsBlocked, pageBlockedReason, changePage }: {
+  page: Page
+  pageIsBlocked: (page: Page) => boolean
+  pageBlockedReason: (page: Page) => string
+  changePage: (page: Page) => void
+}) {
+  return (
+    <aside className="app-shell__sidebar shell-sidebar-enter flex h-full min-h-0 flex-col border-r border-border bg-[var(--app-sidebar)] px-3 py-4 text-[var(--app-text)]">
+          <nav className="space-y-1.5">
+            {navigation.map((item) => (
+              <button
+                aria-current={page === item.id ? "page" : undefined}
+                aria-keyshortcuts={"shortcut" in item ? `Meta+${item.shortcut} Control+${item.shortcut}` : undefined}
+                className={`app-nav-item relative flex w-full items-center gap-3 rounded-lg px-3 py-3 text-[15px] outline-none transition-[color,background-color,box-shadow] duration-200 before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:origin-center before:rounded-full before:bg-primary before:transition-transform before:duration-200 focus-visible:ring-2 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:text-[var(--app-text-tertiary)] ${page === item.id ? "bg-[var(--app-selected-soft)] font-medium text-[var(--app-text)] before:scale-y-100" : "text-[var(--app-text-tertiary)] before:scale-y-0 hover:bg-[var(--app-hover-soft)] hover:text-[var(--app-text-secondary)] disabled:hover:bg-transparent"}`}
+                disabled={"unavailable" in item || pageIsBlocked(item.id)}
+                key={item.id}
+                onClick={() => { if (!("unavailable" in item)) changePage(item.id) }}
+                onPointerEnter={() => { if (!pageIsBlocked(item.id)) preloadPage(item.id) }}
+                onFocus={() => { if (!pageIsBlocked(item.id)) preloadPage(item.id) }}
+                title={
+                  "unavailable" in item
+                    ? `${item.label}功能尚未接入`
+                    : pageBlockedReason(item.id) || ("shortcut" in item ? `${item.label}（⌘/Ctrl + ${item.shortcut}）` : item.label)
+                }
+                type="button"
+              >
+                <item.icon className="app-nav-icon size-5 shrink-0" /><span className="whitespace-nowrap font-medium">{item.label}</span>
+              </button>
+            ))}
+          </nav>
+          <div className="mt-auto grid justify-items-center gap-2 px-3 pb-1 pt-3" aria-label="侧栏格言 Stay True">
+            <div className="h-px w-full bg-gradient-to-r from-transparent via-border/80 to-transparent" />
+            <p
+              className="whitespace-nowrap text-base font-normal leading-snug tracking-[0.01em] text-[var(--app-text-tertiary)] opacity-80"
+              style={{ fontFamily: "'Snell Roundhand', 'Segoe Print', 'Bradley Hand', cursive" }}
+            >
+              Stay True
+            </p>
+          </div>
+        </aside>
+  )
+})
 
 function LicensedApp({
   licenseStatus,
@@ -253,6 +311,7 @@ function LicensedApp({
   onImportLicense: () => Promise<void>
 }) {
   const [page, setPage] = useState<Page>(() => (typeof window !== "undefined" && (new URLSearchParams(window.location.search).get("page") as Page)) || "automatic")
+  const [dataBrowserVisited, setDataBrowserVisited] = useState(page === "data")
   const [theme, setTheme] = useState<Theme>(getStoredTheme)
   const [accentTheme, setAccentTheme] = useState<AccentTheme>(getStoredAccentTheme)
   const [curveLineStyle, setCurveLineStyle] = useState<CurveLineStyle>(getStoredCurveLineStyle)
@@ -413,8 +472,11 @@ function LicensedApp({
   const changePage = useCallback((nextPage: Page) => {
     if (pageIsBlocked(nextPage)) return
     pageScrollPositionsRef.current[page] = window.scrollY
+    if (nextPage === "data") setDataBrowserVisited(true)
     setPage(nextPage)
   }, [page, pageIsBlocked])
+
+  const openAppearance = useCallback(() => changePage("settings"), [changePage])
 
   useLayoutEffect(() => {
     const targetY = pageScrollPositionsRef.current[page] ?? 0
@@ -586,7 +648,7 @@ function LicensedApp({
         snapshot={snapshot}
         showPhase={page === "automatic" || automaticWorkflowActive}
         showSave={page !== "automatic"}
-        onOpenAppearance={() => changePage("settings")}
+        onOpenAppearance={openAppearance}
         active={active}
         canPause={Boolean(page === "automatic" && snapshot?.automaticTest.canPause)}
         commandPending={commandPending}
@@ -611,37 +673,7 @@ function LicensedApp({
         </div>
       )}
       <div className="app-shell__body grid min-h-0 flex-1 overflow-hidden">
-        <aside className="app-shell__sidebar shell-sidebar-enter flex h-full min-h-0 flex-col border-r border-border bg-[var(--app-sidebar)] px-3 py-4 text-[var(--app-text)]">
-          <nav className="space-y-1.5">
-            {navigation.map((item) => (
-              <button
-                aria-current={page === item.id ? "page" : undefined}
-                aria-keyshortcuts={"shortcut" in item ? `Meta+${item.shortcut} Control+${item.shortcut}` : undefined}
-                className={`app-nav-item relative flex w-full items-center gap-3 rounded-lg px-3 py-3 text-[15px] outline-none transition-[color,background-color,box-shadow] duration-200 before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:origin-center before:rounded-full before:bg-primary before:transition-transform before:duration-200 focus-visible:ring-2 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:text-[var(--app-text-tertiary)] ${page === item.id ? "bg-[var(--app-selected-soft)] font-medium text-[var(--app-text)] before:scale-y-100" : "text-[var(--app-text-tertiary)] before:scale-y-0 hover:bg-[var(--app-hover-soft)] hover:text-[var(--app-text-secondary)] disabled:hover:bg-transparent"}`}
-                disabled={"unavailable" in item || pageIsBlocked(item.id)}
-                key={item.id}
-                onClick={() => { if (!("unavailable" in item)) changePage(item.id) }}
-                title={
-                  "unavailable" in item
-                    ? `${item.label}功能尚未接入`
-                    : pageBlockedReason(item.id) || ("shortcut" in item ? `${item.label}（⌘/Ctrl + ${item.shortcut}）` : item.label)
-                }
-                type="button"
-              >
-                <item.icon className="app-nav-icon size-5 shrink-0" /><span className="whitespace-nowrap font-medium">{item.label}</span>
-              </button>
-            ))}
-          </nav>
-          <div className="mt-auto grid justify-items-center gap-2 px-3 pb-1 pt-3" aria-label="侧栏格言 Stay True">
-            <div className="h-px w-full bg-gradient-to-r from-transparent via-border/80 to-transparent" />
-            <p
-              className="whitespace-nowrap text-base font-normal leading-snug tracking-[0.01em] text-[var(--app-text-tertiary)] opacity-80"
-              style={{ fontFamily: "'Snell Roundhand', 'Segoe Print', 'Bradley Hand', cursive" }}
-            >
-              Stay True
-            </p>
-          </div>
-        </aside>
+        <NavigationSidebar page={page} pageIsBlocked={pageIsBlocked} pageBlockedReason={pageBlockedReason} changePage={changePage} />
 
         <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           {toastNotifications.length > 0 && (
@@ -698,7 +730,7 @@ function LicensedApp({
             {page === "settings" && <SystemSettingsPage curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} licenseStatus={licenseStatus} onCurveLineStyleChange={setCurveLineStyle} onImportLicense={onImportLicense} onLatestPointMarkerStyleChange={setLatestPointMarkerStyle} theme={theme} onThemeChange={setTheme} accentTheme={accentTheme} onAccentThemeChange={setAccentTheme} />}
           </div>
           <div className="db-page-host min-h-0 flex-1" style={{ display: page === "data" ? "flex" : "none", flexDirection: "column" }}>
-            <DataBrowserPage
+            {dataBrowserVisited && <DataBrowserPage
               visible={page === "data"}
               defaultDirectory={config.outputDir}
               enabled={operational && !automaticInteractionLocked}
@@ -707,7 +739,7 @@ function LicensedApp({
                   : !active ? "正在连接后端服务，连接完成后即可浏览测试数据。"
                     : automaticInteractionLocked ? "自动测试执行中，数据浏览已锁定；执行“结束并安全下电”后可继续。" : undefined
               }
-            />
+            />}
           </div>
         </main>
       </div>

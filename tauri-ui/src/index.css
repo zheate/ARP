@@ -1042,6 +1042,7 @@ body {
 }
 
 .device-settings-dialog {
+  --form-control-height: var(--form-control-height-normal);
   container-type: inline-size;
   display: flex;
   width: min(44rem, calc(100vw - 2rem));
@@ -1054,7 +1055,7 @@ body {
   box-shadow: 0 8px 24px rgb(0 0 0 / 0.24);
 }
 
-.device-settings-dialog[data-kind="powerSupply"] {
+.device-settings-dialog[data-kind="powerSupply"]:where([data-mode="auto"]) {
   width: min(68rem, calc(100vw - 2rem));
 }
 
@@ -1426,17 +1427,23 @@ body {
   color: var(--app-warning);
 }
 
+.control-grid {
+  display: grid;
+  min-width: 0;
+  gap: var(--form-grid-gap);
+}
+
 .device-settings-field-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.625rem;
+  gap: var(--form-grid-gap);
 }
 
 .device-settings-action-grid,
 .power-settings-action-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.5rem;
+  gap: var(--form-grid-gap);
 }
 
 .device-settings-checkbox {
@@ -1460,6 +1467,7 @@ body {
 }
 
 .power-settings-section {
+  container: power-section / inline-size;
   min-width: 0;
   border: 1px solid var(--border);
   border-radius: 0.875rem;
@@ -1495,13 +1503,31 @@ body {
 .power-settings-value-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
-  gap: 0.625rem;
+  gap: var(--form-grid-gap);
+}
+
+.parameter-control {
+  display: grid;
+  min-width: 0;
+  gap: var(--form-grid-gap);
+}
+
+.power-settings-connection > [data-slot="button"] {
+  width: 100%;
+}
+
+/* A wrapped label must not lift its control above the adjacent column. */
+:is(.device-settings-field-grid, .power-settings-parameter-grid) > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: space-between;
 }
 
 .power-settings-parameter-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.625rem;
+  gap: var(--form-grid-gap);
 }
 
 .power-settings-parameter-grid--safety {
@@ -1633,12 +1659,12 @@ body {
   }
 }
 
-@container (min-width: 40rem) {
+@container (min-width: 48rem) {
   .test-configuration-layout {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .power-settings-layout {
+  .power-settings-layout[data-mode="auto"] {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1rem;
   }
@@ -1655,13 +1681,13 @@ body {
   }
 }
 
-@container (min-width: 56rem) {
+@container power-section (min-width: 28rem) {
   .power-settings-parameter-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
-@container (max-width: 28rem) {
+@container (max-width: 22rem) {
   .power-settings-value-grid,
   .power-settings-parameter-grid,
   .power-settings-action-grid,
@@ -1807,6 +1833,10 @@ body {
 }
 
 :root {
+  --form-grid-gap: 0.625rem;
+  --form-control-height: 2rem;
+  --form-control-height-normal: 2.25rem;
+  --form-action-width: 7.5rem;
   --background: oklch(0.98 0.006 255);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -2317,4 +2347,33 @@ html.dark {
 
 .highlight-flash {
   animation: flash-pulse 300ms ease-out forwards;
+}
+
+/* Shared form rows: preserve labels and local dropdown layers in their parent Field. */
+.control-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+.control-row[data-action-width="path"] {
+  grid-template-columns: minmax(0, 1fr) var(--form-action-width);
+}
+.control-row :is([data-slot="input"], [data-slot="button"], button[role="combobox"]) {
+  height: var(--form-control-height);
+  min-height: var(--form-control-height);
+}
+.control-row > [data-slot="button"] { width: 100%; }
+
+.page-load-state {
+  display: flex;
+  min-height: 8rem;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 0.75rem;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
 }

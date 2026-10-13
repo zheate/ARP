@@ -174,7 +174,7 @@ export const ManualPage = memo(function ManualPage({
             </Button>
           </div>
         </div>
-        <div className="flex items-end justify-center self-end">
+        <div className="flex items-end justify-end self-end">
           <Button
             className="h-9 w-full max-w-[220px]"
             disabled={!manualSaveReady}
@@ -322,7 +322,7 @@ export const ManualPage = memo(function ManualPage({
                     开启输出
                   </Button>
                   <Button
-                    className={`h-9 text-xs px-2 truncate font-medium transition-all ${psu?.outputEnabled ? "bg-destructive text-destructive-foreground hover:bg-destructive/90 shadow-sm animate-pulse" : ""}`}
+                    className={`h-9 text-xs px-2 truncate font-medium transition-colors ${psu?.outputEnabled ? "bg-destructive text-destructive-foreground hover:bg-destructive/90 shadow-sm animate-pulse" : ""}`}
                     disabled={!active || psu?.detecting || !psu?.connected || !psu?.outputEnabled || pending}
                     onClick={() => void runManualCommand("powerSupply.setOutput", { enabled: false }, true)}
                     variant={psu?.outputEnabled ? "destructive" : "outline"}
@@ -459,7 +459,7 @@ export const ManualPage = memo(function ManualPage({
 
             <div className="manual-device-card__footer">
               <Button
-                className={`w-full h-9 transition-all text-xs font-medium ${meter?.running ? "btn-running-pulse" : ""}`}
+                className={`w-full h-9 transition-colors text-xs font-medium ${meter?.running ? "btn-running-pulse" : ""}`}
                 disabled={!active || meter?.detecting || (!meter?.running && !selectedPowerMeterResourceAvailable) || pending}
                 onClick={() => void runManualCommand(meter?.running ? "powerMeter.stop" : "powerMeter.start", {}, true)}
                 variant={meter?.running ? "destructive" : "default"}
@@ -551,7 +551,7 @@ export const ManualPage = memo(function ManualPage({
 
             <div className="manual-device-card__footer">
               <Button
-                className={`w-full h-9 transition-all text-xs font-medium ${spectrum?.running ? "btn-running-pulse" : ""}`}
+                className={`w-full h-9 transition-colors text-xs font-medium ${spectrum?.running ? "btn-running-pulse" : ""}`}
                 disabled={!active || spectrum?.detecting || (!spectrum?.running && !selectedSpectrometerResourceAvailable) || pending}
                 onClick={() => void runManualCommand(spectrum?.running ? "spectrometer.stop" : "spectrometer.start", {}, true)}
                 variant={spectrum?.running ? "destructive" : "default"}

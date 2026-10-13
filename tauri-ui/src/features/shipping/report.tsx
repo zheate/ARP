@@ -1,3 +1,5 @@
+import "@/components/shipping-report.css"
+import { ControlRow } from "@/components/control-layout"
 import { Field } from "@/components/field"
 import { NativeSelect } from "@/components/native-select"
 import { Badge } from "@/components/ui/badge"
@@ -443,16 +445,16 @@ export function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
         </div>
         <div className="grid gap-4">
           <Field label="Excel 测试数据路径">
-            <div className="flex min-w-0 gap-2">
+            <ControlRow actionWidth="path">
               <Input aria-label="Excel 测试数据路径" disabled={disabled || busy} onChange={(event) => { setSourcePath(event.target.value); setError("") }} placeholder="选择自动或手动测试生成的 .xlsx 文件" value={sourcePath} />
               <Button className="shrink-0" disabled={disabled || busy} onClick={() => void chooseSourcePath()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />浏览</Button>
-            </div>
+            </ControlRow>
           </Field>
           <Field label="本地 PDF 保存文件夹">
-            <div className="flex min-w-0 gap-2">
+            <ControlRow actionWidth="path">
               <Input aria-label="本地 PDF 保存文件夹" disabled={disabled || busy} onChange={(event) => { setOutputDirectory(event.target.value); setError("") }} placeholder="选择 PDF 保存文件夹，文件名将自动生成" value={outputDirectory} />
               <Button className="shrink-0" disabled={disabled || busy} onClick={() => void chooseOutputDirectory()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />选择文件夹</Button>
-            </div>
+            </ControlRow>
           </Field>
         </div>
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
@@ -970,8 +972,8 @@ export function BatchShippingReportWorkflow({ disabled }: { disabled: boolean })
 
   return <>
     <div className="grid gap-4">
-      <Field label="Excel 批量根目录"><div className="flex min-w-0 gap-2"><Input aria-label="Excel 批量根目录" disabled={disabled || busy} onChange={(event) => { setRootPath(event.target.value); setBatch(null); setError("") }} placeholder="递归扫描目录中的 .xlsx 文件" value={rootPath} /><Button className="shrink-0" disabled={disabled || busy} onClick={() => void chooseRootPath()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />浏览</Button></div></Field>
-      <Field label="本地 PDF 保存文件夹"><div className="flex min-w-0 gap-2"><Input aria-label="批量 PDF 保存文件夹" disabled={disabled || busy} onChange={(event) => { setOutputDirectory(event.target.value); setError("") }} placeholder="已有同名文件时自动添加序号" value={outputDirectory} /><Button className="shrink-0" disabled={disabled || busy} onClick={() => void chooseOutputDirectory()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />选择文件夹</Button></div></Field>
+      <Field label="Excel 批量根目录"><ControlRow actionWidth="path"><Input aria-label="Excel 批量根目录" disabled={disabled || busy} onChange={(event) => { setRootPath(event.target.value); setBatch(null); setError("") }} placeholder="递归扫描目录中的 .xlsx 文件" value={rootPath} /><Button className="shrink-0" disabled={disabled || busy} onClick={() => void chooseRootPath()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />浏览</Button></ControlRow></Field>
+      <Field label="本地 PDF 保存文件夹"><ControlRow actionWidth="path"><Input aria-label="批量 PDF 保存文件夹" disabled={disabled || busy} onChange={(event) => { setOutputDirectory(event.target.value); setError("") }} placeholder="已有同名文件时自动添加序号" value={outputDirectory} /><Button className="shrink-0" disabled={disabled || busy} onClick={() => void chooseOutputDirectory()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />选择文件夹</Button></ControlRow></Field>
     </div>
     <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4"><div className="text-xs text-muted-foreground">{error || "扫描后将按 Excel 内 SN 去重，并选择修改时间最新的测试文件。"}</div><Button disabled={disabled || busy} onClick={() => void scan()}><RefreshCw className={`size-4 ${busy && !batch ? "animate-spin" : ""}`} />{busy && !batch ? "正在扫描…" : "扫描并预检"}</Button></div>
     {batch && <>

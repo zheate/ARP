@@ -75,6 +75,7 @@
 .sample-nameplate input,
 .sample-nameplate button[role="combobox"] { min-width: 0; height: var(--control-height); font-size: 0.875rem; padding-inline: 0.75rem; }
 .sample-nameplate input::placeholder { font-size: 0.9rem; opacity: 0.8; }
+.sample-nameplate__output [data-slot="button"] { height: var(--control-height); width: var(--control-height); }
 .sample-nameplate .sample-nameplate__identity input { font-size: 1.05rem; font-family: var(--font-mono); font-weight: 600; letter-spacing: 0.02em; }
 .sample-nameplate[data-locked="true"] :is(input, button[role="combobox"]) { opacity: 1; border-color: transparent; box-shadow: none; background: transparent; cursor: default; }
 .sample-nameplate[data-locked="true"] input { padding-left: 0; }

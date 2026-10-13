@@ -1,0 +1,436 @@
+{
+  "workload": "production React, full app, synthetic 8192-point spectrum and 601 power samples, 4x CPU throttle, 1440x960",
+  "before": {
+    "hover": {
+      "clears": {
+        "功率实时曲线": 61
+      },
+      "reads": 0,
+      "commits": 61,
+      "frameP95Ms": 16.700000000000273,
+      "frameMaxMs": 16.800000000000182,
+      "framesOver34ms": 0,
+      "scriptMs": 105.23800000000001,
+      "taskMs": 334.84,
+      "layoutMs": 32.734,
+      "styleMs": 30.327000000000005
+    },
+    "navigation": {
+      "clears": {
+        "功率实时曲线": 4,
+        "功率 / 效率曲线": 4,
+        "光谱曲线": 4,
+        "外观示例功率曲线": 8
+      },
+      "reads": 42,
+      "commits": 23,
+      "frameP95Ms": 16.700000000000728,
+      "frameMaxMs": 33.40000000000009,
+      "framesOver34ms": 0,
+      "scriptMs": 131.646,
+      "taskMs": 779.78,
+      "layoutMs": 41.476,
+      "styleMs": 299.95099999999996
+    },
+    "switches": [
+      {
+        "name": "手动配置",
+        "elapsedMs": 48.20000000298023
+      },
+      {
+        "name": "PD 采集",
+        "elapsedMs": 23.5
+      },
+      {
+        "name": "系统设置",
+        "elapsedMs": 34.70000000298023
+      },
+      {
+        "name": "自动测试",
+        "elapsedMs": 37.899999998509884
+      },
+      {
+        "name": "手动配置",
+        "elapsedMs": 38.899999998509884
+      },
+      {
+        "name": "PD 采集",
+        "elapsedMs": 24.299999997019768
+      },
+      {
+        "name": "系统设置",
+        "elapsedMs": 33.5
+      },
+      {
+        "name": "自动测试",
+        "elapsedMs": 47.70000000298023
+      }
+    ]
+  },
+  "after": {
+    "hover": {
+      "clears": {},
+      "reads": 0,
+      "commits": 61,
+      "frameP95Ms": 16.799999999999955,
+      "frameMaxMs": 16.800000000000182,
+      "framesOver34ms": 0,
+      "scriptMs": 79.699,
+      "taskMs": 295.51700000000005,
+      "layoutMs": 29.168,
+      "styleMs": 32.382000000000005
+    },
+    "navigation": {
+      "clears": {
+        "功率实时曲线": 4,
+        "功率 / 效率曲线": 4,
+        "光谱曲线": 4,
+        "外观示例功率曲线": 8
+      },
+      "reads": 2,
+      "commits": 22,
+      "frameP95Ms": 16.700000000000728,
+      "frameMaxMs": 33.29999999999973,
+      "framesOver34ms": 0,
+      "scriptMs": 139.608,
+      "taskMs": 705.27,
+      "layoutMs": 40.934000000000005,
+      "styleMs": 221.48799999999997
+    },
+    "switches": [
+      {
+        "name": "手动配置",
+        "elapsedMs": 41.600000001490116
+      },
+      {
+        "name": "PD 采集",
+        "elapsedMs": 28.5
+      },
+      {
+        "name": "系统设置",
+        "elapsedMs": 35.399999998509884
+      },
+      {
+        "name": "自动测试",
+        "elapsedMs": 34.29999999701977
+      },
+      {
+        "name": "手动配置",
+        "elapsedMs": 30.399999998509884
+      },
+      {
+        "name": "PD 采集",
+        "elapsedMs": 24.5
+      },
+      {
+        "name": "系统设置",
+        "elapsedMs": 24.299999997019768
+      },
+      {
+        "name": "自动测试",
+        "elapsedMs": 30.200000002980232
+      }
+    ]
+  },
+  "live_before": {
+    "counts": {
+      "clears": {
+        "功率实时曲线": 30,
+        "光谱曲线": 30
+      },
+      "reads": 0,
+      "commits": 30
+    },
+    "updates": [
+      5,
+      1.3000000044703484,
+      0.6000000014901161,
+      2.399999998509884,
+      2.600000001490116,
+      3,
+      1.8999999985098839,
+      2.5,
+      2.5,
+      2.8000000044703484,
+      1.8999999985098839,
+      2.2000000029802322,
+      3.100000001490116,
+      2.100000001490116,
+      2.100000001490116,
+      2,
+      2.100000001490116,
+      2,
+      1.8999999985098839,
+      2.2000000029802322,
+      1.8999999985098839,
+      2,
+      1.3999999985098839,
+      1.6000000014901161,
+      1.9000000059604645,
+      1.7000000029802322,
+      1.8000000044703484,
+      2.0999999940395355,
+      1.6999999955296516,
+      1.8999999985098839
+    ],
+    "frameP95Ms": 16.799999999999955,
+    "frameMaxMs": 16.800000000000182,
+    "scriptMs": 73.71600000000001,
+    "taskMs": 189.45299999999997,
+    "layoutMs": 0,
+    "styleMs": 0
+  },
+  "visual_before": [
+    {
+      "theme": "dark",
+      "width": 1440,
+      "overflow": false,
+      "canvases": [
+        {
+          "label": "功率实时曲线",
+          "width": 602,
+          "height": 186
+        },
+        {
+          "label": "功率 / 效率曲线",
+          "width": 602,
+          "height": 186
+        },
+        {
+          "label": "光谱曲线",
+          "width": 1229,
+          "height": 322
+        }
+      ]
+    },
+    {
+      "theme": "dark",
+      "width": 1180,
+      "overflow": false,
+      "canvases": [
+        {
+          "label": "功率实时曲线",
+          "width": 484,
+          "height": 122
+        },
+        {
+          "label": "功率 / 效率曲线",
+          "width": 484,
+          "height": 122
+        },
+        {
+          "label": "光谱曲线",
+          "width": 990,
+          "height": 186
+        }
+      ]
+    },
+    {
+      "theme": "light",
+      "width": 1440,
+      "overflow": false,
+      "canvases": [
+        {
+          "label": "功率实时曲线",
+          "width": 602,
+          "height": 186
+        },
+        {
+          "label": "功率 / 效率曲线",
+          "width": 602,
+          "height": 186
+        },
+        {
+          "label": "光谱曲线",
+          "width": 1229,
+          "height": 322
+        }
+      ]
+    },
+    {
+      "theme": "light",
+      "width": 1180,
+      "overflow": false,
+      "canvases": [
+        {
+          "label": "功率实时曲线",
+          "width": 484,
+          "height": 122
+        },
+        {
+          "label": "功率 / 效率曲线",
+          "width": 484,
+          "height": 122
+        },
+        {
+          "label": "光谱曲线",
+          "width": 990,
+          "height": 186
+        }
+      ]
+    }
+  ],
+  "live_after": {
+    "counts": {
+      "clears": {
+        "功率实时曲线": 30,
+        "光谱曲线": 30
+      },
+      "reads": 0,
+      "commits": 30
+    },
+    "updates": [
+      3.7000000029802322,
+      4,
+      2,
+      2.5,
+      3,
+      2.399999998509884,
+      2,
+      2.399999998509884,
+      2.399999998509884,
+      2.100000001490116,
+      1.7999999970197678,
+      1.8999999985098839,
+      1.7999999970197678,
+      2,
+      1.5999999940395355,
+      1.6000000014901161,
+      2.3000000044703484,
+      2,
+      2.100000001490116,
+      1.9000000059604645,
+      2,
+      1.8999999985098839,
+      1.6000000014901161,
+      3.899999998509884,
+      2.2000000029802322,
+      1.8999999985098839,
+      2.1999999955296516,
+      2.399999998509884,
+      2.2000000029802322,
+      2
+    ],
+    "frameP95Ms": 16.799999999999272,
+    "frameMaxMs": 16.800000000000182,
+    "scriptMs": 82.44999999999999,
+    "taskMs": 213.757,
+    "layoutMs": 0,
+    "styleMs": 0
+  },
+  "visual_after": [
+    {
+      "theme": "dark",
+      "width": 1440,
+      "overflow": false,
+      "canvases": [
+        {
+          "label": "功率实时曲线",
+          "width": 602,
+          "height": 186
+        },
+        {
+          "label": "功率 / 效率曲线",
+          "width": 602,
+          "height": 186
+        },
+        {
+          "label": "光谱曲线",
+          "width": 1229,
+          "height": 322
+        }
+      ]
+    },
+    {
+      "theme": "dark",
+      "width": 1180,
+      "overflow": false,
+      "canvases": [
+        {
+          "label": "功率实时曲线",
+          "width": 484,
+          "height": 122
+        },
+        {
+          "label": "功率 / 效率曲线",
+          "width": 484,
+          "height": 122
+        },
+        {
+          "label": "光谱曲线",
+          "width": 990,
+          "height": 186
+        }
+      ]
+    },
+    {
+      "theme": "light",
+      "width": 1440,
+      "overflow": false,
+      "canvases": [
+        {
+          "label": "功率实时曲线",
+          "width": 602,
+          "height": 186
+        },
+        {
+          "label": "功率 / 效率曲线",
+          "width": 602,
+          "height": 186
+        },
+        {
+          "label": "光谱曲线",
+          "width": 1229,
+          "height": 322
+        }
+      ]
+    },
+    {
+      "theme": "light",
+      "width": 1180,
+      "overflow": false,
+      "canvases": [
+        {
+          "label": "功率实时曲线",
+          "width": 484,
+          "height": 122
+        },
+        {
+          "label": "功率 / 效率曲线",
+          "width": 484,
+          "height": 122
+        },
+        {
+          "label": "光谱曲线",
+          "width": 990,
+          "height": 186
+        }
+      ]
+    }
+  ],
+  "canvas_pixels_identical": true,
+  "live_spectrum_pixels_identical": true,
+  "regression": {
+    "mountRectReads": 0,
+    "hoverBaseDraws": 0,
+    "changedFrameDraws": 2,
+    "hiddenFrameDraws": 2,
+    "tooltipAndCrosshair": true,
+    "pointerLeaveClears": true,
+    "sizes": [
+      {
+        "ratio": 1,
+        "correct": true
+      },
+      {
+        "ratio": 1.5,
+        "correct": true
+      },
+      {
+        "ratio": 2,
+        "correct": true
+      }
+    ],
+    "themeRepaint": true
+  }
+}

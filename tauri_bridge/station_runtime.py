@@ -317,29 +317,37 @@ class StationRuntime(StationAutomaticMixin):
             raise RuntimeError(f"电源状态异常：{self.power_supply_identity_error}")
         return supply
 
+    def _power_supply_command_delay(self) -> float:
+        """Read the remaining CH341 interval while holding the supply I/O lock."""
+        if self.power_supply_kind != "ch341":
+            return 0.0
+        previous = self._last_power_supply_command_at
+        return (
+            0.0
+            if previous is None
+            else max(0.0, MIN_POWER_SUPPLY_COMMAND_INTERVAL_S - (time.monotonic() - previous))
+        )
+
+    def _wait_power_supply_command_interval(self, remaining: float) -> None:
+        automatic_active = self.automatic.state not in {
+            AutomaticTestState.IDLE,
+            AutomaticTestState.COMPLETED,
+        }
+        if automatic_active:
+            if self._automatic_stop.wait(remaining):
+                raise RuntimeError("自动测试已停止")
+        else:
+            time.sleep(remaining)
+
     def _reserve_power_supply_command(self, *, wait: bool) -> None:
         """Keep CH341 commands outside the controller's unsafe 1.1 s window."""
         if self.power_supply_kind != "ch341":
             return
-        now = time.monotonic()
-        previous = self._last_power_supply_command_at
-        remaining = (
-            0.0
-            if previous is None
-            else MIN_POWER_SUPPLY_COMMAND_INTERVAL_S - (now - previous)
-        )
+        remaining = self._power_supply_command_delay()
         if remaining > 0.0:
             if not wait:
                 raise RuntimeError(f"电源命令过快，请等待 {remaining:.1f} 秒后重试")
-            automatic_active = self.automatic.state not in {
-                AutomaticTestState.IDLE,
-                AutomaticTestState.COMPLETED,
-            }
-            if automatic_active:
-                if self._automatic_stop.wait(remaining):
-                    raise RuntimeError("自动测试已停止")
-            else:
-                time.sleep(remaining)
+            self._wait_power_supply_command_interval(remaining)
         self._last_power_supply_command_at = time.monotonic()
 
     def _refresh_live_power_supply_current(self, *, force: bool = False) -> bool:
@@ -690,33 +698,47 @@ class StationRuntime(StationAutomaticMixin):
             self.notify("info", "电源断开", "电源控制器已安全断开")
 
     def set_current(self, params: dict[str, Any], *, wait_for_slot: bool = False) -> None:
-        with self.command_safety.command(), self._lock:
+        with self.command_safety.command():
             current_a = finite_number(params.get("currentA"), "电流")
             if current_a < 0.0:
                 raise ValueError("电流设定值不能为负数")
-            if self.power_supply_kind == "ch341" and current_a > 20.0:
-                raise ValueError("CH341 最大电流不能超过 20 A")
-            supply = self._require_power_supply()
-            with self._supply_io_lock:
-                self._reserve_power_supply_command(wait=wait_for_slot)
-                self.command_safety.check()
-                self._clear_shutdown_result()
-                supply.set_current(current_a)
-                self.latest_power_supply_output_current_a = None
-                self._last_live_current_read_at = None
-            self.active_current_a = current_a
-            self.configuration["setCurrentA"] = current_a
-            if self.automatic.state in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED}:
-                self.pending_manual_stable_current_a = current_a
-                self.recorded_manual_stable_current_a = None
-                self.recorded_manual_stability_generation = None
-                self.efficiency_points.pop(current_a, None)
-                self._manual_voltage_timer_generation += 1
-                self.pending_manual_stability_generation = (
-                    self.power_meter_reader.reset_stability_window()
-                    if self.power_meter_reader is not None
-                    else None
-                )
+            while True:
+                # Preserve the shared state -> I/O lock order. Do not retain
+                # either lock during the interval: snapshots and acquisitions
+                # need state, while emergency shutdown needs the I/O lock.
+                with self._lock:
+                    self.command_safety.check()
+                    if self.power_supply_kind == "ch341" and current_a > 20.0:
+                        raise ValueError("CH341 最大电流不能超过 20 A")
+                    supply = self._require_power_supply()
+                    with self._supply_io_lock:
+                        remaining = self._power_supply_command_delay()
+                        ready = not wait_for_slot or remaining <= 0.0
+                        if ready:
+                            self._reserve_power_supply_command(wait=False)
+                            self.command_safety.check()
+                            self._clear_shutdown_result()
+                            supply.set_current(current_a)
+                            self.latest_power_supply_output_current_a = None
+                            self._last_live_current_read_at = None
+                    if ready:
+                        self.active_current_a = current_a
+                        self.configuration["setCurrentA"] = current_a
+                        if self.automatic.state in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED}:
+                            self.pending_manual_stable_current_a = current_a
+                            self.recorded_manual_stable_current_a = None
+                            self.recorded_manual_stability_generation = None
+                            self.efficiency_points.pop(current_a, None)
+                            self._manual_voltage_timer_generation += 1
+                            self.pending_manual_stability_generation = (
+                                self.power_meter_reader.reset_stability_window()
+                                if self.power_meter_reader is not None
+                                else None
+                            )
+                        return
+                self._wait_power_supply_command_interval(remaining)
+                # Another command or a disconnect may have won the slot while
+                # we waited. Recheck the gate, controller and interval together.
 
     def set_voltage(self, params: dict[str, Any]) -> None:
         with self.command_safety.command(), self._lock:

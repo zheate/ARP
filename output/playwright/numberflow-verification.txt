@@ -1,0 +1,23 @@
+NumberFlow validation, 2026-10-10
+
+Dependency: @number-flow/react 0.6.2
+Readout digit/transform duration: 100 ms; opacity duration: 80 ms.
+Focused tests: 5 passed (format preservation, carry boundaries, static fallbacks, stored settings).
+Production frontend build: passed; existing large-chunk warning remains.
+
+Browser demo: http://localhost:1420/?demo=1
+1440 x 1000, light/dark: 0.860 and 0.861 observed; running digit animations detected.
+1180 x 720, light/dark: 0.860 and 0.861 observed; running digit animations detected.
+Readout x/width/height and unit x/y drift in all four cases: 0 px.
+Horizontal page overflow in all four cases: none.
+Reduced motion: values updated, 0 running animations.
+Switch off: animated=false; stored highlightChanges=false.
+Switch on: animation restored.
+
+Automatic run demo: http://localhost:1420/?demo=1&run=1
+Observed power readings 0.280, 0.366, 0.610 during 3 seconds.
+Running animations detected; cards remained aligned; no horizontal overflow.
+No page errors during the realtime sample after a clean reload.
+
+GIF is a recording of the real preview at its normal animation speed.
+Native Tauri WebView and real instruments were not tested.

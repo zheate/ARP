@@ -368,6 +368,12 @@ export function decodeBackendSnapshotPatch(value: unknown): BackendSnapshotPatch
   return patch
 }
 
+// These small, JSON-only sections change on configuration edits, not each sample.
+// Never use this comparison for measurement arrays or device safety state.
+function reuseConfigurationSection<T>(previous: T | undefined, next: T): T {
+  return previous !== undefined && (previous === next || JSON.stringify(previous) === JSON.stringify(next)) ? previous : next
+}
+
 export function mergeBackendSnapshot(previous: BackendSnapshot | null, patch: BackendSnapshotPatch): BackendSnapshot {
   // Revisions are local to a backend runtime. View changes start a new cache;
   // never compare counters or reuse histories across sources.
@@ -376,6 +382,8 @@ export function mergeBackendSnapshot(previous: BackendSnapshot | null, patch: Ba
     || previous.backend.runtimeId !== patch.backend.runtimeId
   )) previous = null
   const { measurements: patchMeasurements, pd: patchPd, seriesPatches, ...base } = patch
+  if (base.configuration) base.configuration = reuseConfigurationSection(previous?.configuration, base.configuration)
+  if (base.testScripts) base.testScripts = reuseConfigurationSection(previous?.testScripts, base.testScripts)
   const acceptsSeries = (name: keyof SeriesRevisions) => !isOlderSeriesRevision(previous?.seriesRevisions?.[name], patch.seriesRevisions?.[name])
   const seriesRevisions = patch.seriesRevisions ? { ...patch.seriesRevisions } : previous?.seriesRevisions
   if (seriesRevisions && previous?.seriesRevisions) {

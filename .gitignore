@@ -49,3 +49,9 @@ pixel2motion_arp_icon/outputs/
 
 .codex/
 
+# Browser snapshots, caches, and copied performance baselines stay local.
+.playwright-cli/
+output/performance-optimization/snapshots/
+output/playwright/ui-stack-optimization/baseline-source/
+output/playwright/ui-stack-optimization/build-before/
+

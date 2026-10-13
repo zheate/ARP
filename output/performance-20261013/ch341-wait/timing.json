@@ -1,0 +1,71 @@
+{
+  "python": "3.11.15",
+  "source": "fake controller; real runtime and snapshot methods; no hardware",
+  "baseline_commit": "87ffd98839dd76e38d78d1e80d1cacc236dbce0f",
+  "before": {
+    "live_updates": [
+      {
+        "reading_and_snapshot_ms": 1105.3559170031804,
+        "before_current_write": false,
+        "power_w": 3.5
+      },
+      {
+        "reading_and_snapshot_ms": 0.23383299412671477,
+        "before_current_write": false,
+        "power_w": 4.5
+      },
+      {
+        "reading_and_snapshot_ms": 0.4415000003064051,
+        "before_current_write": false,
+        "power_w": 5.5
+      },
+      {
+        "reading_and_snapshot_ms": 0.23212499945657328,
+        "before_current_write": false,
+        "power_w": 6.5
+      },
+      {
+        "reading_and_snapshot_ms": 0.22862500190967694,
+        "before_current_write": false,
+        "power_w": 7.5
+      }
+    ],
+    "current_command_ms": 1105.077166997944,
+    "current_writes": [
+      4.0
+    ]
+  },
+  "after": {
+    "live_updates": [
+      {
+        "reading_and_snapshot_ms": 0.1295830006711185,
+        "before_current_write": true,
+        "power_w": 3.5
+      },
+      {
+        "reading_and_snapshot_ms": 0.5791250005131587,
+        "before_current_write": true,
+        "power_w": 4.5
+      },
+      {
+        "reading_and_snapshot_ms": 0.23800000053597614,
+        "before_current_write": true,
+        "power_w": 5.5
+      },
+      {
+        "reading_and_snapshot_ms": 0.18737500067800283,
+        "before_current_write": true,
+        "power_w": 6.5
+      },
+      {
+        "reading_and_snapshot_ms": 0.204415999178309,
+        "before_current_write": true,
+        "power_w": 7.5
+      }
+    ],
+    "current_command_ms": 1104.7367499995744,
+    "current_writes": [
+      4.0
+    ]
+  }
+}

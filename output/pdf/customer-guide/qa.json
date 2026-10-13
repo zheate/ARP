@@ -1,0 +1,9 @@
+{
+  "pages": 31,
+  "bookmarks": 31,
+  "distinct_screenshots": 25,
+  "text_extraction": "passed",
+  "note_overlap": "none",
+  "real_device_test": false,
+  "windows_installation_test": false
+}

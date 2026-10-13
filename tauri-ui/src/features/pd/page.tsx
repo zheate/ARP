@@ -1,3 +1,4 @@
+import { ControlRow } from "@/components/control-layout"
 import { DeviceDetectButton } from "@/components/device-detect-button"
 import { Field } from "@/components/field"
 import { NativeSelect } from "@/components/native-select"
@@ -56,10 +57,10 @@ export const PdPage = memo(function PdPage({ snapshot, active, pending, run }: {
 <CardContent className="pd-settings-grid grid grid-cols-2 gap-3"><fieldset aria-label="PD 采集参数" className="contents" disabled={!active || pending || pd?.state === "running"}>
           <div className="col-span-2 pt-1"><p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">采集参数</p></div>
           <Field label="采集卡" className="pd-inline-field col-span-2" layout="inline">
-            <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+            <ControlRow>
               <NativeSelect disabled={!active || pending || pd?.detecting || pd?.state === "running"} value={current.device} onChange={(v) => set("device", v)}><option value="">请选择</option>{pd?.devices.map((item) => <option key={item} value={item}>{item}</option>)}</NativeSelect>
               <DeviceDetectButton detecting={pd?.detecting} disabled={!active || pending || pd?.detecting || pd?.state === "running"} onClick={() => run("pd.refresh")} />
-            </div>
+            </ControlRow>
           </Field>
           <Field label="输入通道" className="pd-inline-field" layout="inline"><NativeSelect value={current.channel} onChange={(v) => set("channel", v)}><option value="">请选择</option>{pd?.channels.map((item) => <option key={item} value={item}>{item}</option>)}</NativeSelect></Field>
           <Field label="接线方式" className="pd-inline-field" layout="inline"><NativeSelect value={current.terminal} onChange={(v) => set("terminal", v)}><option value="DIFF">差分 DIFF</option><option value="RSE">参考单端 RSE</option></NativeSelect></Field>

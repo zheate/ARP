@@ -1,0 +1,72 @@
+{
+  "environment": "Apple Silicon Mac; Chromium browser; production React; 1440x900; 4x CPU throttling; synthetic snapshots; no instrument connection",
+  "workload": {
+    "intervalMs": 100,
+    "spectrumPoints": 8192,
+    "powerPoints": 601,
+    "framesPerRun": 30,
+    "runs": 3
+  },
+  "entryBundle": {
+    "beforeBytes": 850223,
+    "afterBytes": 732756,
+    "beforeGzipBytes": 262319,
+    "afterGzipBytes": 227040
+  },
+  "live": {
+    "before": {
+      "scriptMedianMs": 799.719,
+      "taskMedianMs": 1644.3790000000004,
+      "frameP95MedianMs": 17.599999999999454,
+      "inputRendersMedian": 120,
+      "deviceCardRendersMedian": 90,
+      "displayMenuRendersMedian": 30,
+      "drawCounts": [
+        {
+          "光谱曲线": 30,
+          "功率实时曲线": 30
+        },
+        {
+          "功率实时曲线": 30,
+          "光谱曲线": 30
+        },
+        {
+          "功率实时曲线": 30,
+          "光谱曲线": 30
+        }
+      ]
+    },
+    "after": {
+      "scriptMedianMs": 622.5180000000001,
+      "taskMedianMs": 1520.4019999999998,
+      "frameP95MedianMs": 17.599999999999454,
+      "inputRendersMedian": 0,
+      "deviceCardRendersMedian": 0,
+      "displayMenuRendersMedian": 0,
+      "drawCounts": [
+        {
+          "光谱曲线": 30,
+          "功率实时曲线": 30
+        },
+        {
+          "功率实时曲线": 30,
+          "光谱曲线": 30
+        },
+        {
+          "功率实时曲线": 30,
+          "光谱曲线": 30
+        }
+      ]
+    }
+  },
+  "spectrumImageIdentical": true,
+  "layoutCases": 54,
+  "interactionStatus": "PASS",
+  "pageRegressionStatus": "PASS",
+  "focusedTests": 59,
+  "limits": [
+    "No native Tauri WebView acceptance",
+    "No Windows OS scaling acceptance",
+    "No real devices or packaging"
+  ]
+}
