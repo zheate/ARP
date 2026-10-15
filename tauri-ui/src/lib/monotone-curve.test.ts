@@ -69,3 +69,32 @@ test("empty, singleton, and two-point spectra remain valid", () => {
     { kind: "move", values: [1, 2] }, { kind: "line", values: [2, 4] },
   ])
 })
+
+test("curve commands retain the pre-optimization values across irregular grids and gaps", async () => {
+  const { createHash } = await import("node:crypto")
+  const hash = createHash("sha256")
+  let seed = 73129
+  const random = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
+    return seed / 2 ** 32
+  }
+  const path = {
+    moveTo: (...args: number[]) => { hash.update(JSON.stringify(["moveTo", ...args])) },
+    lineTo: (...args: number[]) => { hash.update(JSON.stringify(["lineTo", ...args])) },
+    bezierCurveTo: (...args: number[]) => { hash.update(JSON.stringify(["bezierCurveTo", ...args])) },
+  }
+  for (let trial = 0; trial < 128; trial += 1) {
+    let x = 0
+    const points = Array.from({ length: trial + 3 }, () => {
+      x += random() * 2 + 0.01
+      const chance = random()
+      return chance < 0.03 ? null : {
+        x: chance < 0.06 ? x - 3 : x,
+        y: chance < 0.08 ? NaN : Math.round((random() - 0.5) * 1000) / 7,
+      }
+    })
+    traceMonotoneCurve(path, points)
+  }
+  // Captured from the original implementation, before changing its working storage.
+  assert.equal(hash.digest("hex"), "884ae3a2dc16a0ecd5fbc5de6a790c7f403b53bef09a2c9a0ba1fae014e214c9")
+})

@@ -106,7 +106,9 @@ export function comparisonRows(base: DataPoint[], other: DataPoint[]) {
     for (const point of points) {
       if (!Number.isFinite(point.currentA) || point.powerW == null || !Number.isFinite(point.powerW)) continue
       const key = point.currentA.toFixed(6)
-      result.set(key, [...(result.get(key) ?? []), point])
+      const existing = result.get(key)
+      if (existing) existing.push(point)
+      else result.set(key, [point])
     }
     return result
   }
@@ -244,7 +246,9 @@ export function metricComparisonRows(details: DataDetail[], metric: DataMetricKe
     for (const point of detail.points) {
       if (!Number.isFinite(point.currentA)) continue
       const key = point.currentA.toFixed(6)
-      result.set(key, [...(result.get(key) ?? []), point])
+      const existing = result.get(key)
+      if (existing) existing.push(point)
+      else result.set(key, [point])
     }
     return result
   })

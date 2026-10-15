@@ -5,6 +5,7 @@ import {
   dateBounds,
   extractComparisonSummary,
   extractSummaryMetrics,
+  metricComparisonRows,
   flowLabel,
   numberText,
   powerChartRows,
@@ -42,6 +43,25 @@ test("duplicate normalized currents are explicit and invalid values are not pair
   assert.equal(rows[0].deltaW, null)
   assert.deepEqual(comparisonRows([point(2, null)], [point(2, 0)]), [])
   assert.deepEqual(comparisonRows([point(2, 10)], [point(3, 12)]), [])
+})
+
+test("large duplicate-current groups preserve ambiguity and do not mutate input", () => {
+  const duplicates = Array.from({ length: 4000 }, (_, index) => Object.freeze(point(2, index)))
+  const base = Object.freeze([...duplicates, Object.freeze(point(4, null)), Object.freeze(point(6, 60))])
+  const other = Object.freeze([Object.freeze(point(2, 12)), Object.freeze(point(4, 40)), Object.freeze(point(6, 66))])
+  const rows = comparisonRows(base as DataPoint[], other as DataPoint[])
+  assert.deepEqual(rows, [
+    { currentA: 2, basePowerW: null, otherPowerW: null, deltaW: null, ambiguous: true, deltaPercent: null },
+    { currentA: 6, basePowerW: 60, otherPowerW: 66, deltaW: 6, ambiguous: false, deltaPercent: 10 },
+  ])
+  const metrics = metricComparisonRows([{ points: base }, { points: other }] as DataDetail[], "powerW")
+  assert.deepEqual(metrics, [
+    { currentA: 2, values: [null, 12], ambiguous: [true, false], deltas: [null, null] },
+    { currentA: 4, values: [null, 40], ambiguous: [false, false], deltas: [null, null] },
+    { currentA: 6, values: [60, 66], ambiguous: [false, false], deltas: [0, 6] },
+  ])
+  assert.equal(base.length, 4002)
+  assert.equal(base[0], duplicates[0])
 })
 test("chart retains both original curves including duplicate currents", () => {
   const records = [{ points: [point(4, 20), point(2, 10), point(2, 11)] }, { points: [point(3, 18), point(5, null)] }] as DataDetail[]

@@ -23,7 +23,8 @@ tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# Preserve Python's binary64 samples when decoding and forwarding JSON numbers.
+serde_json = { version = "1", features = ["float_roundtrip"] }
 base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 ed25519-dalek = "2"

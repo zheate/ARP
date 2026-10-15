@@ -15,6 +15,7 @@ from combined_test.runtime_logging import configure_runtime_logging, get_runtime
 _ENTRY_IMPORT_STARTED = time.perf_counter()
 
 from .service import BACKGROUND_FILE_TASK_METHODS, SAFETY_TASK_METHODS, BridgeService
+from .json_codec import encode_response
 
 
 _ENTRY_IMPORT_MS = (time.perf_counter() - _ENTRY_IMPORT_STARTED) * 1000.0
@@ -45,9 +46,7 @@ def _read_request_lines() -> Iterator[str]:
 
 
 def _write_response(response: dict[str, object]) -> None:
-    payload = (
-        json.dumps(response, ensure_ascii=False, separators=(",", ":")) + "\n"
-    ).encode("utf-8")
+    payload = encode_response(response)
     with _protocol_stdout_lock:
         protocol_stdout = _protocol_stdout or sys.stdout
         output = getattr(protocol_stdout, "buffer", None)

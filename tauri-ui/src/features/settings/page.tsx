@@ -4,10 +4,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { type AccentTheme, type CurveLineStyle, type LatestPointMarkerStyle, type Theme } from "@/lib/appearance"
 import { formatLicenseDate, licenseReasonLabels, type LicenseStatus } from "@/lib/license"
 import { KeyRound, ShieldCheck, Upload } from "lucide-react"
-import { useState } from "react"
+import { memo, useState } from "react"
 
 
-export function SystemSettingsPage({ theme, accentTheme, curveLineStyle, latestPointMarkerStyle, licenseStatus, onThemeChange, onAccentThemeChange, onCurveLineStyleChange, onLatestPointMarkerStyleChange, onImportLicense }: { theme: Theme; accentTheme: AccentTheme; curveLineStyle: CurveLineStyle; latestPointMarkerStyle: LatestPointMarkerStyle; licenseStatus: LicenseStatus; onThemeChange: (theme: Theme) => void; onAccentThemeChange: (theme: AccentTheme) => void; onCurveLineStyleChange: (style: CurveLineStyle) => void; onLatestPointMarkerStyleChange: (style: LatestPointMarkerStyle) => void; onImportLicense: () => Promise<void> }) {
+// Measurement snapshots do not affect this page. Local state and appearance
+// context still update normally, as do every prop and license-status change.
+export const SystemSettingsPage = memo(function SystemSettingsPage({ theme, accentTheme, curveLineStyle, latestPointMarkerStyle, licenseStatus, onThemeChange, onAccentThemeChange, onCurveLineStyleChange, onLatestPointMarkerStyleChange, onImportLicense }: { theme: Theme; accentTheme: AccentTheme; curveLineStyle: CurveLineStyle; latestPointMarkerStyle: LatestPointMarkerStyle; licenseStatus: LicenseStatus; onThemeChange: (theme: Theme) => void; onAccentThemeChange: (theme: AccentTheme) => void; onCurveLineStyleChange: (style: CurveLineStyle) => void; onLatestPointMarkerStyleChange: (style: LatestPointMarkerStyle) => void; onImportLicense: () => Promise<void> }) {
   const [licenseBusy, setLicenseBusy] = useState(false)
   const [licenseError, setLicenseError] = useState("")
   const importLicenseFile = async () => {
@@ -53,4 +55,4 @@ export function SystemSettingsPage({ theme, accentTheme, curveLineStyle, latestP
       </Card>
     </section>
   )
-}
+})

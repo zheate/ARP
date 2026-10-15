@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import tempfile
+import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -50,6 +51,102 @@ class DataBrowserTests(unittest.TestCase):
 
     def list(self, **params):
         return browser.list_data_records({"rootPath": str(self.root), **params})
+
+    def test_large_spectrum_cache_retains_compact_data_and_returns_isolated_lists(self):
+        path = self.root / "large.xlsx"
+        path.touch()
+        count = 8192
+
+        def parse(*args, **kwargs):
+            return {"record": {"sn": "LARGE"}, "points": [], "metadata": {}, "warnings": [],
+                    "spectra": [{"currentA": current, "wavelengthNm": [970 + i * .001 for i in range(count)],
+                                 "intensity": [float(i + current) for i in range(count)],
+                                 "peakWavelengthNm": 978.191, "maxIntensity": count - 1 + current}
+                                for current in range(4)]}
+
+        def retained_size(value, seen):
+            if id(value) in seen:
+                return 0
+            seen.add(id(value))
+            size = sys.getsizeof(value)
+            if isinstance(value, dict):
+                size += sum(retained_size(k, seen) + retained_size(v, seen) for k, v in value.items())
+            elif isinstance(value, (list, tuple)):
+                size += sum(retained_size(item, seen) for item in value)
+            return size
+
+        with patch.object(browser, "_read_workbook", side_effect=parse) as reader:
+            first = browser.inspect_data_record({"path": str(path), "includeSpectra": True})
+            # Cache retention should be close to the numeric payload, rather than
+            # keeping a Python object for every sample. The public result stays JSON.
+            numeric_bytes = 4 * count * 2 * 8
+            self.assertLess(retained_size(browser._DETAILS, set()), numeric_bytes * 1.5)
+            self.assertIsInstance(first["spectra"][0]["intensity"], list)
+            expected = json.dumps(first, allow_nan=False)
+            first["spectra"][0]["intensity"][0] = -999
+            first["spectra"][0]["wavelengthNm"][0] = -1
+            first["spectra"].clear()
+            second = browser.inspect_data_record({"path": str(path), "includeSpectra": True})
+            self.assertEqual(json.dumps(second, allow_nan=False), expected)
+            self.assertEqual(reader.call_count, 1)
+            self.assertIsNot(second["spectra"][0]["wavelengthNm"], second["spectra"][1]["wavelengthNm"])
+
+    def test_cache_memory_budget_preserves_recent_hits_and_skips_oversized_entries(self):
+        paths = [self.root / f"{index}.xlsx" for index in range(4)]
+        for path in paths:
+            path.touch()
+
+        def parse(path, *args, **kwargs):
+            count = 10000 if path.name == paths[3].name else 256
+            return {"record": {"id": str(path)}, "points": [], "spectra": [
+                {"currentA": 2, "wavelengthNm": [float(i) for i in range(count)],
+                 "intensity": [float(i) for i in range(count)]}]}
+
+        def inspect(path):
+            return browser.inspect_data_record({"path": str(path), "includeSpectra": True})
+
+        with patch.object(browser, "_read_workbook", side_effect=parse) as reader:
+            inspect(paths[0])
+            one_size = browser._DETAIL_CACHE_BYTES
+            with patch.object(browser, "MAX_DETAIL_CACHE_BYTES", one_size * 2 + 128):
+                inspect(paths[1])
+                inspect(paths[0])  # 0 is now the most recently used entry.
+                inspect(paths[2])
+                self.assertEqual(len(browser._DETAILS), 2)
+                self.assertTrue(any(key[0] == browser._key(paths[0]) for key in browser._DETAILS))
+                self.assertFalse(any(key[0] == browser._key(paths[1]) for key in browser._DETAILS))
+                before = list(browser._DETAILS)
+                result = inspect(paths[3])
+                self.assertEqual(len(result["spectra"][0]["intensity"]), 10000)
+                self.assertEqual(list(browser._DETAILS), before)
+                calls = reader.call_count
+                inspect(paths[0])
+                self.assertEqual(reader.call_count, calls)
+                self.assertLessEqual(browser._DETAIL_CACHE_BYTES, browser.MAX_DETAIL_CACHE_BYTES)
+        browser.clear_data_browser_cache()
+        self.assertEqual(browser._DETAIL_CACHE_BYTES, 0)
+        self.assertEqual(browser._DETAIL_SIZES, {})
+
+    def test_compact_cache_keeps_irregular_grids_versions_and_empty_spectra(self):
+        path = self.root / "grids.xlsx"
+        path.touch()
+        source = {"record": {"sn": "A"}, "points": [], "spectra": [
+            {"currentA": 1, "wavelengthNm": [976.0, 975.5, 975.5, 977.25], "intensity": [-0.0, -2.5, 4.75, 0.0]},
+            {"currentA": 2, "wavelengthNm": [974.0, 976.0], "intensity": [3.25, -1.0]}]}
+        with patch.object(browser, "_read_workbook", side_effect=lambda *a, **k: json.loads(json.dumps(source))) as reader:
+            first = browser.inspect_data_record({"path": str(path), "includeSpectra": True})
+            self.assertEqual(json.dumps(first), json.dumps(source))
+            path.write_text("new version")
+            source["record"]["sn"] = "B"
+            second = browser.inspect_data_record({"path": str(path), "includeSpectra": True})
+            self.assertEqual(second["record"]["sn"], "B")
+            self.assertEqual(reader.call_count, 2)
+            self.assertEqual(len(browser._DETAILS), 1)
+            self.assertEqual(browser._DETAIL_CACHE_BYTES, sum(browser._DETAIL_SIZES.values()))
+        for spectra in (None, []):
+            browser.clear_data_browser_cache()
+            with patch.object(browser, "_read_workbook", return_value={"spectra": spectra}):
+                self.assertEqual(browser.inspect_data_record({"path": str(path), "includeSpectra": True}), {"spectra": spectra})
 
     def test_metadata_hidden_sheets_scalar_points_and_original_unchanged(self):
         path = self.root / "SN-001" / "封盖前" / "one.xlsx"

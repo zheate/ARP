@@ -9,8 +9,10 @@ import copy
 import math
 import os
 import re
+import sys
 import threading
 import time
+from array import array
 from collections import OrderedDict
 from datetime import datetime
 from pathlib import Path
@@ -22,10 +24,13 @@ from .shipping_report import REPORT_WORKBOOK_SCHEMA_VERSION, _parse_session_info
 
 MAX_DIRECTORIES = 4
 MAX_DETAIL_CACHE = 32
+MAX_DETAIL_CACHE_BYTES = 64 * 1024 * 1024
 MAX_INDEX_FILES = 20000
 _LOCK = threading.RLock()
 _INDEXES: OrderedDict[str, dict[str, Any]] = OrderedDict()
 _DETAILS: OrderedDict[tuple[str, str, bool], dict[str, Any]] = OrderedDict()
+_DETAIL_SIZES: dict[tuple[str, str, bool], int] = {}
+_DETAIL_CACHE_BYTES = 0
 _FIELDS = {
     "current": "currentA", "voltage": "voltageV", "power": "powerW",
     "efficiency": "efficiencyPercent", "peak_wavelength": "peakWavelengthNm",
@@ -36,9 +41,59 @@ _SPECTRUM_COLUMN_PATTERN = re.compile(r"^\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*A\s
 
 
 def clear_data_browser_cache() -> None:
+    global _DETAIL_CACHE_BYTES
     with _LOCK:
         _INDEXES.clear()
         _DETAILS.clear()
+        _DETAIL_SIZES.clear()
+        _DETAIL_CACHE_BYTES = 0
+
+
+def _compact_spectrum_cache(detail: dict[str, Any]) -> None:
+    """Pack freshly parsed samples; cache buffers never leave this module."""
+    grids: dict[bytes, array] = {}
+    for spectrum in detail.get("spectra") or []:
+        wavelength = array("d", spectrum["wavelengthNm"])
+        # Share only bit-identical grids inside this workbook. Public responses
+        # still receive a separate list for every spectrum and every request.
+        spectrum["wavelengthNm"] = grids.setdefault(wavelength.tobytes(), wavelength)
+        spectrum["intensity"] = array("d", spectrum["intensity"])
+
+
+def _detail_size(value: Any, seen: set[int] | None = None) -> int:
+    """Account for owned containers/buffers once, without expanding samples."""
+    if seen is None:
+        seen = set()
+    if id(value) in seen:
+        return 0
+    seen.add(id(value))
+    size = sys.getsizeof(value)
+    if isinstance(value, dict):
+        size += sum(_detail_size(key, seen) + _detail_size(item, seen) for key, item in value.items())
+    elif isinstance(value, (list, tuple)):
+        size += sum(_detail_size(item, seen) for item in value)
+    return size
+
+
+def _remove_cached_detail(key: tuple[str, str, bool]) -> None:
+    """Caller holds _LOCK."""
+    global _DETAIL_CACHE_BYTES
+    _DETAILS.pop(key)
+    _DETAIL_CACHE_BYTES -= _DETAIL_SIZES.pop(key)
+
+
+def _copy_public_detail(detail: dict[str, Any]) -> dict[str, Any]:
+    output = copy.deepcopy({key: value for key, value in detail.items() if key != "spectra"})
+    if "spectra" in detail:
+        spectra = detail["spectra"]
+        output["spectra"] = None if spectra is None else [
+            {
+                key: value.tolist() if key in {"wavelengthNm", "intensity"} else copy.deepcopy(value)
+                for key, value in spectrum.items()
+            }
+            for spectrum in spectra
+        ]
+    return output
 
 
 def _key(path: Path) -> str:
@@ -248,8 +303,10 @@ def _read_detail(path: Path, version: str, modified: float, include_spectra: boo
 
     Returns the cached entry itself rather than a copy, so the directory scan
     can read a single record without cloning every test point. Callers must
-    copy before handing the value out and must never mutate it in place.
+    use _copy_public_detail before handing the value out. Spectra use packed
+    buffers internally; callers must never mutate the cache in place.
     """
+    global _DETAIL_CACHE_BYTES
     cache_key = (_key(path), version, include_spectra)
     with _LOCK:
         cached = _DETAILS.get(cache_key)
@@ -259,12 +316,19 @@ def _read_detail(path: Path, version: str, modified: float, include_spectra: boo
     result = _read_workbook(path, version, modified, include_spectra=include_spectra)
     if _version(path)[0] != version:
         raise ValueError("文件正在更新，请稍后刷新重试")
+    _compact_spectrum_cache(result)
+    size = _detail_size(result)
     with _LOCK:
         for old in [key for key in _DETAILS if key[0] == cache_key[0] and key[2] == include_spectra]:
-            del _DETAILS[old]
-        _DETAILS[cache_key] = result
-        while len(_DETAILS) > MAX_DETAIL_CACHE:
-            _DETAILS.popitem(last=False)
+            _remove_cached_detail(old)
+        # An oversized workbook must remain readable without displacing every
+        # recent cache entry. Eviction only affects re-readable cached data.
+        if size <= MAX_DETAIL_CACHE_BYTES:
+            _DETAILS[cache_key] = result
+            _DETAIL_SIZES[cache_key] = size
+            _DETAIL_CACHE_BYTES += size
+            while len(_DETAILS) > MAX_DETAIL_CACHE or _DETAIL_CACHE_BYTES > MAX_DETAIL_CACHE_BYTES:
+                _remove_cached_detail(next(iter(_DETAILS)))
     return result
 
 
@@ -278,7 +342,7 @@ def inspect_data_record(params: dict[str, Any]) -> dict[str, Any]:
     include_spectra = bool(params.get("includeSpectra", False))
     try:
         version, modified = _version(path)
-        return copy.deepcopy(_read_detail(path, version, modified, include_spectra=include_spectra))
+        return _copy_public_detail(_read_detail(path, version, modified, include_spectra=include_spectra))
     except Exception as exc:
         raise ValueError(_describe_read_error(exc)) from exc
 

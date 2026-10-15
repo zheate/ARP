@@ -13,8 +13,14 @@ const DEMO_PREVIEW_ENABLED = typeof window !== "undefined" && new URLSearchParam
 // against. `run=1` replays the staged sequence instead, including the 停留 dwell.
 const DEMO_RUN_ENABLED = DEMO_PREVIEW_ENABLED && typeof window !== "undefined" && new URLSearchParams(window.location.search).get("run") === "1"
 
-import { DEMO_RUN_SNAPSHOT, DEMO_SNAPSHOT, resetDemoRun } from "@/lib/demo-snapshot"
-import { demoRunSnapshot } from "@/lib/demo-run"
+// Device operation never needs the preview fixtures or replay timeline.
+async function loadDemoRuntime() {
+  const [snapshots, replay] = await Promise.all([
+    import("@/lib/demo-snapshot"),
+    import("@/lib/demo-run"),
+  ])
+  return { ...snapshots, ...replay }
+}
 
 function selectedDemoRevision(library: PowerMeterCoefficientLibrary): PowerMeterCoefficientRevision | null {
   const profile = library.profiles.find((item) => item.id === library.selectedProfileId)
@@ -139,7 +145,7 @@ export function useBackendSnapshot(view: SnapshotView) {
   const commandPendingRef = useRef(false)
   const latestViewRef = useRef(view)
   const snapshotRef = useRef<BackendSnapshot | null>(null)
-  const demoSnapshotRef = useRef(DEMO_RUN_ENABLED ? DEMO_RUN_SNAPSHOT : DEMO_SNAPSHOT)
+  const demoSnapshotRef = useRef<BackendSnapshot | null>(null)
   const demoGenerationRef = useRef(0)
   const revisionsRef = useRef<SeriesRevisions | null>(null)
   latestViewRef.current = view
@@ -156,10 +162,13 @@ export function useBackendSnapshot(view: SnapshotView) {
     }
     try {
       if (DEMO_PREVIEW_ENABLED) {
+        const { DEMO_RUN_SNAPSHOT, DEMO_SNAPSHOT } = await loadDemoRuntime()
+        const demo = demoSnapshotRef.current ?? (DEMO_RUN_ENABLED ? DEMO_RUN_SNAPSHOT : DEMO_SNAPSHOT)
+        demoSnapshotRef.current = demo
         if (mountedRef.current && latestViewRef.current === requestedView) {
-          snapshotRef.current = demoSnapshotRef.current
-          revisionsRef.current = demoSnapshotRef.current.seriesRevisions ?? null
-          setSnapshot(demoSnapshotRef.current)
+          snapshotRef.current = demo
+          revisionsRef.current = demo.seriesRevisions ?? null
+          setSnapshot(demo)
           setError(null)
         }
         return
@@ -226,7 +235,9 @@ export function useBackendSnapshot(view: SnapshotView) {
     setPendingCommand(method)
     try {
       if (DEMO_PREVIEW_ENABLED) {
-        const base = demoSnapshotRef.current
+        const { DEMO_RUN_SNAPSHOT, DEMO_SNAPSHOT, resetDemoRun, demoRunSnapshot } = await loadDemoRuntime()
+        const base = demoSnapshotRef.current ?? (DEMO_RUN_ENABLED ? DEMO_RUN_SNAPSHOT : DEMO_SNAPSHOT)
+        demoSnapshotRef.current = base
         const publishDemo = (next: BackendSnapshot) => {
           demoSnapshotRef.current = next
           snapshotRef.current = next
@@ -331,7 +342,7 @@ export function useBackendSnapshot(view: SnapshotView) {
             if (next.automaticTest.state !== "completed") window.setTimeout(advance, 200)
           }
           advance()
-          return demoSnapshotRef.current
+          return demoSnapshotRef.current ?? base
         }
 
         if (method === "automatic.end" || method === "app.stopAll") {

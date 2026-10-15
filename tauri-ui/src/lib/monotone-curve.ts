@@ -26,41 +26,41 @@ export function traceMonotoneCurve(path: CurvePath, points: readonly (CurvePoint
       const last = points[start + 1]!
       path.lineTo(last.x, last.y)
     } else if (count > 2) {
-      const widths: number[] = []
-      const slopes: number[] = []
+      // Each segment needs only its two neighbouring slopes. Keep the original
+      // arithmetic order without allocating widths/slopes/tangents per frame.
+      let width = points[start + 1]!.x - first.x
+      let slope = (points[start + 1]!.y - first.y) / width
+      let leftTangent = slope
       for (let index = start; index < end - 1; index += 1) {
         const left = points[index]!
         const right = points[index + 1]!
-        const width = right.x - left.x
-        widths.push(width)
-        slopes.push((right.y - left.y) / width)
-      }
-      const tangents = [slopes[0]]
-      for (let index = 1; index < count - 1; index += 1) {
-        const left = slopes[index - 1]
-        const right = slopes[index]
-        if (left === 0 || right === 0 || Math.sign(left) !== Math.sign(right)) {
-          tangents.push(0)
-        } else {
-          // Weighted harmonic mean also supports nonuniform wavelength grids.
-          const leftWeight = 2 * widths[index] + widths[index - 1]
-          const rightWeight = widths[index] + 2 * widths[index - 1]
-          tangents.push((leftWeight + rightWeight) / (leftWeight / left + rightWeight / right))
+        let nextWidth = 0
+        let nextSlope = 0
+        let rightTangent = slope
+        if (index < end - 2) {
+          const next = points[index + 2]!
+          nextWidth = next.x - right.x
+          nextSlope = (next.y - right.y) / nextWidth
+          if (slope === 0 || nextSlope === 0 || Math.sign(slope) !== Math.sign(nextSlope)) {
+            rightTangent = 0
+          } else {
+            // Weighted harmonic mean also supports nonuniform wavelength grids.
+            const leftWeight = 2 * nextWidth + width
+            const rightWeight = nextWidth + 2 * width
+            rightTangent = (leftWeight + rightWeight) / (leftWeight / slope + rightWeight / nextSlope)
+          }
         }
-      }
-      tangents.push(slopes[slopes.length - 1])
-      for (let index = 0; index < count - 1; index += 1) {
-        const left = points[start + index]!
-        const right = points[start + index + 1]!
-        const third = widths[index] / 3
+        const third = width / 3
         const low = Math.min(left.y, right.y)
         const high = Math.max(left.y, right.y)
-        const clamp = (value: number) => Math.max(low, Math.min(high, value))
         path.bezierCurveTo(
-          left.x + third, clamp(left.y + tangents[index] * third),
-          right.x - third, clamp(right.y - tangents[index + 1] * third),
+          left.x + third, Math.max(low, Math.min(high, left.y + leftTangent * third)),
+          right.x - third, Math.max(low, Math.min(high, right.y - rightTangent * third)),
           right.x, right.y,
         )
+        width = nextWidth
+        slope = nextSlope
+        leftTangent = rightTangent
       }
     }
     start = end

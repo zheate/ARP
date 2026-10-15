@@ -127,8 +127,14 @@ function chartDataFrom(rows: NumericRow[], columns?: CanvasColumnarData): ChartD
 
 function paddedExtent(values: number[], includeZero: boolean): [number, number] {
   if (!values.length) return [0, 1]
-  let minimum = Math.min(...values)
-  let maximum = Math.max(...values)
+  // Multi-spectrum overlays can contain hundreds of thousands of samples.
+  // Passing them as function arguments exceeds the WebView's call-stack limit.
+  let minimum = Infinity
+  let maximum = -Infinity
+  for (const value of values) {
+    minimum = Math.min(minimum, value)
+    maximum = Math.max(maximum, value)
+  }
   if (Math.abs(minimum) < NUMERIC_ZERO_EPSILON) minimum = 0
   if (Math.abs(maximum) < NUMERIC_ZERO_EPSILON) maximum = 0
   if (includeZero) {

@@ -1,6 +1,12 @@
 mod license;
 mod snapshot_stream;
 
+#[cfg(test)]
+mod realtime_transport_benchmark;
+
+#[cfg(test)]
+mod float_precision_benchmark;
+
 use license::{license_get_status, license_install, LicenseState};
 use serde_json::{json, Value};
 use snapshot_stream::{run_snapshot_stream, wait_for_generation, StreamRequestError};
@@ -177,7 +183,7 @@ impl PythonBridge {
                         }
                     }
 
-                    let response: Value = match serde_json::from_str(&line) {
+                    let mut response: Value = match serde_json::from_str(&line) {
                         Ok(response) => response,
                         Err(error) => {
                             Self::fail_pending(
@@ -189,7 +195,11 @@ impl PythonBridge {
                             break;
                         }
                     };
-                    let Some(request_id) = response.get("id").and_then(Value::as_str) else {
+                    let Some(request_id) = response
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                    else {
                         Self::fail_pending(
                             &pending,
                             PythonBridgeError::Transport("Python 响应缺少请求编号".to_string()),
@@ -197,9 +207,14 @@ impl PythonBridge {
                         break;
                     };
                     let result = if response.get("ok").and_then(Value::as_bool) == Some(true) {
-                        response.get("result").cloned().ok_or_else(|| {
-                            PythonBridgeError::Transport("Python 响应缺少 result".to_string())
-                        })
+                        // The reader owns this response. Transfer the result to
+                        // the waiting request instead of cloning every sample.
+                        response
+                            .as_object_mut()
+                            .and_then(|root| root.remove("result"))
+                            .ok_or_else(|| {
+                                PythonBridgeError::Transport("Python 响应缺少 result".to_string())
+                            })
                     } else {
                         let message = response
                             .pointer("/error/message")
@@ -214,7 +229,7 @@ impl PythonBridge {
                     let sender = pending
                         .lock()
                         .ok()
-                        .and_then(|mut requests| requests.remove(request_id));
+                        .and_then(|mut requests| requests.remove(&request_id));
                     if let Some(sender) = sender {
                         let _ = sender.send(result);
                     }
@@ -700,10 +715,13 @@ fn snapshot_interval_ms(view: &str) -> u64 {
 }
 
 fn stream_envelope(subscription_id: &str, message: Value) -> Value {
-    json!({
-        "__arpSnapshotStream": subscription_id,
-        "message": message,
-    })
+    Value::Object(serde_json::Map::from_iter([
+        (
+            "__arpSnapshotStream".to_owned(),
+            Value::String(subscription_id.to_owned()),
+        ),
+        ("message".to_owned(), message),
+    ]))
 }
 
 #[cfg(any(windows, test))]
@@ -1096,6 +1114,45 @@ mod tests {
 
         assert_eq!(envelope["__arpSnapshotStream"], "automatic-7");
         assert_eq!(envelope["message"]["snapshot"]["capturedAt"], "now");
+    }
+
+    #[test]
+    fn stream_envelope_moves_the_complete_owned_message() {
+        let message = serde_json::json!({"snapshot": {"pd": {"points": [
+            {"elapsedS": 1.0, "value": -0.0}, {"elapsedS": 2.0, "value": 1e-200}
+        ]}, "extra": [null, false, "完整数据"]}});
+        let expected = serde_json::json!({"__arpSnapshotStream": "pd-1", "message": message});
+        let buffer = message["snapshot"]["pd"]["points"].as_array().unwrap().as_ptr();
+        let envelope = stream_envelope("pd-1", message);
+        assert_eq!(envelope, expected);
+        assert_eq!(serde_json::to_vec(&envelope).unwrap(), serde_json::to_vec(&expected).unwrap());
+        assert_eq!(envelope["message"]["snapshot"]["pd"]["points"].as_array().unwrap().as_ptr(), buffer,
+            "owned history must move into the envelope without another sample-array copy");
+    }
+
+    #[test]
+    fn snapshot_fingerprint_preserves_all_non_history_fields() {
+        for pd in [
+            serde_json::json!({"state": "running", "points": [1, 2], "extra": {"nested": [null, "中文", false]}}),
+            serde_json::json!({"state": "idle", "points": null, "settings": {"unit": "W"}}),
+            serde_json::json!({"state": "idle"}),
+            serde_json::json!([1, 2]), serde_json::json!("unknown"), serde_json::Value::Null,
+        ] {
+            let snapshot = serde_json::json!({"capturedAt": "now", "measurements": [1],
+                "seriesPatches": {}, "pd": pd, "extra": {"preserved": true},
+                "seriesRevisions": {"pd": 7}});
+            // Contract of the previous implementation, including malformed PD values.
+            let mut expected = snapshot.clone();
+            let root = expected.as_object_mut().unwrap();
+            for key in ["capturedAt", "measurements", "seriesPatches"] { root.remove(key); }
+            if let Some(pd) = root.get_mut("pd").and_then(serde_json::Value::as_object_mut) { pd.remove("points"); }
+            let actual = snapshot_state_fingerprint(&snapshot);
+            assert_eq!(serde_json::to_vec(&actual).unwrap(), serde_json::to_vec(&expected).unwrap());
+            assert!(snapshot.get("capturedAt").is_some());
+        }
+        for snapshot in [serde_json::json!([null, 1]), serde_json::Value::Null] {
+            assert_eq!(snapshot_state_fingerprint(&snapshot), snapshot);
+        }
     }
 
     #[test]
