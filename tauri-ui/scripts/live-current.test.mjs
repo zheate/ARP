@@ -12,7 +12,7 @@ import { build } from "esbuild"
 const root = fileURLToPath(new URL("..", import.meta.url))
 const bundled = await build({
   stdin: {
-    contents: 'export { AutomaticPage } from "./src/App.tsx"; export { DEMO_SNAPSHOT } from "./src/hooks/use-backend-snapshot.ts";',
+    contents: 'export { AutomaticPage } from "./src/App.tsx"; export { DEMO_SNAPSHOT } from "./src/lib/demo-snapshot";',
     resolveDir: root,
   },
   tsconfig: `${root}/tsconfig.json`,
@@ -22,8 +22,8 @@ const bundled = await build({
   plugins: [{
     name: "expose-page-fixtures",
     setup(builder) {
-      builder.onLoad({ filter: /(?:App\.tsx|use-backend-snapshot\.ts)$/ }, async ({ path }) => ({
-        contents: `${await readFile(path, "utf8")}\nexport { ${path.endsWith("App.tsx") ? "AutomaticPage" : "DEMO_SNAPSHOT"} };`,
+      builder.onLoad({ filter: /App\.tsx$/ }, async ({ path }) => ({
+        contents: `${await readFile(path, "utf8")}\nexport { AutomaticPage };`,
         loader: "tsx",
       }))
     },
