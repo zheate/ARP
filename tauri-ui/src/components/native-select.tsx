@@ -1,10 +1,29 @@
-import { Children, isValidElement, useEffect, useId, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from "react"
+import { Children, Fragment, isValidElement, useEffect, useId, useLayoutEffect, useRef, useState, type FocusEventHandler, type ReactElement, type ReactNode } from "react"
 import { ChevronDown } from "lucide-react"
 import { useFieldLabel } from "@/components/field"
 
-export function NativeSelect({ value, onChange, children, disabled, ariaLabel, "aria-label": accessibleLabel }: {
-  value: string
+type SelectOption = ReactElement<{ value?: string | number; children?: ReactNode; disabled?: boolean }>
+
+function selectOptions(children: ReactNode): SelectOption[] {
+  return Children.toArray(children).flatMap((child) => {
+    if (!isValidElement<{ children?: ReactNode }>(child)) return []
+    if (child.type === Fragment) return selectOptions(child.props.children)
+    return child.type === "option" ? [child as SelectOption] : []
+  })
+}
+
+function optionText(children: ReactNode): string {
+  return Children.toArray(children).map((child) => typeof child === "string" || typeof child === "number" ? String(child) : "").join("")
+}
+
+function optionValue(option: SelectOption): string {
+  return String(option.props.value ?? optionText(option.props.children))
+}
+
+export function NativeSelect({ value, onChange, onFocus, children, disabled, ariaLabel, "aria-label": accessibleLabel }: {
+  value: string | number
   onChange: (value: string) => void
+  onFocus?: FocusEventHandler<HTMLButtonElement>
   children: ReactNode
   disabled?: boolean
   ariaLabel?: string
@@ -13,15 +32,16 @@ export function NativeSelect({ value, onChange, children, disabled, ariaLabel, "
   const labelId = useFieldLabel()
   const listId = useId()
   const [placement, setPlacement] = useState({ above: false, height: 224 })
-  const emptyValue = "__empty__"
-  const options = Children.toArray(children).filter((child): child is ReactElement<{ value?: string; children?: ReactNode; disabled?: boolean }> => isValidElement(child))
+  const options = selectOptions(children)
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
+  const restoringFocusRef = useRef(false)
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([])
-  const selectedValue = value || emptyValue
-  const selectedOption = options.find((option) => (String(option.props.value ?? "") || emptyValue) === selectedValue)
-  const selectedIndex = options.findIndex((option) => (String(option.props.value ?? "") || emptyValue) === selectedValue)
+  const searchRef = useRef({ text: "", time: 0 })
+  const selectedValue = String(value)
+  const selectedOption = options.find((option) => optionValue(option) === selectedValue)
+  const selectedIndex = options.findIndex((option) => optionValue(option) === selectedValue)
   const displayValue = selectedOption?.props.children ?? (value || "请选择")
 
   useEffect(() => {
@@ -38,7 +58,7 @@ export function NativeSelect({ value, onChange, children, disabled, ariaLabel, "
     const initialIndex = selectedIndex >= 0 && !options[selectedIndex]?.props.disabled
       ? selectedIndex
       : options.findIndex((option) => !option.props.disabled)
-    const frame = window.requestAnimationFrame(() => optionRefs.current[Math.max(0, initialIndex)]?.focus())
+    const frame = window.requestAnimationFrame(() => focusOption(initialIndex))
     return () => window.cancelAnimationFrame(frame)
   }, [open, options.length, selectedIndex])
 
@@ -76,14 +96,30 @@ export function NativeSelect({ value, onChange, children, disabled, ariaLabel, "
 
   const closeAndRestoreFocus = () => {
     setOpen(false)
-    window.requestAnimationFrame(() => triggerRef.current?.focus())
+    // Restore synchronously so a delayed callback cannot steal focus from the
+    // next control. This is not a new field visit (e.g. activating a cursor).
+    restoringFocusRef.current = true
+    triggerRef.current?.focus({ preventScroll: true })
+    restoringFocusRef.current = false
+  }
+
+  // Scroll only the menu; focusing a late option must not move the workbench.
+  const focusOption = (index: number) => {
+    const option = optionRefs.current[index]
+    const list = option?.parentElement
+    if (!option || !list) return
+    option.focus({ preventScroll: true })
+    if (option.offsetTop < list.scrollTop) list.scrollTop = option.offsetTop
+    else if (option.offsetTop + option.offsetHeight > list.scrollTop + list.clientHeight) {
+      list.scrollTop = option.offsetTop + option.offsetHeight - list.clientHeight
+    }
   }
 
   const moveOptionFocus = (currentIndex: number, offset: number) => {
     for (let distance = 1; distance <= options.length; distance += 1) {
       const nextIndex = (currentIndex + offset * distance + options.length) % options.length
       if (!options[nextIndex]?.props.disabled) {
-        optionRefs.current[nextIndex]?.focus()
+        focusOption(nextIndex)
         return
       }
     }
@@ -93,7 +129,7 @@ export function NativeSelect({ value, onChange, children, disabled, ariaLabel, "
     const indices = options.map((_option, index) => index)
     if (fromEnd) indices.reverse()
     const index = indices.find((candidate) => !options[candidate]?.props.disabled)
-    if (index !== undefined) optionRefs.current[index]?.focus()
+    if (index !== undefined) focusOption(index)
   }
 
   return (
@@ -108,6 +144,7 @@ export function NativeSelect({ value, onChange, children, disabled, ariaLabel, "
         aria-controls={open ? listId : undefined}
         className="flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-input bg-background px-3 text-left text-sm outline-none transition-[color,background-color,border-color,box-shadow] duration-150 hover:border-[var(--app-border-strong)] hover:bg-muted/25 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 disabled:cursor-not-allowed disabled:border-border disabled:bg-muted/30 disabled:text-muted-foreground/55"
         disabled={disabled}
+        onFocus={(event) => { if (!restoringFocusRef.current) onFocus?.(event) }}
         onClick={() => setOpen((current) => !current)}
         onKeyDown={(event) => {
           if (event.key === "Escape" && open) {
@@ -128,17 +165,17 @@ export function NativeSelect({ value, onChange, children, disabled, ariaLabel, "
       </button>
       {open && <div aria-label={accessibleLabel ?? ariaLabel} aria-labelledby={accessibleLabel || ariaLabel ? undefined : labelId} className="native-select__list absolute left-0 z-[80] w-full overflow-y-auto border border-[var(--plm-flat-border-strong)] bg-popover p-1" id={listId} style={{ maxHeight: placement.height, ...(placement.above ? { bottom: "calc(100% + 4px)" } : { top: "calc(100% + 4px)" }) }} role="listbox">
         {options.map((option, index) => {
-          const optionValue = String(option.props.value ?? "") || emptyValue
-          const selected = optionValue === selectedValue
+          const nextValue = optionValue(option)
+          const selected = nextValue === selectedValue
           const optionDisabled = Boolean(option.props.disabled)
           return <button
             aria-disabled={optionDisabled}
             aria-selected={selected}
             className={`relative flex w-full min-w-0 break-all items-center rounded-md px-3 py-2 text-left text-sm outline-none transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-45 ${optionDisabled ? "" : "hover:bg-[var(--plm-flat-hover)] hover:text-foreground focus-visible:bg-[var(--plm-flat-hover)] focus-visible:text-foreground"} ${selected ? "bg-[var(--app-selected-soft)] pl-4 text-foreground before:absolute before:inset-y-2 before:left-1.5 before:w-0.5 before:rounded-full before:bg-primary" : "text-muted-foreground"}`}
             disabled={optionDisabled}
-            key={`${optionValue}-${index}`}
+            key={`${nextValue}-${index}`}
             onClick={() => {
-              onChange(optionValue === emptyValue ? "" : optionValue)
+              onChange(nextValue)
               closeAndRestoreFocus()
             }}
             onKeyDown={(event) => {
@@ -158,6 +195,20 @@ export function NativeSelect({ value, onChange, children, disabled, ariaLabel, "
                 event.stopPropagation()
                 event.preventDefault()
                 closeAndRestoreFocus()
+              } else if (event.key.length === 1 && event.key !== " " && !event.ctrlKey && !event.metaKey && !event.altKey) {
+                event.preventDefault()
+                const now = performance.now()
+                const previous = now - searchRef.current.time < 700 ? searchRef.current.text : ""
+                const text = previous === event.key ? event.key : previous + event.key
+                searchRef.current = { text, time: now }
+                for (let distance = 1; distance <= options.length; distance += 1) {
+                  const nextIndex = (index + distance) % options.length
+                  const candidate = options[nextIndex]
+                  if (!candidate.props.disabled && optionText(candidate.props.children).trim().toLocaleLowerCase().startsWith(text.toLocaleLowerCase())) {
+                    focusOption(nextIndex)
+                    break
+                  }
+                }
               }
             }}
             ref={(element) => { optionRefs.current[index] = element }}

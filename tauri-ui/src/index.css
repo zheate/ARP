@@ -830,12 +830,21 @@ textarea,
   gap: 0.5rem;
 }
 
+.manual-device-card--acquisition .manual-device-card__body {
+  display: contents;
+}
+
 .manual-device-card__footer {
   display: flex;
   align-items: center;
   min-height: 2.25rem;
   margin-top: auto;
   padding-top: 0.25rem;
+}
+
+.manual-device-card--acquisition .manual-device-card__footer {
+  margin-top: 0;
+  padding-top: 0;
 }
 
 .manual-power-source-grid {

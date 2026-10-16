@@ -1,3 +1,4 @@
+import { NativeSelect } from "@/components/native-select"
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   ArrowLeftRight,
@@ -137,18 +138,18 @@ function PointNavigator({
       >
         <ChevronRight size={15} />
       </Button>
-      <select
+      <NativeSelect
         aria-label={label}
         value={Math.max(0, index)}
         disabled={!values.length}
-        onChange={(event) => onChange(Number(event.target.value))}
+        onChange={(value) => onChange(Number(value))}
       >
         {values.map((current, position) => (
           <option key={position} value={position}>
             #{position + 1} · {numberText(current, comparing ? 6 : 3)} A
           </option>
         ))}
-      </select>
+      </NativeSelect>
       <span className="db-point-count">
         {values.length ? index + 1 : 0} / {values.length}
       </span>
@@ -1034,28 +1035,28 @@ export const DataBrowserPage = memo(function DataBrowserPage({
           </div>
           <label>
             时间
-            <select
+            <NativeSelect
               aria-label="日期范围"
               value={dateMode}
               disabled={!enabled}
-              onChange={(event) =>
-                filter(() => setDateMode(event.target.value))
+              onChange={(value) =>
+                filter(() => setDateMode(value))
               }
             >
               <option value="all">全部时间</option>
               <option value="today">今天</option>
               <option value="week">最近 7 天</option>
               <option value="custom">自定义</option>
-            </select>
+            </NativeSelect>
           </label>
           <label>
             测试类型
-            <select
+            <NativeSelect
               aria-label="测试类型筛选"
               value={testMode}
               disabled={!enabled}
-              onChange={(event) =>
-                filter(() => setTestMode(event.target.value))
+              onChange={(value) =>
+                filter(() => setTestMode(value))
               }
             >
               <option value="">全部类型</option>
@@ -1065,7 +1066,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                 </option>
               ))}
               <option value="unrecorded">未记录</option>
-            </select>
+            </NativeSelect>
           </label>
           <Button
             variant="outline"
@@ -1189,29 +1190,29 @@ export const DataBrowserPage = memo(function DataBrowserPage({
               </div>
               <label>
                 站别
-                <select
+                <NativeSelect
                   aria-label="测试站别筛选"
                   value={station}
                   disabled={!enabled}
-                  onChange={(event) =>
-                    filter(() => setStation(event.target.value))
+                  onChange={(value) =>
+                    filter(() => setStation(value))
                   }
                 >
                   <option value="">全部站别</option>
                   {listing?.stations.map((item) => (
                     <option key={item}>{item}</option>
                   ))}
-                </select>
+                </NativeSelect>
               </label>
               {source === "excel" && (
                 <label>
                   流程状态
-                  <select
+                  <NativeSelect
                     aria-label="记录状态筛选"
                     value={status}
                     disabled={!enabled}
-                    onChange={(event) =>
-                      filter(() => setStatus(event.target.value))
+                    onChange={(value) =>
+                      filter(() => setStatus(value))
                     }
                   >
                     <option value="">全部状态</option>
@@ -1221,7 +1222,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                       </option>
                     ))}
                     <option value="read_error">读取失败</option>
-                  </select>
+                  </NativeSelect>
                 </label>
               )}
             </div>
@@ -1604,11 +1605,11 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                     <strong>{details.length} 条记录比较</strong>
                     <label>
                       基准记录
-                      <select
+                      <NativeSelect
                         aria-label="基准记录"
                         value={baseId ?? ""}
-                        onChange={(event) =>
-                          setBaselineRecordId(event.target.value)
+                        onChange={(value) =>
+                          setBaselineRecordId(value)
                         }
                       >
                         {details.map((item) => (
@@ -1616,7 +1617,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                             {labels.get(item.record.id)}
                           </option>
                         ))}
-                      </select>
+                      </NativeSelect>
                     </label>
                   </div>
                 )}
@@ -1656,11 +1657,11 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                     {tab === "curves" && (
                       <label>
                         曲线内容
-                        <select
+                        <NativeSelect
                           aria-label="曲线内容"
                           value={curveView}
-                          onChange={(event) =>
-                            setCurveView(event.target.value as CurveView)
+                          onChange={(value) =>
+                            setCurveView(value as CurveView)
                           }
                         >
                           <option value="metrics">指标曲线</option>
@@ -1673,18 +1674,18 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                               <option value="evolution">光谱随电流变化</option>
                             </>
                           )}
-                        </select>
+                        </NativeSelect>
                       </label>
                     )}
                     {(tab === "points" || curveView === "metrics") && (
                       <label>
                         指标
-                        <select
+                        <NativeSelect
                           aria-label="分析指标"
                           value={metricKey}
                           disabled={!availableMetrics.length}
-                          onChange={(event) =>
-                            changeMetric(event.target.value as DataMetricKey)
+                          onChange={(value) =>
+                            changeMetric(value as DataMetricKey)
                           }
                         >
                           {!availableMetrics.length && (
@@ -1695,7 +1696,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                               {item.label} ({item.unit})
                             </option>
                           ))}
-                        </select>
+                        </NativeSelect>
                       </label>
                     )}
                   </div>

@@ -1,10 +1,13 @@
 import { memo, useImperativeHandle, useLayoutEffect, useRef, type Ref } from "react"
 import "./character-sprite-marker.css"
 
-type CharacterStyle = "bee" | "dinosaur"
+type CharacterStyle = "bee" | "dinosaur" | "green-dinosaur"
 type FrameRect = readonly [x: number, y: number, width: number, height: number]
 const FRAME_COUNT = 4
 const SHEET_SIZE = 1254
+const DINOSAUR_FRAMES: readonly FrameRect[] = [[8, 496, 310, 310], [320, 496, 310, 310], [636, 496, 310, 310], [947, 496, 310, 310]]
+// The four source frames share a foot baseline at row 305 of the 310 px crop.
+export const DINOSAUR_FOOT_BASELINE = 305 / 310
 // Flame bounds and tail-tip pivot in the approved 310 px dinosaur frame.
 const DINOSAUR_FLAME = { width: 76, height: 169, pivotX: 35, frameSize: 310 }
 
@@ -25,7 +28,12 @@ const CHARACTERS: Record<CharacterStyle, {
   dinosaur: {
     source: "/chart-markers/dino-red-tail-flame-aligned-four-frames-b7fb24b7b24a.png",
     fps: 8,
-    frames: [[8, 496, 310, 310], [320, 496, 310, 310], [636, 496, 310, 310], [947, 496, 310, 310]],
+    frames: DINOSAUR_FRAMES,
+  },
+  "green-dinosaur": {
+    source: "/chart-markers/dino-walk-four-frames-9f95d27db3c1.png",
+    fps: 8,
+    frames: DINOSAUR_FRAMES,
   },
 }
 
@@ -148,7 +156,7 @@ export const CharacterSpriteMarker = memo(function CharacterSpriteMarker({ style
 
   return <div aria-hidden="true" className="chart-character-marker" data-marker-style={style} ref={markerRef}
     style={{ visibility: "hidden", width: size, height: size }}>
-    <span className="chart-character-marker__fallback" />
+    <span className="chart-character-marker__fallback" style={style === "dinosaur" || style === "green-dinosaur" ? { top: `${DINOSAUR_FOOT_BASELINE * 100}%` } : undefined} />
     <div className="chart-character-marker__body">
       <canvas key={style} className="chart-character-marker__frames" ref={canvasRef}
         style={{ width: size * FRAME_COUNT, height: size, animationDuration: `${FRAME_COUNT / CHARACTERS[style].fps}s`, animationPlayState: "paused" }} />

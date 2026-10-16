@@ -289,8 +289,9 @@ fieldset.appearance-section .appearance-help { clear: both; }
 .appearance-option-row .theme-switch { flex-shrink: 0; }
 .appearance-chart-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.65rem; margin-top: 0.75rem; }
 .appearance-chart-options label { display: flex; min-width: 0; flex-direction: column; gap: 0.35rem; font-size: 0.7rem; color: var(--muted-foreground); }
-.appearance-chart-options select { width: 100%; min-width: 0; height: 2rem; padding-inline: 0.5rem; background: var(--background); border: 1px solid var(--border); border-radius: 0.35rem; color: var(--foreground); font-family: inherit; font-size: 0.8rem; }
-.appearance-chart-options select:disabled { opacity: 0.4; }
+.appearance-chart-options .native-select > button { width: 100%; min-width: 0; height: 2rem; padding-inline: 0.5rem; background: var(--background); border: 1px solid var(--border); border-radius: 0.35rem; color: var(--foreground); font-family: inherit; font-size: 0.8rem; }
+.appearance-chart-options .native-select > button:disabled { opacity: 0.4; }
+.appearance-chart-options .native-select__list { left: auto; right: 0; min-width: 10rem; }
 .appearance-density { border: 0; margin: 0; padding: 0; }
 .appearance-density__choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.65rem; margin-top: 0.75rem; }
 .appearance-density__sample { display: flex; align-items: center; justify-content: center; gap: 0.5rem; min-height: 4rem; padding: 0.4rem; }

@@ -1,3 +1,4 @@
+import { NativeSelect } from "@/components/native-select"
 import { CanvasLineChart } from "@/components/canvas-line-chart"
 import { TestConditionDiff } from "@/components/data-browser-conditions"
 import { Button } from "@/components/ui/button"
@@ -204,10 +205,10 @@ export function ProductHistory({
       <div className="db-chart-toolbar">
         <label>
           履历指标
-          <select
+          <NativeSelect
             aria-label="履历指标"
             value={metric}
-            onChange={(e) => setMetric(e.target.value as HistoryMetric)}
+            onChange={(value) => setMetric(value as HistoryMetric)}
           >
             <option value="maxPower">最大实测功率</option>
             {DATA_METRICS.map((m) => (
@@ -215,15 +216,15 @@ export function ProductHistory({
                 {m.label} @ 共同电流 ({m.unit})
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </label>
         <label>
           比较电流
-          <select
+          <NativeSelect
             aria-label="履历比较电流"
             value={current ?? ""}
             disabled={!currents.length}
-            onChange={(e) => setSelectedCurrent(Number(e.target.value))}
+            onChange={(value) => setSelectedCurrent(Number(value))}
           >
             {!currents.length && <option value="">无共同实测电流</option>}
             {currents.map((value) => (
@@ -231,7 +232,7 @@ export function ProductHistory({
                 {numberText(value, 6)} A
               </option>
             ))}
-          </select>
+          </NativeSelect>
         </label>
       </div>
       <p className="db-help">

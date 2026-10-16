@@ -354,7 +354,7 @@ export const ManualPage = memo(function ManualPage({
           </CardContent>
         </Card>
 
-        <Card size="sm" className="manual-device-card shadow-none">
+        <Card size="sm" className="manual-device-card manual-device-card--acquisition shadow-none">
           <CardHeader
             aria-disabled={!active || !manualControlsAllowed || pending}
             className="manual-device-card__header flex flex-row items-center justify-between"
@@ -458,7 +458,7 @@ export const ManualPage = memo(function ManualPage({
           </CardContent>
         </Card>
 
-        <Card size="sm" className="manual-device-card shadow-none">
+        <Card size="sm" className="manual-device-card manual-device-card--acquisition shadow-none">
           <CardHeader
             aria-disabled={!active || !manualControlsAllowed || pending}
             className="manual-device-card__header flex flex-row items-center justify-between"

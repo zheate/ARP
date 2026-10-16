@@ -4,7 +4,7 @@ import { chartTrailBoundary, DEFAULT_APPEARANCE, isAnimatedLatestPointMarker, LA
 
 test("stored endpoint styles restore both approved characters and all existing choices", () => {
   const existing = ["point", "paper-plane", "paw", "comet", "ecg", "flappy-bird"]
-  for (const id of [...existing, "bee", "dinosaur"]) {
+  for (const id of [...existing, "bee", "dinosaur", "green-dinosaur"]) {
     assert.equal(normalizeLatestPointMarkerStyle(JSON.parse(JSON.stringify(id))), id)
     assert.ok(LATEST_POINT_MARKER_OPTIONS.some((option) => option.id === id))
   }
@@ -15,11 +15,12 @@ test("stored endpoint styles restore both approved characters and all existing c
 
 test("only animated endpoint styles opt into shared curve reveal", () => {
   for (const option of LATEST_POINT_MARKER_OPTIONS) {
-    assert.equal(isAnimatedLatestPointMarker(option.id), ["flappy-bird", "bee", "dinosaur"].includes(option.id))
+    assert.equal(isAnimatedLatestPointMarker(option.id), ["flappy-bird", "bee", "dinosaur", "green-dinosaur"].includes(option.id))
   }
   assert.equal(isAnimatedLatestPointMarker(undefined), false)
   assert.equal(latestPointMarkerSize("bee"), 32)
   assert.equal(latestPointMarkerSize("dinosaur"), 32)
+  assert.equal(latestPointMarkerSize("green-dinosaur"), 32)
   assert.equal(latestPointMarkerSize("flappy-bird"), 24)
 })
 

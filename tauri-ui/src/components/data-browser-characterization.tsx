@@ -1,3 +1,4 @@
+import { NativeSelect } from "@/components/native-select"
 import { useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import {
@@ -153,14 +154,14 @@ export function Characterization({
               <>
                 <label>
                   点击移动
-                  <select
+                  <NativeSelect
                     aria-label="当前激活游标"
                     value={state.active}
-                    onChange={(e) => update({ active: e.target.value as Cursor })}
+                    onChange={(value) => update({ active: value as Cursor })}
                   >
                     <option value="A">游标 A</option>
                     <option value="B">游标 B</option>
-                  </select>
+                  </NativeSelect>
                 </label>
                 <Button
                   variant="outline"
@@ -190,11 +191,11 @@ export function Characterization({
                     <div className="db-cursor-row" key={cursor}>
                       <label>
                         游标 {cursor}
-                        <select
+                        <NativeSelect
                           aria-label={`游标 ${cursor} 测试点`}
                           value={point?.rowId ?? ""}
                           onFocus={() => update({ active: cursor })}
-                          onChange={(e) => select(cursor, Number(e.target.value))}
+                          onChange={(value) => select(cursor, Number(value))}
                         >
                           <option value="" disabled>
                             选择实测点
@@ -204,7 +205,7 @@ export function Characterization({
                               #{i + 1} · {numberText(p.currentA, 6)} A
                             </option>
                           ))}
-                        </select>
+                        </NativeSelect>
                       </label>
                       <Button
                         size="sm"

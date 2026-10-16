@@ -3,7 +3,7 @@ import { traceMonotoneCurve, type CurvePoint } from "@/lib/monotone-curve"
 import { useAppearance } from "@/hooks/use-appearance"
 import { chartTrailBoundary, isAnimatedLatestPointMarker, latestPointMarkerSize, type AppearancePreferences, type LatestPointMarkerStyle } from "@/lib/appearance"
 import { FlappyBirdMarker } from "./flappy-bird-marker"
-import { CharacterSpriteMarker } from "./character-sprite-marker"
+import { CharacterSpriteMarker, DINOSAUR_FOOT_BASELINE } from "./character-sprite-marker"
 import { sparseChartIndex } from "@/lib/sparse-chart-index"
 import { curveRevealFrame, retargetCurveReveal, traceRevealedCurve, type CurveRevealMotion } from "@/lib/chart-curve-reveal"
 
@@ -79,7 +79,11 @@ type CanvasLineChartProps = {
 }
 
 type ChartSize = { width: number; height: number }
-type AnimatedMarkerPosition = { key: string; x: number; y: number; size: number; height: number }
+type AnimatedMarkerPosition = { key: string; x: number; y: number; size: number; anchorY: number }
+
+function latestPointMarkerAnchorY(style: LatestPointMarkerStyle | undefined, height: number): number {
+  return height * (style === "dinosaur" || style === "green-dinosaur" ? DINOSAUR_FOOT_BASELINE : 0.5)
+}
 const CHART_FONT = "12px 'ARP Interface', 'DIN', 'MiSans', sans-serif"
 type HoverState = { index: number } | null
 type PendingHover = { index: number; pointerX: number; pointerY: number } | null
@@ -288,7 +292,7 @@ function buildLayout(
     const markerSize = line.pointSize ?? latestPointMarkerSize(line.latestPointStyle)
     const markerHeight = line.latestPointStyle === "flappy-bird" ? markerSize * 2 / 3 : markerSize
     markerRightGutter = Math.max(markerRightGutter, markerSize / 2 + 2)
-    markerTopGutter = Math.max(markerTopGutter, markerHeight / 2 + 2)
+    markerTopGutter = Math.max(markerTopGutter, latestPointMarkerAnchorY(line.latestPointStyle, markerHeight) + 2)
   }
   const right = Math.max(markerRightGutter, hasRightAxis ? (tightInsets ? 48 : 60) : (tightInsets ? 12 : 20))
   const top = Math.max(markerTopGutter, yLabel ? 28 : (tightInsets ? 8 : 12))
@@ -753,7 +757,7 @@ function drawBaseChart(
       if (endpoint) {
         const markerSize = line.pointSize ?? latestPointMarkerSize(line.latestPointStyle)
         const markerHeight = line.latestPointStyle === "flappy-bird" ? markerSize * 2 / 3 : markerSize
-        animatedMarkers.push({ key: line.key, ...endpoint, size: markerSize, height: markerHeight })
+        animatedMarkers.push({ key: line.key, ...endpoint, size: markerSize, anchorY: latestPointMarkerAnchorY(line.latestPointStyle, markerHeight) })
       }
       if (line.animateLatestPoint && revealX !== undefined && latestX !== null) latestX = Math.min(latestX, revealX)
     } else if (curvePoints) traceMonotoneCurve(context, curvePoints)
@@ -1076,7 +1080,7 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     for (const marker of animatedMarkers) {
       const element = animatedMarkerElementsRef.current.get(marker.key)
       if (!element) continue
-      element.style.transform = `translate(${marker.x - marker.size / 2}px, ${marker.y - marker.height / 2}px)`
+      element.style.transform = `translate(${marker.x - marker.size / 2}px, ${marker.y - marker.anchorY}px)`
       element.style.visibility = "visible"
     }
     // Hover continues to show actual samples, mapped through the displayed axes.
@@ -1232,7 +1236,7 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
           if (element) animatedMarkerElementsRef.current.set(line.key, element)
           else animatedMarkerElementsRef.current.delete(line.key)
         }
-        return line.latestPointStyle === "bee" || line.latestPointStyle === "dinosaur"
+        return line.latestPointStyle === "bee" || line.latestPointStyle === "dinosaur" || line.latestPointStyle === "green-dinosaur"
           ? <CharacterSpriteMarker key={line.key} style={line.latestPointStyle} size={markerSize} ref={setMarkerRef} />
           : <FlappyBirdMarker key={line.key} size={markerSize} ref={setMarkerRef} />
       })}

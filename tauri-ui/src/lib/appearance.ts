@@ -18,21 +18,22 @@ export const LATEST_POINT_MARKER_OPTIONS = [
   { id: "ecg", label: "心电图" },
   { id: "flappy-bird", label: "Flappy Bird 小鸟" },
   { id: "bee", label: "小蜜蜂" },
-  { id: "dinosaur", label: "小恐龙" },
+  { id: "green-dinosaur", label: "小恐龙" },
+  { id: "dinosaur", label: "小火龙" },
 ] as const
 export type LatestPointMarkerStyle = typeof LATEST_POINT_MARKER_OPTIONS[number]["id"]
-export type AnimatedLatestPointMarkerStyle = "flappy-bird" | "bee" | "dinosaur"
+export type AnimatedLatestPointMarkerStyle = "flappy-bird" | "bee" | "dinosaur" | "green-dinosaur"
 
 export function normalizeLatestPointMarkerStyle(value: unknown): LatestPointMarkerStyle {
   return LATEST_POINT_MARKER_OPTIONS.find((option) => option.id === value)?.id ?? "point"
 }
 
 export function isAnimatedLatestPointMarker(style: LatestPointMarkerStyle | undefined): style is AnimatedLatestPointMarkerStyle {
-  return style === "flappy-bird" || style === "bee" || style === "dinosaur"
+  return style === "flappy-bird" || style === "bee" || style === "dinosaur" || style === "green-dinosaur"
 }
 
 export function latestPointMarkerSize(style: LatestPointMarkerStyle | undefined): number {
-  return style === "bee" || style === "dinosaur" ? 32 : 24
+  return style === "bee" || style === "dinosaur" || style === "green-dinosaur" ? 32 : 24
 }
 export type ChartCanvasStyle = "clean" | "fine" | "engineering"
 export type InterfaceDensity = "compact" | "comfortable" | "distant"

@@ -32,13 +32,12 @@
 }
 .data-browser button:focus-visible,
 .data-browser input:focus-visible,
-.data-browser select:focus-visible,
 .data-browser summary:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 .data-browser input:not([type="checkbox"]),
-.data-browser select {
+.data-browser .native-select > button {
   background: var(--background);
   border: 1px solid var(--border);
   color: var(--foreground);
@@ -47,6 +46,19 @@
   min-height: 32px;
   font-size: 14px;
   min-width: 0;
+}
+.data-browser .native-select {
+  width: 12rem;
+  max-width: 100%;
+  min-width: 0;
+}
+.data-browser .native-select > button {
+  width: 100%;
+  gap: 8px;
+}
+.data-browser .native-select__list {
+  font-size: 14px;
+  font-weight: 400;
 }
 .data-browser input[type="checkbox"] {
   accent-color: var(--primary);
@@ -496,7 +508,7 @@
 .db-comparison-heading label {
   flex: 0 1 auto;
 }
-.db-comparison-heading select {
+.db-comparison-heading .native-select {
   max-width: 350px;
   flex: 1;
 }
@@ -766,7 +778,7 @@
   .db-record-bottom {
     gap: 0 8px;
   }
-  .db-comparison-heading select {
+  .db-comparison-heading .native-select {
     max-width: 300px;
   }
 }
@@ -827,9 +839,11 @@
   background: transparent;
   cursor: pointer;
 }
-.data-browser .db-point-navigator select {
-  font-size: 12px;
+.data-browser .db-point-navigator .native-select {
   max-width: 180px;
+}
+.data-browser .db-point-navigator .native-select > button {
+  font-size: 12px;
 }
 .db-point-count {
   min-width: 40px;
@@ -915,7 +929,7 @@
   gap: 4px 8px;
 }
 .db-cursor-row label { min-width: 260px; }
-.db-cursor-row select { flex: 1; }
+.db-cursor-row .native-select { flex: 1; }
 .db-cursor-row output { margin-left: auto; }
 .db-fit-result { display: grid; gap: 8px; }
 .db-fit-legend::before {
