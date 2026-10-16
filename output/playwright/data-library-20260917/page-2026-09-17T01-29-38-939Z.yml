@@ -1,0 +1,69 @@
+- generic [ref=f2e3]:
+  - banner [ref=f2e4]:
+    - generic [ref=f2e5]: Power Test
+    - generic [ref=f2e26]:
+      - button "显示" [ref=f2e27] [cursor=pointer]
+      - button "保存设置" [disabled]
+      - button "急停" [ref=f2e29] [cursor=pointer]
+  - generic [ref=f2e30]:
+    - complementary [ref=f2e31]:
+      - navigation [ref=f2e32]:
+        - button "自动测试" [ref=f2e33] [cursor=pointer]
+        - button "手动配置" [ref=f2e39] [cursor=pointer]
+        - button "PD 采集" [ref=f2e46] [cursor=pointer]
+        - button "数据浏览" [active] [ref=f2e50] [cursor=pointer]
+        - button "出货报告" [ref=f2e55] [cursor=pointer]
+        - button "系统设置" [ref=f2e60] [cursor=pointer]
+      - generic "侧栏格言 Stay True" [ref=f2e65]:
+        - paragraph [ref=f2e67]: Stay True
+    - main [ref=f2e68]:
+      - region "数据浏览" [ref=f2e330]:
+        - generic [ref=f2e331]:
+          - generic [ref=f2e332]:
+            - tablist "数据来源" [ref=f2e333]:
+              - tab "测试数据库" [selected] [ref=f2e334] [cursor=pointer]
+              - tab "Excel 文件" [ref=f2e339] [cursor=pointer]
+            - generic [ref=f2e342]: 已完成测试自动存档 · Excel 同步保留
+            - button "刷新" [ref=f2e343] [cursor=pointer]
+          - generic [ref=f2e344]:
+            - textbox "搜索 SN" [ref=f2e349]:
+              - /placeholder: 搜索产品 SN…
+            - generic [ref=f2e350]:
+              - text: 时间
+              - combobox "日期范围" [ref=f2e351]:
+                - option "全部时间" [selected]
+                - option "今天"
+                - option "最近 7 天"
+                - option "自定义"
+            - generic [ref=f2e352]:
+              - text: 站别
+              - combobox "测试站别筛选" [ref=f2e353]:
+                - option "全部站别" [selected]
+        - alert [ref=f2e354]: Failed to fetch
+        - generic [ref=f2e355]:
+          - complementary "测试记录列表" [ref=f2e356]:
+            - generic [ref=f2e357]:
+              - generic [ref=f2e358]:
+                - text: 测试记录
+                - generic [ref=f2e359]: "0"
+              - generic [ref=f2e360]: 勾选加入对比
+            - generic [ref=f2e362]:
+              - paragraph [ref=f2e367]: 尚无已完成的测试
+              - generic [ref=f2e368]: 完成测试后自动入库，也可从 Excel 文件导入。
+            - generic [ref=f2e369]:
+              - generic [ref=f2e370]: 第 1 / 1 页
+              - generic [ref=f2e371]:
+                - button "上一页" [disabled]
+                - button "下一页" [disabled]
+          - article "测试详情" [ref=f2e372]:
+            - generic [ref=f2e373]:
+              - generic [ref=f2e374]: 记录详情
+              - tablist "详情视图" [ref=f2e375]:
+                - tab "曲线" [selected] [ref=f2e376] [cursor=pointer]
+                - tab "测试点" [ref=f2e379] [cursor=pointer]
+                - tab "光谱" [ref=f2e382] [cursor=pointer]
+                - tab "信息" [ref=f2e385] [cursor=pointer]
+              - button "展开详情" [ref=f2e389] [cursor=pointer]
+            - generic [ref=f2e391]:
+              - paragraph [ref=f2e394]: 选择左侧记录查看详情
+              - generic [ref=f2e395]: 勾选 2 至 5 条记录，可跨 SN、跨日期对比全部参数。

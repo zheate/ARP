@@ -1,0 +1,116 @@
+/* Match PLM's shared button feedback. CSS never gates command dispatch,
+   disabled state or focus; translate changes only the painted position. */
+:root {
+  --button-feedback-duration: 150ms;
+  --button-feedback-ease: cubic-bezier(0.2, 0, 0, 1);
+}
+
+:root :is(button, [data-slot="button"]) {
+  transition-property: translate, color, background-color, border-color, opacity;
+  transition-duration: var(--button-feedback-duration);
+  transition-timing-function: var(--button-feedback-ease);
+  transition-delay: 0ms;
+}
+
+/* PLM's one-pixel press keeps layout dimensions and neighbouring controls fixed.
+   Selectors retain their anchor; disabled/busy controls cannot remain pressed. */
+:root :is([data-slot="button"], .device-settings-dialog__close) {
+  translate: 0 0;
+}
+:root :is([data-slot="button"], .device-settings-dialog__close):not(:disabled):not([aria-disabled="true"]):not([aria-busy="true"]):not([role="combobox"]):not([role="tab"]):not([role="option"]):active:is(:hover, :focus-visible) {
+  translate: 0 1px;
+}
+
+:root [data-slot="button"]:not(:disabled):not([aria-disabled="true"]):active {
+  background-color: var(--app-selected-soft);
+}
+:root [data-slot="button"][data-variant="default"]:not(:disabled):not([aria-disabled="true"]):active {
+  background-color: color-mix(in oklch, var(--primary), var(--foreground) 12%);
+}
+:root [data-slot="button"][data-variant="destructive"]:not(:disabled):not([aria-disabled="true"]):active {
+  background-color: color-mix(in oklch, var(--destructive) 25%, var(--background));
+}
+:root .btn-power-active,
+:root .btn-running-pulse::after,
+:root [data-slot="button"] .animate-pulse { animation: none; }
+
+/* Only visual properties interpolate. Native disabled state and the keyboard focus
+   ring take effect immediately; no timer or animation completion owns them. */
+
+/* The existing aria-current and pseudo-element reflect selection immediately.
+   Only the decorative rule interpolates; no layout, shared-layout, or exit wait. */
+:root .app-nav-item {
+  animation: none;
+  transition: background-color 140ms ease-out;
+}
+:root .app-nav-item::before {
+  pointer-events: none;
+  transition: transform 140ms cubic-bezier(0.2, 0, 0, 1);
+}
+:root .app-nav-item .app-nav-icon,
+:root .app-nav-item:not(:disabled):hover .app-nav-icon {
+  transform: none;
+  transition: none;
+}
+/* Remove the old whole-page stagger instead of stacking another entrance on it. */
+:root .page-enter > :not(.motion-overlay-enter),
+:root .page-title-enter,
+:root .shell-header-enter,
+:root .shell-sidebar-enter {
+  animation: none;
+}
+
+@keyframes operation-dialog-enter {
+  from { opacity: 0.96; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes operation-menu-enter {
+  from { opacity: 0.96; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* Keep the backdrop and controls available immediately. One entrance per panel;
+   local menus remain local, Radix keeps its Portal/focus/Escape/close lifecycle. */
+:root .motion-overlay-enter { animation: none; }
+:root .device-settings-dialog.motion-dialog-enter {
+  animation: operation-dialog-enter 140ms cubic-bezier(0.2, 0, 0, 1);
+}
+:root .menu-enter,
+:root .native-select__list,
+:root .display-menu[data-state="open"],
+:root [data-slot="select-content"][data-state="open"] {
+  animation: operation-menu-enter 140ms cubic-bezier(0.2, 0, 0, 1);
+}
+:root [data-slot="select-content"][data-state="closed"],
+:root .display-menu[data-state="closed"] { animation: none; }
+
+/* All lifecycle/fault panels, including a confirmed completion dialog, stay fully
+   visible at insertion. A nested dropdown cannot conceal a safety message. */
+:root .status-dialog.motion-dialog-enter,
+:root [role="alertdialog"],
+:root [role="alertdialog"] *,
+:root .motion-overlay-enter:has(.status-dialog, [role="alertdialog"]) {
+  animation: none;
+  transition: none;
+}
+:root .status-dialog button { transition: none; }
+/* Button presses do not delay or fade the immediately visible safety panels. */
+:root :is(.status-dialog, [role="alertdialog"]) [data-slot="button"] {
+  transition: translate var(--button-feedback-duration) var(--button-feedback-ease);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root :is([data-slot="button"], .device-settings-dialog__close) {
+    translate: none !important;
+  }
+  :root :where(button, [data-slot="button"]),
+  :root .app-nav-item::before {
+    transition: none !important;
+  }
+  :root .device-settings-dialog.motion-dialog-enter,
+  :root .menu-enter,
+  :root .native-select__list,
+  :root .display-menu,
+  :root [data-slot="select-content"] {
+    animation: none !important;
+  }
+}

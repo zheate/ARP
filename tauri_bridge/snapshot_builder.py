@@ -8,11 +8,11 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-from combined_test.automation import AutomaticTestState, ORDINARY_AUTO_POST_STABLE_DELAY_S, automatic_post_stable_delay_s
+from combined_test.automation import AutomaticTestState, ORDINARY_AUTO_POST_STABLE_DELAY_S
 from combined_test.runtime_logging import runtime_log_path
 from combined_test.spectrum import SPECTRUM_CENTER_LOCK_HALF_RANGE_NM
 
-from .station_automatic import automatic_power_stability_span_limit_w, automatic_power_stability_window_s
+from .station_automatic import automatic_power_stability_span_limit_w, automatic_power_stability_window_s, automatic_voltage_read_delay_s
 from .station_support import (
     BUILTIN_TEST_SCRIPTS,
     device_state,
@@ -146,9 +146,9 @@ class SnapshotBuilder:
         if auto_state in {AutomaticTestState.WAITING_STABLE, AutomaticTestState.WAITING_VOLTAGE} and stability_quality != "live":
             stability_reading = None
         hold_required_s = (
-            automatic_post_stable_delay_s(active_st.automatic.current_index, len(active_st.automatic.currents))
+            automatic_voltage_read_delay_s(active_st.power_supply_kind, active_st.automatic.current_index, len(active_st.automatic.currents))
             if 0 <= active_st.automatic.current_index < len(active_st.automatic.currents)
-            else ORDINARY_AUTO_POST_STABLE_DELAY_S
+            else 0.0 if active_st.power_supply_kind == "tdk" else ORDINARY_AUTO_POST_STABLE_DELAY_S
         )
         automatic_stability = {
             "powerStable": bool(stability_reading and stability_reading.stable),
@@ -430,6 +430,22 @@ class SnapshotBuilder:
                 ),
             },
             "manualTest": {
+                "currentCommand": {
+                    "pending": active_st.manual_current_request_a is not None,
+                    "requestedCurrentA": finite(active_st.manual_current_request_a),
+                    "remainingS": (
+                        math.ceil(active_st._power_supply_command_delay() * 10.0) / 10.0
+                        if active_st.manual_current_request_a is not None else 0.0
+                    ),
+                    "stopping": active_st.manual_power_stopping,
+                },
+                "capture": {
+                    **active_st.manual_capture,
+                    "remainingS": (
+                        math.ceil(max(0.0, active_st._manual_voltage_due_at - time.monotonic()) * 10.0) / 10.0
+                        if active_st._manual_voltage_due_at is not None else None
+                    ),
+                },
                 "pendingCount": (
                     len(active_st.record_store.unsaved_records())
                     if active_st.record_store.current_session is not None

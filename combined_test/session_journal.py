@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import threading
@@ -57,6 +58,14 @@ class SessionJournal:
             if self.path is None:
                 raise SessionJournalError("测试会话日志尚未创建")
             self._append_locked(event)
+            if event.get("type") == "session_completed":
+                # Acquisition facts are already durable. A library failure must never
+                # interfere with safe shutdown; browsing retries from the journal.
+                try:
+                    from .data_library import DataLibrary
+                    DataLibrary(self.root.parent / "library.sqlite3").ingest_journal(self.path)
+                except Exception:
+                    logging.getLogger(__name__).exception("测试数据库同步失败，已保留本地日志，数据浏览将重试")
 
     def _append_locked(self, event: Mapping[str, Any]) -> None:
         path = self.path

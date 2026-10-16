@@ -10,6 +10,16 @@ Tauri launches one persistent local Python process. Requests and responses are U
 
 The Rust layer exposes `bridge_snapshot` and a generic `bridge_request(method, params)` command. Production packaging can replace the Python interpreter with a sidecar without changing this contract.
 
+## Typed calls and failures
+
+Frontend production calls use `CommandMap` (`src/lib/command-contract.ts`) to associate method names with parameter and result types. Python retains authoritative value validation and hardware interlocks. The shared fixtures in `tests/fixtures/bridge-contract.json` are checked by TypeScript, Python and Rust tests. Wire request/response version remains `2`; startup rejects a mismatched handshake before accepting operator commands.
+
+`bridge_request` rejects with a structured object containing `kind`, `code`, `message`, `method`, `outcomeUnknown`, and, when available, `requestId` and `runtimeId`. The frontend normalizes legacy string failures as well. Explicit backend rejections retain their error codes (`device_not_connected`, `control_conflict`, `invalid_params`); unknown backend failures remain `action_failed`.
+
+Timeouts and interrupted transport do not prove that a hardware command was not executed. There is no automatic command replay. Operators use the existing readback controls to confirm power-supply state; if communication is unavailable, physical verification is required. A command response from an older runtime is discarded when a replacement runtime has already been observed. The safety executor and authorization-safe shutdown paths are unchanged.
+
+Rust logs request IDs and elapsed time (routine fast snapshots are suppressed), and Python logs import/initialization phases plus command execution timing. These measurements do not include a packaged executable's pre-Python extraction time.
+
 ## Backend modes
 
 - `active`: the headless project runtime loaded successfully. A toolkit-free backend owns device threads, automatic control, Excel/PDF export, plots, and PD acquisition.

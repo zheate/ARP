@@ -1,0 +1,6 @@
+### Result
+{"status":"PASS","results":[{"width":1440,"rows":[{"overflow":false,"input":1102,"button":120},{"overflow":false,"input":1102,"button":120}]},{"width":1180,"rows":[{"overflow":false,"input":807.203125,"button":120},{"overflow":false,"input":807.203125,"button":120}]},{"width":760,"rows":[{"overflow":false,"input":400,"button":120},{"overflow":false,"input":400,"button":120}]}]}
+### Ran Playwright code
+```js
+await (async (page) => { await page.getByRole("textbox",{name:"Excel 批量根目录",exact:true}).fill("/preview/"+"长目录名称与产品测试记录/".repeat(16)); const results=[]; for(const [width,height] of [[1440,900],[1180,720],[760,700]]) { await page.setViewportSize({width,height}); const rows=await page.locator(".shipping-report-path-row").evaluateAll(els=>els.map(el=>({overflow:el.scrollWidth>el.clientWidth,input:el.querySelector("input").getBoundingClientRect().width,button:el.querySelector("button").getBoundingClientRect().width}))); if(rows.some(r=>r.overflow)||rows[0].input!==rows[1].input||rows[0].button!==rows[1].button)throw new Error("Batch alignment"); results.push({width,rows}); await page.screenshot({path:`output/playwright/ui-coordination/after-shipping-batch-${width}.png`}); } return {status:"PASS",results}; })(page);
+```

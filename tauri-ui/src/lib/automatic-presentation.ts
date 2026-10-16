@@ -32,7 +32,7 @@ export function automaticPhase(auto: Automatic | undefined, shutdown: SafetyShut
   if (state === "setting_current") activeIndex = 1
   if (state === "waiting_stable") activeIndex = 2
   if (["waiting_voltage", "saving_point"].includes(state)) activeIndex = 3
-  if (state === "waiting_voltage" && auto?.stability?.holdRequiredS !== undefined) labels[3] = "保持"
+  if (state === "waiting_voltage" && (auto?.stability?.holdRequiredS ?? 0) > 0) labels[3] = "保持"
   if (state === "waiting_voltage" && (auto?.currentDwellS ?? 0) > 0) labels[3] = "停留"
   if (state === "waiting_voltage" && auto?.runContext?.selectedScriptId === "aging") labels[3] = "老化"
   if (state === "paused") {
@@ -69,6 +69,32 @@ export function automaticPhase(auto: Automatic | undefined, shutdown: SafetyShut
   return { labels, activeIndex, complete, dwell, live, tone, terminal: state === "completed", point, total }
 }
 
+export function automaticRunProgress(auto: Automatic | undefined, shutdown?: SafetyShutdownResult) {
+  const phase = automaticPhase(auto, shutdown)
+  const state = auto?.state ?? "idle"
+  const stages: Record<string, string> = {
+    idle: "未开始", starting: "准备测试", setting_current: "施加电流",
+    waiting_stable: "等待稳定", waiting_voltage: "保持中", saving_point: "记录测试点",
+    paused: "已暂停", ramping_down: "安全下电中",
+  }
+  let stage = stages[state] ?? "等待状态"
+  if (state === "waiting_stable" && auto?.stability?.powerStable && auto.stability.wavelengthRequired && !auto.stability.wavelengthStable) stage = "等待波长稳定"
+  if (state === "waiting_voltage" && phase.dwell !== null) stage = "停留中"
+  if (state === "waiting_voltage" && auto?.runContext?.selectedScriptId === "aging") stage = "老化中"
+  if (state === "completed") stage = phase.labels[phase.activeIndex]
+  const recorded = Math.max(0, auto?.savedPointCount ?? 0)
+  return {
+    point: phase.terminal ? "本轮已结束"
+      : state === "idle" ? (phase.total ? `待测 ${phase.total} 点` : "待机")
+      : phase.total ? `第 ${phase.point} / ${phase.total} 点` : "测试进行中",
+    stage,
+    recorded: `已记录 ${recorded} 点`,
+    elapsed: formatTestDuration(auto?.elapsedS),
+    detail: auto?.detail || stage,
+    tone: phase.tone,
+  }
+}
+
 export function powerStabilityPresentation(meter: DeviceSnapshot | undefined) {
   const available = meter?.running !== false && meter?.connected !== false
     && meter?.quality === "live" && typeof meter.powerW === "number" && Number.isFinite(meter.powerW)
@@ -98,18 +124,20 @@ export function automaticStabilityPresentation(auto: Automatic | undefined, mete
 
   const required = stability.holdRequiredS
   const holdElapsed = stability.holdElapsedS
-  if (typeof required !== "number" || !Number.isFinite(required) || required <= 0 || typeof holdElapsed !== "number" || !Number.isFinite(holdElapsed)) {
+  if (typeof required !== "number" || !Number.isFinite(required) || required < 0 || typeof holdElapsed !== "number" || !Number.isFinite(holdElapsed)) {
     return result(stability.powerStable ? "已稳定" : "判稳中", stability.powerStable ? "success" : "warning", "—", "当前后端未提供稳定后的保持计时。")
   }
   const preparing = ["starting", "setting_current"].includes(state)
   const sampling = ["waiting_stable", "waiting_voltage"].includes(state)
   const usable = stability.hasReading && (!sampling || stability.quality === "live") && !preparing
   const elapsed = usable && stability.powerStable ? Math.min(required, Math.max(0, holdElapsed)) : 0
-  const time = `${elapsed.toFixed(1)} / ${required} 秒`
+  const time = required === 0 ? "—" : `${elapsed.toFixed(1)} / ${required.toFixed(1)} 秒`
   const criterion = stability.spanLimitW === null
     ? `相对波动 ≤ ${stability.limitPercent}%`
     : `峰峰值 ≤ ${stability.spanLimitW} W`
-  const detail = `功率${criterion}，判稳后连续保持 ${required} 秒才继续；超限或采样中断后重新判稳、重新计时。`
+  const detail = required === 0
+    ? `功率${criterion}，满足稳定条件后直接读取最终电压。`
+    : `功率${criterion}，判稳后连续保持 ${required} 秒才继续；超限或采样中断后重新判稳、重新计时。`
   if (preparing) return result("等待判稳", "normal", time, detail)
   if (state === "paused") return result("已暂停", "warning", usable ? time : "—", detail)
   if (["completed", "ramping_down"].includes(state)) {
@@ -119,7 +147,7 @@ export function automaticStabilityPresentation(auto: Automatic | undefined, mete
   if (stability.powerStable) {
     return stability.wavelengthRequired && !stability.wavelengthStable
       ? result("等待波长稳定", "warning", time, `${detail}功率已稳定，等待波长满足条件。`)
-      : result(elapsed < required ? "保持中" : "保持完成", "success", time, detail)
+      : result(required === 0 ? "已稳定" : elapsed < required ? "保持中" : "保持完成", "success", time, detail)
   }
   const exceeds = stability.spanLimitW === null
     ? stability.percent !== null && stability.percent > stability.limitPercent

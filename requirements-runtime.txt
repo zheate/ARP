@@ -1,5 +1,7 @@
 # Windows runtime used by the Tauri Python sidecar (sth_eb314).
 numpy==2.4.4
+# Optional at startup; packaged builds include the byte-compatible spectrum encoder.
+orjson==3.13.0
 scipy==1.17.1
 openpyxl==3.1.5
 XlsxWriter==3.2.9

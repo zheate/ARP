@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import type { AppConfiguration } from "./backend.ts"
-import { applyScriptPreset, captureScriptParameters, scriptPresetChanged, scriptPresetCompatible } from "./test-script-presets.ts"
+import { applyScriptPreset, captureScriptParameters, removeScriptPreset, scriptPresetChanged, scriptPresetCompatible } from "./test-script-presets.ts"
 
 const config = {
   sn: "keep-sn", tdkResource: "keep-port", setCurrentA: 0, powerSupplyKind: "tdk",
@@ -32,4 +32,22 @@ test("script selection prevents incompatible currents and AU on TDK", () => {
   const aging = { ...preset, parameters: { ...preset.parameters, selectedScriptId: "aging", targetCurrentA: 20 } }
   assert.equal(scriptPresetCompatible(config, aging), false)
   assert.equal(scriptPresetCompatible({ ...config, powerSupplyKind: "ch341" }, aging), true)
+})
+
+test("deletion removes only the selected preset and preserves current parameters, hardware and sample", () => {
+  const selected = { id: "preset-one", name: "36 A", parameters: captureScriptParameters(config) }
+  const other = { ...selected, id: "preset-two", name: "Other" }
+  const current = { ...config, selectedScriptPresetId: selected.id, testScriptPresets: [selected, other] }
+  const next = removeScriptPreset(current, selected.id)
+  assert.deepEqual(next, { ...current, selectedScriptPresetId: "", testScriptPresets: [other] })
+  assert.equal(current.testScriptPresets.length, 2)
+  assert.equal(next.selectedScriptId, "hold-points")
+  assert.equal(removeScriptPreset({ ...current, testScriptPresets: [selected] }, selected.id).testScriptPresets?.length, 0)
+})
+
+test("deletion rejects builtins, missing presets and a changed selection", () => {
+  const preset = { id: "preset-one", name: "36 A", parameters: captureScriptParameters(config) }
+  const current = { ...config, selectedScriptPresetId: preset.id, testScriptPresets: [preset] }
+  for (const id of ["", "standard", "preset-missing"]) assert.throws(() => removeScriptPreset(current, id), /只能删除/)
+  assert.throws(() => removeScriptPreset({ ...current, selectedScriptPresetId: "" }, preset.id), /已改变/)
 })

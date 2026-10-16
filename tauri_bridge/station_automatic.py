@@ -62,6 +62,11 @@ LOW_POWER_STABILITY_SPAN_W = 0.1
 LOW_POWER_STABILITY_WINDOW_S = 10.0
 
 
+def automatic_voltage_read_delay_s(power_supply_kind: str, index: int, point_count: int) -> float:
+    """TDK reads immediately after stability; CH341 retains its confirmation."""
+    return 0.0 if power_supply_kind == "tdk" else automatic_post_stable_delay_s(index, point_count)
+
+
 def automatic_wavelength_stability_tolerance_nm(current_a: float | None) -> float:
     """Use a wider centroid window only for the 2 A automatic point."""
     if current_a is not None and math.isclose(
@@ -603,7 +608,7 @@ class StationAutomaticMixin:
                     build_test_currents(settings)[0],
                 ),
             ),
-            post_stable_delay_s=FINAL_AUTO_POST_STABLE_DELAY_S,
+            post_stable_delay_s=(0.0 if self.power_supply_kind == "tdk" else FINAL_AUTO_POST_STABLE_DELAY_S),
             minimum_ramp_down_interval_s=(
                 0.0 if self.power_supply_kind == "tdk" else MIN_POWER_SUPPLY_COMMAND_INTERVAL_S
             ),
@@ -921,8 +926,8 @@ class StationAutomaticMixin:
         stability_generation: int,
         spectrum_revision: int,
     ) -> tuple[PowerMeterReading, Any]:
-        """Require an uninterrupted stable interval before reading voltage."""
-        required_s = automatic_post_stable_delay_s(index, len(self.automatic.currents))
+        """Respect explicit dwell and controller-specific confirmation before reading."""
+        required_s = automatic_voltage_read_delay_s(self.power_supply_kind, index, len(self.automatic.currents))
         dwell_s = self.automatic.current_dwell_s
         timer = StableHoldTimer(required_s, max(1.0, float(self.configuration["powerMeterIntervalMs"]) * 3.0 / 1000.0))
         started_at = time.monotonic()
@@ -954,14 +959,22 @@ class StationAutomaticMixin:
                     timer.reset()
                     self.automatic_stable_hold_elapsed_s = 0.0
                     self.automatic.set_state(AutomaticTestState.WAITING_STABLE)
-                    self.automatic_detail = f"{current_a:g} A 波动超限或采样中断，重新判稳后保持 {required_s:g} 秒"
+                    self.automatic_detail = (
+                        f"{current_a:g} A 波动超限或采样中断，重新判稳后保持 {required_s:g} 秒"
+                        if required_s else f"{current_a:g} A 波动超限或采样中断，重新等待稳定"
+                    )
                 else:
                     reading, frame = measurement
                     elapsed_s = timer.observe(reading.elapsed_s, self.latest_power_received_monotonic_s, now, stable=True)
                     self.automatic_stable_hold_elapsed_s = elapsed_s
                     self.automatic_stability_reading = reading
                     self.automatic.set_state(AutomaticTestState.WAITING_VOLTAGE)
-                    self.automatic_detail = f"{current_a:g} A 已稳定，保持 {elapsed_s:.1f} / {required_s:g} 秒"
+                    if required_s:
+                        self.automatic_detail = f"{current_a:g} A 已稳定，保持 {elapsed_s:.1f} / {required_s:g} 秒"
+                    elif now - started_at < dwell_s:
+                        self.automatic_detail = f"{current_a:g} A 已稳定，停留 {now - started_at:.1f} / {dwell_s:g} 秒"
+                    else:
+                        self.automatic_detail = f"{current_a:g} A 已稳定，正在读取输出电压"
                     power_w = self._stable_power_w(reading)
                     if self.stable_power_points.get(current_a) != power_w:
                         self.stable_power_points[current_a] = power_w
@@ -970,7 +983,10 @@ class StationAutomaticMixin:
                     if elapsed_s >= required_s and now - started_at >= dwell_s:
                         return reading, frame
             if now >= deadline:
-                raise TimeoutError(f"{current_a:g} A 测试点未能连续保持稳定 {required_s:g} 秒")
+                raise TimeoutError(
+                    f"{current_a:g} A 测试点未能连续保持稳定 {required_s:g} 秒"
+                    if required_s else f"{current_a:g} A 测试点等待稳定超时"
+                )
             while self.automatic_sample_recorder is not None and dwell_s > 0 and next_sample_s <= min(dwell_s, now - started_at):
                 self._write_automatic_second_sample(point_index=index + 1, elapsed_s=next_sample_s, target_current_a=current_a)
                 next_sample_s += 1.0
@@ -1099,9 +1115,10 @@ class StationAutomaticMixin:
         self._validate_automatic_spectrum(stable_frame)
         stable_power_w = self._stable_power_w(stable_reading)
         with self._supply_io_lock:
+            self._tdk_voltage_burst_stop.set()
             self._reserve_power_supply_command(wait=True)
             raw_voltage_v = self._require_power_supply().read_output_voltage()
-        self.latest_power_supply_output_voltage_v = float(raw_voltage_v)
+            self.latest_power_supply_output_voltage_v = float(raw_voltage_v)
         voltage_v = (
             compensate_tdk_output_voltage(raw_voltage_v, current_a)
             if self.power_supply_kind == "tdk"
@@ -1322,6 +1339,7 @@ class StationAutomaticMixin:
 
     def safe_ramp_down(self) -> None:
         with self.command_safety.stopping(), self._safe_ramp_lock:
+            self._tdk_voltage_burst_stop.set()
             self._shutdown_measurement_candidate = None
             try:
                 with self._supply_io_lock:

@@ -1,0 +1,6 @@
+### Result
+{"simulatedVisibilityChange":true,"hidden":"paused","visible":"running"}
+### Ran Playwright code
+```js
+await (async (page) => { await page.getByRole("button",{name:"系统设置",exact:true}).click(); const result=await page.evaluate(()=>{const before=Object.getOwnPropertyDescriptor(document,"hidden"); const canvas=document.querySelector(".chart-flappy-bird__frames"); try{ Object.defineProperty(document,"hidden",{configurable:true,get:()=>true}); document.dispatchEvent(new Event("visibilitychange")); const hidden=canvas.style.animationPlayState; Object.defineProperty(document,"hidden",{configurable:true,get:()=>false}); document.dispatchEvent(new Event("visibilitychange")); const visible=canvas.style.animationPlayState; if(hidden!=="paused"||visible!=="running")throw new Error("visibility playback failed"); return {simulatedVisibilityChange:true,hidden,visible}; }finally{if(before)Object.defineProperty(document,"hidden",before);else delete document.hidden; document.dispatchEvent(new Event("visibilitychange"));}}); return result; })(page);
+```

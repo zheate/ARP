@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { createPortal } from "react-dom"
+import { DialogPortal } from "@/components/dialog-portal"
 import { Plus, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -28,6 +28,7 @@ export function SaveScriptDialog({ onClose, onSave }: {
     }
     input.current?.focus()
     const handleKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return
       if (event.key === "Escape" && !lock.current) {
         event.preventDefault()
         close.current()
@@ -60,7 +61,8 @@ export function SaveScriptDialog({ onClose, onSave }: {
     finally { lock.current = false; setSaving(false) }
   }
 
-  return createPortal(
+  return (
+    <DialogPortal>
     <div className="dialog-overlay motion-overlay-enter" onMouseDown={(event) => { if (event.target === event.currentTarget && !lock.current) onClose() }}>
       <form aria-labelledby="save-script-title" aria-modal="true" className="device-settings-dialog motion-dialog-enter" ref={dialog} role="dialog" onSubmit={(event) => { event.preventDefault(); void save() }}>
         <div className="device-settings-dialog__header">
@@ -83,6 +85,7 @@ export function SaveScriptDialog({ onClose, onSave }: {
           </div>
         </div>
       </form>
-    </div>, document.body,
+    </div>
+    </DialogPortal>
   )
 }

@@ -1,70 +1,45 @@
-Power Test 驱动文件说明
+Power Test 安装与修复说明
 
-安装包不会自动安装任何硬件驱动。所有驱动文件已复制到：
+正常安装只需运行发布者提供的一个完整安装包：
+Power Test_<版本号>_x64-all-drivers-setup.exe
 
-C:\ProgramData\Power Test\Drivers
+1. 允许 Windows 管理员权限提示。
+2. 保持默认组件可安装全部设备支持；也可取消不使用的设备。
+3. 点击安装，等待 WebView2、所选驱动和 Power Test 安装完成。
+4. 按完成页提示处理重启。若提示“安装尚未完成”，请重启后使用本次安装的同一管理员账户登录，安装会继续。
+5. 启动 Power Test，导入对应电脑的许可证，再连接设备并执行识别。
 
-请只安装实际使用设备对应的驱动，并在安装前关闭 Power Test、拔下相关 USB 设备。
-驱动安装通常需要右键“以管理员身份运行”。
+组件如何选择
 
-0. Microsoft WebView2（Power Test 运行环境）
+- Power Test + WebView2：必需。已经检测到的机器级 WebView2 会跳过安装。
+- CH341 I²C：旧式泵驱电源控制器。
+- Ocean Insight / OceanHR4：光谱仪。具体型号须使用与该设备匹配的厂商驱动。
+- LaserPoint / FTDI：LaserPoint 的 USB 转串口驱动；同时保留 NI-VISA。
+- CH341 / CH343：使用这两类 USB 转串口芯片的设备。
+- NI-VISA：Caihuang、LaserPoint、Coherent 或 TDK 等串口仪器使用的运行环境。
+- NI-DAQmx：PD 数据采集卡。
+- Ophir：安装 StarLab 及其 USB/COM 组件。
+- Coherent：安装 Meter Connection 及 PowerMax USB 驱动；串口连接同时保留 NI-VISA。
 
-目录：09_webview2
+错误与重试
 
-- 安装器不会自动安装 WebView2。
-- 如果 Power Test 无法启动，或系统提示缺少 WebView2，请以管理员身份运行 MicrosoftEdgeWebView2RuntimeInstallerX64.exe。
-- 安装完成后再启动 Power Test。已经安装 WebView2 的电脑可以跳过此步骤。
+安装失败时不会显示全部完成。请先查看：
+C:\ProgramData\Power Test\InstallerLogs
 
-1. CH341 I2C 泵驱控制器
+完整流程日志 full-setup-*.log 包含失败组件和退出码。
+应用 MSI 日志为 application-msi.log；Coherent 厂商日志为 coherent.log。
+驱动的系统日志为 C:\Windows\INF\setupapi.dev.log。
+若显示超时，厂商安装程序可能仍在运行。再次安装会检查该进程是否结束，并拦截重复执行。
+等待其结束或重启 Windows，修复日志所指问题后，再运行同一个完整安装包。
+驱动文件缺失、校验不符或签名不受信任时，请向发布者获取完整、可信的安装包。
+不要关闭 Windows 驱动签名检查。
 
-目录：01_ch341_i2c
+自动继续安装使用一次性计划任务“Power Test Setup Resume”。
+任务仅在需要中途重启时创建，并在读取续装状态前删除；即使状态文件损坏，也不会每次登录都重复执行。
+如继续安装失败，查看日志并重新运行完整安装包即可。
+安装缓存位于 C:\Program Files\Common Files\ARP\Setup\<版本号>\<本次安装>。
+自动继续前不要移动或删除该目录；仅保存缓存不代表已经安装驱动。
 
-- 推荐：右键 driver\CH341WDM.INF，选择“安装”。
-- 也可手动运行 CH341PAR.EXE，并在厂商界面完成安装。
-- 程序运行所需 DLL 位于 runtime 目录，应用安装包内部也已包含 64 位 DLL。
-
-2. Ocean Optics OceanHR4 光谱仪
-
-目录：03_ocean_hr4
-
-- 以管理员身份运行 install_ocean_hr4_driver.ps1。
-- 或右键 driver\OOI_OceanHR4.inf，选择“安装”。
-
-3. LaserPoint / FTDI 功率计
-
-目录：04_laserpoint_ftdi
-
-- 解压 Win-10-11-Drivers-rev2026.zip。
-- 运行其中的 dp-chooser.exe 或 dpinst-amd64.exe。
-
-4. WCH CH341/CH343 USB 转串口
-
-目录：05_serial_adapters
-
-- CH341：运行 wch_ch341ser\SETUP.EXE，或右键 CH341SER.INF 选择“安装”。
-- CH343：运行 wch_ch343ser\SETUP.EXE，或右键 CH343SER.INF 选择“安装”。
-- 只需安装设备管理器中实际显示的芯片型号。
-
-5. NI-DAQmx 和 NI-VISA
-
-目录：00_ni_package_manager、06_ni_runtime
-
-- 先运行 00_ni_package_manager\NIPackageManager24.0.0.exe。
-- 再以管理员身份运行 06_ni_runtime\install_ni_runtime.ps1。
-- 该步骤使用随包提供的离线源，不需要联网下载。
-
-6. Ophir 功率计
-
-目录：07_ophir_starlab
-
-- 运行 StarLab_Setup.exe。
-- 完成后确认 StarLab 能识别设备，再启动 Power Test。
-
-7. Coherent PowerMax 功率计
-
-目录：08_coherent
-
-- 解压 coherent-meter-connection-setup.zip。
-- 运行解压后的 Coherent Meter Connection 安装程序。
-
-安装所需驱动后建议重启 Windows，再连接设备并启动 Power Test。
+安装前会检测本产品的运行进程；若仍在运行，请从软件正常结束测试并退出。安装程序不会强制关闭它。
+安装程序不会主动控制仪器或开启电源输出。
+安装成功不等于真实设备验收；应验证识别、采集、Excel 导出及安全下电。

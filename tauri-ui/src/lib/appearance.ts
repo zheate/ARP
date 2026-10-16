@@ -10,7 +10,31 @@ export const ACCENT_THEMES = [
 export type AccentTheme = typeof ACCENT_THEMES[number]["id"]
 export type Theme = "dark" | "light"
 export type CurveLineStyle = "solid" | "dashed" | "dotted"
-export type LatestPointMarkerStyle = "point" | "paper-plane" | "paw" | "comet" | "ecg"
+export const LATEST_POINT_MARKER_OPTIONS = [
+  { id: "point", label: "圆点" },
+  { id: "paper-plane", label: "纸飞机" },
+  { id: "paw", label: "爪印" },
+  { id: "comet", label: "彗星" },
+  { id: "ecg", label: "心电图" },
+  { id: "flappy-bird", label: "Flappy Bird 小鸟" },
+  { id: "bee", label: "小蜜蜂" },
+  { id: "green-dinosaur", label: "小恐龙" },
+  { id: "dinosaur", label: "小火龙" },
+] as const
+export type LatestPointMarkerStyle = typeof LATEST_POINT_MARKER_OPTIONS[number]["id"]
+export type AnimatedLatestPointMarkerStyle = "flappy-bird" | "bee" | "dinosaur" | "green-dinosaur"
+
+export function normalizeLatestPointMarkerStyle(value: unknown): LatestPointMarkerStyle {
+  return LATEST_POINT_MARKER_OPTIONS.find((option) => option.id === value)?.id ?? "point"
+}
+
+export function isAnimatedLatestPointMarker(style: LatestPointMarkerStyle | undefined): style is AnimatedLatestPointMarkerStyle {
+  return style === "flappy-bird" || style === "bee" || style === "dinosaur" || style === "green-dinosaur"
+}
+
+export function latestPointMarkerSize(style: LatestPointMarkerStyle | undefined): number {
+  return style === "bee" || style === "dinosaur" || style === "green-dinosaur" ? 32 : 24
+}
 export type ChartCanvasStyle = "clean" | "fine" | "engineering"
 export type InterfaceDensity = "compact" | "comfortable" | "distant"
 
@@ -33,7 +57,7 @@ export interface AppearancePreferences {
   trailEnabled: boolean
   trailSeconds: number
   density: InterfaceDensity
-  highlightChanges: boolean
+  highlightChanges: boolean // Retain the stored key for the numeric animation switch.
 }
 
 export const APPEARANCE_STORAGE_KEY = "power-test.appearance.v1"
@@ -81,9 +105,4 @@ export function readAppearance(): AppearancePreferences {
 export function chartTrailBoundary(latestX: number | null, seconds: number, domain: [number, number]): number | null {
   if (latestX === null || !Number.isFinite(latestX) || !Number.isFinite(seconds) || seconds <= 0 || domain[1] <= domain[0]) return null
   return Math.max(domain[0], Math.min(domain[1], latestX - seconds))
-}
-
-export function changedDigitIndexes(previous: string, current: string): number[] {
-  if (previous.length !== current.length || !/^\d/.test(previous)) return []
-  return [...current].flatMap((character, index) => /\d/.test(character) && character !== previous[index] ? [index] : [])
 }

@@ -1,0 +1,8 @@
+{
+  "version": 2,
+  "pingRequest": {"v": 2, "id": "contract-1", "method": "system.ping", "params": {}},
+  "pingResponse": {"v": 2, "id": "contract-1", "ok": true, "result": {"status": "ok", "mode": "active", "protocolVersion": 2}},
+  "errorResponse": {"v": 2, "id": "contract-2", "ok": false, "error": {"code": "device_not_connected", "message": "请先连接电源控制器", "runtimeId": "contract-runtime"}},
+  "shutdown": {"shutdownConfirmed": false, "exportsDrained": true, "shutdown": {"requested": true, "confirmed": false, "measuredCurrentA": null, "outputOffConfirmed": false, "reason": "未确认"}},
+  "snapshot": {"backend": {"connected": true, "mode": "active", "protocolVersion": 2, "runtimeId": "contract-runtime"}, "devices": {"powerSupply": {}, "powerMeter": {}, "spectrometer": {}}, "automaticTest": {"state": "idle"}, "safety": {"shutdown": {"confirmed": false}}}
+}

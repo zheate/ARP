@@ -1,0 +1,6 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "build": {
+    "devUrl": "http://localhost:1420/?demo=1&run=1&page=data&compare=1"
+  }
+}

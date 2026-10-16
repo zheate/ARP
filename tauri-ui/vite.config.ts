@@ -15,6 +15,8 @@ export default defineConfig(async () => ({
     },
   },
   build: {
+    // Lets a failed deferred page retry its emitted module without restarting the app.
+    manifest: "asset-manifest.json",
     rollupOptions: {
       output: {
         // Keep large, slow-changing dependencies cacheable across app updates.

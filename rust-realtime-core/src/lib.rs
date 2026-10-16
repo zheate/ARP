@@ -176,7 +176,7 @@ pub fn spectrum_stats(wavelength: &[f64], intensity: &[f64]) -> SpectrumStats {
     let peak_index = intensity
         .iter()
         .enumerate()
-        .max_by(|left, right| left.1.total_cmp(right.1))
+        .max_by(|left, right| left.1.total_cmp(right.1).then_with(|| right.0.cmp(&left.0)))
         .map(|(index, _)| index)
         .unwrap_or(0);
     SpectrumStats {
@@ -255,7 +255,7 @@ pub fn power_in_band(
         let peak_index = filtered
             .iter()
             .enumerate()
-            .max_by(|left, right| left.1.total_cmp(right.1))
+            .max_by(|left, right| left.1.total_cmp(right.1).then_with(|| right.0.cmp(&left.0)))
             .map(|(index, _)| index)
             .unwrap_or(0);
         wavelength[peak_index]
@@ -278,7 +278,7 @@ pub fn power_in_band(
             sub_y.push(y);
         }
     }
-    if sub_w.len() < 2 {
+    if sub_w.is_empty() {
         sub_w = wavelength.to_vec();
         sub_y = filtered;
     }
@@ -304,7 +304,7 @@ pub fn power_in_band(
         .collect();
 
     let total_power = trapezoidal_integral(&sub_w, &corrected_y);
-    if total_power.abs() < 1e-6 {
+    if total_power < 1e-6 {
         return 0.0;
     }
 

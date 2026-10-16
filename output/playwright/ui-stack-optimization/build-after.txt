@@ -1,0 +1,21 @@
+
+> tauri-ui@0.1.2 build
+> tsc && vite build
+
+vite v7.3.6 building client environment for production...
+transforming...
+✓ 2389 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                               1.55 kB │ gzip:   0.70 kB
+dist/asset-manifest.json                      1.58 kB │ gzip:   0.41 kB
+dist/assets/report-ex56mTZq.css               1.35 kB │ gzip:   0.50 kB
+dist/assets/data-browser-page-BjIsBHfi.css   15.93 kB │ gzip:   3.47 kB
+dist/assets/index-DKM94_ew.css              173.93 kB │ gzip:  28.48 kB
+dist/assets/tauri-vendor-BvoPdSUf.js          1.79 kB │ gzip:   0.79 kB
+dist/assets/data-browser-demo-Cj9uM1eU.js     3.51 kB │ gzip:   2.02 kB
+dist/assets/data-browser-CO7sieXs.js         11.71 kB │ gzip:   5.12 kB
+dist/assets/report-kuYlkxY3.js               40.00 kB │ gzip:  11.70 kB
+dist/assets/data-browser-page-K1dxZtY9.js    69.98 kB │ gzip:  22.70 kB
+dist/assets/index-3MxvK_-G.js               732.76 kB │ gzip: 228.55 kB
+✓ built in 11.37s

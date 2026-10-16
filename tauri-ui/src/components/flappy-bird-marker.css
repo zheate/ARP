@@ -1,0 +1,26 @@
+.chart-flappy-bird {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.chart-flappy-bird__frames {
+  display: block;
+  max-width: none;
+  image-rendering: pixelated;
+  animation: chart-flappy-bird-flap 400ms steps(4, end) infinite;
+  will-change: transform;
+}
+
+@keyframes chart-flappy-bird-flap {
+  to { transform: translateX(-100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-flappy-bird__frames {
+    animation: none !important;
+    will-change: auto;
+  }
+}

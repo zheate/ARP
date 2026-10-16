@@ -1,11 +1,34 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { automaticPhase, automaticStabilityPresentation, automaticStartPresentation, automaticStoragePresentation, formatTestDuration, powerStabilityPresentation } from "./automatic-presentation.ts"
+import { automaticPhase, automaticRunProgress, automaticStabilityPresentation, automaticStartPresentation, automaticStoragePresentation, formatTestDuration, powerStabilityPresentation } from "./automatic-presentation.ts"
 import type { BackendSnapshot } from "./backend"
 
 type Automatic = BackendSnapshot["automaticTest"]
 const auto = (patch: Partial<Automatic>) => ({ state: "idle", currents: [2, 4, 6], currentIndex: 0, ...patch }) as Automatic
 const shutdown = (confirmed: boolean) => ({ requested: true, confirmed, measuredCurrentA: null, outputOffConfirmed: confirmed, reason: "" })
+
+test("run progress distinguishes the current point from durably recorded points and uses backend elapsed time", () => {
+  const progress = automaticRunProgress(auto({ state: "waiting_stable", currentIndex: 2, savedPointCount: 1, elapsedS: 84, detail: "第 3 点等待功率稳定" }))
+  assert.equal(progress.point, "第 3 / 3 点")
+  assert.equal(progress.recorded, "已记录 1 点")
+  assert.equal(progress.stage, "等待稳定")
+  assert.equal(progress.elapsed, "01:24")
+  assert.equal(progress.detail, "第 3 点等待功率稳定")
+  assert.equal(automaticRunProgress(auto({ state: "waiting_stable", stability: { powerStable: true, wavelengthRequired: true, wavelengthStable: false } as Automatic["stability"] })).stage, "等待波长稳定")
+})
+
+test("run progress does not invent a point, a clock, or shutdown confirmation", () => {
+  assert.equal(automaticRunProgress(undefined).point, "待机")
+  assert.equal(automaticRunProgress(undefined).elapsed, "—")
+  assert.equal(automaticRunProgress(auto({})).point, "待测 3 点")
+  assert.equal(automaticRunProgress(auto({ state: "paused" })).stage, "已暂停")
+  assert.equal(automaticRunProgress(auto({ state: "ramping_down" })).stage, "安全下电中")
+  const ended = auto({ state: "completed", savedPointCount: 1, terminalOutcome: "stopped_shutdown_confirmed", elapsedS: 84 })
+  assert.equal(automaticRunProgress(ended, shutdown(true)).point, "本轮已结束")
+  assert.equal(automaticRunProgress(ended, shutdown(true)).stage, "提前结束")
+  assert.equal(automaticRunProgress(ended, shutdown(false)).stage, "下电待确认")
+  assert.equal(automaticRunProgress(ended, shutdown(true)).recorded, "已记录 1 点")
+})
 
 const stability: NonNullable<Automatic["stability"]> = {
   powerStable: false, elapsedS: 6.3, requiredS: 10, spanW: 0.05, spanLimitW: 0.1,
@@ -17,24 +40,38 @@ const stability: NonNullable<Automatic["stability"]> = {
 test("confirmation starts only after stability and completes after five seconds", () => {
   const pending = automaticStabilityPresentation(auto({ state: "waiting_stable", stability }))
   assert.equal(pending.label, "判稳中")
-  assert.equal(pending.time, "0.0 / 5 秒")
+  assert.equal(pending.time, "0.0 / 5.0 秒")
   assert.match(pending.detail, /判稳后连续保持 5 秒/)
   const holding = automaticStabilityPresentation(auto({ state: "waiting_voltage", stability: { ...stability, powerStable: true, holdElapsedS: 2.3 } }))
   assert.equal(holding.label, "保持中")
-  assert.equal(holding.time, "2.3 / 5 秒")
+  assert.equal(holding.time, "2.3 / 5.0 秒")
   const complete = automaticStabilityPresentation(auto({ state: "waiting_voltage", stability: { ...stability, powerStable: true, holdElapsedS: 5 } }))
   assert.equal(complete.label, "保持完成")
-  assert.equal(complete.time, "5.0 / 5 秒")
+  assert.equal(complete.time, "5.0 / 5.0 秒")
+})
+
+test("zero confirmation reads directly while preserving freshness, wavelength and explicit dwell states", () => {
+  const immediate = { ...stability, powerStable: true, holdRequiredS: 0, holdElapsedS: 0 }
+  const snapshot = auto({ state: "waiting_voltage", stability: immediate })
+  const ready = automaticStabilityPresentation(snapshot)
+  assert.equal(ready.label, "已稳定")
+  assert.equal(ready.time, "—")
+  assert.match(ready.detail, /直接读取最终电压/)
+  assert.equal(automaticPhase(snapshot, undefined).labels[3], "记录")
+  assert.equal(automaticPhase({ ...snapshot, currentDwellS: 4 }, undefined).labels[3], "停留")
+  assert.equal(automaticStabilityPresentation({ ...snapshot, stability: { ...immediate, quality: "stale" } }).label, "等待采样")
+  assert.equal(automaticStabilityPresentation({ ...snapshot, stability: { ...immediate, wavelengthRequired: true, wavelengthStable: false } }).label, "等待波长稳定")
+  assert.equal(automaticStabilityPresentation({ ...snapshot, state: "paused" }).label, "已暂停")
 })
 
 test("new points, lost stability and stale readings clear the confirmation clock", () => {
   const held = { ...stability, powerStable: true, holdElapsedS: 3.2 }
-  assert.equal(automaticStabilityPresentation(auto({ state: "setting_current", stability: held })).time, "0.0 / 5 秒")
+  assert.equal(automaticStabilityPresentation(auto({ state: "setting_current", stability: held })).time, "0.0 / 5.0 秒")
   const stale = automaticStabilityPresentation(auto({ state: "waiting_voltage", stability: { ...held, quality: "stale" } }))
-  assert.equal(stale.time, "0.0 / 5 秒")
+  assert.equal(stale.time, "0.0 / 5.0 秒")
   assert.equal(stale.label, "等待采样")
   const excursion = automaticStabilityPresentation(auto({ state: "waiting_stable", stability: { ...held, powerStable: false, spanW: 0.11 } }))
-  assert.equal(excursion.time, "0.0 / 5 秒")
+  assert.equal(excursion.time, "0.0 / 5.0 秒")
   assert.equal(excursion.label, "波动超限")
   assert.equal(automaticStabilityPresentation(auto({ state: "idle", stability })).time, "—")
 })
@@ -43,24 +80,24 @@ test("final-point display uses the backend ten-second target", () => {
   const final = { ...stability, powerStable: true, holdRequiredS: 10, holdElapsedS: 5 }
   const holding = automaticStabilityPresentation(auto({ state: "waiting_voltage", stability: final }))
   assert.equal(holding.label, "保持中")
-  assert.equal(holding.time, "5.0 / 10 秒")
+  assert.equal(holding.time, "5.0 / 10.0 秒")
   const complete = automaticStabilityPresentation(auto({ state: "waiting_voltage", stability: { ...final, holdElapsedS: 10 } }))
   assert.equal(complete.label, "保持完成")
-  assert.equal(complete.time, "10.0 / 10 秒")
+  assert.equal(complete.time, "10.0 / 10.0 秒")
 })
 
 test("spectral testing also waits for wavelength stability before confirmation", () => {
   const wave = automaticStabilityPresentation(auto({ state: "waiting_stable", stability: { ...stability, powerStable: true, wavelengthRequired: true } }))
   assert.equal(wave.label, "等待波长稳定")
-  assert.equal(wave.time, "0.0 / 5 秒")
+  assert.equal(wave.time, "0.0 / 5.0 秒")
 })
 
 test("paused and finished runs retain their recorded confirmation interval", () => {
   const held = { ...stability, powerStable: true, holdElapsedS: 2.3, quality: "stale" as const }
-  assert.equal(automaticStabilityPresentation(auto({ state: "paused", stability: held })).time, "2.3 / 5 秒")
+  assert.equal(automaticStabilityPresentation(auto({ state: "paused", stability: held })).time, "2.3 / 5.0 秒")
   const complete = automaticStabilityPresentation(auto({ state: "completed", stability: { ...held, holdElapsedS: 5 } }))
   assert.equal(complete.label, "末点已稳定")
-  assert.equal(complete.time, "5.0 / 5 秒")
+  assert.equal(complete.time, "5.0 / 5.0 秒")
   assert.equal(automaticStabilityPresentation(auto({ state: "completed", stability: { ...held, hasReading: false } })).time, "—")
   assert.equal(automaticStabilityPresentation(auto({ state: "waiting_voltage", stability, runContext: { selectedScriptId: "aging", sn: "", station: "", testTemperatureC: "" } })).label, "定时老化")
 })
@@ -71,7 +108,7 @@ test("older timing fields cannot be mistaken for the post-stability hold", () =>
   assert.equal(automaticStabilityPresentation(auto({ state: "waiting_voltage", stability: oldStability }), meter).time, "—")
   assert.equal(automaticStabilityPresentation(auto({ state: "waiting_voltage" }), meter).time, "—")
   const accepted = automaticStabilityPresentation(auto({ state: "waiting_voltage", stability: { ...stability, powerStable: true, holdElapsedS: 15 } }), meter)
-  assert.equal(accepted.time, "5.0 / 5 秒")
+  assert.equal(accepted.time, "5.0 / 5.0 秒")
 })
 
 const form = { sn: "555", outputDir: "C:\\test\\ES" }

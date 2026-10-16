@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 import { traceMonotoneCurve, type CurvePoint } from "@/lib/monotone-curve"
 import { useAppearance } from "@/hooks/use-appearance"
-import { chartTrailBoundary, type AppearancePreferences, type LatestPointMarkerStyle } from "@/lib/appearance"
+import { chartTrailBoundary, isAnimatedLatestPointMarker, latestPointMarkerSize, type AppearancePreferences, type LatestPointMarkerStyle } from "@/lib/appearance"
+import { FlappyBirdMarker } from "./flappy-bird-marker"
+import { CharacterSpriteMarker, DINOSAUR_FOOT_BASELINE } from "./character-sprite-marker"
+import { sparseChartIndex } from "@/lib/sparse-chart-index"
+import { curveRevealFrame, retargetCurveReveal, traceRevealedCurve, type CurveRevealMotion } from "@/lib/chart-curve-reveal"
 
 export type CanvasChartLine = {
   key: string
@@ -22,6 +26,8 @@ export type CanvasChartLine = {
   hideLegend?: boolean
   /** Only time-series plots that explicitly opt in receive the live tail. */
   trail?: boolean
+  /** Display-only reveal for live endpoints. Never changes the source samples. */
+  animateLatestPoint?: boolean
 }
 
 export type CanvasChartAnnotation = {
@@ -44,6 +50,7 @@ type ChartData = {
   length: number
   valueAt: (index: number, key: string) => number | null
   rowAt: (index: number) => NumericRow | undefined
+  seriesIndexes?: ReadonlyMap<string, readonly number[]> | null
 }
 
 type CanvasLineChartProps = {
@@ -65,9 +72,18 @@ type CanvasLineChartProps = {
   xTickSuffix?: string
   yLabel?: string
   appearance?: Partial<AppearancePreferences>
+  /** Opt-in analysis only. Selects native samples, never a point on an interpolated line. */
+  onPointSelect?: (point: { rowIndex: number; seriesKey: string }) => void
+  selectedPoints?: CanvasChartAnnotation[]
+  xValueFormatter?: (value: number) => string
 }
 
 type ChartSize = { width: number; height: number }
+type AnimatedMarkerPosition = { key: string; x: number; y: number; size: number; anchorY: number }
+
+function latestPointMarkerAnchorY(style: LatestPointMarkerStyle | undefined, height: number): number {
+  return height * (style === "dinosaur" || style === "green-dinosaur" ? DINOSAUR_FOOT_BASELINE : 0.5)
+}
 const CHART_FONT = "12px 'ARP Interface', 'DIN', 'MiSans', sans-serif"
 type HoverState = { index: number } | null
 type PendingHover = { index: number; pointerX: number; pointerY: number } | null
@@ -86,10 +102,33 @@ type ChartLayout = {
 
 const EMPTY_SIZE: ChartSize = { width: 0, height: 0 }
 const EMPTY_ROWS: NumericRow[] = []
+// Hover state only changes the overlay, not the base chart's effect inputs.
+const EMPTY_ANNOTATIONS: CanvasChartAnnotation[] = []
+const EMPTY_ANNOTATION_LEGEND: CanvasChartAnnotationLegendItem[] = []
 const NUMERIC_ZERO_EPSILON = 1e-12
 const ECG_MARKER_COLOR = "#ff375f"
 const TOOLTIP_ESTIMATED_WIDTH = 208
 const TOOLTIP_ESTIMATED_HEIGHT = 120
+
+function interpolateChartLayout(from: ChartLayout, to: ChartLayout, progress: number): ChartLayout {
+  const interpolateScale = (left: AxisScale, right: AxisScale): AxisScale => {
+    const min = left.min + (right.min - left.min) * progress
+    const max = left.max + (right.max - left.max) * progress
+    return { min, max, ticks: right.ticks.filter(tick => tick >= min && tick <= max) }
+  }
+  return {
+    ...to,
+    left: from.left + (to.left - from.left) * progress,
+    right: from.right + (to.right - from.right) * progress,
+    top: from.top + (to.top - from.top) * progress,
+    bottom: from.bottom + (to.bottom - from.bottom) * progress,
+    plotWidth: from.plotWidth + (to.plotWidth - from.plotWidth) * progress,
+    plotHeight: from.plotHeight + (to.plotHeight - from.plotHeight) * progress,
+    x: interpolateScale(from.x, to.x),
+    leftY: interpolateScale(from.leftY, to.leftY),
+    rightY: from.rightY && to.rightY ? interpolateScale(from.rightY, to.rightY) : to.rightY,
+  }
+}
 
 function finiteValue(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null
@@ -119,8 +158,14 @@ function chartDataFrom(rows: NumericRow[], columns?: CanvasColumnarData): ChartD
 
 function paddedExtent(values: number[], includeZero: boolean): [number, number] {
   if (!values.length) return [0, 1]
-  let minimum = Math.min(...values)
-  let maximum = Math.max(...values)
+  // Multi-spectrum overlays can contain hundreds of thousands of samples.
+  // Passing them as function arguments exceeds the WebView's call-stack limit.
+  let minimum = Infinity
+  let maximum = -Infinity
+  for (const value of values) {
+    minimum = Math.min(minimum, value)
+    maximum = Math.max(maximum, value)
+  }
   if (Math.abs(minimum) < NUMERIC_ZERO_EPSILON) minimum = 0
   if (Math.abs(maximum) < NUMERIC_ZERO_EPSILON) maximum = 0
   if (includeZero) {
@@ -239,8 +284,18 @@ function buildLayout(
 ): ChartLayout {
   const hasRightAxis = lines.some((line) => line.yAxisId === "right")
   const left = tightInsets ? 52 : 64
-  const right = hasRightAxis ? (tightInsets ? 48 : 60) : (tightInsets ? 12 : 20)
-  const top = yLabel ? 28 : (tightInsets ? 8 : 12)
+  // DOM sprites may extend beyond the clipped curve, including its top/right edges.
+  let markerRightGutter = 0
+  let markerTopGutter = 0
+  for (const line of lines) {
+    if (line.showPoints || !line.showLatestPoint || !isAnimatedLatestPointMarker(line.latestPointStyle)) continue
+    const markerSize = line.pointSize ?? latestPointMarkerSize(line.latestPointStyle)
+    const markerHeight = line.latestPointStyle === "flappy-bird" ? markerSize * 2 / 3 : markerSize
+    markerRightGutter = Math.max(markerRightGutter, markerSize / 2 + 2)
+    markerTopGutter = Math.max(markerTopGutter, latestPointMarkerAnchorY(line.latestPointStyle, markerHeight) + 2)
+  }
+  const right = Math.max(markerRightGutter, hasRightAxis ? (tightInsets ? 48 : 60) : (tightInsets ? 12 : 20))
+  const top = Math.max(markerTopGutter, yLabel ? 28 : (tightInsets ? 8 : 12))
   const bottom = xLabel ? (tightInsets ? 34 : 44) : (tightInsets ? 20 : 30)
   const plotHeight = Math.max(1, size.height - top - bottom)
   const verticalTickTarget = Math.min(5, Math.max(2, Math.floor(plotHeight / 36)))
@@ -255,7 +310,18 @@ function buildLayout(
   const x = xDomain ? fixedScale(xDomain, xTicks) : createScale(automaticXExtent[0], automaticXExtent[1], Math.max(3, Math.floor(size.width / 110)))
   const leftValues: number[] = []
   const rightValues: number[] = []
-  if (!yDomain || hasRightAxis) {
+  if ((!yDomain || hasRightAxis) && data.seriesIndexes) {
+    for (const line of lines) {
+      for (const index of data.seriesIndexes.get(line.key) ?? []) {
+        const xValue = data.valueAt(index, xKey)
+        if (xValue === null || xValue < x.min || xValue > x.max) continue
+        const value = data.valueAt(index, line.key)
+        if (value === null) continue
+        if (line.yAxisId === "right") rightValues.push(value)
+        else if (!yDomain) leftValues.push(value)
+      }
+    }
+  } else if (!yDomain || hasRightAxis) {
     for (let index = 0; index < data.length; index += 1) {
       const xValue = data.valueAt(index, xKey)
       if (xValue === null || xValue < x.min || xValue > x.max) continue
@@ -534,9 +600,12 @@ function drawBaseChart(
   xTickSuffix?: string,
   yLabel?: string,
   appearance?: AppearancePreferences,
-): void {
+  xValueFormatter?: (value: number) => string,
+  revealX?: number,
+): AnimatedMarkerPosition[] {
   const context = prepareCanvas(canvas, size)
-  if (!context) return
+  if (!context) return []
+  const animatedMarkers: AnimatedMarkerPosition[] = []
   const styles = getComputedStyle(container)
   lines = lines.map((line) => ({
     ...line,
@@ -546,7 +615,9 @@ function drawBaseChart(
   const border = styles.getPropertyValue("--app-border-strong").trim() || "#686c70"
   const muted = styles.getPropertyValue("--muted-foreground").trim() || "hsl(40 8% 60%)"
   const chartBackground = styles.getPropertyValue("--card").trim() || "hsl(48 3% 17%)"
-  context.font = CHART_FONT
+  context.font = styles.getPropertyValue("--chart-font-size").trim()
+    ? CHART_FONT.replace("12px", styles.getPropertyValue("--chart-font-size").trim())
+    : CHART_FONT
   context.lineWidth = 1
   context.strokeStyle = border
   context.fillStyle = muted
@@ -616,8 +687,13 @@ function drawBaseChart(
   context.textAlign = "center"
   context.textBaseline = "top"
   for (const tick of layout.x.ticks) {
-    context.fillText(`${formatTick(tick, layout.x)}${xTickSuffix ?? ""}`, mapX(tick, layout), layout.top + layout.plotHeight + 7)
+    // Long date labels stay inside the plot; the default numerical axes keep their alignment.
+    if (xValueFormatter && layout.x.ticks.length > 1) {
+      context.textAlign = tick === layout.x.ticks[0] ? "left" : tick === layout.x.ticks[layout.x.ticks.length - 1] ? "right" : "center"
+    }
+    context.fillText(`${xValueFormatter ? xValueFormatter(tick) : formatTick(tick, layout.x)}${xTickSuffix ?? ""}`, mapX(tick, layout), layout.top + layout.plotHeight + 7)
   }
+  context.textAlign = "center"
   if (xLabel) {
     context.fillText(xLabel, layout.left + layout.plotWidth / 2, size.height - 2)
   }
@@ -631,7 +707,12 @@ function drawBaseChart(
   context.beginPath()
   context.rect(layout.left, layout.top, layout.plotWidth, layout.plotHeight)
   context.clip()
+  // The mask retains the exact visible/downsampled row selection. In particular,
+  // an excluded x value must not create a new path break between visible rows.
+  const visibleMask = data.seriesIndexes ? new Uint8Array(data.length) : null
+  if (visibleMask) for (const index of indexes) visibleMask[index] = 1
   for (const line of lines) {
+    const lineIndexes = data.seriesIndexes?.get(line.key) ?? indexes
     const scale = line.yAxisId === "right" && layout.rightY ? layout.rightY : layout.leftY
     context.beginPath()
     context.strokeStyle = line.color
@@ -641,11 +722,16 @@ function drawBaseChart(
     context.lineCap = "round"
     let drawing = false
     let latestX: number | null = null
-    const curvePoints: (CurvePoint | null)[] | null = line.interpolation === "monotone" ? [] : null
-    for (const index of indexes) {
+    const animated = !line.showPoints && line.showLatestPoint && isAnimatedLatestPointMarker(line.latestPointStyle)
+    const revealing = animated && line.animateLatestPoint && revealX !== undefined
+    const curvePoints: (CurvePoint | null)[] | null = line.interpolation === "monotone" || animated ? [] : null
+    for (const index of lineIndexes) {
+      if (visibleMask && !visibleMask[index]) continue
       const xValue = data.valueAt(index, xKey)
       const yValue = data.valueAt(index, line.key)
-      if (xValue === null || xValue < layout.x.min || xValue > layout.x.max) {
+      // During axis expansion the next sample lies beyond the DISPLAYED bound.
+      // Retain it to split that segment; the prefix and plot clip bound pixels.
+      if (xValue === null || xValue < layout.x.min || (!revealing && xValue > layout.x.max)) {
         curvePoints?.push(null)
         drawing = false
         continue
@@ -665,7 +751,16 @@ function drawBaseChart(
       else context.moveTo(x, y)
       drawing = true
     }
-    if (curvePoints) traceMonotoneCurve(context, curvePoints)
+    if (curvePoints && animated) {
+      const cutoff = line.animateLatestPoint && revealX !== undefined ? mapX(revealX, layout) : Infinity
+      const endpoint = traceRevealedCurve(context, curvePoints, line.interpolation === "monotone", cutoff)
+      if (endpoint) {
+        const markerSize = line.pointSize ?? latestPointMarkerSize(line.latestPointStyle)
+        const markerHeight = line.latestPointStyle === "flappy-bird" ? markerSize * 2 / 3 : markerSize
+        animatedMarkers.push({ key: line.key, ...endpoint, size: markerSize, anchorY: latestPointMarkerAnchorY(line.latestPointStyle, markerHeight) })
+      }
+      if (line.animateLatestPoint && revealX !== undefined && latestX !== null) latestX = Math.min(latestX, revealX)
+    } else if (curvePoints) traceMonotoneCurve(context, curvePoints)
     const tailBoundary = line.trail && appearance?.trailEnabled
       ? chartTrailBoundary(latestX, appearance.trailSeconds, [layout.x.min, layout.x.max])
       : null
@@ -700,7 +795,8 @@ function drawBaseChart(
     context.setLineDash([])
 
     if (line.showPoints) {
-      for (const index of indexes) {
+      for (const index of lineIndexes) {
+        if (visibleMask && !visibleMask[index]) continue
         const xValue = data.valueAt(index, xKey)
         const yValue = data.valueAt(index, line.key)
         if (xValue === null || yValue === null || xValue < layout.x.min || xValue > layout.x.max) continue
@@ -743,7 +839,7 @@ function drawBaseChart(
   // The line stays clipped to the plotting area, while the marker can use the
   // chart gutter that is already reserved for axis labels.
   for (const line of lines) {
-    if (line.showPoints || !line.showLatestPoint) continue
+    if (line.showPoints || !line.showLatestPoint || isAnimatedLatestPointMarker(line.latestPointStyle)) continue
     const scale = line.yAxisId === "right" && layout.rightY ? layout.rightY : layout.leftY
     let latestPoint: { x: number; y: number } | null = null
     let previousPoint: { x: number; y: number } | null = null
@@ -788,6 +884,7 @@ function drawBaseChart(
     }
   }
 
+  return animatedMarkers
 }
 
 function nearestRowIndex(data: ChartData, xKey: string, target: number): number {
@@ -857,11 +954,12 @@ function tooltipNumber(value: number): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }
 
-export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, annotations = [], annotationLegend = [], ariaLabel, preserveAllPoints = false, tightInsets = false, xLabel, xTickSuffix, yLabel, appearance: appearanceOverride }: CanvasLineChartProps) {
+export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, annotations = EMPTY_ANNOTATIONS, annotationLegend = EMPTY_ANNOTATION_LEGEND, ariaLabel, preserveAllPoints = false, tightInsets = false, xLabel, xTickSuffix, yLabel, appearance: appearanceOverride, onPointSelect, selectedPoints, xValueFormatter }: CanvasLineChartProps) {
   const { appearance } = useAppearance()
   const chartAppearance = useMemo(() => appearanceOverride ? { ...appearance, ...appearanceOverride } : appearance, [appearance, appearanceOverride])
   const containerRef = useRef<HTMLDivElement>(null)
   const baseCanvasRef = useRef<HTMLCanvasElement>(null)
+  const animatedMarkerElementsRef = useRef(new Map<string, HTMLDivElement>())
   const hoverCanvasRef = useRef<HTMLCanvasElement>(null)
   const tooltipRef = useRef<HTMLDivElement>(null)
   const hoverFrameRef = useRef<number | null>(null)
@@ -871,7 +969,13 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
   const [hover, setHover] = useState<HoverState>(null)
   const [appearanceVersion, setAppearanceVersion] = useState(0)
   const hoverDrawnRef = useRef(false)
-  const chartData = useMemo(() => chartDataFrom(data, columns), [columns, data])
+  const baseChartData = useMemo(() => chartDataFrom(data, columns), [columns, data])
+  const seriesIndexes = useMemo(
+    () => !columns && preserveAllPoints && data.length >= 10_000 && lines.length >= 4 && lines.every((line) => line.connectNulls)
+      ? sparseChartIndex(data, lines.map((line) => line.key)) : null,
+    [columns, data, lines, preserveAllPoints],
+  )
+  const chartData = useMemo(() => seriesIndexes ? { ...baseChartData, seriesIndexes } : baseChartData, [baseChartData, seriesIndexes])
   useEffect(() => {
     const observer = new MutationObserver(() => setAppearanceVersion((version) => version + 1))
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-accent"] })
@@ -881,6 +985,21 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     () => buildLayout(chartData, xKey, lines, size, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, xLabel, yLabel, tightInsets),
     [chartData, lines, rightYDomain, size, tightInsets, xDomain, xKey, xLabel, xTicks, yDomain, yLabel, yMinimumLimit],
   )
+  const animatedLines = useMemo(() => lines.filter((line) => !line.showPoints && line.showLatestPoint && isAnimatedLatestPointMarker(line.latestPointStyle)), [lines])
+  const latestRevealX = useMemo(() => {
+    let latest: number | null = null
+    for (const line of animatedLines) {
+      if (!line.animateLatestPoint) continue
+      for (let index = chartData.length - 1; index >= 0; index -= 1) {
+        const x = chartData.valueAt(index, xKey)
+        const y = chartData.valueAt(index, line.key)
+        if (x === null || y === null || x < layout.x.min || x > layout.x.max) continue
+        latest = latest === null ? x : Math.max(latest, x)
+        break
+      }
+    }
+    return latest
+  }, [animatedLines, chartData, layout, size, xKey])
   const visibleIndexes = useMemo(
     () => {
       const indexes: number[] = []
@@ -902,15 +1021,17 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
   useLayoutEffect(() => {
     const container = containerRef.current
     if (!container) return
-    const update = () => {
-      const rectangle = container.getBoundingClientRect()
+    // ResizeObserver delivers the initial size as well as later changes before
+    // paint. Reading the rect here used to force layout for each newly mounted
+    // chart during navigation, then repeat that read in the observer callback.
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry) return
+      const rectangle = entry.contentRect
       setSize((current) => {
         const next = { width: Math.round(rectangle.width), height: Math.round(rectangle.height) }
         return current.width === next.width && current.height === next.height ? current : next
       })
-    }
-    update()
-    const observer = new ResizeObserver(update)
+    })
     observer.observe(container)
     return () => observer.disconnect()
   }, [])
@@ -930,19 +1051,66 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     xTickSuffix?: string
     yLabel?: string
     appearance: AppearancePreferences
+    xValueFormatter?: (value: number) => string
   }>(null)
   const baseFrameRef = useRef<number | null>(null)
-  const flushBaseDraw = useCallback(() => {
+  const revealMotionRef = useRef<CurveRevealMotion | null>(null)
+  const revealFromLayoutRef = useRef<ChartLayout | null>(null)
+  const presentedLayoutRef = useRef<ChartLayout | null>(null)
+  const reducedMotionRef = useRef(false)
+  const flushBaseDraw = useCallback((): void => {
     baseFrameRef.current = null
     const args = baseDrawArgsRef.current
     const canvas = baseCanvasRef.current
     const container = containerRef.current
     if (!args || !canvas || !container || args.size.width <= 0 || args.size.height <= 0) return
-    drawBaseChart(canvas, container, args.size, args.layout, args.chartData, args.displayIndexes, args.xKey, args.lines, args.annotations, args.xLabel, args.xTickSuffix, args.yLabel, args.appearance)
+    let motion = revealMotionRef.current
+    if (motion && (reducedMotionRef.current || document.visibilityState === "hidden")) {
+      motion = retargetCurveReveal(motion, motion.toX, performance.now(), false)
+      revealMotionRef.current = motion
+    }
+    const frame = motion ? curveRevealFrame(motion, performance.now()) : null
+    const drawLayout = frame?.active && revealFromLayoutRef.current
+      ? interpolateChartLayout(revealFromLayoutRef.current, args.layout, frame.progress) : args.layout
+    presentedLayoutRef.current = drawLayout
+    const animatedMarkers = drawBaseChart(canvas, container, args.size, drawLayout, args.chartData, args.displayIndexes, args.xKey, args.lines, args.annotations, args.xLabel, args.xTickSuffix, args.yLabel, args.appearance, args.xValueFormatter, frame?.x)
+    // Publish the curve and its DOM markers together, using the same snapshot.
+    // Keep nodes mounted for empty data so hiding also waits for the curve draw.
+    for (const element of animatedMarkerElementsRef.current.values()) element.style.visibility = "hidden"
+    for (const marker of animatedMarkers) {
+      const element = animatedMarkerElementsRef.current.get(marker.key)
+      if (!element) continue
+      element.style.transform = `translate(${marker.x - marker.size / 2}px, ${marker.y - marker.anchorY}px)`
+      element.style.visibility = "visible"
+    }
+    // Hover continues to show actual samples, mapped through the displayed axes.
+    if (hoverDrawnRef.current && hoverCanvasRef.current) {
+      const index = pendingHoverRef.current?.index
+      drawHover(hoverCanvasRef.current, container, args.size, drawLayout, index === undefined ? undefined : args.chartData.rowAt(index), args.xKey, args.lines)
+    }
+    if (frame?.active) baseFrameRef.current = window.requestAnimationFrame(flushBaseDraw)
   }, [])
 
-  useEffect(() => {
-    baseDrawArgsRef.current = { size, layout, chartData, displayIndexes, xKey, lines, annotations, xLabel, xTickSuffix, yLabel, appearance: chartAppearance }
+  useLayoutEffect(() => {
+    const previous = baseDrawArgsRef.current
+    const motion = revealMotionRef.current
+    const now = performance.now()
+    const sameSize = previous?.size.width === size.width && previous.size.height === size.height
+    let continuous = false
+    if (motion && latestRevealX !== null && latestRevealX > motion.toX && motion.toX >= layout.x.min) {
+      // A new recording or replacement data must not animate across sessions.
+      for (let index = chartData.length - 1; index >= 0; index--) {
+        const x = chartData.valueAt(index, xKey)
+        if (x === motion.toX) { continuous = true; break }
+      }
+    }
+    const animate = Boolean(sameSize && !reducedMotionRef.current && document.visibilityState !== "hidden" && (continuous || latestRevealX === motion?.toX))
+    if (latestRevealX === null) revealMotionRef.current = null
+    else {
+      if (latestRevealX !== motion?.toX || !animate) revealFromLayoutRef.current = presentedLayoutRef.current ?? layout
+      revealMotionRef.current = retargetCurveReveal(motion, latestRevealX, now, animate)
+    }
+    baseDrawArgsRef.current = { size, layout, chartData, displayIndexes, xKey, lines, annotations, xLabel, xTickSuffix, yLabel, appearance: chartAppearance, xValueFormatter }
     if (document.visibilityState === "hidden") {
       if (baseFrameRef.current !== null) {
         window.cancelAnimationFrame(baseFrameRef.current)
@@ -952,7 +1120,24 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     } else if (baseFrameRef.current === null) {
       baseFrameRef.current = window.requestAnimationFrame(flushBaseDraw)
     }
-  }, [annotations, appearanceVersion, chartAppearance, chartData, displayIndexes, layout, lines, size, xKey, xLabel, xTickSuffix, yLabel, flushBaseDraw])
+  }, [annotations, appearanceVersion, latestRevealX, chartAppearance, chartData, displayIndexes, layout, lines, size, xKey, xLabel, xTickSuffix, yLabel, flushBaseDraw, xValueFormatter])
+
+  useLayoutEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)")
+    const finishIfNeeded = () => {
+      reducedMotionRef.current = media.matches
+      if (!media.matches && document.visibilityState !== "hidden") return
+      if (baseFrameRef.current !== null) window.cancelAnimationFrame(baseFrameRef.current)
+      flushBaseDraw()
+    }
+    finishIfNeeded()
+    media.addEventListener("change", finishIfNeeded)
+    document.addEventListener("visibilitychange", finishIfNeeded)
+    return () => {
+      media.removeEventListener("change", finishIfNeeded)
+      document.removeEventListener("visibilitychange", finishIfNeeded)
+    }
+  }, [flushBaseDraw])
 
   useEffect(() => () => {
     if (baseFrameRef.current !== null) window.cancelAnimationFrame(baseFrameRef.current)
@@ -965,7 +1150,7 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
     const container = containerRef.current
     if (!canvas || !container || size.width <= 0 || size.height <= 0) return
     if (!hoverRow && !hoverDrawnRef.current) return
-    drawHover(canvas, container, size, layout, hoverRow, xKey, lines)
+    drawHover(canvas, container, size, presentedLayoutRef.current ?? layout, hoverRow, xKey, lines)
     hoverDrawnRef.current = Boolean(hoverRow)
   }, [appearanceVersion, hoverRow, layout, lines, size, xKey])
 
@@ -1002,13 +1187,14 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
   }, [hover, positionTooltip])
 
   const handlePointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const pointerLayout = presentedLayoutRef.current ?? layout
     const pointerX = event.nativeEvent.offsetX
     const pointerY = event.nativeEvent.offsetY
-    if (pointerX < layout.left || pointerX > layout.left + layout.plotWidth || pointerY < layout.top || pointerY > layout.top + layout.plotHeight) {
+    if (pointerX < pointerLayout.left || pointerX > pointerLayout.left + pointerLayout.plotWidth || pointerY < pointerLayout.top || pointerY > pointerLayout.top + pointerLayout.plotHeight) {
       scheduleHover(null)
       return
     }
-    const target = layout.x.min + ((pointerX - layout.left) / layout.plotWidth) * (layout.x.max - layout.x.min)
+    const target = pointerLayout.x.min + ((pointerX - pointerLayout.left) / pointerLayout.plotWidth) * (pointerLayout.x.max - pointerLayout.x.min)
     if (chartData.length === 0) {
       scheduleHover(null)
       return
@@ -1024,12 +1210,49 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
       className="relative h-full min-h-0 w-full touch-none overflow-hidden"
       onPointerLeave={() => scheduleHover(null)}
       onPointerMove={handlePointerMove}
+      onPointerDown={onPointSelect ? (event) => {
+        if (event.button !== 0) return
+        const rect = event.currentTarget.getBoundingClientRect()
+        const px = event.clientX - rect.left, py = event.clientY - rect.top
+        if (px < layout.left || px > layout.left + layout.plotWidth || py < layout.top || py > layout.top + layout.plotHeight) return
+        let nearest: { rowIndex: number; seriesKey: string } | null = null
+        let distance = 12 ** 2 // Click target radius in CSS pixels, not a data-matching tolerance.
+        for (const index of visibleIndexes) for (const line of lines) {
+          if (!line.showPoints) continue
+          const x = chartData.valueAt(index, xKey), y = chartData.valueAt(index, line.key)
+          if (x === null || y === null) continue
+          const scale = line.yAxisId === "right" && layout.rightY ? layout.rightY : layout.leftY
+          const d = (mapX(x, layout) - px) ** 2 + (mapY(y, scale, layout) - py) ** 2
+          if (d < distance) { distance = d; nearest = { rowIndex: index, seriesKey: line.key } }
+        }
+        if (nearest) onPointSelect(nearest)
+      } : undefined}
       ref={containerRef}
     >
       <canvas aria-label={ariaLabel} className="absolute inset-0 size-full" ref={baseCanvasRef} role="img" />
+      {animatedLines.map((line) => {
+        const markerSize = line.pointSize ?? latestPointMarkerSize(line.latestPointStyle)
+        const setMarkerRef = (element: HTMLDivElement | null) => {
+          if (element) animatedMarkerElementsRef.current.set(line.key, element)
+          else animatedMarkerElementsRef.current.delete(line.key)
+        }
+        return line.latestPointStyle === "bee" || line.latestPointStyle === "dinosaur" || line.latestPointStyle === "green-dinosaur"
+          ? <CharacterSpriteMarker key={line.key} style={line.latestPointStyle} size={markerSize} ref={setMarkerRef} />
+          : <FlappyBirdMarker key={line.key} size={markerSize} ref={setMarkerRef} />
+      })}
       <canvas aria-hidden="true" className="pointer-events-none absolute inset-0 size-full" ref={hoverCanvasRef} />
+      {selectedPoints && size.width > 0 && size.height > 0 && <svg aria-label="实测点游标" className="pointer-events-none absolute inset-0 size-full" viewBox={`0 0 ${size.width} ${size.height}`}>
+        {selectedPoints.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y) && p.x >= layout.x.min && p.x <= layout.x.max).map((point, index) => {
+          const x = mapX(point.x, layout), y = mapY(point.y, layout.leftY, layout)
+          return <g key={point.label} style={{ color: point.color ?? "var(--foreground)" }}>
+            <line x1={x} x2={x} y1={layout.top} y2={layout.top + layout.plotHeight} stroke="currentColor" strokeDasharray={index ? "2 4" : "5 4"} opacity={0.6} />
+            <circle cx={x} cy={y} r={5} stroke="currentColor" fill="var(--card)" strokeWidth={2} />
+            <text x={Math.min(x + 8, size.width - 20)} y={layout.top + 16 + index * 18} fill="currentColor" fontSize={14}>{point.label}</text>
+          </g>
+        })}
+      </svg>}
       {annotationLegend.length > 0 && (
-        <div aria-label="峰值图例" className="pointer-events-none absolute right-3 top-2 z-[1] flex min-w-48 flex-col gap-1.5 rounded-lg border border-border/55 bg-card/90 px-3.5 py-2.5 text-[13px] font-medium leading-5 text-foreground/80 shadow-sm backdrop-blur-sm">
+        <div aria-label="峰值图例" className="pointer-events-none absolute right-3 top-2 z-[1] flex min-w-48 flex-col gap-1.5 rounded-lg border border-border/55 bg-card/90 px-3.5 py-2.5 text-[15px] font-medium leading-5 text-foreground/80 shadow-sm backdrop-blur-sm">
           {annotationLegend.map((item) => (
             <span className="grid grid-cols-[0.75rem_1fr_auto] items-center gap-2 whitespace-nowrap" key={item.label}>
               <svg aria-hidden="true" className="size-3 overflow-visible" viewBox="0 0 10 10">
@@ -1048,7 +1271,7 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
           role="tooltip"
           style={{ left: tooltipLeft, top: tooltipTop }}
         >
-          <p className="mb-1.5 font-semibold">{xKey}: {tooltipNumber(finiteValue(hoverRow[xKey]) ?? 0)}</p>
+          <p className="mb-1.5 font-semibold">{xValueFormatter ? xValueFormatter(finiteValue(hoverRow[xKey]) ?? 0) : `${xKey}: ${tooltipNumber(finiteValue(hoverRow[xKey]) ?? 0)}`}</p>
           {lines.map((line) => {
             const value = finiteValue(hoverRow[line.key])
             return value === null ? null : <div className="flex items-center justify-between gap-5" key={line.key}><span className="flex items-center gap-2"><span className="size-2.5 rounded-full" style={{ backgroundColor: line.color }} />{line.label}</span><span className="font-semibold tabular-nums">{tooltipNumber(value)}</span></div>

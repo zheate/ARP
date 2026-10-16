@@ -47,28 +47,32 @@ def detect_spectrum_saturation(
     full_scale_counts: Any = SPECTRUM_DEFAULT_FULL_SCALE_COUNTS,
 ) -> SpectrumSaturationResult:
     values = _spectrum_floats(intensity)
-    finite_values = [value for value in values if math.isfinite(value)]
-    if not finite_values:
-        return SpectrumSaturationResult(False, math.nan, 0)
-    peak_intensity = max(finite_values)
-    saturation_floor = (
-        normalize_spectrum_full_scale(full_scale_counts)
-        * SPECTRUM_SATURATION_FULL_SCALE_FRACTION
-    )
-    if peak_intensity < saturation_floor:
-        return SpectrumSaturationResult(False, peak_intensity, 0)
-
+    peak_intensity: float | None = None
+    saturation_floor = None
     longest_run = 0
     current_run = 0
     for value in values:
-        if math.isfinite(value) and value >= saturation_floor:
+        if not math.isfinite(value):
+            current_run = 0
+            continue
+        if peak_intensity is None:
+            peak_intensity = value
+            # Preserve the empty/nonfinite-input behavior: do not inspect the
+            # device scale unless there is a finite pixel to analyze.
+            saturation_floor = (
+                normalize_spectrum_full_scale(full_scale_counts)
+                * SPECTRUM_SATURATION_FULL_SCALE_FRACTION
+            )
+        elif value > peak_intensity:
+            peak_intensity = value
+        if value >= saturation_floor:
             current_run += 1
             longest_run = max(longest_run, current_run)
         else:
             current_run = 0
     return SpectrumSaturationResult(
         saturated=longest_run >= SPECTRUM_SATURATION_MIN_CONSECUTIVE_PIXELS,
-        peak_intensity=peak_intensity,
+        peak_intensity=math.nan if peak_intensity is None else peak_intensity,
         consecutive_pixels=longest_run,
     )
 
@@ -172,17 +176,22 @@ def find_spectrum_peak_annotations(
     smsr_result: SmsrResult | None = None,
 ) -> list[SpectrumPeakAnnotation]:
     clean_points: list[tuple[float, float]] = []
+    strongest_point: tuple[float, float] | None = None
     for x_raw, y_raw in points:
         x = float(x_raw)
         y = float(y_raw)
         if math.isfinite(x) and math.isfinite(y):
             clean_points.append((x, y))
-    clean_points.sort(key=lambda item: item[0])
-    if len(clean_points) < 3 or limit <= 0 or clean_points[0][0] >= clean_points[-1][0]:
+            # Sorting by wavelength then taking the first maximum selected the
+            # lowest wavelength on equal heights. Keep that tie rule directly.
+            if (strongest_point is None or y > strongest_point[1]
+                    or (y == strongest_point[1] and x < strongest_point[0])):
+                strongest_point = (x, y)
+    if len(clean_points) < 3 or limit <= 0:
         return []
-    wavelength = [item[0] for item in clean_points]
-    intensity = [item[1] for item in clean_points]
-    strongest_wavelength = wavelength[max(range(len(intensity)), key=intensity.__getitem__)]
+    if not any(point[0] != clean_points[0][0] for point in clean_points):
+        return []
+    strongest_wavelength = strongest_point[0]
     mode_result = smsr_result
     # The measurement SMSR uses a fixed 956-996 nm band. Display markers must
     # follow the actual signal, including visible and narrow-range instruments.
@@ -191,6 +200,9 @@ def find_spectrum_peak_annotations(
         or not mode_result.peaks
         or not PIB_ANALYSIS_LOWER_NM <= strongest_wavelength <= PIB_ANALYSIS_UPPER_NM
     ):
+        clean_points.sort(key=lambda item: item[0])
+        wavelength = [item[0] for item in clean_points]
+        intensity = [item[1] for item in clean_points]
         mode_result = calculate_smsr(
             wavelength,
             intensity,

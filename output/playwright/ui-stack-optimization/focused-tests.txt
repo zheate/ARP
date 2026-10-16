@@ -1,0 +1,52 @@
+✔ measurement updates retain equivalent configuration and script identities (2.34425ms)
+✔ static-section sharing never hides edits, removals, or a backend restart (0.4425ms)
+✔ every full-spectrum sample survives consecutive measurement snapshots (209.660959ms)
+✔ actual snapshot merge handles full command histories followed by overlapping stream deltas (0.435292ms)
+✔ actual snapshot merge retains reset histories and revisions against delayed messages (0.232042ms)
+✔ actual snapshot merge replaces histories after a Python runtime restart with lower revisions (0.169ms)
+▲ [WARNING] "import.meta" is not available with the "cjs" output format and will be empty [empty-import-meta]
+
+    tauri-ui/src/components/deferred-page.tsx:23:6:
+      23 │   if (import.meta.env.PROD) {
+         ╵       ~~~~~~~~~~~
+
+  You need to set the output format to "esm" for "import.meta" to work correctly.
+
+✔ Live Power power-only layout follows measured ramp and completed zero (134.7775ms)
+✔ Live Power spectrum layout follows measured ramp and completed zero (84.075583ms)
+✔ missing or disconnected TDK readback never substitutes the last test point or setpoint (27.230625ms)
+✔ CH341 display follows each successful command, including zero, without stale readback (67.141667ms)
+✔ memoized automatic page refreshes when only measured supply current changes (1.230292ms)
+✔ both automatic layouts show five seconds of confirmation after acceptance (128.55475ms)
+✔ memoized automatic page refreshes when only qualifying stability data changes (1.238ms)
+✔ device rail skips telemetry-only updates but retains all displayed states and callbacks (1.774292ms)
+✔ composite form labels reach inputs and local comboboxes without duplicate IDs (27.607125ms)
+✔ NativeSelect supports its existing ariaLabel and standard aria-label callers (5.855042ms)
+✔ PD acquisition parameters are locked during a run but stop remains outside that fieldset (24.843708ms)
+✔ live refresh cannot overwrite an unsaved form (0.897ms)
+✔ late save and old snapshots cannot clear newer edits (0.193584ms)
+✔ derived calibration updates preserve draft and failed-save state (0.75925ms)
+✔ unchanged snapshots preserve identity and unsubscribe stops notifications (0.18975ms)
+✔ unconfirmed shutdown never fabricates a zero-current success (1.919917ms)
+✔ confirmed measured current is shown only after backend confirmation (0.225459ms)
+✔ terminal titles distinguish confirmed stop from unconfirmed shutdown (0.141791ms)
+✔ a stream delta after a full command snapshot does not duplicate power samples (3.31875ms)
+✔ PD overlaps replace matching samples, trim the rolling window, and stay ordered (0.434125ms)
+✔ a full reset clears history and a delayed pre-reset delta cannot restore it (0.331708ms)
+✔ a delayed full command response cannot overwrite newer stream history (0.178917ms)
+✔ an unchanged series keeps its reference and an empty delta can trim history (0.247833ms)
+✔ ordered power updates trim to 1200 points without mutating snapshots (6.174708ms)
+✔ unordered histories and duplicate appended timestamps retain last-write-wins ordering (0.457166ms)
+✔ an empty ordered patch preserves identity when nothing expired (0.263208ms)
+✔ columnar spectrum preserves every value and its order (18.03325ms)
+✔ columnar spectrum rejects legacy rows and mismatched axes (0.658833ms)
+✔ columnar spectrum accepts grid-cached frames without the wavelength axis (0.63875ms)
+✔ mergeSpectrumColumns reuses the cached grid only when the revision matches (0.298709ms)
+ℹ tests 36
+ℹ suites 0
+ℹ pass 36
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1200.653333

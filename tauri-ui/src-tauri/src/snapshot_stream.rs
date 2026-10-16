@@ -52,16 +52,30 @@ pub fn snapshot_state_fingerprint(snapshot: &Value) -> Value {
             continue;
         }
         if key == "pd" {
-            let mut pd = value.clone();
-            if let Some(pd_object) = pd.as_object_mut() {
-                pd_object.remove("points");
-            }
+            // Omit history before cloning; a full PD frame can have 13,000 points.
+            let pd = match value.as_object() {
+                Some(pd_object) => Value::Object(
+                    pd_object.iter()
+                        .filter(|(key, _)| key.as_str() != "points")
+                        .map(|(key, value)| (key.clone(), value.clone()))
+                        .collect(),
+                ),
+                None => value.clone(),
+            };
             fingerprint.insert(key.clone(), pd);
         } else {
             fingerprint.insert(key.clone(), value.clone());
         }
     }
     Value::Object(fingerprint)
+}
+
+pub fn snapshot_message(snapshot: Value) -> Value {
+    // json! serializes interpolated Values by reference, cloning their arrays.
+    Value::Object(serde_json::Map::from_iter([(
+        "snapshot".to_owned(),
+        snapshot,
+    )]))
 }
 
 // The injected operations keep retry/resync/cancellation testable without a
@@ -100,7 +114,7 @@ pub fn run_snapshot_stream(
                 let fingerprint = snapshot_state_fingerprint(&snapshot);
                 if last_fingerprint.as_ref() != Some(&fingerprint) {
                     last_fingerprint = Some(fingerprint);
-                    if send(json!({ "snapshot": snapshot })).is_err() {
+                    if send(snapshot_message(snapshot)).is_err() {
                         break;
                     }
                 }
@@ -276,5 +290,31 @@ mod tests {
             1,
             Duration::from_secs(5)
         ));
+    }
+
+    #[test]
+    fn stream_moves_complete_owned_spectrum_into_message() {
+        let snapshot = json!({
+            "seriesRevisions": {"spectrum": 1},
+            "measurements": {"spectrum": {"gridRevision": 1,
+                "wavelengthNm": [975.0, 976.0, 977.0], "intensity": [10.0, 20.0, 10.0]}},
+            "pd": {"state": "idle"}, "extra": {"preserved": true}
+        });
+        let expected = json!({"snapshot": snapshot});
+        let buffer = snapshot["measurements"]["spectrum"]["intensity"].as_array().unwrap().as_ptr();
+        let mut next = Some(snapshot);
+        let mut messages = Vec::new();
+        run_snapshot_stream("automatic", Duration::from_millis(100),
+            |_| Ok(next.take().unwrap()),
+            |message| {
+                assert_eq!(message, expected);
+                assert_eq!(serde_json::to_vec(&message).unwrap(), serde_json::to_vec(&expected).unwrap());
+                assert_eq!(message["snapshot"]["measurements"]["spectrum"]["intensity"].as_array().unwrap().as_ptr(), buffer,
+                    "owned spectrum must move through the stream without copying its sample array");
+                messages.push(message);
+                Ok(())
+            },
+            |delay| delay.is_zero());
+        assert_eq!(messages.len(), 1);
     }
 }
