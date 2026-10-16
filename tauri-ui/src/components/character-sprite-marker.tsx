@@ -5,6 +5,8 @@ type CharacterStyle = "bee" | "dinosaur"
 type FrameRect = readonly [x: number, y: number, width: number, height: number]
 const FRAME_COUNT = 4
 const SHEET_SIZE = 1254
+// Flame bounds and tail-tip pivot in the approved 310 px dinosaur frame.
+const DINOSAUR_FLAME = { width: 76, height: 169, pivotX: 35, frameSize: 310 }
 
 // Keep the approved source images intact. Equal-size display windows align the
 // eyes across frames; the bee's source cells also exclude neighbouring sprites.
@@ -21,7 +23,7 @@ const CHARACTERS: Record<CharacterStyle, {
     cells: [[0, 0, 627, 627], [627, 0, 627, 627], [0, 627, 627, 627], [627, 627, 627, 627]],
   },
   dinosaur: {
-    source: "/chart-markers/dino-walk-four-frames-9f95d27db3c1.png",
+    source: "/chart-markers/dino-red-tail-flame-aligned-four-frames-b7fb24b7b24a.png",
     fps: 8,
     frames: [[8, 496, 310, 310], [320, 496, 310, 310], [636, 496, 310, 310], [947, 496, 310, 310]],
   },
@@ -77,6 +79,8 @@ export const CharacterSpriteMarker = memo(function CharacterSpriteMarker({ style
 }) {
   const markerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const flameRef = useRef<HTMLDivElement>(null)
+  const flameCanvasRef = useRef<HTMLCanvasElement>(null)
   useImperativeHandle(ref, () => markerRef.current!, [])
 
   useLayoutEffect(() => {
@@ -88,7 +92,10 @@ export const CharacterSpriteMarker = memo(function CharacterSpriteMarker({ style
     let intersecting = false
     delete marker.dataset.spriteReady
     const updatePlayback = () => {
-      canvas.style.animationPlayState = loaded && intersecting && !document.hidden && marker.style.visibility !== "hidden" ? "running" : "paused"
+      const playState = loaded && intersecting && !document.hidden && marker.style.visibility !== "hidden" ? "running" : "paused"
+      for (const element of [canvas, flameCanvasRef.current, flameRef.current]) {
+        if (element) element.style.animationPlayState = playState
+      }
     }
     updatePlayback()
     const intersection = new IntersectionObserver(([entry]) => {
@@ -107,6 +114,23 @@ export const CharacterSpriteMarker = memo(function CharacterSpriteMarker({ style
       const context = canvas.getContext("2d")
       if (!context) return
       context.drawImage(sprite, 0, 0)
+      if (style === "dinosaur") {
+        const flameCanvas = flameCanvasRef.current
+        if (!flameCanvas) return
+        flameCanvas.width = sprite.width
+        flameCanvas.height = sprite.height
+        const flameContext = flameCanvas.getContext("2d")
+        if (!flameContext) return
+        const flameWidth = Math.ceil(sprite.height * DINOSAUR_FLAME.width / DINOSAUR_FLAME.frameSize)
+        const flameHeight = Math.round(sprite.height * DINOSAUR_FLAME.height / DINOSAUR_FLAME.frameSize)
+        // Split once at load time. The two sheets reconstruct the original
+        // pixels; only the flame layer receives the continuous CSS sway.
+        for (let frame = 0; frame < FRAME_COUNT; frame += 1) {
+          const x = frame * sprite.height
+          flameContext.drawImage(sprite, x, 0, flameWidth, flameHeight, x, 0, flameWidth, flameHeight)
+          context.clearRect(x, 0, flameWidth, flameHeight)
+        }
+      }
       marker.dataset.spriteReady = "true"
       loaded = true
       updatePlayback()
@@ -125,7 +149,14 @@ export const CharacterSpriteMarker = memo(function CharacterSpriteMarker({ style
   return <div aria-hidden="true" className="chart-character-marker" data-marker-style={style} ref={markerRef}
     style={{ visibility: "hidden", width: size, height: size }}>
     <span className="chart-character-marker__fallback" />
-    <canvas className="chart-character-marker__frames" ref={canvasRef}
-      style={{ width: size * FRAME_COUNT, height: size, animationDuration: `${FRAME_COUNT / CHARACTERS[style].fps}s`, animationPlayState: "paused" }} />
+    <div className="chart-character-marker__body">
+      <canvas key={style} className="chart-character-marker__frames" ref={canvasRef}
+        style={{ width: size * FRAME_COUNT, height: size, animationDuration: `${FRAME_COUNT / CHARACTERS[style].fps}s`, animationPlayState: "paused" }} />
+    </div>
+    {style === "dinosaur" && <div className="chart-character-marker__flame" ref={flameRef}
+      style={{ transformOrigin: `${size * DINOSAUR_FLAME.pivotX / DINOSAUR_FLAME.frameSize}px ${size * DINOSAUR_FLAME.height / DINOSAUR_FLAME.frameSize}px`, animationPlayState: "paused" }}>
+      <canvas className="chart-character-marker__frames" ref={flameCanvasRef}
+        style={{ width: size * FRAME_COUNT, height: size, animationDuration: `${FRAME_COUNT / CHARACTERS[style].fps}s`, animationPlayState: "paused" }} />
+    </div>}
   </div>
 })

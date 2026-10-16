@@ -5,6 +5,16 @@
   pointer-events: none;
 }
 
+.chart-character-marker[data-marker-style="dinosaur"] {
+  overflow: visible;
+}
+
+.chart-character-marker__body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
 .chart-character-marker__fallback {
   position: absolute;
   left: 50%;
@@ -31,12 +41,27 @@
   display: none;
 }
 
+.chart-character-marker__flame {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  animation: chart-character-flame-sway 1000ms ease-in-out infinite;
+}
+
 @keyframes chart-character-frames {
   to { transform: translateX(-100%); }
 }
 
+@keyframes chart-character-flame-sway {
+  0%, 100% { transform: rotate(-14deg) scale(0.94, 1.08); }
+  25% { transform: rotate(0deg) scale(0.96, 1.2); }
+  50% { transform: rotate(16deg) scale(1.06, 0.94); }
+  75% { transform: rotate(-3deg) scale(1.1, 0.84); }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .chart-character-marker__frames {
+  .chart-character-marker__frames,
+  .chart-character-marker__flame {
     animation: none !important;
   }
 }
