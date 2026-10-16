@@ -16,3 +16,12 @@ test("missing, nondecimal and precision-losing readouts stay static and unchange
     assert.equal(numberFlowReadout(text), null, text)
   }
 })
+
+test("instrument current keeps two integer places and two decimal places without losing larger values", () => {
+  for (const [text, expected] of [["0.00", "00.00"], ["9.90", "09.90"], ["10.00", "10.00"], ["14.00", "14.00"], ["99.99", "99.99"], ["100.01", "100.01"], ["-1.23", "-01.23"]]) {
+    const readout = numberFlowReadout(text, 2)
+    assert.ok(readout, text)
+    assert.equal(new Intl.NumberFormat("en-US", readout.format).format(readout.value), expected)
+  }
+  assert.equal(numberFlowReadout("--", 2), null)
+})

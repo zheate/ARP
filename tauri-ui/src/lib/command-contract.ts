@@ -22,6 +22,7 @@ export interface CommandMap {
   "device.refresh": Entry<{ device: "powerSupply" | "powerMeter" | "spectrometer"; fail?: boolean }>
   "powerSupply.connect": Entry<{}>
   "powerSupply.disconnect": Entry<{}>
+  "powerSupply.safeRampDown": Entry<{}>
   "powerSupply.setCurrent": Entry<{ currentA: number }>
   "powerSupply.setVoltage": Entry<{ voltageV: number }>
   "powerSupply.setOutput": Entry<{ enabled: boolean }>

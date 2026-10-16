@@ -40,7 +40,7 @@ from .spectrum import (
     detect_spectrum_saturation,
     find_spectrum_peak_annotations,
 )
-from .spectrum_math import calculate_pib, calculate_smsr
+from .spectrum_math import calculate_pib_and_smsr, calculate_smsr
 
 
 POWER_METER_RECONNECT_ATTEMPTS = 3
@@ -957,17 +957,17 @@ class SpectrometerReaderThread(WorkerThread):
             has_enough_pib_samples = len(intensity) >= 3
         except TypeError:
             has_enough_pib_samples = True
-        pib = (
-            calculate_pib(
-                wavelength,
-                intensity,
-                center_nm=self.settings.pib_center_wavelength_nm,
-                half_range_nm=self.settings.pib_half_range_nm,
-            )
-            if not saturation.saturated and has_enough_pib_samples
-            else math.nan
-        )
-        smsr = calculate_smsr(wavelength, intensity) if not saturation.saturated else None
+        pib = math.nan
+        smsr = None
+        if not saturation.saturated:
+            if has_enough_pib_samples:
+                pib, smsr = calculate_pib_and_smsr(
+                    wavelength, intensity,
+                    center_nm=self.settings.pib_center_wavelength_nm,
+                    half_range_nm=self.settings.pib_half_range_nm,
+                )
+            else:
+                smsr = calculate_smsr(wavelength, intensity)
         annotations = (
             find_spectrum_peak_annotations(
                 zip(wavelength, intensity),

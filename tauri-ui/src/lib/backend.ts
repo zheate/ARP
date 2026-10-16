@@ -292,6 +292,18 @@ export interface BackendSnapshot {
     reference?: TestHistoryReference | null
   }
   manualTest?: {
+    currentCommand?: {
+      pending: boolean
+      requestedCurrentA: number | null
+      remainingS: number
+      stopping: boolean
+    }
+    capture?: {
+      state: "idle" | "waiting_stable" | "waiting_voltage" | "reading_voltage" | "validating" | "recorded" | "cancelled" | "failed"
+      detail: string
+      currentA: number | null
+      remainingS: number | null
+    }
     pendingCount: number
     exportStatus: string
     exportPath: string

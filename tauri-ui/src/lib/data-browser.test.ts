@@ -6,6 +6,7 @@ import {
   extractComparisonSummary,
   extractSummaryMetrics,
   metricComparisonRows,
+  spectrumChartRows,
   flowLabel,
   numberText,
   powerChartRows,
@@ -62,6 +63,29 @@ test("large duplicate-current groups preserve ambiguity and do not mutate input"
   ])
   assert.equal(base.length, 4002)
   assert.equal(base[0], duplicates[0])
+})
+
+test("spectrum rows retain native grids, stable equal-wavelength order and finite-value filtering", () => {
+  type Series = Parameters<typeof spectrumChartRows>[0][number]
+  let seed = 90210
+  const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 2 ** 32 }
+  for (let trial = 0; trial < 32; trial++) {
+    const spectra: Series[] = Array.from({ length: 8 }, (_, current) => {
+      if (current === 3) return null
+      const wavelengthNm = Array.from({ length: 128 }, (_, i) => i % 11 === 0 ? NaN : Math.round(random() * 5) + 973)
+      const intensity = wavelengthNm.map((_, i) => i % 13 === 0 ? Infinity : i % 17 === 0 ? -0 : random())
+      delete wavelengthNm[5] // Sparse imported arrays keep their prior semantics.
+      Object.freeze(wavelengthNm); Object.freeze(intensity)
+      return Object.freeze({ currentA: current, wavelengthNm, intensity, peakWavelengthNm: 976, maxIntensity: 1 })
+    })
+    Object.freeze(spectra)
+    const expected = spectra.flatMap((spectrum, index) => spectrum ? spectrum.wavelengthNm.flatMap((wavelength, sample) => {
+      const intensity = spectrum.intensity[sample]
+      return Number.isFinite(wavelength) && Number.isFinite(intensity)
+        ? [{ wavelengthNm: wavelength, [`series${index}`]: intensity }] : []
+    }) : []).sort((a, b) => a.wavelengthNm - b.wavelengthNm)
+    assert.deepEqual(spectrumChartRows(spectra), expected)
+  }
 })
 test("chart retains both original curves including duplicate currents", () => {
   const records = [{ points: [point(4, 20), point(2, 10), point(2, 11)] }, { points: [point(3, 18), point(5, null)] }] as DataDetail[]

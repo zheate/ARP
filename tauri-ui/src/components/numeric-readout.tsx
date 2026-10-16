@@ -7,9 +7,9 @@ import { numberFlowReadout } from "@/lib/numeric-readout"
 const READOUT_TIMING = { duration: 100, easing: "ease-out" }
 const OPACITY_TIMING = { duration: 80, easing: "ease-out" }
 
-export const NumericReadout = memo(function NumericReadout({ value }: { value: string }) {
+export const NumericReadout = memo(function NumericReadout({ value, minimumIntegerDigits = 1 }: { value: string; minimumIntegerDigits?: number }) {
   const { appearance } = useAppearance()
-  const readout = useMemo(() => numberFlowReadout(value), [value])
+  const readout = useMemo(() => numberFlowReadout(value, minimumIntegerDigits), [value, minimumIntegerDigits])
 
   return <span className="numeric-readout" aria-label={value}>
     {readout ? <NumberFlow

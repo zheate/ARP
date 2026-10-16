@@ -1,6 +1,27 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { chartTrailBoundary, DEFAULT_APPEARANCE, normalizeAppearance } from "./appearance.ts"
+import { chartTrailBoundary, DEFAULT_APPEARANCE, isAnimatedLatestPointMarker, LATEST_POINT_MARKER_OPTIONS, latestPointMarkerSize, normalizeAppearance, normalizeLatestPointMarkerStyle } from "./appearance.ts"
+
+test("stored endpoint styles restore both approved characters and all existing choices", () => {
+  const existing = ["point", "paper-plane", "paw", "comet", "ecg", "flappy-bird"]
+  for (const id of [...existing, "bee", "dinosaur"]) {
+    assert.equal(normalizeLatestPointMarkerStyle(JSON.parse(JSON.stringify(id))), id)
+    assert.ok(LATEST_POINT_MARKER_OPTIONS.some((option) => option.id === id))
+  }
+  for (const invalid of [null, undefined, "fish", "gecko", "dino", {}, 1]) {
+    assert.equal(normalizeLatestPointMarkerStyle(invalid), "point")
+  }
+})
+
+test("only animated endpoint styles opt into shared curve reveal", () => {
+  for (const option of LATEST_POINT_MARKER_OPTIONS) {
+    assert.equal(isAnimatedLatestPointMarker(option.id), ["flappy-bird", "bee", "dinosaur"].includes(option.id))
+  }
+  assert.equal(isAnimatedLatestPointMarker(undefined), false)
+  assert.equal(latestPointMarkerSize("bee"), 32)
+  assert.equal(latestPointMarkerSize("dinosaur"), 32)
+  assert.equal(latestPointMarkerSize("flappy-bird"), 24)
+})
 
 test("invalid stored appearance falls back safely and numeric ranges stay bounded", () => {
   for (const value of [null, [], "dark", undefined]) assert.deepEqual(normalizeAppearance(value), DEFAULT_APPEARANCE)

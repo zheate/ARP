@@ -1,15 +1,17 @@
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
+import { NumericReadout } from "@/components/numeric-readout"
 import { PowerEfficiencyChart, PowerRealtimeChart, SpectrumRealtimeChart } from "@/features/charts/realtime"
 import { configurationsEqual, UpdateConfig } from "@/features/configuration/model"
 import { currentInputMaximum, DeviceSettingsDialog, DeviceSettingsKind, selectedPowerMeterRevision } from "@/features/devices/settings"
-import { formatNumber, formatTrimmedNumber, NumberInput, RealtimeMetricCards, RunCommand, StatusDot } from "@/features/shared/controls"
+import { formatFixedNumber, formatNumber, formatTrimmedNumber, NumberInput, RealtimeMetricCards, RealtimePowerReadout, RunCommand, StatusDot } from "@/features/shared/controls"
 import { sameDeviceSnapshot, sameMeasurements } from "@/features/shared/snapshot-equality"
 import { type AppConfiguration, type BackendSnapshot } from "@/lib/backend"
 import { powerMeterCoefficientLibraryForResource, powerMeterResourceValue } from "@/lib/power-meter-resource"
 import { ChevronRight, Gauge, Play, Power, Radio, Square } from "lucide-react"
 import { memo, useEffect, useRef, useState } from "react"
+import "./current-controls.css"
 
 export const ManualPage = memo(function ManualPage({
   snapshot,
@@ -31,6 +33,8 @@ export const ManualPage = memo(function ManualPage({
   onNotify?: (notice: { level?: "error" | "info" | "warning"; title: string; message: string; durationMs?: number }) => void
 }) {
   const psu = snapshot?.devices.powerSupply
+  const measuredCurrentA = psu?.connected ? psu.outputCurrentA : null
+  const measuredVoltageV = psu?.connected ? psu.outputVoltageV : null
   const meter = snapshot?.devices.powerMeter
   const spectrum = snapshot?.devices.spectrometer
   const powerMeterResources = meter?.resources ?? []
@@ -50,7 +54,43 @@ export const ManualPage = memo(function ManualPage({
   const selectedSpectrometerResourceAvailable = spectrometerResources.includes(config.spectrometerResource)
   const displayedSpectrometerResource = selectedSpectrometerResourceAvailable ? config.spectrometerResource : ""
   const manualControlsAllowed = snapshot?.safety.manualControlsAllowed === true
+  const safeStopAllowed = snapshot?.backend.mode === "active" && manualControlsAllowed
   const commandLockRef = useRef(false)
+  const stopLockRef = useRef(false)
+  const manualCommandGenerationRef = useRef(0)
+  const [stopping, setStopping] = useState(false)
+  const [applyingCurrent, setApplyingCurrent] = useState(false)
+  // The operator's target is a draft, independent of the zero-current
+  // confirmation performed when TDK output is enabled or safely stopped.
+  const targetKey = JSON.stringify([snapshot?.backend.runtimeId, config.powerSupplyKind,
+    config.powerSupplyKind === "tdk" ? config.tdkResource : config.ch341SelectedLocationPath])
+  const [targetDraft, setTargetDraft] = useState<{ key: string; value: number } | null>(null)
+  const targetCurrentA = targetDraft?.key === targetKey ? targetDraft.value : config.setCurrentA
+  const setTargetCurrentA = (value: number) => setTargetDraft({ key: targetKey, value })
+  const currentCommand = snapshot?.manualTest?.currentCommand
+  const powerStopping = stopping || currentCommand?.stopping === true
+  const canApplyCurrent = Boolean(active && manualControlsAllowed && psu?.connected && !psu.detecting &&
+    !pending && !applyingCurrent && !powerStopping && (config.powerSupplyKind !== "tdk" || psu.outputEnabled))
+  const capture = snapshot?.manualTest?.capture
+  const captureMessage = capture?.state === "recorded" && snapshot?.manualTest?.pendingCount === 0 && snapshot.manualTest.exportStatus === "completed"
+    ? "测试点已保存"
+    : capture?.state === "waiting_voltage" && capture.remainingS != null
+    ? `${capture.detail} · ${Math.ceil(capture.remainingS)} 秒`
+    : capture?.detail ?? "施加电流后等待功率稳定"
+  const currentStatus = (() => {
+    if (powerStopping) return "正在安全下电，请等待确认"
+    if (currentCommand?.pending && currentCommand.remainingS > 0) {
+      return `等待 ${currentCommand.remainingS.toFixed(1)} 秒后施加 ${formatTrimmedNumber(currentCommand.requestedCurrentA ?? 0, 2)} A`
+    }
+    if (applyingCurrent || currentCommand?.pending) return "正在施加电流"
+    if (snapshot?.safety.shutdown.requested) {
+      return snapshot.safety.shutdown.confirmed ? "已确认安全下电" : `下电未确认：${snapshot.safety.shutdown.reason}`
+    }
+    if (!psu?.connected) return "请先连接电源"
+    if (config.powerSupplyKind === "tdk" && !psu.outputEnabled) return "请先开启输出，再设置电流并加电"
+    const maxA = currentInputMaximum(config, snapshot)
+    return `${maxA == null ? "" : `上限 ${maxA} A · `}Ctrl+Enter ${config.powerSupplyKind === "tdk" ? "加电" : "施加电流"}`
+  })()
 
   useEffect(() => {
     if (!manualControlsAllowed) {
@@ -59,12 +99,47 @@ export const ManualPage = memo(function ManualPage({
   }, [manualControlsAllowed])
 
   const runManualCommand: RunCommand = async (...args) => {
-    if (!manualControlsAllowed || commandLockRef.current || pending) return
+    if (!manualControlsAllowed || powerStopping || commandLockRef.current || pending) return
     commandLockRef.current = true
+    if (args[0] === "powerSupply.setOutput") setTargetCurrentA(targetCurrentA)
     try {
       return await run(...args)
     } finally {
       commandLockRef.current = false
+    }
+  }
+
+  const applyCurrent = async (currentA = targetCurrentA) => {
+    if (!canApplyCurrent || commandLockRef.current) return
+    const generation = manualCommandGenerationRef.current
+    setApplyingCurrent(true)
+    try {
+      await runManualCommand("powerSupply.setCurrent", { currentA }, true)
+    } catch (reason) {
+      if (generation === manualCommandGenerationRef.current) {
+        onNotify?.({ level: "error", title: "电流未施加", message: reason instanceof Error ? reason.message : String(reason) })
+      }
+    } finally {
+      setApplyingCurrent(false)
+    }
+  }
+
+  const safePowerDown = async () => {
+    if (stopLockRef.current || !manualControlsAllowed || !psu?.connected) return
+    stopLockRef.current = true
+    manualCommandGenerationRef.current += 1
+    setTargetCurrentA(targetCurrentA)
+    setStopping(true)
+    setApplyingCurrent(false)
+    try {
+      // Bypass ordinary command/configuration locks so shutdown can cancel a
+      // current request that is still waiting for its CH341 command slot.
+      await run("powerSupply.safeRampDown")
+    } catch (reason) {
+      onNotify?.({ level: "error", title: "安全下电未确认", message: reason instanceof Error ? reason.message : String(reason) })
+    } finally {
+      stopLockRef.current = false
+      setStopping(false)
     }
   }
 
@@ -85,8 +160,9 @@ export const ManualPage = memo(function ManualPage({
   const isPsuActive = Boolean(psu?.connected || psu?.outputEnabled)
   const isMeterActive = Boolean(meter?.running)
   const isSpectrumActive = Boolean(spectrum?.running)
+  const tdkResourceLabel = config.tdkResource.trim() || "未选串口"
   const psuIdentitySummary = config.powerSupplyKind === "tdk"
-    ? (config.tdkResource ? `TDK RS232 · ${config.tdkResource}` : "TDK RS232 · 未选串口")
+    ? (tdkResourceLabel === "TDK RS232" ? tdkResourceLabel : `TDK RS232 · ${tdkResourceLabel}`)
     : (config.ch341SelectedLocationPath ? `CH341 I²C · ${config.ch341SelectedLocationPath}` : "CH341 I²C · 自动分配")
 
   return (
@@ -99,7 +175,7 @@ export const ManualPage = memo(function ManualPage({
       )}
       <fieldset aria-disabled={!manualControlsAllowed} className="contents" disabled={!manualControlsAllowed}>
       <section className="manual-device-grid shrink-0" aria-label="手动测试设备卡片">
-        <Card size="sm" className="manual-device-card shadow-none">
+        <Card size="sm" className="manual-device-card manual-device-card--power shadow-none">
           <CardHeader
             aria-disabled={!active || !manualControlsAllowed || pending}
             className="manual-device-card__header flex flex-row items-center justify-between"
@@ -144,56 +220,82 @@ export const ManualPage = memo(function ManualPage({
             </div>
 
             <div className="manual-device-card__body">
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <Label className="text-xs font-normal text-muted-foreground cursor-pointer" htmlFor="manual-psu-current">
-                    设定电流 (A)
-                  </Label>
-                  {(() => {
-                    const maxA = currentInputMaximum(config, snapshot)
-                    return maxA != null ? (
-                      <span className="font-mono text-[11px] text-muted-foreground">
-                        上限 {maxA} A
-                      </span>
-                    ) : null
-                  })()}
+              {config.powerSupplyKind === "tdk" && (
+                <div className="manual-tdk-prepare" role="group" aria-label="连接并开启电源">
+                  <Button
+                    className="h-9 min-w-0 px-2 text-xs font-medium"
+                    disabled={!active || psu?.detecting || pending || psu?.outputEnabled || powerStopping}
+                    onClick={() => void runManualCommand(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)}
+                    variant={psu?.connected ? "outline" : "default"}
+                  >
+                    <span className="manual-tdk-step" aria-hidden="true">1</span>
+                    {psu?.connected ? "断开连接" : "连接 TDK"}
+                  </Button>
+                  <Button
+                    className="h-9 min-w-0 px-2 text-xs font-medium"
+                    disabled={!active || psu?.detecting || !psu?.connected || psu?.outputEnabled || pending || powerStopping}
+                    onClick={() => void runManualCommand("powerSupply.setOutput", { enabled: true }, true)}
+                    variant={psu?.connected && !psu.outputEnabled ? "default" : "outline"}
+                  >
+                    <span className="manual-tdk-step" aria-hidden="true">2</span>
+                    {psu?.outputEnabled ? "输出已开启" : "开启输出"}
+                  </Button>
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1 min-w-0">
+              )}
+              <div className="space-y-1">
+                <div className="manual-current-heading">
+                  <Label className="text-xs font-normal text-muted-foreground cursor-pointer" htmlFor="manual-psu-current">
+                    {config.powerSupplyKind === "tdk" && <span className="manual-tdk-step" aria-hidden="true">3</span>}
+                    {config.powerSupplyKind === "tdk" ? "设置电流 (A)" : "目标电流 (A)"}
+                  </Label>
+                  <p className="manual-current-heading__status truncate text-[11px] text-muted-foreground" role="status" title={currentStatus}>{currentStatus}</p>
+                </div>
+                <div className="manual-current-controls">
+                  <div className="min-w-0">
                     <NumberInput
-                      className="h-8 font-mono text-sm pr-6"
-                      disabled={!active || psu?.detecting || !psu?.connected || pending}
+                      className="manual-power-digit manual-current-controls__input h-9 pl-1.5 pr-6"
+                      disabled={!active || powerStopping || applyingCurrent || (config.powerSupplyKind === "tdk" && (!psu?.connected || !psu.outputEnabled))}
+                      displayDecimalPlaces={1}
                       id="manual-psu-current"
                       max={currentInputMaximum(config, snapshot)}
                       min={0}
-                      onChange={(v) => update("setCurrentA", v)}
-                      step="0.1"
-                      value={config.setCurrentA}
+                      onChange={setTargetCurrentA}
+                      onConfirm={(value) => void applyCurrent(value)}
+                      step="1"
+                      horizontalStep="0.1"
+                      value={targetCurrentA}
                     />
                   </div>
                   <Button
-                    className="h-8 shrink-0 px-3 text-xs font-medium"
-                    disabled={!active || psu?.detecting || !psu?.connected || pending}
-                    onClick={() => void runManualCommand("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}
-                    variant="outline"
+                    className="h-9 w-full min-w-0 px-2 text-xs font-medium"
+                    disabled={!canApplyCurrent}
+                    onClick={() => void applyCurrent()}
+                    variant={config.powerSupplyKind === "tdk" && psu?.outputEnabled ? "default" : "outline"}
                   >
-                    设置电流
+                    {config.powerSupplyKind === "tdk" && <span className="manual-tdk-step" aria-hidden="true">4</span>}
+                    {config.powerSupplyKind === "tdk" ? "加电" : "施加电流"}
                   </Button>
                 </div>
               </div>
 
               {config.powerSupplyKind === "tdk" ? (
-                <div className="flex items-center justify-between rounded-md border border-border/50 bg-muted/20 px-3 py-1.5 text-xs">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-muted-foreground">输出电压</span>
-                    <span className="font-mono font-medium text-foreground">
-                      {formatNumber(psu?.outputVoltageV, " V", 2)}
+                <div className="manual-power-readouts text-muted-foreground" aria-label="电源反馈读数">
+                  <div className="manual-power-readout">
+                    <span className="whitespace-nowrap text-[11px]">输出电压：</span>
+                    <span className="manual-power-measurement manual-power-measurement--voltage">
+                      <span className="manual-power-digit" data-measurement="outputVoltageV" data-available={measuredVoltageV != null && Number.isFinite(measuredVoltageV)}>
+                        <NumericReadout value={formatNumber(measuredVoltageV, "", 2)} />
+                      </span>
+                      <span className="manual-power-unit text-xs">V</span>
                     </span>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-muted-foreground">输出电流</span>
-                    <span className="font-mono font-medium text-foreground">
-                      {formatNumber(psu?.outputCurrentA, " A", 2)}
+                  <div className="manual-power-readout">
+                    <span className="whitespace-nowrap text-[11px]">输出电流：</span>
+                    <span className="manual-power-measurement">
+                      <span className="manual-power-digit" data-measurement="outputCurrentA" data-available={measuredCurrentA != null && Number.isFinite(measuredCurrentA)}>
+                        <NumericReadout value={formatFixedNumber(measuredCurrentA, 1)} />
+                      </span>
+                      <span className="manual-power-unit text-xs">A</span>
                     </span>
                   </div>
                 </div>
@@ -209,41 +311,17 @@ export const ManualPage = memo(function ManualPage({
 
             <div className="manual-device-card__footer">
               {config.powerSupplyKind === "tdk" ? (
-                <div className="grid grid-cols-3 gap-2 w-full">
-                  <Button
-                    className="h-9 text-xs px-2 truncate font-medium"
-                    disabled={!active || psu?.detecting || pending || psu?.outputEnabled}
-                    onClick={() => void runManualCommand(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)}
-                    variant={psu?.connected ? "outline" : "default"}
-                  >
-                    {psu?.connected ? "安全断开" : "连接 TDK"}
-                  </Button>
-                  <Button
-                    className="h-9 text-xs px-2 truncate font-medium"
-                    disabled={!active || psu?.detecting || !psu?.connected || psu?.outputEnabled || pending}
-                    onClick={() => void runManualCommand("powerSupply.setOutput", { enabled: true }, true)}
-                    variant={psu?.outputEnabled ? "outline" : "default"}
-                  >
-                    开启输出
-                  </Button>
-                  <Button
-                    className={`h-9 text-xs px-2 truncate font-medium transition-colors ${psu?.outputEnabled ? "bg-destructive text-destructive-foreground hover:bg-destructive/90 shadow-sm animate-pulse" : ""}`}
-                    disabled={!active || psu?.detecting || !psu?.connected || !psu?.outputEnabled || pending}
-                    onClick={() => void runManualCommand("powerSupply.setOutput", { enabled: false }, true)}
-                    variant={psu?.outputEnabled ? "destructive" : "outline"}
-                  >
-                    {psu?.outputEnabled ? (
-                      <>
-                        <span className="size-2 rounded-full bg-white animate-ping shrink-0 mr-1 inline-block" />
-                        关闭输出
-                      </>
-                    ) : (
-                      "关闭输出"
-                    )}
-                  </Button>
-                </div>
+                <Button
+                  className="h-9 w-full text-xs px-2 font-medium"
+                  disabled={!safeStopAllowed || !psu?.connected || powerStopping}
+                  onClick={() => void safePowerDown()}
+                  variant={psu?.outputEnabled ? "destructive" : "outline"}
+                >
+                  <span className="manual-tdk-step" aria-hidden="true">5</span>
+                  {powerStopping ? "下电中…" : "归零下电"}
+                </Button>
               ) : (
-                <div className="w-full">
+                <div className="grid grid-cols-2 gap-2 w-full">
                   {(() => {
                     const selectedLoc = config.ch341SelectedLocationPath
                     const port = snapshot?.devices?.powerSupply?.ch341?.ports?.find((p) => p.locationPath === selectedLoc)
@@ -252,14 +330,14 @@ export const ManualPage = memo(function ManualPage({
                       snapshot?.devices?.powerSupply?.ch341?.discoveryState === "ready"
                     )
                     const btnText = psu?.connected
-                      ? "安全断开"
+                      ? "断开连接"
                       : port?.online
                       ? `连接 Device ${port.deviceIndex}`
                       : "连接电源"
                     return (
                       <Button
                         className="h-9 w-full text-xs font-medium"
-                        disabled={!active || psu?.detecting || (!psu?.connected && !isCh341ReadyToConnect) || pending}
+                        disabled={!active || psu?.detecting || (!psu?.connected && !isCh341ReadyToConnect) || pending || powerStopping}
                         onClick={() => void runManualCommand(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)}
                         variant={psu?.connected ? "outline" : "default"}
                       >
@@ -267,6 +345,9 @@ export const ManualPage = memo(function ManualPage({
                       </Button>
                     )
                   })()}
+                  <Button className="h-9 w-full text-xs font-medium" disabled={!safeStopAllowed || !psu?.connected || powerStopping} onClick={() => void safePowerDown()} variant="outline">
+                    {powerStopping ? "关闭中…" : "归零&关闭"}
+                  </Button>
                 </div>
               )}
             </div>
@@ -345,6 +426,8 @@ export const ManualPage = memo(function ManualPage({
                   </Button>
                 </div>
               </div>
+
+              <p className={`h-5 truncate text-[11px] leading-5 ${capture?.state === "failed" || capture?.state === "cancelled" ? "text-[var(--app-warning)]" : "text-muted-foreground"}`} role="status" title={captureMessage}>{captureMessage}</p>
 
               <div className="flex items-center justify-between rounded-md border border-border/50 bg-muted/20 px-3 py-1.5 text-xs">
                 <div className="flex items-center gap-1.5">
@@ -467,18 +550,16 @@ export const ManualPage = memo(function ManualPage({
           </CardContent>
         </Card>
       </section>
-      <section className="automatic-chart-grid">
+      <section className="automatic-chart-grid manual-chart-grid">
         <div className="automatic-chart-grid__power-row">
-          <PowerRealtimeChart snapshot={snapshot} smoothing={config.powerSmoothing ?? true} stretch />
+          <PowerRealtimeChart snapshot={snapshot} smoothing={config.powerSmoothing ?? true} stretch readout={
+            <RealtimePowerReadout currentA={psu?.connected ? (config.powerSupplyKind === "ch341" ? psu.activeCurrentA : psu.outputCurrentA) : null} meter={meter} />
+          } />
           <PowerEfficiencyChart snapshot={snapshot} smoothing={config.powerSmoothing ?? true} stretch />
         </div>
-        <RealtimeMetricCards
-          config={config}
-          currentA={psu?.connected ? (config.powerSupplyKind === "ch341" ? psu.activeCurrentA : psu.outputCurrentA) : null}
-          powerMeter={meter}
-          spectrometer={spectrum}
-        />
-        <SpectrumRealtimeChart snapshot={snapshot} smoothing={config.spectrumSmoothing ?? true} stretch />
+        <SpectrumRealtimeChart snapshot={snapshot} smoothing={config.spectrumSmoothing ?? true} stretch metrics={
+          <RealtimeMetricCards spectrumOnly config={config} spectrometer={spectrum} />
+        } />
       </section>
       </fieldset>
       {openSettings && (
@@ -502,10 +583,9 @@ export const ManualPage = memo(function ManualPage({
   previous.active === next.active
   && previous.pending === next.pending
   && previous.snapshot?.safety.manualControlsAllowed === next.snapshot?.safety.manualControlsAllowed
-  && previous.snapshot?.manualTest?.pendingCount === next.snapshot?.manualTest?.pendingCount
-  && previous.snapshot?.manualTest?.exportStatus === next.snapshot?.manualTest?.exportStatus
-  && previous.snapshot?.manualTest?.exportPath === next.snapshot?.manualTest?.exportPath
-  && previous.snapshot?.manualTest?.exportError === next.snapshot?.manualTest?.exportError
+  && previous.snapshot?.backend.runtimeId === next.snapshot?.backend.runtimeId
+  && JSON.stringify(previous.snapshot?.manualTest) === JSON.stringify(next.snapshot?.manualTest)
+  && JSON.stringify(previous.snapshot?.safety.shutdown) === JSON.stringify(next.snapshot?.safety.shutdown)
   && configurationsEqual(previous.config, next.config)
   && sameDeviceSnapshot(previous.snapshot?.devices.powerSupply, next.snapshot?.devices.powerSupply)
   && sameDeviceSnapshot(previous.snapshot?.devices.powerMeter, next.snapshot?.devices.powerMeter)

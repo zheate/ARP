@@ -255,6 +255,14 @@ def calculate_pib(
     integral over that background-corrected signal region.
     """
     wavelength_values, intensity_values = _as_float_lists(wavelength, intensity)
+    return _calculate_pib_values(wavelength_values, intensity_values, center_nm, half_range_nm)
+
+
+def _calculate_pib_values(
+    wavelength_values: list[float], intensity_values: list[float],
+    center_nm: float, half_range_nm: float,
+) -> float:
+    """Calculate from already converted, equal-length finite lists (or empty)."""
     if not wavelength_values:
         return math.nan
     if not math.isfinite(center_nm) or not math.isfinite(half_range_nm) or half_range_nm < 0:
@@ -327,6 +335,36 @@ def calculate_smsr(
 ) -> SmsrResult:
     """Return 10*log10(main mode / highest significant resolved side mode)."""
     wavelength_values, intensity_values = _as_float_lists(wavelength, intensity)
+    return _calculate_smsr_values(
+        wavelength_values, intensity_values, analysis_lower_nm, analysis_upper_nm,
+        minimum_peak_distance_nm, minimum_peak_width_samples, noise_sigma_multiplier,
+    )
+
+
+def calculate_pib_and_smsr(
+    wavelength: Iterable[float], intensity: Iterable[float],
+    center_nm: float = PIB_CENTER_NM, half_range_nm: float = PIB_HALF_RANGE_NM,
+) -> tuple[float, SmsrResult]:
+    """Analyze one frame with one conversion, preserving both public formulas.
+
+    Lists are owned by this call. No cache survives a frame or aliases mutable
+    acquisition buffers; generators are consumed only once.
+    """
+    wavelength_values, intensity_values = _as_float_lists(wavelength, intensity)
+    pib = _calculate_pib_values(wavelength_values, intensity_values, center_nm, half_range_nm)
+    smsr = _calculate_smsr_values(wavelength_values, intensity_values)
+    return pib, smsr
+
+
+def _calculate_smsr_values(
+    wavelength_values: list[float], intensity_values: list[float],
+    analysis_lower_nm: float = PIB_ANALYSIS_LOWER_NM,
+    analysis_upper_nm: float = PIB_ANALYSIS_UPPER_NM,
+    minimum_peak_distance_nm: float = SMSR_MINIMUM_PEAK_DISTANCE_NM,
+    minimum_peak_width_samples: float = SMSR_MINIMUM_PEAK_WIDTH_SAMPLES,
+    noise_sigma_multiplier: float = SMSR_NOISE_SIGMA_MULTIPLIER,
+) -> SmsrResult:
+    """Use already converted, equal-length finite lists (or empty)."""
     empty = SmsrResult(math.nan, math.nan, math.nan, math.nan, math.nan)
     if not wavelength_values:
         return empty

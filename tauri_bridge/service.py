@@ -35,6 +35,7 @@ SAFETY_TASK_METHODS = frozenset(
         "app.stopAll",
         "app.shutdown",
         "automatic.end",
+        "powerSupply.safeRampDown",
     }
 )
 

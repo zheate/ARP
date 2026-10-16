@@ -563,6 +563,7 @@ fn is_safe_unlicensed_method(method: &str) -> bool {
         method,
         "app.snapshot"
             | "app.stopAll"
+            | "powerSupply.safeRampDown"
             | "app.shutdown"
             | "automatic.end"
             | "automatic.retryPersist"
@@ -1168,6 +1169,7 @@ mod tests {
         for method in [
             "app.snapshot",
             "app.stopAll",
+            "powerSupply.safeRampDown",
             "app.shutdown",
             "automatic.end",
             "automatic.retryPersist",

@@ -1,4 +1,4 @@
-import { AutomaticCompletionSummary, PowerStabilityStatus } from "@/components/automatic-overview"
+import { AutomaticCompletionSummary } from "@/components/automatic-overview"
 import { NativeSelect } from "@/components/native-select"
 import { SaveScriptDialog } from "@/components/save-script-dialog"
 import { Button } from "@/components/ui/button"
@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label"
 import { AgingPowerChart, PowerEfficiencyChart, PowerRealtimeChart, SpectrumRealtimeChart } from "@/features/charts/realtime"
 import { UpdateConfig, configurationsEqual } from "@/features/configuration/model"
 import { AutomaticSpecificationsDialog, DeviceCard, DeviceSettingsDialog, DeviceSettingsKind } from "@/features/devices/settings"
-import { AutomaticMetricCard, AutomaticTestControlCard, RealtimeMetricCards, RunCommand, formatFixedNumber, formatTrimmedNumber, powerMeterResourceLabel } from "@/features/shared/controls"
+import { AutomaticTestControlCard, RealtimeMetricCards, RealtimePowerReadout, RunCommand, formatTrimmedNumber, powerMeterResourceLabel } from "@/features/shared/controls"
 import { sameAutomaticTestState, sameDeviceSnapshot, sameMeasurements } from "@/features/shared/snapshot-equality"
 import { type CurveLineStyle, type LatestPointMarkerStyle } from "@/lib/appearance"
 import { automaticStartPresentation } from "@/lib/automatic-presentation"
@@ -265,7 +265,6 @@ export const AutomaticPage = memo(function AutomaticPage({
   const powerMeterSummary = `${appliedPowerMeterConfig.powerMeterResource ? powerMeterResourceLabel(appliedPowerMeterConfig.powerMeterResource, snapshot?.devices.powerMeter?.resources) : "未选串口"} · ${powerMeterProfileLabel} · ${appliedPowerMeterConfig.powerMeterWavelengthNm} nm (×${appliedPowerMeterConfig.softwareGain})`
   const powerMeterVisibleSummary = `${powerMeterProfileLabel} / 系数 ×${formatTrimmedNumber(appliedPowerMeterConfig.softwareGain, 6)} · ${formatTrimmedNumber(appliedPowerMeterConfig.powerMeterWavelengthNm, 3)} nm`
   const powerMeter = snapshot?.devices.powerMeter
-  const livePowerW = powerMeter?.quality === "live" ? powerMeter.powerW : null
   const powerSupply = snapshot?.devices.powerSupply
   // The planned test point remains at the last point after shutdown.
   // TDK reports measured current; CH341 follows successful current commands.
@@ -287,53 +286,42 @@ export const AutomaticPage = memo(function AutomaticPage({
         toolbarHost,
       ) : null}
 
-      <section className="automatic-device-rail" aria-label="测试设备与控制">
-        <DeviceCard title="电源" icon={Power} device={snapshot?.devices.powerSupply} model={config.powerSupplyKind === "tdk" ? "TDK" : "CH341"} details={[["接口", config.powerSupplyKind === "tdk" ? config.tdkResource : config.ch341SelectedLocationPath], ["电流计划", currentPlanSummary], ["目标电压", config.powerSupplyKind === "tdk" ? `${config.tdkVoltageV} V` : "不适用"]]} disabled={controlsLocked} onOpenSettings={openPowerSupply} summary={powerSupplySummary} visibleSummary={powerSupplyVisibleSummary} />
-        <DeviceCard title="功率计" icon={Gauge} device={snapshot?.devices.powerMeter} model={appliedPowerMeterConfig.powerMeterResource ? powerMeterResourceLabel(appliedPowerMeterConfig.powerMeterResource, powerMeter?.resources).split("|")[0].trim().replace(/功率计$/, "") : "未选择"} details={[["接口", powerMeterResourceValue(appliedPowerMeterConfig.powerMeterResource)], ["设备", powerMeter?.detail || "未连接"], ["系数方案", powerMeterProfileLabel], ["校准波长", `${appliedPowerMeterConfig.powerMeterWavelengthNm} nm`], ["功率系数", `× ${appliedPowerMeterConfig.softwareGain}`]]} disabled={controlsLocked} onOpenSettings={openPowerMeter} summary={powerMeterSummary} visibleSummary={powerMeterVisibleSummary} />
-        <DeviceCard title="光谱仪" icon={Radio} device={snapshot?.devices.spectrometer} model="Ocean Insight" details={[["设备", config.spectrometerResource || spectrometer?.detail || "未选择"], ["积分时间", `${config.integrationTimeUs} μs`], ["PIB 范围", `${config.pibCenterWavelengthNm} ± ${config.pibHalfRangeNm} nm`], ["FWHM 上限", `${config.fwhmMaximumNm} nm`]]} disabled={controlsLocked} onOpenSettings={openSpectrometer} summary={spectrometerSummary} visibleSummary={spectrometerVisibleSummary} />
-        <AutomaticTestControlCard
-          active={active}
-          auto={auto}
-          config={config}
-          controlsLocked={controlsLocked}
-          onStart={startAutomaticTest}
-          onStop={() => void run("automatic.end")}
-          pending={pending}
-        />
-      </section>
-
-      <section className={`automatic-chart-grid ${useSpectrometer ? "automatic-chart-grid--compact-metrics" : "without-spectrum"}`}>
-        <div className="automatic-chart-grid__power-row">
-          <div className="automatic-power-chart">
-            <PowerRealtimeChart automatic curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} snapshot={snapshot} smoothing={config.powerSmoothing ?? true} stretch />
-            {!useSpectrometer && (
-              <AutomaticMetricCard
-                className="automatic-power-chart__reading automatic-metric-card--power automatic-metric-card--title-below"
-                title={<PowerStabilityStatus automatic={snapshot?.automaticTest} meter={powerMeter} />}
-                value={formatFixedNumber(livePowerW, 3)}
-                unit={<>W @ <span className="automatic-metric-card__current">{formatTrimmedNumber(liveCurrentA, 2)} A</span></>}
-                valueTone={snapshot?.devices.powerMeter?.quality === "live" ? "primary" : "muted"}
-                recording={Boolean(powerMeter?.running || (snapshot?.automaticTest && !["idle", "paused", "completed"].includes(snapshot.automaticTest.state)))}
-              />
-            )}
-          </div>
-          {config.selectedScriptId === "aging"
-            ? <AgingPowerChart snapshot={snapshot} smoothing={config.powerSmoothing ?? true} stretch />
-            : <PowerEfficiencyChart snapshot={snapshot} smoothing={config.powerSmoothing ?? true} stretch />}
-        </div>
-        {useSpectrometer && (
-          <RealtimeMetricCards
-            compact
-            automatic={snapshot?.automaticTest}
+      <div className="automatic-test-workspace" data-spectrum={useSpectrometer}>
+        <section className="automatic-device-rail" aria-label="测试设备与控制">
+          <DeviceCard title="电源" icon={Power} device={snapshot?.devices.powerSupply} model={config.powerSupplyKind === "tdk" ? "TDK" : "CH341"} details={[["接口", config.powerSupplyKind === "tdk" ? config.tdkResource : config.ch341SelectedLocationPath], ["电流计划", currentPlanSummary], ["目标电压", config.powerSupplyKind === "tdk" ? `${config.tdkVoltageV} V` : "不适用"]]} disabled={controlsLocked} onOpenSettings={openPowerSupply} summary={powerSupplySummary} visibleSummary={powerSupplyVisibleSummary} />
+          <DeviceCard title="功率计" icon={Gauge} device={snapshot?.devices.powerMeter} model={appliedPowerMeterConfig.powerMeterResource ? powerMeterResourceLabel(appliedPowerMeterConfig.powerMeterResource, powerMeter?.resources).split("|")[0].trim().replace(/功率计$/, "") : "未选择"} details={[["接口", powerMeterResourceValue(appliedPowerMeterConfig.powerMeterResource)], ["设备", powerMeter?.detail || "未连接"], ["系数方案", powerMeterProfileLabel], ["校准波长", `${appliedPowerMeterConfig.powerMeterWavelengthNm} nm`], ["功率系数", `× ${appliedPowerMeterConfig.softwareGain}`]]} disabled={controlsLocked} onOpenSettings={openPowerMeter} summary={powerMeterSummary} visibleSummary={powerMeterVisibleSummary} />
+          <DeviceCard title="光谱仪" icon={Radio} device={snapshot?.devices.spectrometer} model="Ocean Insight" details={[["设备", config.spectrometerResource || spectrometer?.detail || "未选择"], ["积分时间", `${config.integrationTimeUs} μs`], ["PIB 范围", `${config.pibCenterWavelengthNm} ± ${config.pibHalfRangeNm} nm`], ["FWHM 上限", `${config.fwhmMaximumNm} nm`]]} disabled={controlsLocked} onOpenSettings={openSpectrometer} summary={spectrometerSummary} visibleSummary={spectrometerVisibleSummary} />
+          <AutomaticTestControlCard
+            active={active}
+            auto={auto}
             config={config}
-            currentA={liveCurrentA}
-            onOpenSpecifications={() => setSpecificationsOpen(true)}
-            powerMeter={snapshot?.devices.powerMeter}
-            spectrometer={spectrometer}
+            controlsLocked={controlsLocked}
+            onStart={startAutomaticTest}
+            onStop={() => void run("automatic.end")}
+            pending={pending}
+            shutdown={snapshot?.safety.shutdown}
           />
-        )}
-        {useSpectrometer && <SpectrumRealtimeChart snapshot={snapshot} smoothing={config.spectrumSmoothing ?? true} stretch />}
-      </section>
+        </section>
+
+        <section className={`automatic-chart-grid ${useSpectrometer ? "" : "without-spectrum"}`}>
+          <div className="automatic-chart-grid__power-row">
+            <PowerRealtimeChart automatic curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} snapshot={snapshot} smoothing={config.powerSmoothing ?? true} stretch readout={
+              <RealtimePowerReadout automatic={snapshot?.automaticTest} currentA={liveCurrentA} meter={powerMeter} />
+            } />
+            {config.selectedScriptId === "aging"
+              ? <AgingPowerChart snapshot={snapshot} smoothing={config.powerSmoothing ?? true} stretch />
+              : <PowerEfficiencyChart snapshot={snapshot} smoothing={config.powerSmoothing ?? true} stretch />}
+          </div>
+          {useSpectrometer && <SpectrumRealtimeChart snapshot={snapshot} smoothing={config.spectrumSmoothing ?? true} stretch metrics={
+            <RealtimeMetricCards
+              spectrumOnly
+              config={config}
+              onOpenSpecifications={() => setSpecificationsOpen(true)}
+              spectrometer={spectrometer}
+            />
+          } />}
+        </section>
+      </div>
       {openSettings && <DeviceSettingsDialog active={active} config={config} kind={openSettings} onClose={closeSettings} onSave={saveConfiguration} onScriptSelect={onScriptSelect} open pending={pending} run={run} snapshot={snapshot} update={update} />}
       {specificationsOpen && <AutomaticSpecificationsDialog active={active} config={config} onClose={() => setSpecificationsOpen(false)} onSave={saveConfiguration} pending={pending} update={update} />}
       {testSettingsOpen && <AutomaticSpecificationsDialog active={active && !controlsLocked} config={config} editScript onClose={() => setTestSettingsOpen(false)} onSave={saveConfiguration} pending={pending} snapshot={snapshot} update={update} />}

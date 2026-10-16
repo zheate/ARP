@@ -145,8 +145,10 @@ class StationRuntimeTests(unittest.TestCase):
         self.assertTrue(progress["powerStable"])
         self.assertEqual(progress["elapsedS"], 10.0)
 
-    def _simulate_stable_hold(self, *, stable=lambda _t: True, samples=lambda _t: True, wave=lambda _t: True, spectral=False, dwell=0.0, pause=False, stop_at=None, full_point=False, point_count=2, index=0):
+    def _simulate_stable_hold(self, *, stable=lambda _t: True, samples=lambda _t: True, wave=lambda _t: True, spectral=False, dwell=0.0, pause=False, stop_at=None, full_point=False, point_count=2, index=0, power_supply_kind="ch341"):
         station = self.backend.runtime
+        station.power_supply_kind = power_supply_kind
+        station.configuration["powerSupplyKind"] = power_supply_kind
         clock = [0.0]
         paused = [False]
         settings = AutomaticTestSettings(use_spectrometer=spectral, point_timeout_s=20.0)
@@ -170,6 +172,7 @@ class StationRuntimeTests(unittest.TestCase):
                 station.latest_spectrum = SimpleNamespace(
                     saturation=SimpleNamespace(saturated=False), stats=None, smsr=None,
                     wavelength=[975.0, 976.0], intensity=[10.0, 20.0], peak_annotations=(),
+                    peak_intensity=60000.0,
                 )
                 station.latest_spectrum_received_monotonic_s = now
                 station.spectrum_revision += 1
@@ -218,6 +221,49 @@ class StationRuntimeTests(unittest.TestCase):
         self.assertEqual(voltage_times, [5.0])
         self.assertEqual(progress["holdElapsedS"], 5.0)
         self.assertEqual(progress["holdRequiredS"], 5.0)
+
+    def test_tdk_reads_final_voltage_immediately_after_stability_including_last_point(self) -> None:
+        for point_count, index in ((2, 0), (2, 1), (1, 0)):
+            with self.subTest(point_count=point_count, index=index):
+                elapsed, progress, voltage_times = self._simulate_stable_hold(
+                    power_supply_kind="tdk", full_point=True, point_count=point_count, index=index,
+                )
+                self.assertEqual(elapsed, 0.0)
+                self.assertEqual(voltage_times, [0.0])
+                self.assertEqual(progress["holdRequiredS"], 0.0)
+                self.assertEqual(self.backend.runtime.latest_power_supply_output_voltage_v, 12.0)
+
+    def test_tdk_keeps_explicit_dwell_and_requires_stable_live_power_and_wavelength(self) -> None:
+        cases = (
+            ({"dwell": 4.0}, 4.0),
+            ({"dwell": 4.0, "pause": True}, 7.0),
+            ({"stable": lambda t: t >= 2.0}, 2.0),
+            ({"samples": lambda t: t >= 2.0}, 2.0),
+            ({"spectral": True, "wave": lambda t: t >= 2.0}, 2.0),
+        )
+        for params, expected in cases:
+            with self.subTest(params=params):
+                elapsed, progress, voltage_times = self._simulate_stable_hold(
+                    power_supply_kind="tdk", full_point=True, **params,
+                )
+                self.assertEqual(elapsed, expected)
+                self.assertEqual(voltage_times, [expected])
+                self.assertEqual(progress["holdRequiredS"], 0.0)
+
+    def test_tdk_direct_voltage_read_still_honors_stop_and_stability_timeout(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "自动测试已停止"):
+            self._simulate_stable_hold(power_supply_kind="tdk", dwell=4.0, stop_at=2.0)
+        with self.assertRaisesRegex(TimeoutError, "等待稳定超时"):
+            self._simulate_stable_hold(power_supply_kind="tdk", stable=lambda _t: False)
+
+    def test_tdk_timeout_validation_no_longer_includes_removed_confirmation(self) -> None:
+        station = self.backend.runtime
+        station.power_supply_kind = "tdk"
+        station.configuration.update({"initialCurrentA": 2.0, "pointTimeoutS": 5.0})
+        self.assertEqual(station._automatic_settings().point_timeout_s, 5.0)
+        station.power_supply_kind = "ch341"
+        with self.assertRaisesRegex(ValueError, "单点超时"):
+            station._automatic_settings()
 
     def test_final_point_waits_ten_seconds_and_reports_the_matching_target(self) -> None:
         for point_count, index in ((1, 0), (2, 1)):

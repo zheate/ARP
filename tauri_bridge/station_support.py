@@ -20,6 +20,7 @@ MANUAL_CONTROL_METHODS = frozenset(
         "device.refresh",
         "powerSupply.connect",
         "powerSupply.disconnect",
+        "powerSupply.safeRampDown",
         "powerSupply.setCurrent",
         "powerSupply.setVoltage",
         "powerSupply.setOutput",

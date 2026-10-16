@@ -14,7 +14,7 @@ import { RunCommand } from "@/features/shared/controls"
 import { AppearanceProvider } from "@/hooks/use-appearance"
 import { useBackendSnapshot } from "@/hooks/use-backend-snapshot"
 import { useConfigurationEditor } from "@/hooks/use-configuration-editor"
-import { ACCENT_THEMES, type AccentTheme, type CurveLineStyle, type LatestPointMarkerStyle, type Theme } from "@/lib/appearance"
+import { ACCENT_THEMES, normalizeLatestPointMarkerStyle, type AccentTheme, type CurveLineStyle, type LatestPointMarkerStyle, type Theme } from "@/lib/appearance"
 import { automaticPauseCommand } from "@/lib/automatic-pause"
 import { sendBackendRequest, type AutomaticPauseAction, type SnapshotView } from "@/lib/backend"
 import { getLicenseStatus, installLicense, licenseReasonLabels, type LicenseStatus } from "@/lib/license"
@@ -73,6 +73,7 @@ const DEMO_PREVIEW_ENABLED = typeof window !== "undefined" && new URLSearchParam
 
 const SAFE_UNLICENSED_METHODS = new Set([
   "app.stopAll",
+  "powerSupply.safeRampDown",
   "app.shutdown",
   "automatic.end",
   "automatic.retryPersist",
@@ -132,8 +133,7 @@ function getStoredAccentTheme(): AccentTheme {
 function getStoredLatestPointMarkerStyle(): LatestPointMarkerStyle {
   if (typeof window === "undefined") return "point"
   try {
-    const storedStyle = window.localStorage.getItem(LATEST_POINT_MARKER_STORAGE_KEY)
-    if (storedStyle === "point" || storedStyle === "paper-plane" || storedStyle === "paw" || storedStyle === "comet" || storedStyle === "ecg" || storedStyle === "flappy-bird") return storedStyle
+    return normalizeLatestPointMarkerStyle(window.localStorage.getItem(LATEST_POINT_MARKER_STORAGE_KEY))
   } catch {
     // Use the original point marker if storage is unavailable.
   }
@@ -270,15 +270,6 @@ const NavigationSidebar = memo(function NavigationSidebar({ page, pageIsBlocked,
               </button>
             ))}
           </nav>
-          <div className="mt-auto grid justify-items-center gap-2 px-3 pb-1 pt-3" aria-label="侧栏格言 Stay True">
-            <div className="h-px w-full bg-gradient-to-r from-transparent via-border/80 to-transparent" />
-            <p
-              className="whitespace-nowrap text-base font-normal leading-snug tracking-[0.01em] text-[var(--app-text-tertiary)] opacity-80"
-              style={{ fontFamily: "'Snell Roundhand', 'Segoe Print', 'Bradley Hand', cursive" }}
-            >
-              Stay True
-            </p>
-          </div>
         </aside>
   )
 })
@@ -390,13 +381,19 @@ function LicensedApp({
     }
   }, [attemptGracefulClose])
 
+  const manualStopGeneration = useRef(0)
   const run: RunCommand = useCallback(async (...args) => {
     const [method, params, sync] = args
+    if (method === "powerSupply.safeRampDown" || method === "app.stopAll") manualStopGeneration.current += 1
+    const startedGeneration = manualStopGeneration.current
     if (!active) return
     if (!licenseStatus.valid && !SAFE_UNLICENSED_METHODS.has(method)) {
       throw new Error(`软件授权无效：${licenseReasonLabels[licenseStatus.reason]}`)
     }
     if (sync && dirty) await saveConfiguration()
+    // A safety stop can arrive while configuration is being saved. Never send
+    // the original energizing command after that stop has finished.
+    if (startedGeneration !== manualStopGeneration.current) throw new Error("操作已因安全下电取消，请重新操作")
     const result = await command(method, params)
     acceptCommand(method, result)
     return result

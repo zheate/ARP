@@ -111,6 +111,19 @@ class SpectrumAnalysisTests(unittest.TestCase):
             [("P1", 450.0), ("P2", 460.0)],
         )
 
+    def test_tied_visible_and_infrared_maxima_use_lowest_wavelength_on_unsorted_input(self) -> None:
+        wavelength = [400.0 + index * 0.1 for index in range(6001)]
+        intensity = [0.0] * len(wavelength)
+        intensity[499:502] = [360.0, 600.0, 360.0]
+        intensity[5759:5762] = [360.0, 600.0, 360.0]
+        fixed_band_smsr = calculate_smsr(wavelength, intensity)
+        self.assertEqual(fixed_band_smsr.main_wavelength_nm, 976.0)
+        annotations = find_spectrum_peak_annotations(
+            zip(reversed(wavelength), reversed(intensity)), smsr_result=fixed_band_smsr,
+        )
+        self.assertEqual([(item.label, item.peak_wavelength_nm) for item in annotations],
+                         [("P1", 450.0)])
+
     def test_peak_markers_remain_empty_for_flat_noise_and_degenerate_axes(self) -> None:
         self.assertEqual(find_spectrum_peak_annotations([(450.0, 0.0)] * 3), [])
         self.assertEqual(find_spectrum_peak_annotations([(420 + i * 0.1, 2.0) for i in range(501)]), [])

@@ -2,10 +2,10 @@ import { CanvasLineChart, type CanvasChartAnnotation, type CanvasChartAnnotation
 import { Card, CardContent, CardHeader } from "@/components/ui/card"
 import { sameNumberArray, sameRows } from "@/features/shared/snapshot-equality"
 import { useAppearance } from "@/hooks/use-appearance"
-import { type CurveLineStyle, type LatestPointMarkerStyle } from "@/lib/appearance"
+import { isAnimatedLatestPointMarker, type CurveLineStyle, type LatestPointMarkerStyle } from "@/lib/appearance"
 import { type BackendSnapshot } from "@/lib/backend"
 import { spectrumPeakAnnotations, spectrumPeakLegend } from "@/lib/spectrum-annotations"
-import { memo, useMemo, useRef } from "react"
+import { memo, type ReactNode, useMemo, useRef } from "react"
 
 export const POWER_PLOT_HISTORY_S = 60
 
@@ -126,7 +126,7 @@ export function ChartLegend({ lines, stacked = false }: { lines: CanvasChartLine
   )
 }
 
-export const ChartPanel = memo(function ChartPanel({ title, subtitle, data = [], columns, xKey, lines, empty = "暂无实时数据", heightClassName, annotations, annotationLegend, stretch = false, compactHeader = false, hideHeader = false, insetLegend = false, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, preserveAllPoints = false, xLabel, xTickSuffix, yLabel }: {
+export const ChartPanel = memo(function ChartPanel({ title, subtitle, data = [], columns, xKey, lines, empty = "暂无实时数据", heightClassName, annotations, annotationLegend, stretch = false, compactHeader = false, hideHeader = false, insetLegend = false, sidebar, headerTrailing, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, preserveAllPoints = false, xLabel, xTickSuffix, yLabel }: {
   title: string
   subtitle?: string
   data?: Array<Record<string, number | null>>
@@ -141,6 +141,8 @@ export const ChartPanel = memo(function ChartPanel({ title, subtitle, data = [],
   compactHeader?: boolean
   hideHeader?: boolean
   insetLegend?: boolean
+  sidebar?: ReactNode
+  headerTrailing?: ReactNode
   xDomain?: [number, number]
   xTicks?: number[]
   yDomain?: [number, number]
@@ -154,26 +156,34 @@ export const ChartPanel = memo(function ChartPanel({ title, subtitle, data = [],
   const dataLength = columns
     ? Math.min(...Object.values(columns).map((values) => values.length))
     : data.length
-  return (
-    <Card aria-label={title} size="sm" className={`${compactHeader ? "gap-0" : ""} shadow-none ${stretch ? "h-full min-h-0 flex flex-col" : ""}`}>
+  const plot = (
+    <>
       {!hideHeader && (
         <CardHeader className="flex min-h-8 shrink-0 flex-row items-center px-3 py-1.5">
           <strong className="chart-panel-heading">{title}</strong>
-          {subtitle ? <small className="chart-panel-subtitle">{subtitle}</small> : <ChartLegend lines={lines} />}
+          {headerTrailing ?? (subtitle ? <small className="chart-panel-subtitle">{subtitle}</small> : <ChartLegend lines={lines} />)}
         </CardHeader>
       )}
-      <CardContent className={`relative ${stretch ? "min-h-0 flex-1" : heightClassName || (dataLength === 0 ? "h-40" : "h-56")} ${hideHeader ? "px-1.5 py-1.5" : "px-3 pb-1.5 pt-0"}`}>
+      <CardContent className={`relative ${stretch ? "min-h-0 flex-1" : heightClassName || (dataLength === 0 ? "h-40" : "h-56")} ${hideHeader && !sidebar ? "px-1.5 py-1.5" : "px-3 pb-1.5 pt-0"}`}>
         {dataLength === 0 ? (
           <div className="grid h-full min-h-[120px] place-items-center rounded-lg bg-background/30 px-4 text-center text-base text-muted-foreground/70">{empty}</div>
         ) : (
-          <CanvasLineChart annotationLegend={annotationLegend} annotations={annotations} ariaLabel={`${title}曲线`} columns={columns} data={data} lines={lines} preserveAllPoints={preserveAllPoints} rightYDomain={rightYDomain} tightInsets={hideHeader} xDomain={xDomain} xKey={xKey} xLabel={xLabel} xTickSuffix={xTickSuffix} xTicks={xTicks} yDomain={yDomain} yLabel={yLabel} yMinimumLimit={yMinimumLimit} />
+          <CanvasLineChart annotationLegend={annotationLegend} annotations={annotations} ariaLabel={`${title}曲线`} columns={columns} data={data} lines={lines} preserveAllPoints={preserveAllPoints} rightYDomain={rightYDomain} tightInsets={hideHeader && !sidebar} xDomain={xDomain} xKey={xKey} xLabel={xLabel} xTickSuffix={xTickSuffix} xTicks={xTicks} yDomain={yDomain} yLabel={yLabel} yMinimumLimit={yMinimumLimit} />
         )}
         {insetLegend && dataLength > 0 && (
-          <div className={`chart-inset-legend pointer-events-none absolute isolate top-5 z-[1] px-3 py-2 ${hideHeader ? "left-[70px]" : "left-[88px]"}`}>
+          <div className={`chart-inset-legend pointer-events-none absolute isolate top-0 z-[1] px-3 py-2 ${hideHeader ? "left-[70px]" : "left-[88px]"}`}>
             <ChartLegend lines={lines} stacked />
           </div>
         )}
       </CardContent>
+    </>
+  )
+  return (
+    <Card aria-label={title} size="sm" className={`${compactHeader ? "gap-0" : ""} shadow-none ${stretch ? "h-full min-h-0 flex flex-col" : ""} ${sidebar ? "chart-panel-with-sidebar" : ""} ${headerTrailing ? "chart-panel-with-readout" : ""}`}>
+      {sidebar ? <>
+        <aside className="chart-panel__sidebar">{sidebar}</aside>
+        <div className="chart-panel__plot">{plot}</div>
+      </> : plot}
     </Card>
   )
 }, (previous, next) => {
@@ -195,6 +205,7 @@ export const ChartPanel = memo(function ChartPanel({ title, subtitle, data = [],
         && line.interpolation === other.interpolation
         && line.hideLegend === other.hideLegend
         && line.trail === other.trail
+        && line.animateLatestPoint === other.animateLatestPoint
         && sameNumberArray(line.dash, other.dash)
     })
   const sameNumbers = (left?: number[], right?: number[]) => (
@@ -223,6 +234,8 @@ export const ChartPanel = memo(function ChartPanel({ title, subtitle, data = [],
     && previous.compactHeader === next.compactHeader
     && previous.hideHeader === next.hideHeader
     && previous.insetLegend === next.insetLegend
+    && previous.sidebar === next.sidebar
+    && previous.headerTrailing === next.headerTrailing
     && previous.preserveAllPoints === next.preserveAllPoints
     && previous.xLabel === next.xLabel
     && previous.xTickSuffix === next.xTickSuffix
@@ -237,7 +250,7 @@ export const ChartPanel = memo(function ChartPanel({ title, subtitle, data = [],
     && sameRows(previous.annotationLegend, next.annotationLegend, ["label", "color", "value"])
 })
 
-export const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, smoothing = true, curveLineStyle = "solid", latestPointMarkerStyle = "point", stretch = false, heightClassName, automatic = false }: { snapshot: BackendSnapshot | null; automatic?: boolean; smoothing?: boolean; curveLineStyle?: CurveLineStyle; latestPointMarkerStyle?: LatestPointMarkerStyle; stretch?: boolean; heightClassName?: string }) {
+export const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, smoothing = true, curveLineStyle = "solid", latestPointMarkerStyle = "point", stretch = false, heightClassName, automatic = false, readout }: { snapshot: BackendSnapshot | null; automatic?: boolean; smoothing?: boolean; curveLineStyle?: CurveLineStyle; latestPointMarkerStyle?: LatestPointMarkerStyle; stretch?: boolean; heightClassName?: string; readout?: ReactNode }) {
   const { appearance } = useAppearance()
   const powerData = (snapshot?.measurements?.power ?? []) as Array<Record<string, number | null>>
   const latestElapsedS = powerData[powerData.length - 1]?.elapsedS
@@ -255,30 +268,34 @@ export const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, s
       ? [row.powerW]
       : []
   )))
-  const lines: CanvasChartLine[] = [{ key: "powerW", label: "实时功率", color: powerStabilityColor, interpolation: smoothing ? "monotone" : "linear", dash: curveLineDash(curveLineStyle), showLatestPoint: true, latestPointStyle: latestPointMarkerStyle, trail: automatic }]
+  const lines: CanvasChartLine[] = [{ key: "powerW", label: "实时功率", color: powerStabilityColor, interpolation: smoothing ? "monotone" : "linear", dash: curveLineDash(curveLineStyle), showLatestPoint: true, latestPointStyle: latestPointMarkerStyle, trail: automatic, animateLatestPoint: automatic && isAnimatedLatestPointMarker(latestPointMarkerStyle) }]
 
   return (
-    <ChartPanel
-      title="功率实时"
-      subtitle={automatic ? `最近 60 s${appearance.trailEnabled ? ` · 尾迹 ${appearance.trailSeconds} s` : ""}` : undefined}
-      compactHeader
-      data={powerData}
-      hideHeader
-      xKey="elapsedS"
-      lines={lines}
-      stretch={stretch}
-      heightClassName={heightClassName}
-      xDomain={powerTimeDomain}
-      xTickSuffix=" s"
-      xTicks={powerTimeTicks}
-      yDomain={powerYDomain}
-    />
+    <div className={`automatic-power-chart ${stretch ? "h-full" : ""}`}>
+      <ChartPanel
+        title="功率实时"
+        subtitle={automatic ? `最近 60 s${appearance.trailEnabled ? ` · 尾迹 ${appearance.trailSeconds} s` : ""}` : undefined}
+        compactHeader
+        data={powerData}
+        hideHeader
+        xKey="elapsedS"
+        lines={lines}
+        stretch={stretch}
+        heightClassName={heightClassName}
+        xDomain={powerTimeDomain}
+        xTickSuffix=" s"
+        xTicks={powerTimeTicks}
+        yDomain={powerYDomain}
+      />
+      {readout}
+    </div>
   )
 }, (previous, next) => {
   const previousPower = previous.snapshot?.measurements?.power
   const nextPower = next.snapshot?.measurements?.power
   return previous.stretch === next.stretch
     && previous.automatic === next.automatic
+    && previous.readout === next.readout
     && previous.smoothing === next.smoothing
     && previous.curveLineStyle === next.curveLineStyle
     && previous.heightClassName === next.heightClassName
@@ -402,7 +419,7 @@ export const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapsho
   && previous.snapshot?.automaticTest.reference?.sourcePath === next.snapshot?.automaticTest.reference?.sourcePath
   && sameRows(previous.snapshot?.automaticTest.reference?.points, next.snapshot?.automaticTest.reference?.points, ["currentA", "powerW"]))
 
-export const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, smoothing = true, stretch = false, heightClassName }: { snapshot: BackendSnapshot | null; smoothing?: boolean; stretch?: boolean; heightClassName?: string }) {
+export const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, smoothing = true, stretch = false, heightClassName, metrics }: { snapshot: BackendSnapshot | null; smoothing?: boolean; stretch?: boolean; heightClassName?: string; metrics?: ReactNode }) {
   const spectrumSource = snapshot?.measurements?.spectrum
   const spectrumData = spectrumSource
     ? { wavelengthNm: spectrumSource.wavelengthNm, intensity: spectrumSource.intensity }
@@ -454,9 +471,10 @@ export const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snaps
 
   return (
     <ChartPanel
-      title="光谱"
+      title={metrics ? "实时光谱" : "光谱"}
       compactHeader
       hideHeader
+      sidebar={metrics ? <><strong className="spectrum-readouts-heading">光谱</strong>{metrics}</> : undefined}
       columns={spectrumData}
       xKey="wavelengthNm"
       xDomain={spectrumXDomain}
@@ -477,6 +495,7 @@ export const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snaps
   const previousSpectrum = previous.snapshot?.devices.spectrometer
   const nextSpectrum = next.snapshot?.devices.spectrometer
   return previous.stretch === next.stretch
+    && previous.metrics === next.metrics
     && previous.smoothing === next.smoothing
     && previous.heightClassName === next.heightClassName
     && sameNumberArray(previousMeasurements?.spectrum.wavelengthNm, nextMeasurements?.spectrum.wavelengthNm)

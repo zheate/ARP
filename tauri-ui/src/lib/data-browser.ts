@@ -301,12 +301,19 @@ export function comparisonLabels(records: DataRecord[]): Map<string, string> {
 
 /** Display only: retain each spectrum's own wavelength grid and every valid native sample. */
 export function spectrumChartRows(series: readonly (SpectrumSeries | null)[]): Record<string, number | null>[] {
-  return series.flatMap((spectrum, index) => spectrum ? spectrum.wavelengthNm.flatMap((wavelength, sample) => {
-    const intensity = spectrum.intensity[sample]
-    return Number.isFinite(wavelength) && Number.isFinite(intensity)
-      ? [{ wavelengthNm: wavelength, [`series${index}`]: intensity }]
-      : []
-  }) : []).sort((a, b) => a.wavelengthNm - b.wavelengthNm)
+  const rows: Record<string, number | null>[] = []
+  series.forEach((spectrum, index) => {
+    if (!spectrum) return
+    const key = `series${index}`
+    // forEach keeps the previous flatMap semantics for holes in imported arrays.
+    spectrum.wavelengthNm.forEach((wavelength, sample) => {
+      const intensity = spectrum.intensity[sample]
+      if (Number.isFinite(wavelength) && Number.isFinite(intensity)) {
+        rows.push({ wavelengthNm: wavelength, [key]: intensity })
+      }
+    })
+  })
+  return rows.sort((a, b) => a.wavelengthNm! - b.wavelengthNm!)
 }
 
 export function finiteNumber(value: unknown): value is number {

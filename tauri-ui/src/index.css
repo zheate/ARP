@@ -38,6 +38,17 @@ body,
 body {
   margin: 0;
   overscroll-behavior-y: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Keep text editing and copying available inside form fields. */
+input,
+textarea,
+[contenteditable="true"],
+[contenteditable="plaintext-only"] {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .license-loading-screen,
@@ -528,8 +539,9 @@ body {
 
 .automatic-power-chart .automatic-power-chart__reading {
   position: absolute;
+  z-index: 1;
   isolation: isolate;
-  top: 2rem;
+  top: 0.5rem;
   right: 1rem;
   width: min(18rem, calc(100% - 2rem));
   align-items: flex-end;
@@ -2083,7 +2095,7 @@ html.dark {
   color: var(--app-text);
 }
 
-:root :where(button, input, textarea, select, [role="button"]):focus-visible {
+:root :where(button, input:not([data-slot="input"]), textarea, select, [role="button"]):focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 1px;
   box-shadow: 0 0 0 3px var(--app-focus-ring);

@@ -21,6 +21,7 @@ from typing import Any
 from openpyxl import load_workbook
 
 from .shipping_report import REPORT_WORKBOOK_SCHEMA_VERSION, _parse_session_information, _result_column_key
+from .xlsx_reader import iter_browser_rows
 
 MAX_DIRECTORIES = 4
 MAX_DETAIL_CACHE = 32
@@ -215,10 +216,10 @@ def _read_workbook(path: Path, version: str, modified: float, include_spectra: b
 
         points = []
         for row_index, row in enumerate(
-            sheet.iter_rows(
+            iter_browser_rows(
+                sheet,
                 min_row=header_row + 1,
                 max_col=max_col_to_read,
-                values_only=True,
             ),
             header_row + 1,
         ):

@@ -1,4 +1,4 @@
-import { memo, useLayoutEffect, useRef } from "react"
+import { memo, useImperativeHandle, useLayoutEffect, useRef, type Ref } from "react"
 import "./flappy-bird-marker.css"
 
 const WING_OFFSETS = [0, -3, 0, 3] as const
@@ -86,9 +86,10 @@ function birdSprite(size: number, ratio: number): HTMLCanvasElement {
   return canvas
 }
 
-export const FlappyBirdMarker = memo(function FlappyBirdMarker({ x, y, size }: { x: number; y: number; size: number }) {
+export const FlappyBirdMarker = memo(function FlappyBirdMarker({ size, ref }: { size: number; ref?: Ref<HTMLDivElement> }) {
   const markerRef = useRef<HTMLDivElement>(null)
   const spriteRef = useRef<HTMLCanvasElement>(null)
+  useImperativeHandle(ref, () => markerRef.current!, [])
 
   useLayoutEffect(() => {
     const marker = markerRef.current
@@ -121,7 +122,8 @@ export const FlappyBirdMarker = memo(function FlappyBirdMarker({ x, y, size }: {
     aria-hidden="true"
     className="chart-flappy-bird"
     ref={markerRef}
-    style={{ transform: `translate(${x - size / 2}px, ${y - size / 3}px)`, width: size, height: size * 2 / 3 }}
+    // The chart draw callback owns position and visibility, including first draw.
+    style={{ visibility: "hidden", width: size, height: size * 2 / 3 }}
   >
     <canvas className="chart-flappy-bird__frames" ref={spriteRef} style={{ width: size * FRAME_COUNT, height: size * 2 / 3 }} />
   </div>

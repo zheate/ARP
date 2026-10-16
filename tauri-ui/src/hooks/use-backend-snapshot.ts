@@ -143,6 +143,7 @@ export function useBackendSnapshot(view: SnapshotView) {
   const [pendingCommand, setPendingCommand] = useState<string | null>(null)
   const mountedRef = useRef(true)
   const commandPendingRef = useRef(false)
+  const safetyGenerationRef = useRef(0)
   const latestViewRef = useRef(view)
   const snapshotRef = useRef<BackendSnapshot | null>(null)
   const demoSnapshotRef = useRef<BackendSnapshot | null>(null)
@@ -204,7 +205,10 @@ export function useBackendSnapshot(view: SnapshotView) {
   const refresh = useCallback(() => loadSnapshot(true, view), [loadSnapshot, view])
 
   const command = useCallback(async (method: SnapshotCommand, params: Record<string, unknown> = {}) => {
-    if (method === "app.stopAll" && !DEMO_PREVIEW_ENABLED) {
+    const safetyCommand = method === "app.stopAll" || method === "powerSupply.safeRampDown"
+    if (safetyCommand) safetyGenerationRef.current += 1
+    const startedSafetyGeneration = safetyGenerationRef.current
+    if (safetyCommand && !DEMO_PREVIEW_ENABLED) {
       try {
         const requestedView = view
         const startedRuntime = snapshotRef.current?.backend.runtimeId
@@ -226,19 +230,24 @@ export function useBackendSnapshot(view: SnapshotView) {
         throw reason
       }
     }
-    if (commandPendingRef.current) {
+    if (commandPendingRef.current && !safetyCommand) {
       if (snapshotRef.current) return snapshotRef.current
       throw new Error("上一项操作仍在处理中")
     }
-    commandPendingRef.current = true
-    setCommandPending(true)
-    setPendingCommand(method)
+    if (!safetyCommand) {
+      commandPendingRef.current = true
+      setCommandPending(true)
+      setPendingCommand(method)
+    }
     try {
       if (DEMO_PREVIEW_ENABLED) {
         const { DEMO_RUN_SNAPSHOT, DEMO_SNAPSHOT, resetDemoRun, demoRunSnapshot } = await loadDemoRuntime()
         const base = demoSnapshotRef.current ?? (DEMO_RUN_ENABLED ? DEMO_RUN_SNAPSHOT : DEMO_SNAPSHOT)
         demoSnapshotRef.current = base
         const publishDemo = (next: BackendSnapshot) => {
+          if (!safetyCommand && startedSafetyGeneration !== safetyGenerationRef.current) {
+            throw new Error("操作已因安全下电取消，请重新操作")
+          }
           demoSnapshotRef.current = next
           snapshotRef.current = next
           if (mountedRef.current) setSnapshot(next)
@@ -330,6 +339,28 @@ export function useBackendSnapshot(view: SnapshotView) {
             },
           })
         }
+        if (method === "powerSupply.setCurrent") {
+          const currentA = Number(params.currentA)
+          return publishDemo({
+            ...base,
+            configuration: { ...base.configuration!, setCurrentA: currentA },
+            devices: { ...base.devices, powerSupply: { ...base.devices.powerSupply, activeCurrentA: currentA, outputCurrentA: currentA } },
+            manualTest: { pendingCount: base.manualTest?.pendingCount ?? 0, exportStatus: "recording", exportPath: "", exportError: "",
+              capture: { state: "waiting_stable", detail: "等待功率稳定（示例）", currentA, remainingS: null } },
+            safety: { ...base.safety, shutdown: { requested: false, confirmed: false, measuredCurrentA: null, outputOffConfirmed: false, reason: "" } },
+          })
+        }
+        if (method === "powerSupply.setOutput" || method === "powerSupply.safeRampDown") {
+          const enabled = method === "powerSupply.setOutput" && params.enabled === true
+          return publishDemo({
+            ...base,
+            configuration: { ...base.configuration!, setCurrentA: 0 },
+            devices: { ...base.devices, powerSupply: { ...base.devices.powerSupply, outputEnabled: enabled, activeCurrentA: 0, outputCurrentA: 0 } },
+            manualTest: { pendingCount: base.manualTest?.pendingCount ?? 0, exportStatus: base.manualTest?.exportStatus ?? "idle", exportPath: "", exportError: "",
+              capture: { state: "cancelled", detail: enabled ? "开启输出前已归零（示例）" : "安全下电，未完成的测试点已取消（示例）", currentA: null, remainingS: null } },
+            safety: { ...base.safety, shutdown: { requested: !enabled, confirmed: !enabled, measuredCurrentA: 0, outputOffConfirmed: !enabled, reason: enabled ? "" : "示例数据已确认安全下电" } },
+          })
+        }
         if (method === "automatic.start") {
           const runConfiguration = { ...base.configuration!, ...params }
           const generation = ++demoGenerationRef.current
@@ -401,6 +432,9 @@ export function useBackendSnapshot(view: SnapshotView) {
       const requestedView = view
       const startedRuntime = snapshotRef.current?.backend.runtimeId
       const response = await sendBackendCommand(method, params)
+      if (startedSafetyGeneration !== safetyGenerationRef.current) {
+        throw new Error("操作已因安全下电取消，请重新操作")
+      }
       if (!commandRuntimeIsCurrent(startedRuntime, snapshotRef.current?.backend.runtimeId, response.backend.runtimeId)) {
         throw new BridgeRequestError({ kind: "protocol", code: "stale_response", method, message: "后端会话已变化，已忽略旧命令响应" })
       }
@@ -415,11 +449,11 @@ export function useBackendSnapshot(view: SnapshotView) {
       return nextSnapshot
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : String(reason)
-      if (mountedRef.current) setError(message)
+      if (mountedRef.current && startedSafetyGeneration === safetyGenerationRef.current) setError(message)
       throw reason
     } finally {
-      commandPendingRef.current = false
-      if (mountedRef.current) {
+      if (!safetyCommand) commandPendingRef.current = false
+      if (!safetyCommand && mountedRef.current) {
         setCommandPending(false)
         setPendingCommand(null)
       }

@@ -5,11 +5,12 @@ import { NumericReadout } from "@/components/numeric-readout"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import { automaticStartPresentation } from "@/lib/automatic-presentation"
+import { automaticRunProgress, automaticStartPresentation } from "@/lib/automatic-presentation"
 import { type AppConfiguration, type BackendSnapshot, type DeviceSnapshot } from "@/lib/backend"
 import { measurementVerdict } from "@/lib/measurement-verdict"
 import { normalizeNumericInput, stepNumericValue } from "@/lib/number-input"
 import { powerMeterResourceValue } from "@/lib/power-meter-resource"
+import { formatSpectrumNumber } from "@/lib/spectrum-annotations"
 import { cn } from "@/lib/utils"
 import { Play, Square } from "lucide-react"
 import { useEffect, useState, type ReactNode } from "react"
@@ -76,6 +77,7 @@ export function AutomaticTestControlCard({
   config,
   controlsLocked,
   pending,
+  shutdown,
   onStart,
   onStop,
 }: {
@@ -84,14 +86,31 @@ export function AutomaticTestControlCard({
   config: Pick<AppConfiguration, "sn" | "outputDir">
   controlsLocked: boolean
   pending: boolean
+  shutdown?: BackendSnapshot["safety"]["shutdown"]
   onStart: () => void
   onStop: () => void
 }) {
   const running = Boolean(auto?.canEnd)
   const { canStart, messages: readinessMessages } = automaticStartPresentation(auto, config)
+  const progress = automaticRunProgress(auto, shutdown)
+  const terminal = auto?.state === "completed"
+  const progressTone = terminal && auto.terminalOutcome === "stopped_shutdown_confirmed" && shutdown?.confirmed
+    ? "normal"
+    : progress.tone
   return (
     <Card className="automatic-test-control-card gap-2.5 py-3 shadow-none">
       <CardContent className="automatic-test-control-card__content px-4 py-0">
+        <div aria-label="自动测试进度" className="automatic-test-progress" data-tone={progressTone}>
+          <div className="automatic-test-progress__current">
+            <strong title={progress.detail}>{terminal ? progress.stage : progress.point}</strong>
+            {!terminal && <span title={progress.detail}>{progress.stage}</span>}
+          </div>
+          <div className="automatic-test-progress__recorded">
+            <span>{progress.recorded}</span>
+            <span aria-hidden="true" className="automatic-test-progress__separator">·</span>
+            <span>用时 {progress.elapsed}</span>
+          </div>
+        </div>
         <div className="automatic-test-control-card__actions">
           <Button
             className="automatic-test-start-btn"
@@ -125,6 +144,28 @@ export function formatDuration(seconds: number): string {
 export function formatMeasurementAge(ageMs?: number | null): string {
   if (typeof ageMs !== "number" || !Number.isFinite(ageMs)) return "时间未知"
   return `${Math.max(1, Math.ceil(ageMs / 1000))} s 前`
+}
+
+export function RealtimePowerReadout({ automatic, currentA, meter }: {
+  automatic?: BackendSnapshot["automaticTest"]
+  currentA?: number | null
+  meter?: DeviceSnapshot
+}) {
+  return (
+    <AutomaticMetricCard
+      className="automatic-power-chart__reading automatic-metric-card--power automatic-metric-card--title-below power-chart-readout"
+      title={<PowerStabilityStatus automatic={automatic} meter={meter} />}
+      value={formatFixedNumber(meter?.quality === "live" ? meter.powerW : null, 3)}
+      unit={<>
+        <span className="power-chart-readout__power-unit">W @</span>
+        <span className="automatic-metric-card__current">
+          <NumericReadout value={formatFixedNumber(currentA, 2)} minimumIntegerDigits={2} />
+          <span className="power-chart-readout__current-unit">A</span>
+        </span>
+      </>}
+      valueTone={meter?.quality === "live" ? "primary" : "muted"}
+    />
+  )
 }
 
 export function AutomaticMetricCard({ title, value, unit, valueTone = "muted", recording = false, onClick, className = "", headerTrailing, footer, verdictLabel }: {
@@ -176,6 +217,7 @@ export function RealtimeMetricCards({
   onOpenSpecifications,
   powerMeter,
   spectrometer,
+  spectrumOnly = false,
 }: {
   automatic?: BackendSnapshot["automaticTest"]
   compact?: boolean
@@ -184,6 +226,7 @@ export function RealtimeMetricCards({
   onOpenSpecifications?: () => void
   powerMeter?: DeviceSnapshot
   spectrometer?: DeviceSnapshot
+  spectrumOnly?: boolean
 }) {
   const livePowerW = powerMeter?.quality === "live" ? powerMeter.powerW : null
   const liveSpectrometer = spectrometer?.quality === "live" ? spectrometer : undefined
@@ -199,43 +242,43 @@ export function RealtimeMetricCards({
   const pibVerdict = measurementVerdict(pibValue, spectrometer?.quality, pibPass)
 
   return (
-    <section className={`automatic-metric-grid${compact ? " automatic-metric-grid--compact" : ""}`} aria-label="实时关键指标">
-      <AutomaticMetricCard
+    <section className={spectrumOnly ? "spectrum-metric-list" : `automatic-metric-grid${compact ? " automatic-metric-grid--compact" : ""}`} aria-label={spectrumOnly ? "光谱关键指标" : "实时关键指标"}>
+      {!spectrumOnly && <AutomaticMetricCard
         className="automatic-metric-card--power automatic-metric-card--title-below"
         title={<PowerStabilityStatus automatic={automatic} meter={powerMeter} />}
         value={formatFixedNumber(livePowerW, 3)}
         unit={<>W @ <span className="automatic-metric-card__current">{formatTrimmedNumber(currentA, 2)} A</span></>}
         valueTone={powerMeter?.quality === "live" ? "primary" : "muted"}
         recording={Boolean(powerMeter?.running || (automatic && !["idle", "paused", "completed"].includes(automatic.state)))}
-      />
+      />}
       <AutomaticMetricCard
         className="automatic-metric-card--title-below"
         title="中心波长"
-        value={formatFixedNumber(centerWavelengthValue, 3)}
+        value={formatSpectrumNumber(centerWavelengthValue, 3)}
         unit="nm"
         valueTone={wavelengthVerdict.tone === "success" ? "primary" : wavelengthVerdict.tone}
         verdictLabel={wavelengthVerdict.label}
-        headerTrailing={<MeasurementState verdict={wavelengthVerdict} limit={`规格 ${config.centerWavelengthSpecNm} ± ${config.centerWavelengthToleranceNm} nm`} />}
+        headerTrailing={spectrumOnly ? undefined : <MeasurementState verdict={wavelengthVerdict} limit={`规格 ${config.centerWavelengthSpecNm} ± ${config.centerWavelengthToleranceNm} nm`} />}
         onClick={onOpenSpecifications}
       />
       <AutomaticMetricCard
         className="automatic-metric-card--title-below"
         title="FWHM"
-        value={formatFixedNumber(liveSpectrometer?.fwhmNm, 3)}
+        value={formatSpectrumNumber(liveSpectrometer?.fwhmNm, 3)}
         unit="nm"
         valueTone={fwhmVerdict.tone === "success" ? "primary" : fwhmVerdict.tone}
         verdictLabel={fwhmVerdict.label}
-        headerTrailing={<MeasurementState verdict={fwhmVerdict} limit={`上限 ${config.fwhmMaximumNm} nm`} />}
+        headerTrailing={spectrumOnly ? undefined : <MeasurementState verdict={fwhmVerdict} limit={`上限 ${config.fwhmMaximumNm} nm`} />}
         onClick={onOpenSpecifications}
       />
       <AutomaticMetricCard
         className="automatic-metric-card--title-below"
         title="PIB"
-        value={formatFixedNumber(pibPercent, 2)}
+        value={formatSpectrumNumber(pibPercent, 2)}
         unit="%"
         valueTone={pibVerdict.tone === "success" ? "primary" : pibVerdict.tone}
         verdictLabel={pibVerdict.label}
-        headerTrailing={<MeasurementState verdict={pibVerdict} limit={`下限 ${config.pibMinimumPercent}%`} />}
+        headerTrailing={spectrumOnly ? undefined : <MeasurementState verdict={pibVerdict} limit={`下限 ${config.pibMinimumPercent}%`} />}
         onClick={onOpenSpecifications}
       />
     </section>
@@ -251,6 +294,9 @@ export function NumberInput({
   min,
   max,
   step = "1",
+  horizontalStep,
+  onConfirm,
+  displayDecimalPlaces,
   className,
   "aria-label": ariaLabel,
   id,
@@ -261,6 +307,9 @@ export function NumberInput({
   min?: number | string
   max?: number | string
   step?: string
+  horizontalStep?: string
+  onConfirm?: (value: number) => void
+  displayDecimalPlaces?: number
   className?: string
   "aria-label"?: string
   id?: string
@@ -315,27 +364,43 @@ export function NumberInput({
     event.currentTarget.select()
   }
 
-  const doStep = (direction: 1 | -1) => {
+  const doStep = (direction: 1 | -1, stepSize = step) => {
     if (disabled) return
-    const nextNum = stepNumericValue(text, step, direction, numMin, numMax)
+    const nextNum = stepNumericValue(text, stepSize, direction, numMin, numMax)
     setText(String(nextNum))
     onChange(nextNum)
   }
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "ArrowUp") {
+    if (onConfirm && event.key === "Enter" && event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) {
+      if (event.nativeEvent.isComposing) return
+      event.preventDefault()
+      event.stopPropagation()
+      if (disabled || event.repeat || !text.trim() || !Number.isFinite(Number(text))) return
+      let next = Number(text)
+      if (numMin !== undefined && Number.isFinite(numMin)) next = Math.max(numMin, next)
+      if (numMax !== undefined && Number.isFinite(numMax)) next = Math.min(numMax, next)
+      setText(String(next))
+      onChange(next)
+      onConfirm(next)
+    } else if (event.key === "ArrowUp") {
       event.preventDefault()
       doStep(1)
     } else if (event.key === "ArrowDown") {
       event.preventDefault()
       doStep(-1)
+    } else if (horizontalStep && (event.key === "ArrowLeft" || event.key === "ArrowRight") &&
+      !event.nativeEvent.isComposing && !event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
+      event.preventDefault()
+      doStep(event.key === "ArrowRight" ? 1 : -1, horizontalStep)
     }
   }
 
   return (
-    <div className="relative flex w-full min-w-0 items-center">
+    <div className="relative flex w-full min-w-0 items-center" data-fixed-display={displayDecimalPlaces !== undefined || undefined}>
       <Input
         aria-label={ariaLabel}
+        aria-keyshortcuts={onConfirm ? "Control+Enter" : undefined}
         className={cn("pr-6", className)}
         disabled={disabled}
         id={id}
@@ -347,6 +412,11 @@ export function NumberInput({
         onKeyDown={handleKeyDown}
         onChange={(e) => handleChange(e.target.value)}
       />
+      {displayDecimalPlaces !== undefined && (
+        <span aria-hidden="true" className="number-input__formatted-value">
+          {formatFixedNumber(Number(text), displayDecimalPlaces)}
+        </span>
+      )}
       <div className="pointer-events-auto absolute right-1 flex flex-col justify-center gap-0.5">
         <button
           aria-label="增加数值"

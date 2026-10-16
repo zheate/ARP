@@ -10,7 +10,30 @@ export const ACCENT_THEMES = [
 export type AccentTheme = typeof ACCENT_THEMES[number]["id"]
 export type Theme = "dark" | "light"
 export type CurveLineStyle = "solid" | "dashed" | "dotted"
-export type LatestPointMarkerStyle = "point" | "paper-plane" | "paw" | "comet" | "ecg" | "flappy-bird"
+export const LATEST_POINT_MARKER_OPTIONS = [
+  { id: "point", label: "圆点" },
+  { id: "paper-plane", label: "纸飞机" },
+  { id: "paw", label: "爪印" },
+  { id: "comet", label: "彗星" },
+  { id: "ecg", label: "心电图" },
+  { id: "flappy-bird", label: "Flappy Bird 小鸟" },
+  { id: "bee", label: "小蜜蜂" },
+  { id: "dinosaur", label: "小恐龙" },
+] as const
+export type LatestPointMarkerStyle = typeof LATEST_POINT_MARKER_OPTIONS[number]["id"]
+export type AnimatedLatestPointMarkerStyle = "flappy-bird" | "bee" | "dinosaur"
+
+export function normalizeLatestPointMarkerStyle(value: unknown): LatestPointMarkerStyle {
+  return LATEST_POINT_MARKER_OPTIONS.find((option) => option.id === value)?.id ?? "point"
+}
+
+export function isAnimatedLatestPointMarker(style: LatestPointMarkerStyle | undefined): style is AnimatedLatestPointMarkerStyle {
+  return style === "flappy-bird" || style === "bee" || style === "dinosaur"
+}
+
+export function latestPointMarkerSize(style: LatestPointMarkerStyle | undefined): number {
+  return style === "bee" || style === "dinosaur" ? 32 : 24
+}
 export type ChartCanvasStyle = "clean" | "fine" | "engineering"
 export type InterfaceDensity = "compact" | "comfortable" | "distant"
 
