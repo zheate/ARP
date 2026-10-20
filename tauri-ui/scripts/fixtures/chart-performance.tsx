@@ -20,7 +20,7 @@ function render() {
   }
   flushSync(() => root.render(
     <div style={{ height: "100vh", padding: 16, display: "grid", gridTemplateRows: "1fr 1fr", gap: 16 }}>
-      <PowerRealtimeChart snapshot={snapshot} automatic stretch />
+      <PowerRealtimeChart snapshot={snapshot} stretch />
       <SpectrumRealtimeChart snapshot={snapshot} stretch />
     </div>,
   ))

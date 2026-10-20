@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { OutputDirectoryInput } from "@/components/output-directory-input"
 import { Label } from "@/components/ui/label"
 import type { UpdateConfig } from "@/features/configuration/model"
 import type { RunCommand } from "@/features/shared/controls"
@@ -49,7 +50,7 @@ export const ManualSampleControls = memo(function ManualSampleControls({ config,
       <div className="manual-titlebar-controls__field manual-titlebar-controls__output">
         <Label htmlFor="manual-output-directory"><FolderOpen className="size-3" />输出目录</Label>
         <div className="manual-titlebar-controls__directory">
-          <Input disabled={disabled} id="manual-output-directory" onChange={(event) => update("outputDir", event.target.value)} placeholder="测试数据保存目录" title={config.outputDir} value={config.outputDir} />
+          <OutputDirectoryInput disabled={disabled} id="manual-output-directory" onValueChange={(value) => update("outputDir", value)} placeholder="测试数据保存目录" title={config.outputDir} value={config.outputDir} />
           <Button aria-label="选择输出目录" disabled={disabled} onClick={() => void chooseOutputDir()} size="icon" title="选择输出目录" type="button" variant="outline"><FolderOpen className="size-4" /></Button>
         </div>
       </div>

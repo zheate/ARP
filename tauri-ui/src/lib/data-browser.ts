@@ -441,7 +441,7 @@ export function firstLatestChange(rows: ReturnType<typeof historyMetricRows>, me
 // Keys verified against station_support.py, excel_export.py and data_library.py.
 // Only known persisted fields are interpreted. No device identity is inferred from a resource string.
 const CONDITION_FIELDS = [
-  ["powerSupplyKind", "电源控制器"], ["tdkResource", "TDK 电源资源"], ["ch341SelectedLocationPath", "CH341 物理端口"],
+  ["powerSupplyKind", "电源控制器"], ["tdkResource", "TDK 电源资源"], ["ruResource", "RU 电源资源"], ["ruBaudRate", "RU 波特率"], ["ruAddress", "RU 地址"], ["ruVoltageV", "RU 设定电压"], ["ch341SelectedLocationPath", "CH341 物理端口"],
   ["powerMeterResource", "功率计资源"], ["powerMeterSerialNumber", "功率计探头 SN", "功率计探头 SN"],
   ["powerMeterDriverKind", "功率计驱动", "功率计驱动"], ["powerMeterWavelengthNm", "功率计校准波长 (nm)", "功率计校准波长 (nm)"],
   ["softwareGain", "软件功率系数", "功率系数"], ["powerMeterProfileId", "校准方案 ID"],

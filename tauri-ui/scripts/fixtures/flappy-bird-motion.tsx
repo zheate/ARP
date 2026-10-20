@@ -18,7 +18,7 @@ function render() {
   const snapshot = { ...DEMO_SNAPSHOT, measurements: { ...DEMO_SNAPSHOT.measurements!, power, spectrum } }
   flushSync(() => root.render(
     <div style={{ height: "100vh", padding: 16, display: "grid", gridTemplateRows: "1fr 1fr", gap: 16 }}>
-      <PowerRealtimeChart snapshot={snapshot} automatic stretch latestPointMarkerStyle="flappy-bird" />
+      <PowerRealtimeChart snapshot={snapshot} stretch latestPointMarkerStyle="flappy-bird" />
       <SpectrumRealtimeChart snapshot={snapshot} stretch />
     </div>,
   ))

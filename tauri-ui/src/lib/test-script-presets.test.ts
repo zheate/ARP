@@ -34,6 +34,18 @@ test("script selection prevents incompatible currents and AU on TDK", () => {
   assert.equal(scriptPresetCompatible({ ...config, powerSupplyKind: "ch341" }, aging), true)
 })
 
+test("RU preset recall preserves its independent serial configuration and excludes AU", () => {
+  const ru = { ...config, powerSupplyKind: "ru" as const, ruResource: "ASRL8::INSTR", ruBaudRate: 19200, ruAddress: 3, ruVoltageV: 24 }
+  const preset = { id: "ru-plan", name: "RU plan", parameters: captureScriptParameters(config) }
+  const restored = applyScriptPreset(ru, preset)
+  assert.equal(restored.ruResource, "ASRL8::INSTR")
+  assert.equal(restored.ruBaudRate, 19200)
+  assert.equal(restored.ruAddress, 3)
+  assert.equal(restored.ruVoltageV, 24)
+  assert.equal(scriptPresetCompatible(ru, preset), true)
+  assert.equal(scriptPresetCompatible(ru, { ...preset, parameters: { ...preset.parameters, selectedScriptId: "aging" } }), false)
+})
+
 test("deletion removes only the selected preset and preserves current parameters, hardware and sample", () => {
   const selected = { id: "preset-one", name: "36 A", parameters: captureScriptParameters(config) }
   const other = { ...selected, id: "preset-two", name: "Other" }

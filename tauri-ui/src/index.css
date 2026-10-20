@@ -1237,6 +1237,20 @@ textarea,
   padding-inline: 0.875rem;
 }
 
+.device-settings-dialog[data-kind="powerSupply"] [data-slot="button"] {
+  font-size: 1.125rem;
+  line-height: 1;
+}
+
+.device-settings-dialog[data-kind="powerSupply"] :is(.device-settings-button__label, .device-detect-button__label) {
+  text-box-trim: trim-both;
+  text-box-edge: cap alphabetic;
+}
+
+.device-settings-dialog[data-kind="powerSupply"] .device-detect-button__label {
+  inline-size: 3rem;
+}
+
 .device-settings-dialog__cancel {
   min-width: 5rem;
 }

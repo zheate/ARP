@@ -61,6 +61,7 @@ export interface DeviceSnapshot {
   resourceProfiles?: PowerMeterResourceProfile[]
   coefficientLibrary?: PowerMeterCoefficientLibrary | null
   ch341?: Ch341State
+  maximumCurrentA?: number | null
   outputEnabled?: boolean
   activeCurrentA?: number | null
   inputVoltageV?: number | null
@@ -137,9 +138,13 @@ export interface AppConfiguration {
   station: string
   testTemperatureC: string
   outputDir: string
-  powerSupplyKind: "ch341" | "tdk"
+  powerSupplyKind: "ch341" | "tdk" | "ru"
   ch341SelectedLocationPath: string
   ch341PortBindings: Ch341PortBinding[]
+  ruResource: string
+  ruBaudRate: number
+  ruAddress: number
+  ruVoltageV: number
   tdkResource: string
   setCurrentA: number
   tdkVoltageV: number
@@ -350,6 +355,8 @@ export interface BackendSnapshot {
     detail: string
     controlOwner: ControlOwner
     manualControlsAllowed: boolean
+    workflowOwner?: "manual" | "automatic" | null
+    workflowBusy?: boolean
     shutdown: SafetyShutdownResult
   }
   status?: { message: string }
@@ -393,6 +400,7 @@ export function mergeBackendSnapshot(previous: BackendSnapshot | null, patch: Ba
     previous.backend.mode !== patch.backend.mode
     || previous.backend.runtimeId !== patch.backend.runtimeId
   )) previous = null
+  const workflowChanged = previous?.safety?.workflowOwner !== patch.safety?.workflowOwner
   const { measurements: patchMeasurements, pd: patchPd, seriesPatches, ...base } = patch
   if (base.configuration) base.configuration = reuseConfigurationSection(previous?.configuration, base.configuration)
   if (base.testScripts) base.testScripts = reuseConfigurationSection(previous?.testScripts, base.testScripts)
@@ -403,7 +411,9 @@ export function mergeBackendSnapshot(previous: BackendSnapshot | null, patch: Ba
       if (!acceptsSeries(name)) seriesRevisions[name] = previous.seriesRevisions[name]
     }
   }
-  const previousMeasurements = previous?.measurements
+  // PD is an independent acquisition chain; changing the power/spectrum
+  // workflow invalidates only those histories, never the PD stream's cache.
+  const previousMeasurements = workflowChanged ? undefined : previous?.measurements
   const hasMeasurements = patchMeasurements !== undefined || previousMeasurements !== undefined || seriesPatches?.power !== undefined
   const measurements = hasMeasurements ? {
     power: mergeSnapshotSeries(previousMeasurements?.power, patchMeasurements?.power, seriesPatches?.power, (point) => point.elapsedS, previous?.seriesRevisions?.power, patch.seriesRevisions?.power)

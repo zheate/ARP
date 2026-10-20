@@ -141,7 +141,7 @@ test("clearing either required field disables start despite a previously ready s
 })
 
 test("editing SN preserves device, current, settings and unknown backend blockers", () => {
-  for (const code of ["power_supply_not_connected", "output_current_not_zero", "tdk_output_disabled", "power_supply_identity_error", "invalid_test_settings", "script_power_supply_mismatch", "future_blocker"]) {
+  for (const code of ["power_supply_not_connected", "output_current_not_zero", "tdk_output_disabled", "ru_output_disabled", "shutdown_unconfirmed", "power_supply_identity_error", "invalid_test_settings", "script_power_supply_mismatch", "future_blocker"]) {
     const blocker = { code, message: `blocked: ${code}` }
     assert.deepEqual(automaticStartPresentation(blocked([missingSn, blocker]), form), {
       canStart: false, messages: [blocker.message],

@@ -250,7 +250,7 @@ export const ChartPanel = memo(function ChartPanel({ title, subtitle, data = [],
     && sameRows(previous.annotationLegend, next.annotationLegend, ["label", "color", "value"])
 })
 
-export const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, smoothing = true, curveLineStyle = "solid", latestPointMarkerStyle = "point", stretch = false, heightClassName, automatic = false, readout }: { snapshot: BackendSnapshot | null; automatic?: boolean; smoothing?: boolean; curveLineStyle?: CurveLineStyle; latestPointMarkerStyle?: LatestPointMarkerStyle; stretch?: boolean; heightClassName?: string; readout?: ReactNode }) {
+export const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, smoothing = true, curveLineStyle = "solid", latestPointMarkerStyle = "point", stretch = false, heightClassName, readout }: { snapshot: BackendSnapshot | null; smoothing?: boolean; curveLineStyle?: CurveLineStyle; latestPointMarkerStyle?: LatestPointMarkerStyle; stretch?: boolean; heightClassName?: string; readout?: ReactNode }) {
   const { appearance } = useAppearance()
   const powerData = (snapshot?.measurements?.power ?? []) as Array<Record<string, number | null>>
   const latestElapsedS = powerData[powerData.length - 1]?.elapsedS
@@ -268,13 +268,13 @@ export const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, s
       ? [row.powerW]
       : []
   )))
-  const lines: CanvasChartLine[] = [{ key: "powerW", label: "实时功率", color: powerStabilityColor, interpolation: smoothing ? "monotone" : "linear", dash: curveLineDash(curveLineStyle), showLatestPoint: true, latestPointStyle: latestPointMarkerStyle, trail: automatic, animateLatestPoint: automatic && isAnimatedLatestPointMarker(latestPointMarkerStyle) }]
+  const lines: CanvasChartLine[] = [{ key: "powerW", label: "实时功率", color: powerStabilityColor, interpolation: smoothing ? "monotone" : "linear", dash: curveLineDash(curveLineStyle), showLatestPoint: true, latestPointStyle: latestPointMarkerStyle, trail: true, animateLatestPoint: isAnimatedLatestPointMarker(latestPointMarkerStyle) }]
 
   return (
     <div className={`automatic-power-chart ${stretch ? "h-full" : ""}`}>
       <ChartPanel
         title="功率实时"
-        subtitle={automatic ? `最近 60 s${appearance.trailEnabled ? ` · 尾迹 ${appearance.trailSeconds} s` : ""}` : undefined}
+        subtitle={`最近 60 s${appearance.trailEnabled ? ` · 尾迹 ${appearance.trailSeconds} s` : ""}`}
         compactHeader
         data={powerData}
         hideHeader
@@ -294,7 +294,6 @@ export const PowerRealtimeChart = memo(function PowerRealtimeChart({ snapshot, s
   const previousPower = previous.snapshot?.measurements?.power
   const nextPower = next.snapshot?.measurements?.power
   return previous.stretch === next.stretch
-    && previous.automatic === next.automatic
     && previous.readout === next.readout
     && previous.smoothing === next.smoothing
     && previous.curveLineStyle === next.curveLineStyle

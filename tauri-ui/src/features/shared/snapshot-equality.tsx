@@ -93,6 +93,7 @@ export function sameDeviceSnapshot(left: DeviceSnapshot | undefined, right: Devi
     && JSON.stringify(left.coefficientLibrary ?? null) === JSON.stringify(right.coefficientLibrary ?? null)
     && sameCh341State(left.ch341, right.ch341)
     && left.outputEnabled === right.outputEnabled
+    && left.maximumCurrentA === right.maximumCurrentA
     && left.activeCurrentA === right.activeCurrentA
     && left.inputVoltageV === right.inputVoltageV
     && left.outputVoltageV === right.outputVoltageV

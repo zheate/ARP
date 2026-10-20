@@ -27,8 +27,10 @@ class BackendDispatcher:
         } or method.startswith("powerMeter.profile.") or (method == "powerSupply.setOutput" and params.get("enabled", False) is not False)
         if guarded:
             with st.command_safety.command(command_generation):
-                return self._dispatch(method, params)
-        return self._dispatch(method, params)
+                with st.workflow_access.command(method, params):
+                    return self._dispatch(method, params)
+        with st.workflow_access.command(method, params):
+            return self._dispatch(method, params)
 
     def _dispatch(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         backend = self._backend
@@ -178,11 +180,16 @@ class BackendDispatcher:
                 target_station.configuration["spectrometerDeviceId"] = None
                 target_station.configuration["spectrometerSerialNumber"] = ""
         current_kind = target_station.power_supply_kind
-        if previous_kind == "ch341" and current_kind == "tdk":
+        if previous_kind == "ch341" and current_kind in {"tdk", "ru"}:
             with backend._lock:
                 backend.ch341_discovery_state = "not_scanned"
                 backend.ch341_scan_error = ""
                 backend.ch341_descriptors = []
+        if previous_kind != current_kind and "ru" in {previous_kind, current_kind}:
+            with backend._lock:
+                backend.power_supply_resources = []
+                backend.power_supply_detection_detail = ""
+                backend.power_supply_detection_kind = None
 
     def _set_current(self, params: dict[str, Any]) -> None:
         backend = self._backend

@@ -147,11 +147,11 @@ export function AppearanceSettings({ theme, accentTheme, curveLineStyle, latestP
       </div>
 
       <div className="appearance-section appearance-trail-section">
-        <div className="appearance-option-row"><div><h2>曲线尾迹</h2><p className="appearance-help">自动测试最近 {appearance.trailSeconds} 秒提亮，保留完整历史曲线。</p></div><AppearanceSwitch checked={appearance.trailEnabled} label="曲线尾迹" onChange={(trailEnabled) => updateAppearance({ trailEnabled })} /></div>
+        <div className="appearance-option-row"><div><h2>曲线尾迹</h2><p className="appearance-help">实时功率最近 {appearance.trailSeconds} 秒提亮，保留完整历史曲线。</p></div><AppearanceSwitch checked={appearance.trailEnabled} label="曲线尾迹" onChange={(trailEnabled) => updateAppearance({ trailEnabled })} /></div>
         <div className="appearance-chart-options">
           <label>尾迹时长<NativeSelect aria-label="尾迹时长" disabled={!appearance.trailEnabled} value={appearance.trailSeconds} onChange={(value) => updateAppearance({ trailSeconds: Number(value) })}>{[3, 5, 10, 15].map((seconds) => <option value={seconds} key={seconds}>{seconds} 秒</option>)}</NativeSelect></label>
-          <label>曲线线型<NativeSelect aria-label="自动测试功率实时曲线线型" value={curveLineStyle} onChange={(value) => onCurveLineStyleChange(value as CurveLineStyle)}><option value="solid">实线</option><option value="dashed">虚线</option><option value="dotted">点线</option></NativeSelect></label>
-          <label>末端样式<NativeSelect aria-label="自动测试功率实时曲线末端样式" value={latestPointMarkerStyle} onChange={(value) => onLatestPointMarkerStyleChange(value as LatestPointMarkerStyle)}>{LATEST_POINT_MARKER_OPTIONS.map((marker) => <option value={marker.id} key={marker.id}>{marker.label}</option>)}</NativeSelect></label>
+          <label>曲线线型<NativeSelect aria-label="功率实时曲线线型" value={curveLineStyle} onChange={(value) => onCurveLineStyleChange(value as CurveLineStyle)}><option value="solid">实线</option><option value="dashed">虚线</option><option value="dotted">点线</option></NativeSelect></label>
+          <label>末端样式<NativeSelect aria-label="功率实时曲线末端样式" value={latestPointMarkerStyle} onChange={(value) => onLatestPointMarkerStyleChange(value as LatestPointMarkerStyle)}>{LATEST_POINT_MARKER_OPTIONS.map((marker) => <option value={marker.id} key={marker.id}>{marker.label}</option>)}</NativeSelect></label>
         </div>
       </div>
 

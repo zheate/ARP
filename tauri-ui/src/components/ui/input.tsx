@@ -8,6 +8,7 @@ function Input({ className, type, onWheel, onFocus, ...props }: React.ComponentP
   const fieldLabel = useFieldLabel()
   return (
     <input
+      autoComplete="off"
       aria-labelledby={props["aria-label"] ? undefined : fieldLabel}
       type={type}
       data-slot="input"

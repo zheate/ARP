@@ -19,6 +19,7 @@ import { automaticPauseCommand } from "@/lib/automatic-pause"
 import { sendBackendRequest, type AutomaticPauseAction, type SnapshotView } from "@/lib/backend"
 import { getLicenseStatus, installLicense, licenseReasonLabels, type LicenseStatus } from "@/lib/license"
 import { automaticTerminalTitle } from "@/lib/safety-state"
+import { snapshotForWorkflow, workflowBlocked } from "@/lib/workflow-access"
 import { invoke } from "@tauri-apps/api/core"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { open as openDialog } from "@tauri-apps/plugin-dialog"
@@ -300,17 +301,9 @@ function LicensedApp({
   const operational = active && licenseStatus.valid
   const { config, dirty, current: currentConfiguration, waitForSave, accept: acceptConfiguration, acceptCommand, saveConfiguration, createTestScript, deleteTestScript, update, selectTestScript } = useConfigurationEditor(snapshot, operational, command)
   const automaticWorkflowActive = Boolean(snapshot && !["idle", "completed"].includes(snapshot.automaticTest.state))
-  const automaticPaused = snapshot?.automaticTest.state === "paused"
   const automaticInteractionLocked = automaticWorkflowActive || pendingCommand === "automatic.start"
-  const activeOutputCurrentA = snapshot?.devices.powerSupply.activeCurrentA
-  const manualPowerOutputActive = Boolean(
-    snapshot
-    && !automaticWorkflowActive
-    && (
-      (typeof activeOutputCurrentA === "number" && Math.abs(activeOutputCurrentA) > 0.005)
-      || (config.powerSupplyKind === "tdk" && snapshot.devices.powerSupply.outputEnabled)
-    )
-  )
+  const automaticPageBlocked = workflowBlocked(snapshot, "automatic")
+  const manualPageBlocked = workflowBlocked(snapshot, "manual")
   const attemptGracefulClose = useCallback(async () => {
     if (!("__TAURI_INTERNALS__" in window) || closeRequestInFlightRef.current) return
     if (DEMO_PREVIEW_ENABLED) {
@@ -394,10 +387,11 @@ function LicensedApp({
     // A safety stop can arrive while configuration is being saved. Never send
     // the original energizing command after that stop has finished.
     if (startedGeneration !== manualStopGeneration.current) throw new Error("操作已因安全下电取消，请重新操作")
-    const result = await command(method, params)
+    const workflow = page === "manual" || page === "automatic" ? page : snapshot?.safety.workflowOwner
+    const result = await command(method, workflow ? { ...params, workflow } : params)
     acceptCommand(method, result)
     return result
-  }, [active, command, dirty, licenseStatus.reason, licenseStatus.valid, saveConfiguration, acceptCommand])
+  }, [active, command, dirty, licenseStatus.reason, licenseStatus.valid, saveConfiguration, acceptCommand, page, snapshot?.safety.workflowOwner])
 
   useEffect(() => {
     applyTheme(theme, accentTheme)
@@ -433,19 +427,24 @@ function LicensedApp({
     // navigation button that explains nothing.
     if (targetPage === "data") return false
     if (targetPage === "pd") return false
-    if (targetPage === "automatic") return manualPowerOutputActive
-    if (targetPage === "manual") return automaticWorkflowActive && !automaticPaused
+    if (targetPage === "automatic" || targetPage === "manual") {
+      if (targetPage === page) return false
+      return commandPending || (targetPage === "automatic" ? automaticPageBlocked : manualPageBlocked)
+    }
     return automaticInteractionLocked
-  }, [automaticInteractionLocked, automaticPaused, automaticWorkflowActive, licenseStatus.valid, manualPowerOutputActive])
+  }, [automaticInteractionLocked, licenseStatus.valid, commandPending, automaticPageBlocked, manualPageBlocked, page])
 
   /** Blocked navigation explains itself in the tooltip of the disabled item. */
   const pageBlockedReason = useCallback((targetPage: Page): string => {
     if (!licenseStatus.valid) return "软件尚未激活，激活后可继续。"
-    if (targetPage === "automatic") return manualPowerOutputActive ? "手动电源正在输出，请先在手动配置中将电流归零" : ""
-    if (targetPage === "manual") return automaticWorkflowActive && !automaticPaused ? "自动测试执行中，手动配置已锁定；执行“结束并安全下电”后可继续。" : ""
+    if ((targetPage === "automatic" || targetPage === "manual") && pageIsBlocked(targetPage)) {
+      return commandPending ? "设备操作正在处理中，请稍候" : targetPage === "automatic"
+        ? "手动配置正在使用设备，请先停止功率计、光谱仪采集并断开电源"
+        : "自动测试正在使用设备，请先结束测试、停止采集并断开电源"
+    }
     if (targetPage === "shipping") return automaticInteractionLocked ? "自动测试执行中，出货报告已锁定；执行“结束并安全下电”后可继续。" : ""
     return ""
-  }, [automaticInteractionLocked, automaticPaused, automaticWorkflowActive, licenseStatus.valid, manualPowerOutputActive])
+  }, [automaticInteractionLocked, commandPending, licenseStatus.valid, pageIsBlocked])
 
   const changePage = useCallback((nextPage: Page) => {
     if (pageIsBlocked(nextPage)) return
@@ -695,8 +694,8 @@ function LicensedApp({
             data-page={page}
             key={page}
           >
-            {page === "automatic" && <AutomaticPage toolbarHost={automaticToolbarHost} snapshot={snapshot} config={config} update={update} active={operational} dirty={dirty} controlsLocked={automaticInteractionLocked || !licenseStatus.valid} curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} pending={commandPending} run={run} saveConfiguration={saveConfiguration} testScripts={snapshot?.testScripts ?? BUILTIN_TEST_SCRIPT_OPTIONS} onScriptSelect={selectTestScript} onCreateScript={createTestScript} onDeleteScript={deleteTestScript} onNextDevice={() => void prepareNextDevice()} onViewData={() => changePage("data")} onRetryExport={() => void retryAutomaticExport()} onChooseExportDirectory={() => void chooseAutomaticExportDirectory()} onShowCompletion={() => { const auto = snapshot?.automaticTest; if (auto?.terminalOutcome) setAutomaticCompletion({ title: automaticTerminalTitle(auto.terminalOutcome), message: auto.detail }) }} onNotify={notify} />}
-            {page === "manual" && <ManualPage snapshot={snapshot} config={config} update={update} active={operational} pending={commandPending} run={run} saveConfiguration={saveConfiguration} onNotify={notify} />}
+            {page === "automatic" && <AutomaticPage toolbarHost={automaticToolbarHost} snapshot={snapshotForWorkflow(snapshot, "automatic")} config={config} update={update} active={operational} dirty={dirty} controlsLocked={automaticInteractionLocked || automaticPageBlocked || !licenseStatus.valid} curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} pending={commandPending} run={run} saveConfiguration={saveConfiguration} testScripts={snapshot?.testScripts ?? BUILTIN_TEST_SCRIPT_OPTIONS} onScriptSelect={selectTestScript} onCreateScript={createTestScript} onDeleteScript={deleteTestScript} onNextDevice={() => void prepareNextDevice()} onViewData={() => changePage("data")} onRetryExport={() => void retryAutomaticExport()} onChooseExportDirectory={() => void chooseAutomaticExportDirectory()} onShowCompletion={() => { const auto = snapshot?.automaticTest; if (auto?.terminalOutcome) setAutomaticCompletion({ title: automaticTerminalTitle(auto.terminalOutcome), message: auto.detail }) }} onNotify={notify} />}
+            {page === "manual" && <ManualPage curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} snapshot={snapshotForWorkflow(snapshot, "manual")} config={config} update={update} active={operational && !manualPageBlocked} pending={commandPending} run={run} saveConfiguration={saveConfiguration} onNotify={notify} />}
             {page === "pd" && <PdPage snapshot={snapshot} active={operational} pending={commandPending} run={run} />}
             {page === "shipping" && <ShippingReportPage active={operational} controlsLocked={automaticInteractionLocked || !licenseStatus.valid} pending={commandPending} />}
             {page === "settings" && <SystemSettingsPage curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} licenseStatus={licenseStatus} onCurveLineStyleChange={setCurveLineStyle} onImportLicense={onImportLicense} onLatestPointMarkerStyleChange={setLatestPointMarkerStyle} theme={theme} onThemeChange={setTheme} accentTheme={accentTheme} onAccentThemeChange={setAccentTheme} />}

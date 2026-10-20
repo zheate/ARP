@@ -148,7 +148,7 @@ class SnapshotBuilder:
         hold_required_s = (
             automatic_voltage_read_delay_s(active_st.power_supply_kind, active_st.automatic.current_index, len(active_st.automatic.currents))
             if 0 <= active_st.automatic.current_index < len(active_st.automatic.currents)
-            else 0.0 if active_st.power_supply_kind == "tdk" else ORDINARY_AUTO_POST_STABLE_DELAY_S
+            else 0.0 if active_st.power_supply_kind in {"tdk", "ru"} else ORDINARY_AUTO_POST_STABLE_DELAY_S
         )
         automatic_stability = {
             "powerStable": bool(stability_reading and stability_reading.stable),
@@ -189,6 +189,8 @@ class SnapshotBuilder:
         }
 
         def include_series(name: str, active_for_view: bool) -> bool:
+            if name != "pd" and not active_st.workflow_access.allows_series(name, view):
+                return False
             if not active_for_view:
                 return False
             if since_revisions is None:
@@ -220,6 +222,13 @@ class SnapshotBuilder:
             }
 
         measurements: dict[str, Any] = {}
+        if include_live:
+            for name, empty in (("power", []), ("stable", []), ("aging", []),
+                                ("spectrum", {"wavelengthNm": [], "intensity": []})):
+                if not active_st.workflow_access.allows_series(name, view):
+                    measurements["agingPower" if name == "aging" else name] = empty
+                    if name == "spectrum":
+                        measurements["spectrumPeaks"] = []
         series_patches: dict[str, Any] = {}
         if include_series("power", include_live):
             power_points = list(active_st.power_points)
@@ -314,7 +323,8 @@ class SnapshotBuilder:
             "devices": {
                 "powerSupply": {
                     "state": "connecting" if power_supply_detecting else device_state(supply is not None, False, active_st.power_supply_identity_error),
-                    "label": "TDK RS232" if active_st.power_supply_kind == "tdk" else "CH341 I²C",
+                    "label": {"tdk": "TDK RS232", "ru": "VARIED RU RS232"}.get(active_st.power_supply_kind, "CH341 I²C"),
+                    "maximumCurrentA": active_st._maximum_current_a(),
                     "detail": power_supply_detection_detail if power_supply_detecting or (supply is None and power_supply_detection_detail) else power_supply_detail,
                     "connected": supply is not None,
                     "detecting": power_supply_detecting,
@@ -425,7 +435,8 @@ class SnapshotBuilder:
                 "exportError": active_st.export_error,
                 "reference": (
                     active_st._test_reference.reference_payload()
-                    if active_st._test_reference is not None
+                    if active_st._test_reference is not None and view != "manual"
+                    and active_st.workflow_access.owner != "manual"
                     else None
                 ),
             },
@@ -464,6 +475,8 @@ class SnapshotBuilder:
                 "detail": "设备命令、自动流程和安全下电由无界面 Python 后台执行",
                 "controlOwner": "manual" if active_st.manual_controls_allowed() else "automatic",
                 "manualControlsAllowed": active_st.manual_controls_allowed(),
+                "workflowOwner": active_st.workflow_access.owner,
+                "workflowBusy": active_st.workflow_access.busy(),
                 "shutdown": active_st.shutdown_snapshot(),
             },
             "status": {"message": status_message},

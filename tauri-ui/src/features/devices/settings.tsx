@@ -182,7 +182,7 @@ export function CustomCurrentPlanEditor({ config, update, disabled, maximumCurre
       </div>
       <div className="custom-current-plan__footer">
         <p>{config.customCurrentPoints.length} 个停留点 · 合计停留 {formatDuration(totalDwellS)}</p>
-        <Button disabled={disabled || config.customCurrentPoints.length >= MAX_CUSTOM_CURRENT_POINTS} onClick={addPoint} size="sm" type="button" variant="outline"><Plus className="size-3.5" />增加停留点</Button>
+        <Button disabled={disabled || config.customCurrentPoints.length >= MAX_CUSTOM_CURRENT_POINTS} onClick={addPoint} size="sm" type="button" variant="outline"><Plus className="size-3.5" /><span className="device-settings-button__label">增加停留点</span></Button>
       </div>
       <p className="custom-current-plan__hint">自动测试仍按起始、目标和步长逐点判稳；指定电流点会插入序列，判稳后按停留时间每 1 s 记录完整数据。</p>
     </div>
@@ -250,7 +250,14 @@ export function PowerSupplySettingsForm({ snapshot, config, update, active, pend
 }) {
   const psu = snapshot?.devices.powerSupply
   const resources = psu?.resources ?? []
-  const selectedResource = config.tdkResource.trim()
+  const serialSupply = config.powerSupplyKind !== "ch341"
+  const ruSupply = config.powerSupplyKind === "ru"
+  const shutdownUnconfirmed = ruSupply && snapshot?.safety.shutdown.requested === true
+    && !snapshot.safety.shutdown.confirmed
+  const serialLabel = ruSupply ? "VARIED RU" : "TDK"
+  const resourceKey = ruSupply ? "ruResource" : "tdkResource"
+  const voltageKey = ruSupply ? "ruVoltageV" : "tdkVoltageV"
+  const selectedResource = config[resourceKey].trim()
   const agingMode = config.selectedScriptId === "aging"
   return (
     <div className="power-settings-layout" data-mode={mode}>
@@ -260,10 +267,10 @@ export function PowerSupplySettingsForm({ snapshot, config, update, active, pend
           <p className="power-settings-section-description">{mode === "manual" ? "选择控制器与硬件资源，并执行状态读取" : "连接设备并执行输出控制与状态读取"}</p>
         </div>
         <div className="power-settings-fields">
-          <Field label="控制器"><NativeSelect disabled={!active || pending || psu?.detecting || psu?.connected} value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option disabled={agingMode} value="tdk">{agingMode ? "TDK RS232（AU 老化测试不可用）" : "TDK RS232"}</option></NativeSelect></Field>
-          {config.powerSupplyKind === "tdk" ? <Field label="TDK 串口">
+          <Field label="控制器"><NativeSelect disabled={!active || pending || psu?.detecting || psu?.connected} value={config.powerSupplyKind} onChange={(v) => updatePowerSupplyKind(config, update, v as AppConfiguration["powerSupplyKind"])}><option value="ch341">CH341 I²C</option><option disabled={agingMode} value="tdk">{agingMode ? "TDK RS232（AU 老化测试不可用）" : "TDK RS232"}</option><option disabled={agingMode} value="ru">{agingMode ? "VARIED RU RS232（AU 老化测试不可用）" : "VARIED RU RS232"}</option></NativeSelect></Field>
+          {serialSupply ? <Field label={`${serialLabel} 串口`}>
             <ControlRow>
-              <NativeSelect disabled={!active || pending || psu?.detecting || psu?.connected} value={selectedResource} onChange={(value) => update("tdkResource", value)}>
+              <NativeSelect disabled={!active || pending || psu?.detecting || psu?.connected} value={selectedResource} onChange={(value) => update(resourceKey, value)}>
                 <option value="">请点击识别电源</option>
                 {selectedResource && !resources.includes(selectedResource) && <option value={selectedResource}>{selectedResource}</option>}
                 {resources.map((resource) => <option key={resource} value={resource}>{resource}</option>)}
@@ -281,39 +288,42 @@ export function PowerSupplySettingsForm({ snapshot, config, update, active, pend
               onRefresh={() => run("device.refresh", { device: "powerSupply" }, true)}
             />
           )}
+          {ruSupply && (
+            <ControlGrid className="power-settings-value-grid">
+              <Field label="波特率"><NativeSelect disabled={!active || pending || psu?.detecting || psu?.connected} value={String(config.ruBaudRate)} onChange={(value) => update("ruBaudRate", Number(value))}>
+                {[1200, 2400, 4800, 9600, 14400, 19200, 38400, 43000, 57600, 115200].map((baud) => <option key={baud} value={baud}>{baud}</option>)}
+              </NativeSelect></Field>
+              <NumberField label="电源地址 (1–255)" value={config.ruAddress} onChange={(value) => update("ruAddress", value)} min={1} max={255} step="1" disabled={!active || pending || psu?.detecting || psu?.connected} />
+            </ControlGrid>
+          )}
           {mode === "manual" ? (
             <>
-              {config.powerSupplyKind === "tdk" && (
-                <ControlGrid className="power-settings-value-grid">
-                  <NumberField label="输出电压 (V)" value={config.tdkVoltageV} onChange={(v) => update("tdkVoltageV", v)} step="0.1" />
-                </ControlGrid>
-              )}
               <ControlGrid className="power-settings-action-grid">
-                <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline">读取输出电压</Button>
-                <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline">读取输出电流</Button>
+                <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline"><span className="device-settings-button__label">读取输出电压</span></Button>
+                <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline"><span className="device-settings-button__label">读取输出电流</span></Button>
                 {config.powerSupplyKind === "ch341" && (
                   <>
-                    <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "inputVoltage" })} size="sm" variant="outline">读取输入电压</Button>
-                    <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "temperature" })} size="sm" variant="outline">读取模块温度</Button>
+                    <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "inputVoltage" })} size="sm" variant="outline"><span className="device-settings-button__label">读取输入电压</span></Button>
+                    <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "temperature" })} size="sm" variant="outline"><span className="device-settings-button__label">读取模块温度</span></Button>
                   </>
                 )}
               </ControlGrid>
             </>
           ) : (
             <>
-              {config.powerSupplyKind === "tdk" ? <>
+              {serialSupply ? <>
                 <ControlGrid className="power-settings-action-grid">
-                  <Button aria-disabled={psu?.detecting || undefined} disabled={!active || pending} onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接 TDK"}</Button>
-                  <Button className={psu?.outputEnabled ? "btn-power-active" : ""} disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled ? <><span className="size-2 rounded-full bg-white animate-pulse shrink-0 mr-1.5 inline-block" />关闭输出</> : "开启输出"}</Button>
+                  <Button aria-disabled={psu?.detecting || undefined} disabled={!active || pending} onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}><span className="device-settings-button__label">{psu?.connected ? "安全断开" : `连接 ${serialLabel}`}</span></Button>
+                  <Button className={psu?.outputEnabled ? "btn-power-active" : ""} disabled={!active || pending || !psu?.connected || (shutdownUnconfirmed && !psu?.outputEnabled)} onClick={() => void run("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled && <span className="size-2 rounded-full bg-white animate-pulse shrink-0 mr-1.5 inline-block" />}<span className="device-settings-button__label">{psu?.outputEnabled ? "关闭输出" : "开启输出"}</span></Button>
                 </ControlGrid>
                 <ControlGrid className="power-settings-value-grid">
                   <ParameterControl>
-                    <NumberField label="输出电压 (V)" value={config.tdkVoltageV} onChange={(v) => update("tdkVoltageV", v)} step="0.1" />
-                    <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setVoltage", { voltageV: config.tdkVoltageV }, true)} variant="outline">设置电压</Button>
+                    <NumberField label="输出电压 (V)" value={config[voltageKey]} onChange={(v) => update(voltageKey, v)} step="0.1" />
+                    <Button disabled={!active || pending || !psu?.connected || shutdownUnconfirmed} onClick={() => void run("powerSupply.setVoltage", { voltageV: config[voltageKey] }, true)} variant="outline"><span className="device-settings-button__label">设置电压</span></Button>
                   </ParameterControl>
                   <ParameterControl>
                     <NumberField label="设定电流 (A)" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
-                    <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)} variant="outline">设置电流</Button>
+                    <Button disabled={!active || pending || !psu?.connected || (shutdownUnconfirmed && config.setCurrentA > 0)} onClick={() => void run("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)} variant="outline"><span className="device-settings-button__label">设置电流</span></Button>
                   </ParameterControl>
                 </ControlGrid>
               </> : <>
@@ -336,7 +346,7 @@ export function PowerSupplySettingsForm({ snapshot, config, update, active, pend
                       onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)}
                       variant={psu?.connected ? "outline" : "default"}
                     >
-                      {btnText}
+                      <span className="device-settings-button__label">{btnText}</span>
                     </Button>
                   )
                 })()}
@@ -344,14 +354,14 @@ export function PowerSupplySettingsForm({ snapshot, config, update, active, pend
                 <Field label="设定电流 (A)">
                   <ControlRow className="gap-2.5">
                     <NumberInput value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
-                    <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
+                    <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}><span className="device-settings-button__label">设置电流</span></Button>
                   </ControlRow>
                 </Field>
                 <ControlGrid className="power-settings-action-grid">
-                <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline">读取输出电压</Button>
-                <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline">读取输出电流</Button>
-                <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "inputVoltage" })} size="sm" variant="outline">读取输入电压</Button>
-                <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "temperature" })} size="sm" variant="outline">读取模块温度</Button>
+                <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline"><span className="device-settings-button__label">读取输出电压</span></Button>
+                <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline"><span className="device-settings-button__label">读取输出电流</span></Button>
+                <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "inputVoltage" })} size="sm" variant="outline"><span className="device-settings-button__label">读取输入电压</span></Button>
+                <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "temperature" })} size="sm" variant="outline"><span className="device-settings-button__label">读取模块温度</span></Button>
                 <p className="col-span-full text-xs text-muted-foreground">
                   回读：输入 {formatNumber(psu?.inputVoltageV, " V", 2)} · 输出 {formatNumber(psu?.outputVoltageV, " V", 2)} · 电流 {formatNumber(psu?.outputCurrentA, " A", 2)} · 温度 {formatNumber(psu?.temperatureC, " °C", 2)}
                 </p>
@@ -754,7 +764,7 @@ export function DeviceSettingsDialog({ kind, open, onClose, onSave, onScriptSele
 
   if (!open) return null
   const details = {
-    powerSupply: { title: "电源设置", description: mode === "manual" ? "选择电源设备并读取状态；加电操作位于主页面的电源控制卡片" : "配置电源控制器、输出参数并执行安全控制", icon: <Power className="size-5" /> },
+    powerSupply: { title: "电源设置", description: mode === "manual" ? "选择电源设备并读取状态；电压和电流设置位于主页面的电源控制卡片" : "配置电源控制器、输出参数并执行安全控制", icon: <Power className="size-5" /> },
     powerMeter: { title: "功率计设置", description: "选择功率计资源并管理探头系数方案", icon: <Gauge className="size-5" /> },
     spectrometer: { title: "光谱仪设置", description: "配置光谱仪硬件资源与光谱采集参数", icon: <Radio className="size-5" /> },
   }[kind]
@@ -803,8 +813,8 @@ export function DeviceSettingsDialog({ kind, open, onClose, onSave, onScriptSele
           <div className="device-settings-dialog__footer">
             <p className="device-settings-dialog__hint">{kind === "powerMeter" ? "普通设置不会覆盖已保存的系数方案" : "修改内容将保存到当前测试配置"}</p>
             <div className="device-settings-dialog__actions">
-              <Button className="device-settings-dialog__cancel" onClick={onClose} variant="outline">关闭</Button>
-              <Button aria-busy={saving} aria-disabled={!active || pending || saving || snapshot?.devices[kind]?.detecting} className="device-settings-dialog__save" disabled={!active || saving} onClick={() => void handleSave()}>{saving ? "保存中…" : "保存设置"}</Button>
+              <Button className="device-settings-dialog__cancel" onClick={onClose} variant="outline"><span className="device-settings-button__label">关闭</span></Button>
+              <Button aria-busy={saving} aria-disabled={!active || pending || saving || snapshot?.devices[kind]?.detecting} className="device-settings-dialog__save" disabled={!active || saving} onClick={() => void handleSave()}><span className="device-settings-button__label">{saving ? "保存中…" : "保存设置"}</span></Button>
             </div>
           </div>
         </div>
@@ -1076,13 +1086,15 @@ export function currentInputMaximum(config: AppConfiguration, snapshot: BackendS
   const connectedKind = snapshot?.devices.powerSupply.connected
     ? snapshot.configuration?.powerSupplyKind ?? config.powerSupplyKind
     : config.powerSupplyKind
-  return connectedKind !== "tdk" ? I2C_CURRENT_LIMIT_A : undefined
+  if (connectedKind === "ch341") return I2C_CURRENT_LIMIT_A
+  return connectedKind === "ru" && snapshot?.configuration?.powerSupplyKind === "ru"
+    ? snapshot.devices.powerSupply.maximumCurrentA ?? undefined : undefined
 }
 
 export function updatePowerSupplyKind(config: AppConfiguration, update: UpdateConfig, kind: AppConfiguration["powerSupplyKind"]) {
-  if (config.selectedScriptId === "aging" && kind === "tdk") return
+  if (config.selectedScriptId === "aging" && kind !== "ch341") return
   update("powerSupplyKind", kind)
-  if (kind === "tdk") return
+  if (kind !== "ch341") return
   update("setCurrentA", Math.min(config.setCurrentA, I2C_CURRENT_LIMIT_A))
   update("initialCurrentA", Math.min(config.initialCurrentA, I2C_CURRENT_LIMIT_A))
   update("targetCurrentA", Math.min(config.targetCurrentA, I2C_CURRENT_LIMIT_A))

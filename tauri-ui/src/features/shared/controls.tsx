@@ -309,13 +309,14 @@ export function NumberInput({
   step?: string
   horizontalStep?: string
   onConfirm?: (value: number) => void
-  displayDecimalPlaces?: number
+  displayDecimalPlaces?: number | "auto"
   className?: string
   "aria-label"?: string
   id?: string
 }) {
   const [text, setText] = useState(() => (Number.isFinite(value) ? String(value) : ""))
   const [isFocused, setIsFocused] = useState(false)
+  const [hasEdited, setHasEdited] = useState(false)
 
   useEffect(() => {
     if (!isFocused) {
@@ -327,9 +328,13 @@ export function NumberInput({
 
   const numMin = min !== undefined ? Number(min) : undefined
   const numMax = max !== undefined ? Number(max) : undefined
+  const displayText = displayDecimalPlaces === undefined || displayDecimalPlaces === "auto" ? text
+    : isFocused && hasEdited ? text : formatFixedNumber(Number(text), displayDecimalPlaces)
+  const decimalPosition = displayText.indexOf(".")
 
   const handleChange = (rawValue: string) => {
     const normalized = normalizeNumericInput(rawValue)
+    setHasEdited(true)
     setText(normalized)
     if (normalized === "" || normalized === "-" || normalized === "-0" || normalized.endsWith(".")) {
       return
@@ -346,6 +351,7 @@ export function NumberInput({
 
   const handleBlur = () => {
     setIsFocused(false)
+    setHasEdited(false)
     if (text === "" || text === "-" || text === "-0" || !Number.isFinite(Number(text))) {
       const fallback = numMin !== undefined && Number.isFinite(numMin) ? numMin : 0
       setText(String(fallback))
@@ -361,6 +367,7 @@ export function NumberInput({
 
   const handleFocus = (event: React.FocusEvent<HTMLInputElement>) => {
     setIsFocused(true)
+    setHasEdited(false)
     event.currentTarget.select()
   }
 
@@ -414,7 +421,11 @@ export function NumberInput({
       />
       {displayDecimalPlaces !== undefined && (
         <span aria-hidden="true" className="number-input__formatted-value">
-          {formatFixedNumber(Number(text), displayDecimalPlaces)}
+          {decimalPosition === -1 ? displayText : <>
+            {displayText.slice(0, decimalPosition)}
+            <span className="number-input__decimal-point">.</span>
+            {displayText.slice(decimalPosition + 1)}
+          </>}
         </span>
       )}
       <div className="pointer-events-auto absolute right-1 flex flex-col justify-center gap-0.5">

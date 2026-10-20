@@ -12,6 +12,16 @@ const bundled = await build({
 })
 const { mergeBackendSnapshot } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`)
 
+test("workflow change drops old series merge caches even at the same revision", () => {
+  const previous = { ...snapshot(1, [1]), safety: { workflowOwner: "manual" } }
+  const patch = { ...snapshot(1, []), safety: { workflowOwner: "automatic" } }
+  delete patch.measurements
+  delete patch.pd.points
+  const result = mergeBackendSnapshot(previous, patch)
+  assert.equal(result.measurements, undefined)
+  assert.deepEqual(result.pd.points, previous.pd.points)
+})
+
 test("measurement updates retain equivalent configuration and script identities", () => {
   const first = { ...snapshot(1, [0]), configuration: { sn: "A", customCurrentPoints: [{ currentA: 1, dwellS: 2 }] }, testScripts: [{ id: "standard", name: "标准", powerSupplyKinds: ["tdk"] }] }
   const previous = mergeBackendSnapshot(null, first)
