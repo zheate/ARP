@@ -1,5 +1,6 @@
+import { useActionFeedback } from "@/hooks/use-action-feedback"
 import { useEffect, useRef, useState, type CSSProperties } from "react"
-import { Check, CheckCircle2, ChevronRight, CircleAlert, Clock3, FileText, FolderOpen, Info, RefreshCw } from "lucide-react"
+import { Check, CheckCircle2, ChevronRight, CircleAlert, Clock3, FileText, FolderOpen, Info, LoaderCircle, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { automaticPhase, automaticStabilityPresentation, automaticStoragePresentation, formatTestDuration, powerStabilityPresentation } from "@/lib/automatic-presentation"
 import { automaticTerminalTitle, shutdownPresentation } from "@/lib/safety-state"
@@ -110,12 +111,13 @@ export function AutomaticCompletionSummary({ snapshot, config, active, pending, 
   config: AppConfiguration
   active: boolean
   pending: boolean
-  onNextDevice: () => void
+  onNextDevice: () => void | Promise<unknown>
   onViewData: () => void
-  onRetryExport: () => void
-  onChooseExportDirectory: () => void
+  onRetryExport: () => void | Promise<unknown>
+  onChooseExportDirectory: () => void | Promise<unknown>
   onShowDetails: () => void
 }) {
+  const feedback = useActionFeedback(pending || !active)
   const auto = snapshot.automaticTest
   if (auto.state !== "completed" || !auto.terminalOutcome) return null
   const run = auto.runContext ?? config
@@ -185,21 +187,22 @@ export function AutomaticCompletionSummary({ snapshot, config, active, pending, 
         </dl>
 
         <div className="automatic-completion-summary__actions">
+          {feedback.error && <span role="alert">{feedback.error}</span>}
           {auto.canRetryExport && (
             <>
-              <Button disabled={!active || pending} onClick={onRetryExport} size="sm" variant="outline">
-                <RefreshCw className="size-3.5" />重试 Excel
+              <Button disabled={!active} aria-disabled={pending || feedback.action !== null} aria-busy={feedback.action === "retry"} onClick={() => void feedback.runAction("retry", onRetryExport)} size="sm" variant="outline">
+                <RefreshCw className={`size-3.5 ${feedback.action === "retry" ? "animate-spin" : ""}`} />重试 Excel
               </Button>
-              <Button disabled={!active || pending} onClick={onChooseExportDirectory} size="sm" variant="outline">
-                <FolderOpen className="size-3.5" />更换目录
+              <Button disabled={!active} aria-disabled={pending || feedback.action !== null} aria-busy={feedback.action === "directory"} onClick={() => void feedback.runAction("directory", onChooseExportDirectory)} size="sm" variant="outline">
+                {feedback.action === "directory" ? <LoaderCircle className="size-3.5 animate-spin" /> : <FolderOpen className="size-3.5" />}更换目录
               </Button>
             </>
           )}
           <Button onClick={onViewData} size="sm" variant="outline">
             <FileText className="size-4" />查看数据
           </Button>
-          <Button disabled={!active || pending || !auto.canNextDevice || !shutdown.confirmed} onClick={onNextDevice} size="sm">
-            下一颗<ChevronRight className="size-4" />
+          <Button disabled={!active || !auto.canNextDevice || !shutdown.confirmed} aria-disabled={pending || feedback.action !== null} aria-busy={feedback.action === "next"} onClick={() => void feedback.runAction("next", onNextDevice)} size="sm">
+            下一颗{feedback.action === "next" ? <LoaderCircle className="size-4 animate-spin" /> : <ChevronRight className="size-4" />}
           </Button>
         </div>
       </div>

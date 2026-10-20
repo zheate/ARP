@@ -53,3 +53,25 @@ test("revealed cubic is the exact prefix of the original monotone curve at every
     assert.deepEqual(prefix.commands[prefix.commands.length - 1].slice(-2), [end.x, end.y])
   }
 })
+
+test("direction follows the revealed cubic tangent at boundaries and between samples", () => {
+  const points = Object.freeze([{ x: 0, y: 1 }, { x: 2.3, y: 7 }, { x: 5.1, y: 3 }, { x: 9, y: 10 }])
+  const before = JSON.stringify(points)
+  const full = recorder()
+  traceMonotoneCurve(full, points)
+  for (let segment = 1; segment < points.length; segment++) for (const t of [0, 0.001, 0.25, 0.5, 0.75, 0.999, 1]) {
+    const left = points[segment - 1], right = points[segment], u = 1 - t
+    const [x1, y1, x2, y2] = full.commands[segment]
+    const dx = u * u * (x1 - left.x) + 2 * u * t * (x2 - x1) + t * t * (right.x - x2)
+    const dy = u * u * (y1 - left.y) + 2 * u * t * (y2 - y1) + t * t * (right.y - y2)
+    let angle = NaN
+    traceRevealedCurve(recorder(), points, true, left.x + (right.x - left.x) * t, (value) => { angle = value })
+    assert.ok(Math.abs(angle - Math.atan2(dy, dx)) < 1e-10, `segment ${segment}, t=${t}`)
+  }
+  let angle = NaN
+  traceRevealedCurve(recorder(), [{ x: 0, y: 0 }, { x: 2, y: 4 }], false, 1, value => { angle = value })
+  assert.equal(angle, Math.atan2(4, 2))
+  traceRevealedCurve(recorder(), [{ x: 0, y: 0 }, { x: 2, y: 4 }, null, { x: 5, y: 6 }], false, 5, value => { angle = value })
+  assert.equal(angle, 0)
+  assert.equal(JSON.stringify(points), before)
+})

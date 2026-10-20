@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client"
 import { flushSync } from "react-dom"
 import { CanvasLineChart, type CanvasChartLine } from "../../src/components/canvas-line-chart"
 import { LATEST_POINT_MARKER_OPTIONS, type LatestPointMarkerStyle } from "../../src/lib/appearance"
+import "../../src/index.css"
 
 const prototype = CanvasRenderingContext2D.prototype as CanvasRenderingContext2D & Record<string, any>
 for (const method of ["moveTo", "lineTo", "bezierCurveTo"] as const) {
@@ -29,6 +30,7 @@ let state = {
   rightAxis: false,
   showPoints: false,
   hidden: false,
+  displayScale: 1,
 }
 const root = createRoot(document.getElementById("root")!)
 function render(patch: Partial<typeof state> = {}) {
@@ -47,7 +49,7 @@ function render(patch: Partial<typeof state> = {}) {
     <button onClick={() => render({ hidden: !state.hidden })}>显示／隐藏图表</button>
     <div style={{ height: 340, display: state.hidden ? "none" : undefined }}>
       <CanvasLineChart data={state.data} xKey="time" lines={lines} xDomain={state.domain} yDomain={[0, 10]}
-        rightYDomain={[0, 100]} tightInsets ariaLabel="角色末端验证" preserveAllPoints />
+        rightYDomain={[0, 100]} displayScale={state.displayScale} tightInsets ariaLabel="角色末端验证" preserveAllPoints />
     </div>
   </main>))
 }

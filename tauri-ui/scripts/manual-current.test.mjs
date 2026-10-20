@@ -8,27 +8,38 @@ import { build } from "esbuild"
 
 const root = fileURLToPath(new URL("..", import.meta.url))
 const result = await build({
-  stdin: { contents: 'export { ManualPage } from "./src/features/manual/page"; export { PowerSupplySettingsForm } from "./src/features/devices/settings"; export { DEMO_SNAPSHOT } from "./src/lib/demo-snapshot";', resolveDir: root },
+  stdin: { contents: 'export { ManualPage } from "./src/features/manual/page"; export { PowerSupplySettingsForm, PowerMeterProfileEditor } from "./src/features/devices/settings"; export { DEMO_SNAPSHOT } from "./src/lib/demo-snapshot";', resolveDir: root },
   tsconfig: `${root}/tsconfig.json`, bundle: true, write: false, platform: "node", format: "cjs",
   loader: { ".css": "empty" }, external: ["react", "react-dom", "react-dom/*"],
 })
 const module = { exports: {} }
 new Function("require", "module", "exports", result.outputFiles[0].text)(createRequire(import.meta.url), module, module.exports)
-const { ManualPage, PowerSupplySettingsForm, DEMO_SNAPSHOT } = module.exports
+const { ManualPage, PowerSupplySettingsForm, PowerMeterProfileEditor, DEMO_SNAPSHOT } = module.exports
 const noop = () => {}
 
-test("manual current display keeps one decimal without changing the editable value", () => {
-  for (const [value, displayed] of [[0, "0.0"], [1, "1.0"], [1.2, "1.2"], [12, "12.0"]]) {
+test("inline coefficient selection preserves acquisition, identity and unsaved-point locks", () => {
+  for (const state of ["ready", "running", "detecting", "unsaved", "automatic", "pending", "inactive", "otherProbe"]) {
+    const snapshot = structuredClone(DEMO_SNAPSHOT)
+    snapshot.automaticTest.state = state === "automatic" ? "waiting_stable" : "idle"
+    Object.assign(snapshot.devices.powerMeter, { running: state === "running", detecting: state === "detecting" })
+    snapshot.manualTest = { ...snapshot.manualTest, pendingCount: state === "unsaved" ? 1 : 0 }
+    const config = { ...snapshot.configuration, ...(state === "otherProbe" ? { powerMeterResource: "ASRL99::INSTR" } : {}) }
+    const html = renderToStaticMarkup(createElement(PowerMeterProfileEditor, { snapshot, config, active: state !== "inactive", pending: state === "pending", run: noop, onManage: noop }))
+    const selector = html.match(/<button\b([^>]*aria-label="手动测试系数方案"[^>]*)>/)
+    assert.ok(selector)
+    assert.equal(/\sdisabled(?:=|\s|$)/.test(selector[1]), state !== "ready", state)
+    if (state === "otherProbe") assert.doesNotMatch(html, /976nm 生产光路/)
+  }
+})
+
+test("manual setpoints use ordinary editable text without a fixed-format overlay", () => {
+  for (const value of [0, 1, 1.2, 12, 0.123456]) {
     const snapshot = structuredClone(DEMO_SNAPSHOT)
     snapshot.configuration.setCurrentA = value
     snapshot.safety.manualControlsAllowed = true
     const html = renderToStaticMarkup(createElement(ManualPage, { snapshot, config: snapshot.configuration, active: true, pending: false, run: noop, update: noop }))
     assert.match(html, new RegExp(`id="manual-psu-current"[^>]*value="${value}"`))
-    const currentMarkup = html.slice(html.indexOf('id="manual-psu-current"'))
-    const display = currentMarkup.match(/class="number-input__formatted-value">([\s\S]*?)<\/span><div class="pointer-events-auto/)
-    assert.ok(display)
-    assert.equal(display[1].replace(/<[^>]*>/g, ""), displayed)
-    assert.equal((html.match(/data-fixed-display="true"/g) ?? []).length, 2)
+    assert.doesNotMatch(html, /number-input__formatted-value|data-fixed-display|manual-power-digit/)
   }
 })
 
@@ -82,7 +93,8 @@ test("quick current application advertises its shortcut and shares button availa
     assert.equal((html.match(/aria-keyshortcuts="Control\+Enter"/g) ?? []).length, 1)
     const button = html.match(/<button\b([^>]*)>(?:(?!<\/button>).)*?设置电流(?:<\/span>)?<\/button>/s)
     assert.ok(button, "the apply-current button must be present")
-    assert.equal(/\sdisabled(?:=|\s|$)/.test(button[1]), state !== "ready", state)
+    assert.equal(/\sdisabled(?:=|\s|$)/.test(button[1]), !["ready", "pending"].includes(state), state)
+    assert.equal(/aria-disabled="true"/.test(button[1]), state !== "ready", `${state} command guard`)
   }
 })
 
@@ -105,7 +117,8 @@ test("manual voltage uses the selected controller's configuration and keeps outp
       }
       assert.ok(input && button, "serial supplies expose voltage on the main card")
       assert.match(input[1], new RegExp(`value="${kind === "ru" ? "32.7" : "24.3"}"`))
-      const blocked = !["ready", "outputOff"].includes(state) && !(kind === "tdk" && state === "shutdownUnconfirmed")
+      const blocked = !["ready", "outputOff", "pending"].includes(state) && !(kind === "tdk" && state === "shutdownUnconfirmed")
+      assert.equal(/\sdisabled(?:=|\s|$)/.test(input[1]), blocked, `${kind}/${state} voltage input`)
       assert.equal(/\sdisabled(?:=|\s|$)/.test(button[1]), blocked, `${kind}/${state}`)
     }
   }

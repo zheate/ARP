@@ -14,8 +14,6 @@ export const LATEST_POINT_MARKER_OPTIONS = [
   { id: "point", label: "圆点" },
   { id: "paper-plane", label: "纸飞机" },
   { id: "paw", label: "爪印" },
-  { id: "comet", label: "彗星" },
-  { id: "ecg", label: "心电图" },
   { id: "flappy-bird", label: "Flappy Bird 小鸟" },
   { id: "bee", label: "小蜜蜂" },
   { id: "green-dinosaur", label: "小恐龙" },
@@ -33,6 +31,9 @@ export function isAnimatedLatestPointMarker(style: LatestPointMarkerStyle | unde
 }
 
 export function latestPointMarkerSize(style: LatestPointMarkerStyle | undefined): number {
+  if (!style || style === "point") return 7
+  if (style === "paper-plane") return 15
+  if (style === "paw") return 18
   return style === "bee" || style === "dinosaur" || style === "green-dinosaur" ? 32 : 24
 }
 export type ChartCanvasStyle = "clean" | "fine" | "engineering"

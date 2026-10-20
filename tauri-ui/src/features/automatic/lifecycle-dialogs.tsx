@@ -1,3 +1,5 @@
+import { busyInteraction } from "@/components/busy-interaction"
+import { useActionFeedback } from "@/hooks/use-action-feedback"
 import { DialogPortal } from "@/components/dialog-portal"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -52,8 +54,10 @@ export function AutomaticPauseDialog({ auto, integrationTimeUs, pending, onActio
   auto: BackendSnapshot["automaticTest"]
   integrationTimeUs: number
   pending: boolean
-  onAction: (action: AutomaticPauseAction, params?: Record<string, unknown>) => void
+  onAction: (action: AutomaticPauseAction, params?: Record<string, unknown>) => void | Promise<unknown>
 }) {
+  const feedback = useActionFeedback(pending)
+  const performAction = (action: AutomaticPauseAction, params?: Record<string, unknown>) => feedback.runAction(action, () => onAction(action, params))
   const dialogRef = useRef<HTMLDivElement>(null)
   const [now, setNow] = useState(() => Date.now())
   const [draftIntegrationTimeUs, setDraftIntegrationTimeUs] = useState(integrationTimeUs)
@@ -89,7 +93,7 @@ export function AutomaticPauseDialog({ auto, integrationTimeUs, pending, onActio
   return (
     <DialogPortal>
       <div className="motion-overlay-enter fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4 backdrop-blur-[2px]">
-        <div aria-labelledby="automatic-pause-title" aria-modal="true" className="status-dialog motion-dialog-enter w-[min(580px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--app-warning)_55%,transparent)] bg-popover shadow-2xl shadow-black/45" ref={dialogRef} role="alertdialog" tabIndex={-1}>
+        <div {...busyInteraction(pending || feedback.action !== null)} aria-busy={pending || feedback.action !== null} aria-labelledby="automatic-pause-title" aria-modal="true" className="status-dialog motion-dialog-enter w-[min(580px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--app-warning)_55%,transparent)] bg-popover shadow-2xl shadow-black/45" ref={dialogRef} role="alertdialog" tabIndex={-1}>
           <div className="flex items-start gap-4 border-b border-border px-5 py-5">
             <div className="grid size-11 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,var(--app-warning)_16%,transparent)] text-[var(--app-warning)]"><Pause className="size-6" /></div>
             <div>
@@ -108,18 +112,19 @@ export function AutomaticPauseDialog({ auto, integrationTimeUs, pending, onActio
                 <Label className="text-xs" htmlFor="pause-integration-time">积分时间 (μs)</Label>
                 <div className="mt-2 flex gap-2">
                   <Input id="pause-integration-time" min={1} onChange={(event) => setDraftIntegrationTimeUs(Number(event.target.value))} type="number" value={draftIntegrationTimeUs} />
-                  <Button disabled={pending || !Number.isFinite(draftIntegrationTimeUs) || draftIntegrationTimeUs <= 0} onClick={() => onAction("adjust_spectrum", { integrationTimeUs: draftIntegrationTimeUs })} variant="outline">应用并重测</Button>
+                  <Button disabled={!Number.isFinite(draftIntegrationTimeUs) || draftIntegrationTimeUs <= 0} aria-disabled={pending || feedback.action !== null} onClick={() => void performAction("adjust_spectrum", { integrationTimeUs: draftIntegrationTimeUs })} variant="outline"><LoaderCircle className={`size-4 ${feedback.action === "adjust_spectrum" ? "animate-spin" : "invisible"}`} />应用并重测</Button>
                 </div>
               </div>
             )}
           </div>
+          {feedback.error && <p className="px-5 pb-3 text-sm text-destructive" role="alert">{feedback.error}</p>}
           <div className="flex flex-wrap justify-end gap-2 border-t border-border bg-background/35 px-5 py-3">
-            {actions.has("resume") && <Button disabled={pending} onClick={() => onAction("resume")} variant="outline">继续测试</Button>}
-            {actions.has("recover_power_meter") && <Button disabled={pending} onClick={() => onAction("recover_power_meter")} variant="outline">重新识别功率计并重测</Button>}
-            {actions.has("recover_spectrometer") && <Button disabled={pending} onClick={() => onAction("recover_spectrometer")} variant="outline">重新识别光谱仪并重测</Button>}
-            {actions.has("retry_persist") && <Button disabled={pending} onClick={() => onAction("retry_persist")} variant="outline">重试本地保存</Button>}
-            {actions.has("retry_point") && <Button disabled={pending} onClick={() => onAction("retry_point")} variant="outline"><RotateCcw className="size-4" />重测当前点</Button>}
-            {actions.has("safe_end") && <Button disabled={pending} onClick={() => onAction("safe_end")} variant="destructive">安全结束</Button>}
+            {actions.has("resume") && <Button aria-disabled={pending || feedback.action !== null} onClick={() => void performAction("resume")} variant="outline"><LoaderCircle className={`size-4 ${feedback.action === "resume" ? "animate-spin" : "invisible"}`} />继续测试</Button>}
+            {actions.has("recover_power_meter") && <Button aria-disabled={pending || feedback.action !== null} onClick={() => void performAction("recover_power_meter")} variant="outline"><LoaderCircle className={`size-4 ${feedback.action === "recover_power_meter" ? "animate-spin" : "invisible"}`} />重新识别功率计并重测</Button>}
+            {actions.has("recover_spectrometer") && <Button aria-disabled={pending || feedback.action !== null} onClick={() => void performAction("recover_spectrometer")} variant="outline"><LoaderCircle className={`size-4 ${feedback.action === "recover_spectrometer" ? "animate-spin" : "invisible"}`} />重新识别光谱仪并重测</Button>}
+            {actions.has("retry_persist") && <Button aria-disabled={pending || feedback.action !== null} onClick={() => void performAction("retry_persist")} variant="outline"><LoaderCircle className={`size-4 ${feedback.action === "retry_persist" ? "animate-spin" : "invisible"}`} />重试本地保存</Button>}
+            {actions.has("retry_point") && <Button aria-disabled={pending || feedback.action !== null} onClick={() => void performAction("retry_point")} variant="outline">{feedback.action === "retry_point" ? <LoaderCircle className="size-4 animate-spin" /> : <RotateCcw className="size-4" />}重测当前点</Button>}
+            {actions.has("safe_end") && <Button aria-disabled={pending || feedback.action !== null} onClick={() => void performAction("safe_end")} variant="destructive"><LoaderCircle className={`size-4 ${feedback.action === "safe_end" ? "animate-spin" : "invisible"}`} />安全结束</Button>}
           </div>
         </div>
       </div>
@@ -160,10 +165,11 @@ export function AutomaticCompletionDialog({
   journalPath?: string
   canNextDevice: boolean
   canRetryExport: boolean
-  onNextDevice: () => void
-  onRetryExport: () => void
-  onChooseExportDirectory: () => void
+  onNextDevice: () => void | Promise<unknown>
+  onRetryExport: () => void | Promise<unknown>
+  onChooseExportDirectory: () => void | Promise<unknown>
 }) {
+  const feedback = useActionFeedback()
   const acknowledgeButtonRef = useRef<HTMLButtonElement>(null)
   const onCloseRef = useRef(onClose)
   const [openingResult, setOpeningResult] = useState(false)
@@ -322,10 +328,11 @@ export function AutomaticCompletionDialog({
           </div>
 
           <div className="flex flex-wrap justify-end gap-2 border-t border-border/70 bg-muted/20 px-6 py-3.5">
-            {exportPath && exportStatus === "completed" && <Button disabled={openingResult} onClick={() => void handleOpenResult()} size="sm" variant="outline">{openingResult ? <LoaderCircle className="size-4 animate-spin" /> : <FileText className="size-4" />}{openingResult ? "正在打开…" : "打开结果"}</Button>}
-            {canRetryExport && <Button onClick={onRetryExport} size="sm" variant="outline"><RefreshCw className="size-4" />重新生成 Excel</Button>}
-            {canRetryExport && <Button onClick={onChooseExportDirectory} size="sm" variant="outline"><FolderOpen className="size-4" />更换目录</Button>}
-            {canNextDevice && <Button onClick={onNextDevice} size="sm"><QrCode className="size-4" />测试下一台</Button>}
+            {feedback.error && <p role="alert">{feedback.error}</p>}
+            {exportPath && exportStatus === "completed" && <Button className="w-32" aria-disabled={openingResult} onClick={() => void handleOpenResult()} size="sm" variant="outline">{openingResult ? <LoaderCircle className="size-4 animate-spin" /> : <FileText className="size-4" />}{openingResult ? "正在打开…" : "打开结果"}</Button>}
+            {canRetryExport && <Button aria-busy={feedback.action === "retry"} aria-disabled={feedback.action !== null} onClick={() => void feedback.runAction("retry", onRetryExport)} size="sm" variant="outline"><RefreshCw className={`size-4 ${feedback.action === "retry" ? "animate-spin" : ""}`} />重新生成 Excel</Button>}
+            {canRetryExport && <Button aria-disabled={feedback.action !== null} onClick={() => void feedback.runAction("directory", onChooseExportDirectory)} size="sm" variant="outline">{feedback.action === "directory" ? <LoaderCircle className="size-4 animate-spin" /> : <FolderOpen className="size-4" />}更换目录</Button>}
+            {canNextDevice && <Button aria-disabled={feedback.action !== null} onClick={() => void feedback.runAction("next", onNextDevice)} size="sm">{feedback.action === "next" ? <LoaderCircle className="size-4 animate-spin" /> : <QrCode className="size-4" />}测试下一台</Button>}
             <Button
               className="px-5 font-medium shadow-xs"
               onClick={onClose}
@@ -354,11 +361,29 @@ export function ShutdownFailureDialog({
   shutdownConfirmed: boolean
   pending: boolean
   onCancel: () => void
-  onRetry: () => void
-  onForceExit: () => void
+  onRetry: () => void | Promise<void>
+  onForceExit: () => void | Promise<void>
 }) {
   const [physicalShutdownConfirmed, setPhysicalShutdownConfirmed] = useState(false)
+  const [action, setAction] = useState<"retry" | "force" | null>(null)
+  const [actionError, setActionError] = useState("")
+  const actionLock = useRef(false)
   const retryButtonRef = useRef<HTMLButtonElement>(null)
+  const busy = pending || action !== null
+  const performAction = async (next: "retry" | "force") => {
+    if (pending || actionLock.current || (next === "force" && !shutdownConfirmed && !physicalShutdownConfirmed)) return
+    actionLock.current = true
+    setAction(next)
+    setActionError("")
+    try {
+      await (next === "retry" ? onRetry() : onForceExit())
+    } catch (reason) {
+      setActionError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      actionLock.current = false
+      setAction(null)
+    }
+  }
 
   useEffect(() => {
     const body = document.body
@@ -380,18 +405,18 @@ export function ShutdownFailureDialog({
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || pending) return
+      if (event.key !== "Escape" || busy || actionLock.current) return
       event.preventDefault()
       onCancel()
     }
     document.addEventListener("keydown", handleEscape)
     return () => document.removeEventListener("keydown", handleEscape)
-  }, [onCancel, pending])
+  }, [onCancel, busy])
 
   return (
     <DialogPortal>
       <div className="motion-overlay-enter fixed inset-0 z-[90] flex items-center justify-center bg-black/75 p-4 backdrop-blur-[2px]">
-        <div aria-describedby="shutdown-failure-description" aria-labelledby="shutdown-failure-title" aria-modal="true" className="status-dialog motion-dialog-enter w-[min(600px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--app-danger)_55%,transparent)] bg-popover shadow-2xl shadow-black/50" role="alertdialog">
+        <div aria-busy={busy} aria-describedby="shutdown-failure-description" aria-labelledby="shutdown-failure-title" aria-modal="true" className="status-dialog motion-dialog-enter w-[min(600px,calc(100vw-2rem))] overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--app-danger)_55%,transparent)] bg-popover shadow-2xl shadow-black/50" role="alertdialog">
         <div className="flex items-start gap-4 border-b border-border px-5 py-5">
           <div className="grid size-11 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,var(--app-danger)_16%,transparent)] text-[var(--app-danger)]"><OctagonAlert className="size-6" /></div>
           <div><h2 className="text-lg font-semibold" id="shutdown-failure-title">{shutdownConfirmed ? "设备已安全下电，但退出收尾未完成" : "无法确认安全下电"}</h2><p className="mt-1 text-sm text-muted-foreground">{shutdownConfirmed ? "可以重试完成导出与配置保存，或直接退出程序" : "电源通信异常，程序无法自动确认输出已经关闭"}</p></div>
@@ -406,16 +431,17 @@ export function ShutdownFailureDialog({
                 请检查电源实体面板。若能够恢复通信，请重试安全下电；若已人工确认输出关闭，可强制退出程序。
               </div>
               <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-background/35 px-4 py-3 text-sm leading-5">
-                <input checked={physicalShutdownConfirmed} className="mt-0.5 size-4 accent-[var(--app-danger)]" disabled={pending} onChange={(event) => setPhysicalShutdownConfirmed(event.target.checked)} type="checkbox" />
+                <input aria-disabled={busy} checked={physicalShutdownConfirmed} className="mt-0.5 size-4 accent-[var(--app-danger)]" onChange={(event) => { if (!busy && !actionLock.current) setPhysicalShutdownConfirmed(event.target.checked) }} type="checkbox" />
                 <span>我已检查电源实体面板，并确认输出已关闭或电流已归零。</span>
               </label>
             </>
           )}
         </div>
-          <div className="flex flex-wrap items-center justify-end gap-6 border-t border-border bg-background/35 px-5 py-3">
-            <Button disabled={pending} onClick={onCancel} variant="outline">取消退出</Button>
-            <Button disabled={pending} onClick={onRetry} ref={retryButtonRef} variant="outline">{pending ? "正在重试…" : shutdownConfirmed ? "重试收尾并退出" : "重试安全下电"}</Button>
-            <Button disabled={pending || (!shutdownConfirmed && !physicalShutdownConfirmed)} onClick={onForceExit} variant="destructive">{pending ? "正在退出…" : shutdownConfirmed ? "直接退出" : "确认并强制退出"}</Button>
+          {actionError && <p className="px-5 pb-3 text-sm text-destructive" role="alert">{actionError}</p>}
+          <div className="flex flex-wrap items-center justify-end gap-3 border-t border-border bg-background/35 px-5 py-3">
+            <Button aria-disabled={busy} className="w-24" onClick={() => { if (!busy && !actionLock.current) onCancel() }} variant="outline">取消退出</Button>
+            <Button aria-busy={action === "retry"} aria-disabled={busy} className="w-36" onClick={() => void performAction("retry")} ref={retryButtonRef} variant="outline">{action === "retry" && <LoaderCircle className="size-4 animate-spin" />}{action === "retry" ? "正在重试…" : shutdownConfirmed ? "重试收尾并退出" : "重试安全下电"}</Button>
+            <Button aria-busy={action === "force"} aria-disabled={busy || (!shutdownConfirmed && !physicalShutdownConfirmed)} className="w-36" disabled={!shutdownConfirmed && !physicalShutdownConfirmed} onClick={() => void performAction("force")} variant="destructive">{action === "force" && <LoaderCircle className="size-4 animate-spin" />}{action === "force" ? "正在退出…" : shutdownConfirmed ? "直接退出" : "确认并强制退出"}</Button>
           </div>
         </div>
       </div>

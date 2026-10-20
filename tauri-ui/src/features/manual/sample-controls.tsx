@@ -7,7 +7,7 @@ import type { RunCommand } from "@/features/shared/controls"
 import type { AppConfiguration } from "@/lib/backend"
 import { open as openDialog } from "@tauri-apps/plugin-dialog"
 import { FolderOpen, LoaderCircle, Milestone, QrCode, Save } from "lucide-react"
-import { memo, useRef } from "react"
+import { memo, useRef, useState } from "react"
 
 export const ManualSampleControls = memo(function ManualSampleControls({ config, update, active, controlsAllowed, pending, pendingPointCount, run }: {
   config: AppConfiguration
@@ -19,16 +19,18 @@ export const ManualSampleControls = memo(function ManualSampleControls({ config,
   run: RunCommand
 }) {
   const commandLock = useRef(false)
-  const disabled = !active || !controlsAllowed || pending
+  const [saving, setSaving] = useState(false)
+  const disabled = !active || !controlsAllowed
   const saveReady = !disabled && pendingPointCount > 0 && Boolean(config.sn.trim() && config.station.trim() && config.outputDir.trim())
   const savePoint = async () => {
-    if (!saveReady || commandLock.current) return
+    if (!saveReady || pending || commandLock.current) return
     commandLock.current = true
+    setSaving(true)
     try { await run("manual.saveExcel", {}, true) }
-    finally { commandLock.current = false }
+    finally { commandLock.current = false; setSaving(false) }
   }
   const chooseOutputDir = async () => {
-    if (disabled) return
+    if (disabled || pending) return
     try {
       const selected = await openDialog({ multiple: false, directory: true, title: "选择手动测试数据输出目录", defaultPath: config.outputDir.trim() || undefined })
       if (typeof selected === "string" && selected) update("outputDir", selected)
@@ -54,8 +56,8 @@ export const ManualSampleControls = memo(function ManualSampleControls({ config,
           <Button aria-label="选择输出目录" disabled={disabled} onClick={() => void chooseOutputDir()} size="icon" title="选择输出目录" type="button" variant="outline"><FolderOpen className="size-4" /></Button>
         </div>
       </div>
-      <Button className="manual-titlebar-controls__save" disabled={!saveReady} onClick={() => void savePoint()} type="button" variant="outline">
-        {pending ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}保存
+      <Button aria-busy={saving} aria-disabled={!saveReady || pending || saving} className="manual-titlebar-controls__save" disabled={!saveReady || saving} onClick={() => void savePoint()} type="button" variant="outline">
+        {saving ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}保存
       </Button>
     </section>
   )

@@ -67,6 +67,9 @@ class SnapshotBuilder:
             raise ValueError(f"未知视图：{view}")
         active_st = backend.runtime
 
+        if view == "manual":
+            active_st.refresh_manual_power_supply_in_background()
+
         notices = shared["notices"]
         status_message = shared["status_message"]
         power_supply_resources = shared["power_supply_resources"]

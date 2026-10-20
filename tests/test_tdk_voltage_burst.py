@@ -64,7 +64,9 @@ class TdkVoltageBurstTests(unittest.TestCase):
                     for before, after in zip(samples, samples[1:]):
                         self.assertGreaterEqual(after[0] - before[0], 0.18)
                     for view in ("manual", "automatic"):
-                        supply = self.backend.snapshot({"view": view})["devices"]["powerSupply"]
+                        # Isolate burst feedback from the independent periodic display refresh.
+                        with patch.object(self.station, "refresh_manual_power_supply_in_background"):
+                            supply = self.backend.snapshot({"view": view})["devices"]["powerSupply"]
                         self.assertEqual(supply["outputVoltageV"], 15.0)
                     self.assertEqual(self.station.record_store.snapshot(), ())
 

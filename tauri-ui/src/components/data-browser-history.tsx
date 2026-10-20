@@ -36,7 +36,7 @@ export function useSnHistory(sn: string, active: boolean, refresh: number) {
       setState({ sn, records: cached, busy: false, error: "" })
       return
     }
-    setState({ sn, records: [], busy: true, error: "" })
+    setState(previous => ({ sn, records: previous.sn === sn ? previous.records : [], busy: true, error: "" }))
     void (async () => {
       try {
         // The existing endpoint searches substrings. Page summaries only, then require exact SN equality.
@@ -57,12 +57,12 @@ export function useSnHistory(sn: string, active: boolean, refresh: number) {
         setState({ sn, records: exact, busy: false, error: "" })
       } catch (error) {
         if (!cancelled)
-          setState({
+          setState(previous => ({
             sn,
-            records: [],
+            records: previous.sn === sn ? previous.records : [],
             busy: false,
             error: error instanceof Error ? error.message : String(error),
-          })
+          }))
       }
     })()
     return () => {

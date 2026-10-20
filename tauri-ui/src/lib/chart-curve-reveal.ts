@@ -20,13 +20,13 @@ export function retargetCurveReveal(previous: CurveRevealMotion | null, toX: num
 
 // Trace a prefix of the EXISTING curve and return its exact visible endpoint.
 // Splitting its last cubic preserves the original interpolation and all samples.
-export function traceRevealedCurve(path: CurvePath, points: readonly (CurvePoint | null)[], monotone: boolean, maximumX = Infinity): CurvePoint | null {
+export function traceRevealedCurve(path: CurvePath, points: readonly (CurvePoint | null)[], monotone: boolean, maximumX = Infinity, onDirection?: (angle: number) => void): CurvePoint | null {
   let current: CurvePoint | null = null
   let endpoint: CurvePoint | null = null
   const prefix: CurvePath = {
     moveTo(x, y) {
       current = { x, y }
-      if (x <= maximumX) { path.moveTo(x, y); endpoint = current }
+      if (x <= maximumX) { path.moveTo(x, y); endpoint = current; onDirection?.(0) }
     },
     lineTo(x, y) {
       const left = current
@@ -35,6 +35,7 @@ export function traceRevealedCurve(path: CurvePath, points: readonly (CurvePoint
       const t = x <= maximumX ? 1 : Math.max(0, (maximumX - left.x) / (x - left.x))
       endpoint = t === 1 ? current : { x: maximumX, y: left.y + (y - left.y) * t }
       path.lineTo(endpoint.x, endpoint.y)
+      onDirection?.(Math.atan2(y - left.y, x - left.x))
     },
     bezierCurveTo(x1, y1, x2, y2, x, y) {
       const left = current
@@ -43,6 +44,7 @@ export function traceRevealedCurve(path: CurvePath, points: readonly (CurvePoint
       if (x <= maximumX) {
         path.bezierCurveTo(x1, y1, x2, y2, x, y)
         endpoint = current
+        onDirection?.(Math.atan2(y - y2, x - x2))
         return
       }
       // Hermite control x coordinates are at 1/3 and 2/3, so x is linear in t.
@@ -54,6 +56,15 @@ export function traceRevealedCurve(path: CurvePath, points: readonly (CurvePoint
       const ex = bx + (cx - bx) * t, ey = by + (cy - by) * t
       endpoint = { x: dx + (ex - dx) * t, y: dy + (ey - dy) * t }
       path.bezierCurveTo(ax, ay, dx, dy, endpoint.x, endpoint.y)
+      if (onDirection) {
+        // Use the original cubic derivative, including t=0 where the split
+        // path has zero length. A chord from the previous sample can swivel
+        // at sample boundaries even though the monotone curve is smooth.
+        const u = 1 - t
+        const tangentX = u * u * (x1 - left.x) + 2 * u * t * (x2 - x1) + t * t * (x - x2)
+        const tangentY = u * u * (y1 - left.y) + 2 * u * t * (y2 - y1) + t * t * (y - y2)
+        onDirection(Math.atan2(tangentY, tangentX))
+      }
     },
   }
   if (monotone) traceMonotoneCurve(prefix, points)

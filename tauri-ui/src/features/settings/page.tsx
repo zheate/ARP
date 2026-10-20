@@ -4,22 +4,26 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { type AccentTheme, type CurveLineStyle, type LatestPointMarkerStyle, type Theme } from "@/lib/appearance"
 import { formatLicenseDate, licenseReasonLabels, type LicenseStatus } from "@/lib/license"
 import { KeyRound, ShieldCheck, Upload } from "lucide-react"
-import { memo, useState } from "react"
+import { memo, useRef, useState } from "react"
 
 
 // Measurement snapshots do not affect this page. Local state and appearance
 // context still update normally, as do every prop and license-status change.
 export const SystemSettingsPage = memo(function SystemSettingsPage({ theme, accentTheme, curveLineStyle, latestPointMarkerStyle, licenseStatus, onThemeChange, onAccentThemeChange, onCurveLineStyleChange, onLatestPointMarkerStyleChange, onImportLicense }: { theme: Theme; accentTheme: AccentTheme; curveLineStyle: CurveLineStyle; latestPointMarkerStyle: LatestPointMarkerStyle; licenseStatus: LicenseStatus; onThemeChange: (theme: Theme) => void; onAccentThemeChange: (theme: AccentTheme) => void; onCurveLineStyleChange: (style: CurveLineStyle) => void; onLatestPointMarkerStyleChange: (style: LatestPointMarkerStyle) => void; onImportLicense: () => Promise<void> }) {
+  const licenseLock = useRef(false)
   const [licenseBusy, setLicenseBusy] = useState(false)
   const [licenseError, setLicenseError] = useState("")
   const importLicenseFile = async () => {
+    if (licenseLock.current) return
+    licenseLock.current = true
     setLicenseBusy(true)
-    setLicenseError("")
     try {
       await onImportLicense()
+      setLicenseError("")
     } catch (reason) {
       setLicenseError(reason instanceof Error ? reason.message : String(reason))
     } finally {
+      licenseLock.current = false
       setLicenseBusy(false)
     }
   }
@@ -49,7 +53,7 @@ export const SystemSettingsPage = memo(function SystemSettingsPage({ theme, acce
               <div><dt>机器码</dt><dd title={licenseStatus.machineCode}>{licenseStatus.machineCode}</dd></div>
             </dl>
             {licenseError && <p className="license-activation-error" role="alert">{licenseError}</p>}
-            <Button disabled={licenseBusy} onClick={() => void importLicenseFile()} size="sm" variant="outline"><Upload className="size-4" />{licenseBusy ? "正在验证..." : "重新导入许可证"}</Button>
+            <Button className="w-40" aria-busy={licenseBusy} disabled={licenseBusy} onClick={() => void importLicenseFile()} size="sm" variant="outline"><Upload className="size-4" />{licenseBusy ? "正在验证..." : "重新导入许可证"}</Button>
           </div>
         </CardContent>
       </Card>

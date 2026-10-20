@@ -15,6 +15,20 @@
   overflow: hidden;
 }
 
+.chart-character-marker__frames {
+  opacity: 0;
+  animation: chart-character-frames 400ms steps(4, end) infinite;
+}
+
+.chart-character-marker__frames img {
+  display: block;
+  max-width: none;
+}
+
+.chart-character-marker[data-vector-ready="true"] .chart-character-marker__frames {
+  opacity: 1;
+}
+
 .chart-character-marker__fallback {
   position: absolute;
   left: 50%;
@@ -26,18 +40,7 @@
   background: var(--chart-1, currentColor);
 }
 
-.chart-character-marker__frames {
-  display: block;
-  max-width: none;
-  opacity: 0;
-  animation: chart-character-frames 400ms steps(4, end) infinite;
-}
-
-.chart-character-marker[data-sprite-ready="true"] .chart-character-marker__frames {
-  opacity: 1;
-}
-
-.chart-character-marker[data-sprite-ready="true"] .chart-character-marker__fallback {
+.chart-character-marker[data-vector-ready="true"] .chart-character-marker__fallback {
   display: none;
 }
 

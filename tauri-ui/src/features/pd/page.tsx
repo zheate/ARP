@@ -11,11 +11,34 @@ import { asNumber, NumberInput, RunCommand } from "@/features/shared/controls"
 import { samePdSection } from "@/features/shared/snapshot-equality"
 import { type BackendSnapshot } from "@/lib/backend"
 import { open as openDialog } from "@tauri-apps/plugin-dialog"
-import { FolderOpen, Play, Square } from "lucide-react"
-import { memo, useEffect, useState } from "react"
+import { FolderOpen, LoaderCircle, Play, Square } from "lucide-react"
+import { memo, useEffect, useRef, useState, type SyntheticEvent } from "react"
 
 export const PdPage = memo(function PdPage({ snapshot, active, pending, run }: { snapshot: BackendSnapshot | null; active: boolean; pending: boolean; run: RunCommand }) {
   const pd = snapshot?.pd
+  const commandLock = useRef(false)
+  const [action, setAction] = useState<string | null>(null)
+  const [commandError, setCommandError] = useState("")
+  const runPdCommand: RunCommand = async (...args) => {
+    if (!active || pending || commandLock.current) return
+    commandLock.current = true
+    setAction(args[0])
+    setCommandError("")
+    try {
+      return await run(...args)
+    } catch (reason) {
+      setCommandError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      commandLock.current = false
+      setAction(null)
+    }
+  }
+  const blockPendingEdit = (event: SyntheticEvent) => {
+    if (pending || commandLock.current) {
+      event.preventDefault()
+      event.stopPropagation()
+    }
+  }
   const pdData = (pd?.points ?? []) as Array<Record<string, number>>
   const latestElapsedS = pdData[pdData.length - 1]?.elapsedS
   const pdTimeDomain: [number, number] = typeof latestElapsedS === "number"
@@ -29,9 +52,11 @@ export const PdPage = memo(function PdPage({ snapshot, active, pending, run }: {
   const [settings, setSettings] = useState(pd?.settings)
   useEffect(() => { if (!settings && pd?.settings) setSettings(pd.settings) }, [pd?.settings, settings])
   const current = settings ?? { device: "", channel: "", terminal: "DIFF", range: 10, sampleRateHz: 1000, blockSize: 100, scale: 1, offset: 0, unit: "V", save: true, outputDir: "" }
-  const set = (key: string, value: unknown) => setSettings({ ...current, [key]: value })
+  const set = (key: string, value: unknown) => {
+    if (!pending && !commandLock.current && pd?.state !== "running") setSettings({ ...current, [key]: value })
+  }
   const choosePdOutputDir = async () => {
-    if (!active || pending || pd?.state === "running") return
+    if (!active || pending || commandLock.current || pd?.state === "running") return
     try {
       const selected = await openDialog({
         multiple: false,
@@ -51,15 +76,16 @@ export const PdPage = memo(function PdPage({ snapshot, active, pending, run }: {
       <section className="pd-workspace grid grid-cols-1 gap-4">
         <Card className="pd-settings-card shadow-none"><CardHeader><CardTitle className="text-base">NI-DAQ 采集设置</CardTitle><CardDescription>PD 采集可在电源加电期间独立启动或停止</CardDescription></CardHeader>          <div className="pd-acquisition-actions space-y-2">
             <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className="grid size-5 place-items-center rounded-full bg-primary/15 font-semibold text-primary">1</span><span>先识别采集卡，再开始采集</span></div>
-            <Button className="w-full" disabled={!active || pending || pd?.detecting || (pd?.state !== "running" && !current.device)} onClick={() => void run(pd?.state === "running" ? "pd.stop" : "pd.start", current as unknown as Record<string, unknown>)}>{pd?.state === "running" ? <><Square className="size-4" />停止并保存</> : <><Play className="size-4" />开始采集</>}</Button>
+            <Button aria-busy={action === "pd.start" || action === "pd.stop"} aria-disabled={pending || action !== null} className="w-full" disabled={!active || pd?.detecting || (pd?.state !== "running" && !current.device)} onClick={() => void runPdCommand(pd?.state === "running" ? "pd.stop" : "pd.start", current as unknown as Record<string, unknown>)}>{action === "pd.start" || action === "pd.stop" ? <LoaderCircle className="size-4 animate-spin" /> : pd?.state === "running" ? <Square className="size-4" /> : <Play className="size-4" />}{pd?.state === "running" ? "停止并保存" : "开始采集"}</Button>
           </div>
           <p className="pd-acquisition-status text-xs text-muted-foreground" role="status">{pd?.status || "等待识别采集卡"}</p>
-<CardContent className="pd-settings-grid grid grid-cols-2 gap-3"><fieldset aria-label="PD 采集参数" className="contents" disabled={!active || pending || pd?.state === "running"}>
+          {commandError && <p className="px-4 text-sm text-destructive" role="alert">{commandError}</p>}
+<CardContent className="pd-settings-grid grid grid-cols-2 gap-3"><fieldset aria-busy={pending || action !== null} aria-label="PD 采集参数" className="contents" disabled={!active || pd?.state === "running"} onClickCapture={blockPendingEdit} onBeforeInputCapture={blockPendingEdit} onPasteCapture={blockPendingEdit} onKeyDownCapture={(event) => { if (event.key !== "Tab" && event.key !== "Escape") blockPendingEdit(event) }}>
           <div className="col-span-2 pt-1"><p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">采集参数</p></div>
           <Field label="采集卡" className="pd-inline-field col-span-2" layout="inline">
             <ControlRow>
-              <NativeSelect disabled={!active || pending || pd?.detecting || pd?.state === "running"} value={current.device} onChange={(v) => set("device", v)}><option value="">请选择</option>{pd?.devices.map((item) => <option key={item} value={item}>{item}</option>)}</NativeSelect>
-              <DeviceDetectButton detecting={pd?.detecting} disabled={!active || pending || pd?.detecting || pd?.state === "running"} onClick={() => run("pd.refresh")} />
+              <NativeSelect disabled={!active || pd?.detecting || pd?.state === "running"} value={current.device} onChange={(v) => set("device", v)}><option value="">请选择</option>{pd?.devices.map((item) => <option key={item} value={item}>{item}</option>)}</NativeSelect>
+              <DeviceDetectButton detecting={pd?.detecting} disabled={!active || pd?.detecting || pd?.state === "running"} onClick={() => runPdCommand("pd.refresh")} />
             </ControlRow>
           </Field>
           <Field label="输入通道" className="pd-inline-field" layout="inline"><NativeSelect value={current.channel} onChange={(v) => set("channel", v)}><option value="">请选择</option>{pd?.channels.map((item) => <option key={item} value={item}>{item}</option>)}</NativeSelect></Field>
@@ -88,7 +114,7 @@ export const PdPage = memo(function PdPage({ snapshot, active, pending, run }: {
                 />
                 <Button
                   className="size-9 shrink-0 px-0"
-                  disabled={!active || pending || pd?.state === "running"}
+                  disabled={!active || pd?.state === "running"}
                   onClick={() => void choosePdOutputDir()}
                   size="sm"
                   type="button"

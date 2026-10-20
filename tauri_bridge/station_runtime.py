@@ -80,6 +80,7 @@ TDK_VOLTAGE_BURST_READ_COUNT = 5
 TDK_VOLTAGE_BURST_INTERVAL_S = 0.2
 OUTPUT_OFF_CURRENT_CONFIRM_TIMEOUT_S = 1.0
 OUTPUT_OFF_CURRENT_CONFIRM_INTERVAL_S = 0.05
+MANUAL_POWER_SUPPLY_REFRESH_INTERVAL_S = 1.0
 
 class StationRuntime(StationAutomaticMixin):
     """Isolated hardware, automation, and measurement state for one test station."""
@@ -122,6 +123,8 @@ class StationRuntime(StationAutomaticMixin):
         self.latest_power_supply_output_voltage_v: float | None = None
         self.latest_power_supply_output_current_a: float | None = None
         self._last_live_current_read_at: float | None = None
+        self._last_manual_power_supply_refresh_at: float | None = None
+        self._manual_power_supply_refresh_thread: threading.Thread | None = None
         self._tdk_voltage_burst_stop = threading.Event()
         self._tdk_voltage_burst_thread: threading.Thread | None = None
         self.latest_power_supply_temperature_c: float | None = None
@@ -406,6 +409,73 @@ class StationRuntime(StationAutomaticMixin):
             target=read_burst, name="tdk-voltage-burst", daemon=True,
         )
         self._tdk_voltage_burst_thread.start()
+
+    def refresh_manual_power_supply_in_background(self) -> None:
+        """Schedule display telemetry under the station lock; never wait for I/O."""
+        if (
+            self.power_supply_kind not in {"tdk", "ru"}
+            or self.power_supply_controller is None
+            or not self.manual_controls_allowed()
+            or self.workflow_access.owner == "automatic"
+            or self.manual_power_stopping
+            or self.manual_current_request_a is not None
+            or self.command_safety.capture() < 0
+        ):
+            return
+        worker = self._manual_power_supply_refresh_thread
+        if worker is not None and worker.is_alive():
+            return
+        now = time.monotonic()
+        previous = self._last_manual_power_supply_refresh_at
+        if previous is not None and now - previous < MANUAL_POWER_SUPPLY_REFRESH_INTERVAL_S:
+            return
+        self._last_manual_power_supply_refresh_at = now
+        controller = self.power_supply_controller
+        generation = self.command_safety.capture()
+        if generation < 0:
+            return
+
+        def read_feedback() -> None:
+            # Skip busy serial links. Do not hold station state during a read:
+            # snapshots, acquisition callbacks and safety commands need that lock.
+            supply = ControllerPowerSupply(controller)
+            for reader, cache_name, label in (
+                (supply.read_output_current, "latest_power_supply_output_current_a", "电流"),
+                (supply.read_output_voltage, "latest_power_supply_output_voltage_v", "电压"),
+            ):
+                if not self._supply_io_lock.acquire(blocking=False):
+                    return
+                try:
+                    if (
+                        controller is not self.power_supply_controller
+                        or generation != self.command_safety.capture()
+                        or not self.manual_controls_allowed()
+                        or self.workflow_access.owner == "automatic"
+                        or self.manual_power_stopping
+                        or self.manual_current_request_a is not None
+                    ):
+                        return
+                    try:
+                        measured = float(reader())
+                        value = measured if math.isfinite(measured) else None
+                    except Exception:
+                        value = None
+                        _LOGGER.debug("手动模式实时%s读取失败", label, exc_info=True)
+                    if (
+                        controller is self.power_supply_controller
+                        and generation == self.command_safety.capture()
+                    ):
+                        setattr(self, cache_name, value)
+                        if cache_name == "latest_power_supply_output_current_a":
+                            self._last_live_current_read_at = time.monotonic()
+                finally:
+                    # Give waiting writes and safety operations a chance between reads.
+                    self._supply_io_lock.release()
+
+        self._manual_power_supply_refresh_thread = threading.Thread(
+            target=read_feedback, name="manual-power-supply-refresh", daemon=True,
+        )
+        self._manual_power_supply_refresh_thread.start()
 
     def _refresh_live_power_supply_current(self, *, force: bool = False) -> bool:
         """Refresh TDK telemetry without waiting for another hardware operation.

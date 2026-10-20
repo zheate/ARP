@@ -1,3 +1,4 @@
+import { busyInteraction } from "@/components/busy-interaction"
 import "@/components/shipping-report.css"
 import { ControlRow } from "@/components/control-layout"
 import { Field } from "@/components/field"
@@ -168,9 +169,12 @@ export function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
   const axisMaximumEditedRef = useRef(false)
   const [wavelengthMinimum, setWavelengthMinimum] = useState(0)
   const [wavelengthMaximum, setWavelengthMaximum] = useState(2000)
-  const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
+  const [busy, setBusyState] = useState(false)
+  const setBusy = (value: boolean) => { busyRef.current = value; setBusyState(value) }
   const [error, setError] = useState("")
   const [lastOutputPath, setLastOutputPath] = useState("")
+  const openingResultRef = useRef(false)
   const [openingResult, setOpeningResult] = useState(false)
   const [resultOpenNotice, setResultOpenNotice] = useState("")
   const [previewPages, setPreviewPages] = useState<string[]>([])
@@ -211,7 +215,7 @@ export function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
   }, [])
 
   const chooseSourcePath = async () => {
-    if (disabled || busy) return
+    if (disabled || busyRef.current) return
     try {
       const selected = await openDialog({
         multiple: false,
@@ -229,7 +233,7 @@ export function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
   }
 
   const chooseOutputDirectory = async () => {
-    if (disabled || busy) return
+    if (disabled || busyRef.current) return
     try {
       const selected = await openDialog({
         multiple: false,
@@ -246,7 +250,7 @@ export function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
   }
 
   const configureReport = async () => {
-    if (disabled || busy) return
+    if (disabled || busyRef.current) return
     const nextSourcePath = sourcePath.trim()
     const nextOutputDirectory = outputDirectory.trim()
     if (!nextSourcePath) {
@@ -257,15 +261,15 @@ export function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
       setError("请选择本地 PDF 保存文件夹")
       return
     }
-    setError("")
-    setPreviewPages([])
-    setPreviewError("")
     try {
       setBusy(true)
       const result = await sendBackendRequest("shippingReport.inspect", { path: nextSourcePath })
       if (result.compatibility.kind === "rejected") throw new Error(result.compatibility.message)
+      setError("")
+      setPreviewError("")
       const nextType: ShippingReportType = result.allowedReportTypes.includes("spectrum") ? "spectrum" : "pole"
       const currentA = result.currents[result.currents.length - 1] ?? 0
+      setPreviewPages([])
       setInspection(result)
       setReportType(nextType)
       setProductName((current) => current.trim() || result.productName)
@@ -331,8 +335,7 @@ export function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
   }
 
   const generate = async () => {
-    if (!inspection || busy) return
-    setError("")
+    if (!inspection || busyRef.current) return
     try {
       const targetPath = shippingOutputFilePath(outputDirectory, sn)
       if (!targetPath) throw new Error("请选择本地 PDF 保存文件夹")
@@ -351,6 +354,7 @@ export function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
         legacyCompletionConfirmed: true,
         ...(reportType === "spectrum" ? { spectrumAxis: { mode: axisMode, minimum: axisMinimum, maximum: axisMaximum, wavelengthMinimum, wavelengthMaximum } } : {}),
       })
+      setError("")
       setLastOutputPath(result.outputPath)
       setResultOpenNotice("")
       setInspection(null)
@@ -362,7 +366,8 @@ export function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
   }
 
   const openGeneratedReport = async (revealOnly = false) => {
-    if (!lastOutputPath || openingResult) return
+    if (!lastOutputPath || openingResultRef.current) return
+    openingResultRef.current = true
     setOpeningResult(true)
     setError("")
     setResultOpenNotice("")
@@ -378,6 +383,7 @@ export function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
+      openingResultRef.current = false
       setOpeningResult(false)
     }
   }
@@ -392,7 +398,7 @@ export function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
   }, [inspection, busy])
 
   useEffect(() => {
-    if (!inspection || busy) {
+    if (!inspection || busyRef.current) {
       setPreviewBusy(false)
       return
     }
@@ -436,7 +442,7 @@ export function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
   const definitions: ShippingReportFieldDefinition[] = inspection ? [...inspection.fieldDefinitions[reportType].map((field) => ({ ...field, label: shippingReportFieldLabel(field, reportLanguage, reportType) })), ...customFields] : []
   const outputPath = shippingOutputFilePath(outputDirectory, sn)
   return (
-    <>
+    <div className="contents" aria-busy={busy} {...busyInteraction(() => busyRef.current)}>
       <div className="rounded-lg border border-border/70 bg-card/40 p-4">
         <div className="mb-3 flex items-center gap-2">
           <Badge variant="outline" className="text-xs bg-primary/10 text-primary border-primary/30">
@@ -446,14 +452,14 @@ export function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
         <div className="grid gap-4">
           <Field label="Excel 测试数据路径">
             <ControlRow actionWidth="path">
-              <Input aria-label="Excel 测试数据路径" disabled={disabled || busy} onChange={(event) => { setSourcePath(event.target.value); setError("") }} placeholder="选择自动或手动测试生成的 .xlsx 文件" value={sourcePath} />
-              <Button className="shrink-0" disabled={disabled || busy} onClick={() => void chooseSourcePath()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />浏览</Button>
+              <Input aria-label="Excel 测试数据路径" disabled={disabled} onChange={(event) => { setSourcePath(event.target.value); setError("") }} placeholder="选择自动或手动测试生成的 .xlsx 文件" value={sourcePath} />
+              <Button className="shrink-0" disabled={disabled} onClick={() => void chooseSourcePath()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />浏览</Button>
             </ControlRow>
           </Field>
           <Field label="本地 PDF 保存文件夹">
             <ControlRow actionWidth="path">
-              <Input aria-label="本地 PDF 保存文件夹" disabled={disabled || busy} onChange={(event) => { setOutputDirectory(event.target.value); setError("") }} placeholder="选择 PDF 保存文件夹，文件名将自动生成" value={outputDirectory} />
-              <Button className="shrink-0" disabled={disabled || busy} onClick={() => void chooseOutputDirectory()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />选择文件夹</Button>
+              <Input aria-label="本地 PDF 保存文件夹" disabled={disabled} onChange={(event) => { setOutputDirectory(event.target.value); setError("") }} placeholder="选择 PDF 保存文件夹，文件名将自动生成" value={outputDirectory} />
+              <Button className="shrink-0" disabled={disabled} onClick={() => void chooseOutputDirectory()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />选择文件夹</Button>
             </ControlRow>
           </Field>
         </div>
@@ -464,17 +470,17 @@ export function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
             {lastOutputPath && (
               <div className="flex min-w-0 flex-wrap items-center gap-2">
                 <span className="max-w-[520px] truncate" title={lastOutputPath}>已生成：{lastOutputPath}</span>
-                <Button disabled={openingResult} onClick={() => void openGeneratedReport()} size="sm" variant="outline">
+                <Button className="w-28" aria-disabled={openingResult} onClick={() => void openGeneratedReport()} size="sm" variant="outline">
                   <FileText className="size-3.5" />{openingResult ? "正在打开…" : "打开 PDF"}
                 </Button>
-                <Button disabled={openingResult} onClick={() => void openGeneratedReport(true)} size="sm" variant="outline">
+                <Button className="w-28" aria-disabled={openingResult} onClick={() => void openGeneratedReport(true)} size="sm" variant="outline">
                   <FolderOpen className="size-3.5" />打开文件夹
                 </Button>
               </div>
             )}
             {!error && !lastOutputPath && <p>填写数据路径与输出目录后，点击“读取数据”开始配置报告。</p>}
           </div>
-          <Button disabled={disabled || busy} onClick={() => void configureReport()}><FileText className="size-4" />{busy && !inspection ? "正在读取…" : "读取并配置报告"}</Button>
+          <Button className="w-44" aria-busy={busy && !inspection} disabled={disabled} onClick={() => void configureReport()}><FileText className="size-4" />{busy && !inspection ? "正在读取…" : "读取并配置报告"}</Button>
         </div>
       </div>
 
@@ -492,7 +498,7 @@ export function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
               )}
               <span className="max-w-md truncate text-xs text-muted-foreground">{inspection.sourcePath}</span>
             </div>
-            <button aria-label="收起报告配置" className="rounded-md p-1 text-muted-foreground hover:bg-muted" disabled={busy} onClick={() => setInspection(null)} type="button">
+            <button aria-label="收起报告配置" className="rounded-md p-1 text-muted-foreground hover:bg-muted" disabled={disabled} onClick={() => setInspection(null)} type="button">
               <X className="size-4" />
             </button>
           </div>
@@ -517,7 +523,7 @@ export function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
                   </div>
                   <div className="flex shrink-0 items-center gap-3">
                     <span className="text-xs text-muted-foreground">已选 {Object.values(fields).filter((item) => item.include).length} 项</span>
-                    <Button disabled={busy} onClick={addCustomField} size="sm" type="button" variant="outline"><Plus className="size-3.5" />增加参数</Button>
+                    <Button disabled={disabled} onClick={addCustomField} size="sm" type="button" variant="outline"><Plus className="size-3.5" />增加参数</Button>
                   </div>
                 </div>
                 <div className="pr-1">
@@ -611,13 +617,13 @@ export function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
           <div className="mt-6 flex items-center justify-between gap-3 border-t border-border pt-4">
             <p className="max-w-[60%] truncate text-xs text-muted-foreground" title={outputPath}>将保存至：{outputPath}</p>
             <div className="flex gap-2">
-              <Button disabled={busy} onClick={() => setInspection(null)} variant="outline">取消</Button>
-              <Button disabled={busy} onClick={() => void generate()}>{busy ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}{busy ? "正在生成…" : "生成 PDF"}</Button>
+              <Button disabled={disabled} onClick={() => setInspection(null)} variant="outline">取消</Button>
+              <Button className="w-36" aria-busy={busy} disabled={disabled} onClick={() => void generate()}>{busy ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}{busy ? "正在生成…" : "生成 PDF"}</Button>
             </div>
           </div>
         </section>
       )}
-    </>
+    </div>
   )
 }
 
@@ -645,7 +651,9 @@ export function BatchShippingReportWorkflow({ disabled }: { disabled: boolean })
   const axisMaximumEditedRef = useRef(false)
   const [wavelengthMinimum, setWavelengthMinimum] = useState(0)
   const [wavelengthMaximum, setWavelengthMaximum] = useState(2000)
-  const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
+  const [busy, setBusyState] = useState(false)
+  const setBusy = (value: boolean) => { busyRef.current = value; setBusyState(value) }
   const [error, setError] = useState("")
   const [previewPages, setPreviewPages] = useState<string[]>([])
   const [previewBusy, setPreviewBusy] = useState(false)
@@ -709,7 +717,7 @@ export function BatchShippingReportWorkflow({ disabled }: { disabled: boolean })
   }, [axisMode, initializeFields, updateMeasuredFields])
 
   const chooseRootPath = async () => {
-    if (disabled || busy) return
+    if (disabled || busyRef.current) return
     try {
       const selected = await openDialog({ multiple: false, directory: true, title: "选择 Excel 批量根目录" })
       if (typeof selected !== "string") return
@@ -725,7 +733,7 @@ export function BatchShippingReportWorkflow({ disabled }: { disabled: boolean })
   }
 
   const chooseOutputDirectory = async () => {
-    if (disabled || busy) return
+    if (disabled || busyRef.current) return
     try {
       const selected = await openDialog({ multiple: false, directory: true, title: "选择批量 PDF 保存文件夹" })
       if (typeof selected === "string") {
@@ -754,7 +762,7 @@ export function BatchShippingReportWorkflow({ disabled }: { disabled: boolean })
 
   const scan = async () => {
     const nextRoot = rootPath.trim()
-    if (!nextRoot || busy) {
+    if (!nextRoot || busyRef.current) {
       if (!nextRoot) setError("请选择 Excel 批量根目录")
       return
     }
@@ -762,10 +770,10 @@ export function BatchShippingReportWorkflow({ disabled }: { disabled: boolean })
     setError("")
     setOutcomes({})
     setGenerationProgress({ completed: 0, total: 0 })
-    setPreviewPages([])
     setPreviewError("")
     try {
       const result = await sendBackendRequest("shippingReport.batchInspect", { rootPath: nextRoot })
+      setPreviewPages([])
       setBatch(result)
       const ready = result.items.filter((item) => item.status === "ready")
       if (!ready.length) {
@@ -970,35 +978,35 @@ export function BatchShippingReportWorkflow({ disabled }: { disabled: boolean })
   const failedCount = resultValues.filter((item) => item.status === "failed").length
   const productMismatch = (batch?.productNames.length ?? 0) > 1
 
-  return <>
+  return <div className="contents" aria-busy={busy} {...busyInteraction(() => busyRef.current)}>
     <div className="grid gap-4">
-      <Field label="Excel 批量根目录"><ControlRow actionWidth="path"><Input aria-label="Excel 批量根目录" disabled={disabled || busy} onChange={(event) => { setRootPath(event.target.value); setBatch(null); setError("") }} placeholder="递归扫描目录中的 .xlsx 文件" value={rootPath} /><Button className="shrink-0" disabled={disabled || busy} onClick={() => void chooseRootPath()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />浏览</Button></ControlRow></Field>
-      <Field label="本地 PDF 保存文件夹"><ControlRow actionWidth="path"><Input aria-label="批量 PDF 保存文件夹" disabled={disabled || busy} onChange={(event) => { setOutputDirectory(event.target.value); setError("") }} placeholder="已有同名文件时自动添加序号" value={outputDirectory} /><Button className="shrink-0" disabled={disabled || busy} onClick={() => void chooseOutputDirectory()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />选择文件夹</Button></ControlRow></Field>
+      <Field label="Excel 批量根目录"><ControlRow actionWidth="path"><Input aria-label="Excel 批量根目录" disabled={disabled} onChange={(event) => { setRootPath(event.target.value); setBatch(null); setError("") }} placeholder="递归扫描目录中的 .xlsx 文件" value={rootPath} /><Button className="shrink-0" disabled={disabled} onClick={() => void chooseRootPath()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />浏览</Button></ControlRow></Field>
+      <Field label="本地 PDF 保存文件夹"><ControlRow actionWidth="path"><Input aria-label="批量 PDF 保存文件夹" disabled={disabled} onChange={(event) => { setOutputDirectory(event.target.value); setError("") }} placeholder="已有同名文件时自动添加序号" value={outputDirectory} /><Button className="shrink-0" disabled={disabled} onClick={() => void chooseOutputDirectory()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />选择文件夹</Button></ControlRow></Field>
     </div>
-    <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4"><div className="text-xs text-muted-foreground">{error || "扫描后将按 Excel 内 SN 去重，并选择修改时间最新的测试文件。"}</div><Button disabled={disabled || busy} onClick={() => void scan()}><RefreshCw className={`size-4 ${busy && !batch ? "animate-spin" : ""}`} />{busy && !batch ? "正在扫描…" : "扫描并预检"}</Button></div>
+    <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4"><div className="text-xs text-muted-foreground">{error || "扫描后将按 Excel 内 SN 去重，并选择修改时间最新的测试文件。"}</div><Button className="w-40" aria-busy={busy && !batch} disabled={disabled} onClick={() => void scan()}><RefreshCw className={`size-4 ${busy && !batch ? "animate-spin" : ""}`} />{busy && !batch ? "正在扫描…" : "扫描并预检"}</Button></div>
     {batch && <>
       <section className="mt-6 border-t border-border pt-6">
         <div className="mb-3 flex flex-wrap items-end justify-between gap-3"><div><h2 className="text-base font-semibold">批量预检</h2><p className="mt-1 text-xs text-muted-foreground">共发现 {batch.items.length} 个 Excel；点击可生成的行可切换预览样本。</p></div><div className="flex gap-2 text-xs"><Badge variant="outline">可候选 {batch.items.filter((item) => item.status === "ready").length}</Badge><Badge variant="outline">已忽略 {batch.items.filter((item) => item.status === "ignored_duplicate").length}</Badge><Badge variant="outline">无效 {batch.items.filter((item) => item.status === "invalid").length}</Badge></div></div>
-        <div className="max-h-72 overflow-auto rounded-md border border-border"><table className="w-full min-w-[820px] border-collapse text-left text-xs"><thead className="sticky top-0 bg-muted"><tr><th className="px-3 py-2 font-medium">SN</th><th className="px-3 py-2 font-medium">Excel</th><th className="px-3 py-2 font-medium">修改时间</th><th className="px-3 py-2 font-medium">状态</th><th className="px-3 py-2 font-medium">结果</th></tr></thead><tbody>{batch.items.map((item) => { const reason = itemSkipReason(item); const outcome = outcomes[item.sourcePath]; const canPreview = item.status === "ready" && !reason; const activeRow = representative?.sourcePath === item.sourcePath; return <tr className={`border-t border-border ${canPreview ? "cursor-pointer hover:bg-muted/50" : "text-muted-foreground"} ${activeRow ? "bg-muted/60" : ""}`} key={item.sourcePath} onClick={() => canPreview && void selectRepresentative(item)}><td className="whitespace-nowrap px-3 py-2 font-medium">{item.sn || "-"}</td><td className="max-w-[360px] truncate px-3 py-2" title={item.sourcePath}>{item.sourcePath}</td><td className="whitespace-nowrap px-3 py-2">{new Date(item.modifiedAtMs).toLocaleString()}</td><td className="px-3 py-2"><span className={reason ? "text-amber-600" : "text-emerald-600"}>{reason || "可生成"}</span></td><td className="max-w-[300px] px-3 py-2">{outcome?.outputPath ? <button className="max-w-[280px] truncate text-primary underline-offset-2 hover:underline" onClick={(event) => { event.stopPropagation(); void openPath(outcome.outputPath!) }} title={outcome.outputPath}>{outcome.message}：{outcome.outputPath}</button> : outcome?.message ?? "-"}</td></tr>})}</tbody></table></div>
+        <div className="max-h-72 overflow-auto rounded-md border border-border"><table className="w-full min-w-[820px] table-fixed border-collapse text-left text-xs"><colgroup><col className="w-[18%]" /><col className="w-[28%]" /><col className="w-[20%]" /><col className="w-[14%]" /><col className="w-[20%]" /></colgroup><thead className="sticky top-0 bg-muted"><tr><th className="px-3 py-2 font-medium">SN</th><th className="px-3 py-2 font-medium">Excel</th><th className="px-3 py-2 font-medium">修改时间</th><th className="px-3 py-2 font-medium">状态</th><th className="px-3 py-2 font-medium">结果</th></tr></thead><tbody>{batch.items.map((item) => { const reason = itemSkipReason(item); const outcome = outcomes[item.sourcePath]; const canPreview = item.status === "ready" && !reason; const activeRow = representative?.sourcePath === item.sourcePath; return <tr className={`border-t border-border ${canPreview ? "cursor-pointer hover:bg-muted/50" : "text-muted-foreground"} ${activeRow ? "bg-muted/60" : ""}`} key={item.sourcePath} onClick={() => canPreview && void selectRepresentative(item)}><td className="truncate px-3 py-2 font-medium" title={item.sn}>{item.sn || "-"}</td><td className="max-w-[360px] truncate px-3 py-2" title={item.sourcePath}>{item.sourcePath}</td><td className="whitespace-nowrap px-3 py-2">{new Date(item.modifiedAtMs).toLocaleString()}</td><td className="px-3 py-2"><span className={reason ? "text-amber-600" : "text-emerald-600"}>{reason || "可生成"}</span></td><td className="max-w-[300px] px-3 py-2">{outcome?.outputPath ? <button className="max-w-[280px] truncate text-primary underline-offset-2 hover:underline" onClick={(event) => { event.stopPropagation(); void openPath(outcome.outputPath!) }} title={outcome.outputPath}>{outcome.message}：{outcome.outputPath}</button> : outcome?.message ?? "-"}</td></tr>})}</tbody></table></div>
       </section>
       {representative && <section className="mt-6 border-t border-border pt-6">
         <div className="mb-5"><h2 className="text-base font-semibold">统一报告配置</h2><p className="mt-1 max-w-3xl truncate text-xs text-muted-foreground">预览样本：{representative.sourcePath}</p></div>
         {productMismatch && <p className="mb-4 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-950">Excel 中存在多个产品名称，本次统一使用下方填写的产品名称。</p>}
         <div className={SHIPPING_REPORT_SPLIT_LAYOUT}><div className="min-w-0">
-          <div className="grid grid-cols-1 gap-4 2xl:grid-cols-3"><Field label="报告类型"><NativeSelect disabled={busy} value={reportType} onChange={(value) => void changeReportType(value as ShippingReportType)}>{reportTypes.includes("spectrum") && <option value="spectrum">含光谱测试报告</option>}<option value="pole">Pole 无光谱测试报告</option></NativeSelect></Field><Field label="报告语言"><NativeSelect disabled={busy} value={reportLanguage} onChange={(value) => setReportLanguage(value as ShippingReportLanguage)}><option value="en">English</option><option value="zh">中文</option></NativeSelect></Field><Field label="统一工作电流"><NativeSelect disabled={busy} value={Number.isFinite(operatingCurrentA) ? String(operatingCurrentA) : ""} onChange={(value) => void changeOperatingCurrent(Number(value))}><option disabled value="">请选择工作电流</option>{batch.unionCurrents.map((current) => <option key={current} value={String(current)}>{Number.isInteger(current) ? current.toFixed(0) : String(current)} A{batch.commonCurrents.includes(current) ? " · 全部共有" : ""}</option>)}</NativeSelect></Field><Field className="2xl:col-span-3" label="统一产品名称"><Input disabled={busy} value={productName} onChange={(event) => changeProductName(event.target.value)} /></Field></div>
+          <div className="grid grid-cols-1 gap-4 2xl:grid-cols-3"><Field label="报告类型"><NativeSelect disabled={disabled} value={reportType} onChange={(value) => void changeReportType(value as ShippingReportType)}>{reportTypes.includes("spectrum") && <option value="spectrum">含光谱测试报告</option>}<option value="pole">Pole 无光谱测试报告</option></NativeSelect></Field><Field label="报告语言"><NativeSelect disabled={disabled} value={reportLanguage} onChange={(value) => setReportLanguage(value as ShippingReportLanguage)}><option value="en">English</option><option value="zh">中文</option></NativeSelect></Field><Field label="统一工作电流"><NativeSelect disabled={disabled} value={Number.isFinite(operatingCurrentA) ? String(operatingCurrentA) : ""} onChange={(value) => void changeOperatingCurrent(Number(value))}><option disabled value="">请选择工作电流</option>{batch.unionCurrents.map((current) => <option key={current} value={String(current)}>{Number.isInteger(current) ? current.toFixed(0) : String(current)} A{batch.commonCurrents.includes(current) ? " · 全部共有" : ""}</option>)}</NativeSelect></Field><Field className="2xl:col-span-3" label="统一产品名称"><Input disabled={disabled} value={productName} onChange={(event) => changeProductName(event.target.value)} /></Field></div>
           <Separator className="my-5" />
-          <div><div className="mb-3 flex items-end justify-between gap-4"><div><h3 className="text-sm font-semibold">报告参数</h3><p className="mt-1 text-xs text-muted-foreground">测量参数会按每份 Excel 重新取值；手工参数统一应用。</p></div><div className="flex shrink-0 items-center gap-3"><span className="text-xs text-muted-foreground">已选 {Object.values(fields).filter((item) => item.include).length} 项</span><Button disabled={busy} onClick={addCustomField} size="sm" type="button" variant="outline"><Plus className="size-3.5" />手动增加参数</Button></div></div><div className="pr-1"><div className="shipping-report-parameters">{definitions.filter((definition) => !customFields.some((field) => field.key === definition.key)).map((definition) => { const state = fields[definition.key] ?? { include: false, value: "" }; return <div className="shipping-report-parameter-row" key={definition.key}><ShippingReportFieldSelector checked={state.include} definition={definition} disabled={busy} encircledEnergyNa={encircledEnergyNa} reportLanguage={reportLanguage} onCheckedChange={(include) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include } }))} onEncircledEnergyNaChange={setEncircledEnergyNa} /><Input aria-label={`${definition.label}数值`} className="h-8" disabled={busy || Boolean(definition.measuredKey)} value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} /><span className="text-xs text-muted-foreground">{definition.unit || "-"}</span></div>})}{customFields.map((definition) => { const state = fields[definition.key] ?? { include: true, value: "" }; return <div className="shipping-report-custom-row grid items-center gap-2 rounded-md border border-dashed border-border bg-muted/20 p-2" key={definition.key}><input checked={state.include} disabled={busy} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" /><Input className="h-8" disabled={busy} placeholder="参数名称" value={definition.label} onChange={(event) => updateCustomField(definition.key, { label: event.target.value })} /><Input className="h-8" disabled={busy} placeholder="参数值" value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} /><Input className="h-8" disabled={busy} placeholder="单位" value={definition.unit} onChange={(event) => updateCustomField(definition.key, { unit: event.target.value })} /><button aria-label={`删除${definition.label}`} disabled={busy} onClick={() => removeCustomField(definition.key)} type="button"><X className="size-4" /></button></div>})}</div></div></div>
-          {reportType === "spectrum" && <><Separator className="my-5" /><div><h3 className="text-sm font-semibold">光谱纵轴</h3><div className="mt-3 grid grid-cols-3 gap-4"><Field label="单位"><NativeSelect disabled value={axisMode} onChange={() => undefined}><option value="counts">原始强度 (counts)</option></NativeSelect></Field><NumberField disabled={busy} label="下限" value={axisMinimum} onChange={setAxisMinimum} /><NumberField disabled={busy} label="上限" value={axisMaximum} onChange={(value) => { axisMaximumEditedRef.current = true; setAxisMaximum(value) }} /></div></div><Separator className="my-5" /><div><h3 className="text-sm font-semibold">光谱横轴</h3><div className="mt-3 grid grid-cols-2 gap-4"><NumberField disabled={busy} label="下限 (nm)" value={wavelengthMinimum} onChange={setWavelengthMinimum} step="0.1" /><NumberField disabled={busy} label="上限 (nm)" value={wavelengthMaximum} onChange={setWavelengthMaximum} step="0.1" /></div></div></>}
+          <div><div className="mb-3 flex items-end justify-between gap-4"><div><h3 className="text-sm font-semibold">报告参数</h3><p className="mt-1 text-xs text-muted-foreground">测量参数会按每份 Excel 重新取值；手工参数统一应用。</p></div><div className="flex shrink-0 items-center gap-3"><span className="text-xs text-muted-foreground">已选 {Object.values(fields).filter((item) => item.include).length} 项</span><Button disabled={disabled} onClick={addCustomField} size="sm" type="button" variant="outline"><Plus className="size-3.5" />手动增加参数</Button></div></div><div className="pr-1"><div className="shipping-report-parameters">{definitions.filter((definition) => !customFields.some((field) => field.key === definition.key)).map((definition) => { const state = fields[definition.key] ?? { include: false, value: "" }; return <div className="shipping-report-parameter-row" key={definition.key}><ShippingReportFieldSelector checked={state.include} definition={definition} disabled={disabled} encircledEnergyNa={encircledEnergyNa} reportLanguage={reportLanguage} onCheckedChange={(include) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include } }))} onEncircledEnergyNaChange={setEncircledEnergyNa} /><Input aria-label={`${definition.label}数值`} className="h-8" disabled={busy || Boolean(definition.measuredKey)} value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} /><span className="text-xs text-muted-foreground">{definition.unit || "-"}</span></div>})}{customFields.map((definition) => { const state = fields[definition.key] ?? { include: true, value: "" }; return <div className="shipping-report-custom-row grid items-center gap-2 rounded-md border border-dashed border-border bg-muted/20 p-2" key={definition.key}><input checked={state.include} disabled={disabled} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, include: event.target.checked } }))} type="checkbox" /><Input className="h-8" disabled={disabled} placeholder="参数名称" value={definition.label} onChange={(event) => updateCustomField(definition.key, { label: event.target.value })} /><Input className="h-8" disabled={disabled} placeholder="参数值" value={state.value} onChange={(event) => setFields((previous) => ({ ...previous, [definition.key]: { ...state, value: event.target.value } }))} /><Input className="h-8" disabled={disabled} placeholder="单位" value={definition.unit} onChange={(event) => updateCustomField(definition.key, { unit: event.target.value })} /><button aria-label={`删除${definition.label}`} disabled={disabled} onClick={() => removeCustomField(definition.key)} type="button"><X className="size-4" /></button></div>})}</div></div></div>
+          {reportType === "spectrum" && <><Separator className="my-5" /><div><h3 className="text-sm font-semibold">光谱纵轴</h3><div className="mt-3 grid grid-cols-3 gap-4"><Field label="单位"><NativeSelect disabled value={axisMode} onChange={() => undefined}><option value="counts">原始强度 (counts)</option></NativeSelect></Field><NumberField disabled={disabled} label="下限" value={axisMinimum} onChange={setAxisMinimum} /><NumberField disabled={disabled} label="上限" value={axisMaximum} onChange={(value) => { axisMaximumEditedRef.current = true; setAxisMaximum(value) }} /></div></div><Separator className="my-5" /><div><h3 className="text-sm font-semibold">光谱横轴</h3><div className="mt-3 grid grid-cols-2 gap-4"><NumberField disabled={disabled} label="下限 (nm)" value={wavelengthMinimum} onChange={setWavelengthMinimum} step="0.1" /><NumberField disabled={disabled} label="上限 (nm)" value={wavelengthMaximum} onChange={setWavelengthMaximum} step="0.1" /></div></div></>}
         </div><aside className="min-w-0 border-t border-border pt-5 pr-1 pb-4 xl:border-l xl:border-t-0 xl:pl-6 xl:pt-0"><div className="flex items-center justify-between"><div><h3 className="text-sm font-semibold">代表文件预览</h3><p className="mt-1 text-xs text-muted-foreground">SN：{representative.sn}</p></div>{previewBusy && <LoaderCircle className="size-4 animate-spin text-muted-foreground" />}</div>{previewError && <p className="mt-4 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-950">{previewError}</p>}{previewPages.length ? <div className="mt-4 space-y-5">{previewPages.map((page, index) => <img alt={`批量出货报告代表预览，第 ${index + 1} 页`} className="w-full border border-border bg-white" key={`${index}-${page.slice(-24)}`} src={`data:image/png;base64,${page}`} />)}</div> : !previewBusy && !previewError && <div className="mt-4 grid min-h-56 place-items-center border border-dashed border-border text-xs text-muted-foreground">等待有效配置</div>}</aside></div>
-        <div className="mt-6 border-t border-border pt-4">{generationProgress.total > 0 && <div className="mb-4"><div className="mb-2 flex justify-between text-xs text-muted-foreground"><span>批量生成进度</span><span>{generationProgress.completed} / {generationProgress.total}</span></div><Progress value={generationProgress.total ? generationProgress.completed / generationProgress.total * 100 : 0} /></div>}<div className="flex flex-wrap items-center justify-between gap-3"><div className="text-xs text-muted-foreground">{resultValues.length ? `成功 ${successCount}，跳过 ${skippedCount}，失败 ${failedCount}` : `输出目录：${outputDirectory || "未选择"}`}</div><div className="flex gap-2">{resultValues.length > 0 && <Button disabled={!outputDirectory.trim()} onClick={() => void openOutputDirectory()} variant="outline"><FolderOpen className="size-4" />打开输出文件夹</Button>}<Button disabled={disabled || busy} onClick={() => void generateBatch()}>{generating ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}{generating ? "正在批量生成…" : "批量生成 PDF"}</Button></div></div></div>
+        <div className="mt-6 border-t border-border pt-4"><div className="shipping-generation-progress mb-4" style={{ visibility: generationProgress.total > 0 ? "visible" : "hidden" }} aria-hidden={generationProgress.total === 0}><div className="mb-2 flex justify-between text-xs text-muted-foreground"><span>批量生成进度</span><span>{generationProgress.completed} / {generationProgress.total}</span></div><Progress value={generationProgress.total ? generationProgress.completed / generationProgress.total * 100 : 0} /></div><div className="flex flex-wrap items-center justify-between gap-3"><div className="min-w-0 flex-1 text-xs text-muted-foreground" role="status">{resultValues.length ? `成功 ${successCount}，跳过 ${skippedCount}，失败 ${failedCount}` : `输出目录：${outputDirectory || "未选择"}`}</div><div className="flex gap-2"><Button disabled={!outputDirectory.trim()} onClick={() => void openOutputDirectory()} variant="outline"><FolderOpen className="size-4" />打开输出文件夹</Button><Button className="w-48" aria-busy={generating} disabled={disabled} onClick={() => void generateBatch()}>{generating ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}{generating ? "正在批量生成…" : "批量生成 PDF"}</Button></div></div></div>
       </section>}
     </>}
-  </>
+  </div>
 }
 
-export const ShippingReportPage = memo(function ShippingReportPage({ active, controlsLocked, pending }: { active: boolean; controlsLocked: boolean; pending: boolean }) {
+export const ShippingReportPage = memo(function ShippingReportPage({ active, controlsLocked }: { active: boolean; controlsLocked: boolean }) {
   const [mode, setMode] = useState<"single" | "batch">("single")
-  const disabled = !active || controlsLocked || pending
+  const disabled = !active || controlsLocked
   return (
     <Card className="shipping-report-page mb-6 shrink-0 shadow-none">
       <CardHeader>
@@ -1012,5 +1020,4 @@ export const ShippingReportPage = memo(function ShippingReportPage({ active, con
 }, (previous, next) => (
   previous.active === next.active
   && previous.controlsLocked === next.controlsLocked
-  && previous.pending === next.pending
 ))

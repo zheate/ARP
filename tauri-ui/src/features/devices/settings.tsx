@@ -1,3 +1,4 @@
+import { busyInteraction } from "@/components/busy-interaction"
 import { ControlRow, ControlGrid, ParameterControl } from "@/components/control-layout"
 import type { CommandName } from "@/lib/command-contract"
 import { DeviceDetectButton } from "@/components/device-detect-button"
@@ -400,13 +401,14 @@ export function formatProfileTimestamp(value: string): string {
   return Number.isNaN(date.getTime()) ? value || "时间未知" : date.toLocaleString("zh-CN", { hour12: false })
 }
 
-export function PowerMeterProfileEditor({ snapshot, config, active, pending, run, compact = false }: {
+export function PowerMeterProfileEditor({ snapshot, config, active, pending, run, compact = false, onManage }: {
   snapshot: BackendSnapshot | null
   config: AppConfiguration
   active: boolean
   pending: boolean
   run: RunCommand
   compact?: boolean
+  onManage?: () => void
 }) {
   const meter = snapshot?.devices.powerMeter
   const library = powerMeterCoefficientLibraryForResource(
@@ -446,7 +448,9 @@ export function PowerMeterProfileEditor({ snapshot, config, active, pending, run
   )
   const automaticActive = Boolean(snapshot && !["idle", "completed"].includes(snapshot.automaticTest.state))
   const pendingManualPoints = snapshot?.manualTest?.pendingCount ?? 0
-  const mutationLocked = !active || pending || busy || Boolean(meter?.detecting || meter?.running) || automaticActive || pendingManualPoints > 0
+  const unavailable = !active || Boolean(meter?.detecting || meter?.running) || automaticActive || pendingManualPoints > 0
+  const mutationLocked = unavailable || pending || busy
+  const profileCommandLock = useRef(false)
   const lockReason = !serialNumber
     ? "请先识别并选择具有探头 SN 的功率计"
     : meter?.running
@@ -483,18 +487,20 @@ export function PowerMeterProfileEditor({ snapshot, config, active, pending, run
   }
 
   const perform = async (method: Extract<CommandName, `powerMeter.profile.${string}`>, params: Record<string, unknown>) => {
-    if (mutationLocked || !driverKind || !serialNumber) return
+    if (mutationLocked || profileCommandLock.current || !driverKind || !serialNumber) return
+    profileCommandLock.current = true
     setBusy(true)
-    setError("")
     try {
       const result = await run(method, { driverKind, serialNumber, ...params }, true)
       if (!result) throw new Error("操作未执行，请等待当前设备命令完成后重试")
+      setError("")
       setDraftIntent(null)
       setDraftTarget(null)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
       throw reason
     } finally {
+      profileCommandLock.current = false
       setBusy(false)
     }
   }
@@ -556,8 +562,23 @@ export function PowerMeterProfileEditor({ snapshot, config, active, pending, run
     setDraft((current) => ({ ...current, [key]: value }))
   }
 
+  if (onManage) return <>
+    <Field className="manual-device-inline-field" label="当前方案" layout="inline">
+      <ControlRow>
+        <NativeSelect ariaLabel="手动测试系数方案" disabled={mutationLocked || !serialNumber || !library?.profiles.length} value={library?.selectedProfileId ?? ""} onChange={(value) => void selectProfile(value)}>
+          {library?.profiles.length ? library.profiles.map((profile) => {
+            const revision = profile.versions[profile.versions.length - 1]
+            return <option key={profile.id} value={profile.id}>{revision?.name ?? "未命名方案"} · v{revision?.version ?? 0}</option>
+          }) : <option value="">{serialNumber ? "暂无可用方案" : "未识别探头"}</option>}
+        </NativeSelect>
+        <Button disabled={!active || pending} onClick={onManage} variant="outline"><SlidersHorizontal className="size-3.5" />方案管理</Button>
+      </ControlRow>
+    </Field>
+    {error && <p className="text-xs text-destructive" role="alert">{error}</p>}
+  </>
+
   return (
-    <section className={`power-meter-profile ${compact ? "power-meter-profile--compact" : ""}`}>
+    <section aria-busy={busy} {...busyInteraction(() => pending || profileCommandLock.current)} className={`power-meter-profile ${compact ? "power-meter-profile--compact" : ""}`}>
       <div className="power-meter-profile__heading">
         <div>
           <p className="power-meter-profile__title">系数方案</p>
@@ -569,7 +590,7 @@ export function PowerMeterProfileEditor({ snapshot, config, active, pending, run
       {library?.profiles.length ? <Field label="当前方案">
         <NativeSelect
           ariaLabel="系数方案"
-          disabled={mutationLocked || draftIntent !== null}
+          disabled={unavailable || draftIntent !== null}
           value={library.selectedProfileId}
           onChange={(value) => void selectProfile(value)}
         >
@@ -594,27 +615,27 @@ export function PowerMeterProfileEditor({ snapshot, config, active, pending, run
           <strong>{draftIntent === "save" ? "修改当前方案" : draftIntent === "copy" ? "另存为新方案" : "新建方案"}</strong>
           <span>保存前不会改变当前测量参数</span>
         </div>
-        <Field label="方案名称"><Input disabled={mutationLocked} maxLength={60} value={draft.name} onChange={(event) => updateDraft("name", event.target.value)} /></Field>
+        <Field label="方案名称"><Input disabled={unavailable} maxLength={60} value={draft.name} onChange={(event) => updateDraft("name", event.target.value)} /></Field>
         <ControlGrid className="device-settings-field-grid">
-          <NumberField disabled={mutationLocked} label="功率系数" min={0.000001} step="0.001" value={draft.softwareGain} onChange={(value) => updateDraft("softwareGain", value)} />
-          <NumberField disabled={mutationLocked} label="校准波长 (nm)" min={0.000001} step="0.1" value={draft.wavelengthNm} onChange={(value) => updateDraft("wavelengthNm", value)} />
+          <NumberField disabled={unavailable} label="功率系数" min={0.000001} step="0.001" value={draft.softwareGain} onChange={(value) => updateDraft("softwareGain", value)} />
+          <NumberField disabled={unavailable} label="校准波长 (nm)" min={0.000001} step="0.1" value={draft.wavelengthNm} onChange={(value) => updateDraft("wavelengthNm", value)} />
         </ControlGrid>
-        <Field label="条件备注"><textarea className="power-meter-profile__textarea" disabled={mutationLocked} maxLength={300} rows={2} value={draft.notes} onChange={(event) => updateDraft("notes", event.target.value)} /></Field>
+        <Field label="条件备注"><textarea className="power-meter-profile__textarea" disabled={unavailable} maxLength={300} rows={2} value={draft.notes} onChange={(event) => updateDraft("notes", event.target.value)} /></Field>
         <ControlGrid className="device-settings-field-grid">
-          <Field label="修改人（可选）"><Input disabled={mutationLocked} maxLength={60} value={draft.operator} onChange={(event) => updateDraft("operator", event.target.value)} /></Field>
-          <Field label="修改原因（可选）"><Input disabled={mutationLocked} maxLength={120} value={draft.reason} onChange={(event) => updateDraft("reason", event.target.value)} /></Field>
+          <Field label="修改人（可选）"><Input disabled={unavailable} maxLength={60} value={draft.operator} onChange={(event) => updateDraft("operator", event.target.value)} /></Field>
+          <Field label="修改原因（可选）"><Input disabled={unavailable} maxLength={120} value={draft.reason} onChange={(event) => updateDraft("reason", event.target.value)} /></Field>
         </ControlGrid>
         <div className="power-meter-profile__draft-actions">
-          <Button disabled={busy} onClick={() => { setDraftIntent(null); setDraftTarget(null); setError("") }} size="sm" variant="outline">取消</Button>
-          <Button disabled={mutationLocked} onClick={() => void saveDraft()} size="sm"><Save className="size-3.5" />{busy ? "保存中…" : "保存方案"}</Button>
+          <Button aria-disabled={busy} onClick={() => { setDraftIntent(null); setDraftTarget(null); setError("") }} size="sm" variant="outline">取消</Button>
+          <Button className="w-28" aria-busy={busy} disabled={unavailable} onClick={() => void saveDraft()} size="sm"><Save className="size-3.5" />{busy ? "保存中…" : "保存方案"}</Button>
         </div>
         {draftStale && <p className="power-meter-profile__message is-warning">此方案在草稿打开后已有新版本。草稿仍保留，保存时会由后端阻止覆盖；建议取消后查看最新版本。</p>}
       </div>}
 
       {!draftIntent && <div className="power-meter-profile__actions">
-        <Button disabled={mutationLocked || !serialNumber} onClick={() => beginDraft("new")} size="sm" variant="outline"><Plus className="size-3.5" />新建</Button>
-        <Button disabled={mutationLocked || !selectedRevision} onClick={() => beginDraft("copy")} size="sm" variant="outline">另存为</Button>
-        <Button disabled={mutationLocked || !selectedRevision} onClick={() => beginDraft("save")} size="sm" variant="outline">保存修改</Button>
+        <Button disabled={unavailable || !serialNumber} onClick={() => beginDraft("new")} size="sm" variant="outline"><Plus className="size-3.5" />新建</Button>
+        <Button disabled={unavailable || !selectedRevision} onClick={() => beginDraft("copy")} size="sm" variant="outline">另存为</Button>
+        <Button disabled={unavailable || !selectedRevision} onClick={() => beginDraft("save")} size="sm" variant="outline">保存修改</Button>
         <Button disabled={!selectedProfile} onClick={() => setHistoryOpen((current) => !current)} size="sm" variant="outline">{historyOpen ? "收起历史" : "查看历史"}</Button>
       </div>}
 
@@ -627,7 +648,7 @@ export function PowerMeterProfileEditor({ snapshot, config, active, pending, run
             </div>
             <p>× {formatTrimmedNumber(revision.softwareGain, 6)} · {revision.wavelengthNm == null ? "波长待补充" : `${formatTrimmedNumber(revision.wavelengthNm, 3)} nm`}</p>
             {(revision.operator || revision.reason) && <p>{[revision.operator && `修改人：${revision.operator}`, revision.reason && `原因：${revision.reason}`].filter(Boolean).join(" · ")}</p>}
-            <Button disabled={mutationLocked || index === 0} onClick={() => void restoreRevision(revision)} size="sm" variant="ghost"><RotateCcw className="size-3.5" />{index === 0 ? "当前版本" : "恢复此版本"}</Button>
+            <Button disabled={unavailable || index === 0} onClick={() => void restoreRevision(revision)} size="sm" variant="ghost"><RotateCcw className="size-3.5" />{index === 0 ? "当前版本" : "恢复此版本"}</Button>
           </article>
         ))}
       </div>}
@@ -683,9 +704,10 @@ export function PowerMeterSettingsForm({ snapshot, config, update, active, pendi
   )
 }
 
-export function SpectrometerSettingsForm({ snapshot, config, update, active, pending, run, mode = "auto" }: {
+export function SpectrometerSettingsForm({ snapshot, config, update, active, pending, run, mode = "auto", compact = false }: {
   snapshot: BackendSnapshot | null; config: AppConfiguration; update: UpdateConfig; active: boolean; pending: boolean; run: RunCommand
   mode?: "auto" | "manual"
+  compact?: boolean
 }) {
   const spectrum = snapshot?.devices.spectrometer
   const resources = spectrum?.resources ?? []
@@ -700,7 +722,7 @@ export function SpectrometerSettingsForm({ snapshot, config, update, active, pen
         : "光谱数据不可用"
   return (
     <div className="device-settings-form">
-      <Field label="设备资源">
+      <Field className={compact ? "manual-device-inline-field" : undefined} label="设备资源" layout={compact ? "inline" : "stacked"}>
         <ControlRow>
           <NativeSelect disabled={!active || pending || spectrum?.detecting || spectrum?.running} value={displayedResource} onChange={(v) => update("spectrometerResource", v)}>
             <option value="">{defaultSpectrometerResourceLabel}</option>
@@ -805,7 +827,7 @@ export function DeviceSettingsDialog({ kind, open, onClose, onSave, onScriptSele
             </div>
             <button aria-label="关闭设置弹窗" className="device-settings-dialog__close" onClick={onClose} ref={closeButtonRef} type="button"><X className="size-[18px]" /></button>
           </div>
-          <div className="device-settings-dialog__body">
+          <div className="device-settings-dialog__body" {...busyInteraction(() => commandLockRef.current || pending || saving || Boolean(snapshot?.devices[kind]?.detecting))}>
             {kind === "powerSupply" && <PowerSupplySettingsForm active={active} config={config} mode={mode} onScriptSelect={onScriptSelect} pending={false} run={runDialogCommand} snapshot={snapshot} update={update} />}
             {kind === "powerMeter" && <PowerMeterSettingsForm active={active} config={config} mode={mode} pending={false} run={runDialogCommand} snapshot={snapshot} update={update} />}
             {kind === "spectrometer" && <SpectrometerSettingsForm active={active} config={config} mode={mode} pending={false} run={runDialogCommand} snapshot={snapshot} update={update} />}
@@ -1008,7 +1030,6 @@ export function AutomaticSpecificationsDialog({ config, update, active, pending,
   const handleSave = async () => {
     if (saveLockRef.current || pending || !active) return
     saveLockRef.current = true
-    setError("")
     setSaving(true)
     try {
       if (!Number.isFinite(draft.pibHalfRangeNm) || draft.pibHalfRangeNm <= 0) {
@@ -1036,7 +1057,7 @@ export function AutomaticSpecificationsDialog({ config, update, active, pending,
   return (
     <DialogPortal>
       <div className="dialog-overlay motion-overlay-enter" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) onClose() }}>
-        <div aria-labelledby="automatic-specifications-title" aria-modal="true" className={`device-settings-dialog automatic-specification-dialog motion-dialog-enter${editScript ? " test-configuration-dialog" : ""}`} ref={dialogRef} role="dialog">
+        <div {...busyInteraction(() => saveLockRef.current)} aria-busy={saving} aria-labelledby="automatic-specifications-title" aria-modal="true" className={`device-settings-dialog automatic-specification-dialog motion-dialog-enter${editScript ? " test-configuration-dialog" : ""}`} ref={dialogRef} role="dialog">
           <div className="device-settings-dialog__header">
             <div className="device-settings-dialog__identity">
               <div className="device-settings-dialog__icon"><Settings className="size-5" /></div>
@@ -1045,11 +1066,11 @@ export function AutomaticSpecificationsDialog({ config, update, active, pending,
                 <p className="device-settings-dialog__description">{editScript ? "编辑测试脚本参数与测试规格，保存后应用于当前测试配置" : "配置自动测试指标的判定范围，保存后应用于当前工位"}</p>
               </div>
             </div>
-            <button aria-label="关闭设置弹窗" className="device-settings-dialog__close" disabled={saving} onClick={onClose} ref={closeButtonRef} type="button"><X className="size-[18px]" /></button>
+            <button aria-label="关闭设置弹窗" className="device-settings-dialog__close" aria-disabled={saving} onClick={onClose} ref={closeButtonRef} type="button"><X className="size-[18px]" /></button>
           </div>
           <div className="device-settings-dialog__body">
-            <fieldset className={editScript ? "test-configuration-layout" : "min-w-0"} disabled={saving}>
-              {editScript && <TestScriptSettingsForm active={active} config={draft} pending={pending || saving} snapshot={snapshot} update={updateDraft} />}
+            <fieldset {...busyInteraction(pending)} disabled={!active} className={editScript ? "test-configuration-layout" : "min-w-0"} aria-disabled={saving}>
+              {editScript && <TestScriptSettingsForm active={active} config={draft} pending={false} snapshot={snapshot} update={updateDraft} />}
               <div className={`automatic-specification-form${editScript ? " power-settings-section" : ""}`}>
                 <div className="automatic-specification-form__intro">
                   <div>
@@ -1072,8 +1093,8 @@ export function AutomaticSpecificationsDialog({ config, update, active, pending,
           <div className="device-settings-dialog__footer">
             <p className="device-settings-dialog__hint">{editScript ? "脚本参数和测试规格统一保存到当前测试配置" : "规格保存到当前工位配置"}</p>
             <div className="device-settings-dialog__actions">
-              <Button className="device-settings-dialog__cancel" disabled={saving} onClick={onClose} variant="outline">取消</Button>
-              <Button aria-busy={saving} className="device-settings-dialog__save" disabled={!active || pending || saving} onClick={() => void handleSave()}>{saving ? "保存中…" : editScript ? "保存设置" : "保存规格"}</Button>
+              <Button className="device-settings-dialog__cancel" aria-disabled={saving} onClick={onClose} variant="outline">取消</Button>
+              <Button aria-busy={saving} className="device-settings-dialog__save" disabled={!active} aria-disabled={pending || saving || !active} onClick={() => void handleSave()}>{saving ? "保存中…" : editScript ? "保存设置" : "保存规格"}</Button>
             </div>
           </div>
         </div>

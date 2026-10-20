@@ -1,3 +1,4 @@
+import { busyInteraction } from "@/components/busy-interaction"
 import { NativeSelect } from "@/components/native-select"
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
@@ -408,7 +409,6 @@ export const DataBrowserPage = memo(function DataBrowserPage({
       return
     }
     setListBusy(true)
-    setListError("")
     const timer = window.setTimeout(() => {
       void (async () => {
         try {
@@ -481,6 +481,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
           scanStamp.current = stamp
           for (const record of result.records)
             recordRegistry.current.set(record.id, record)
+          setListError("")
           setListing(result)
           setPage(result.page)
           if (demoComparisonPending.current && result.records.length >= 2) {
@@ -672,6 +673,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
     setImportWarnings([])
   }
   function applyDirectory(value: string) {
+    if (!enabled || listBusy || importLock.current) return
     const next = value.trim()
     if (!next) {
       setListError("请输入或选择数据目录")
@@ -701,11 +703,9 @@ export const DataBrowserPage = memo(function DataBrowserPage({
     }
   }
   async function importRecords() {
-    if (importLock.current || !enabled || !root) return
+    if (importLock.current || listBusy || !enabled || !root) return
     importLock.current = true
     setImportBusy(true)
-    setNotice("")
-    setImportWarnings([])
     try {
       const result = await sendBackendRequest("dataBrowser.import", { rootPath: root })
       resetSelection()
@@ -1071,8 +1071,8 @@ export const DataBrowserPage = memo(function DataBrowserPage({
           <Button
             variant="outline"
             size="sm"
-            disabled={!enabled || listBusy || importBusy}
-            onClick={() => setRefresh((value) => value + 1)}
+            disabled={!enabled} aria-disabled={!enabled || listBusy || importBusy}
+            onClick={() => { if (!listBusy && !importLock.current) setRefresh((value) => value + 1) }}
           >
             <RefreshCw size={15} className={listBusy ? "animate-spin" : ""} />
             刷新
@@ -1164,7 +1164,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
           )}
         </div>
         {sourceOpen && (
-          <div id="db-source-options" className="db-source-options">
+          <div {...busyInteraction(() => importLock.current)} aria-busy={importBusy} id="db-source-options" className="db-source-options">
             <div className="db-filter-row">
               <div
                 className="db-view-switch"
@@ -1173,7 +1173,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
               >
                 <button
                   aria-pressed={source === "database"}
-                  disabled={importBusy || !enabled}
+                  disabled={!enabled}
                   onClick={() => changeSource("database")}
                 >
                   <Database size={15} />
@@ -1181,7 +1181,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                 </button>
                 <button
                   aria-pressed={source === "excel"}
-                  disabled={importBusy || !enabled}
+                  disabled={!enabled}
                   onClick={() => changeSource("excel")}
                 >
                   <FolderOpen size={15} />
@@ -1237,7 +1237,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                 <input
                   aria-label="数据目录"
                   value={directoryDraft}
-                  disabled={!enabled || importBusy}
+                  disabled={!enabled}
                   onChange={(event) => setDirectoryDraft(event.target.value)}
                   placeholder="测试 Excel 所在目录"
                 />
@@ -1245,7 +1245,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={!enabled || importBusy}
+                  disabled={!enabled}
                   onClick={() => void chooseDirectory()}
                 >
                   选择目录
@@ -1254,7 +1254,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                   type="submit"
                   variant="outline"
                   size="sm"
-                  disabled={!enabled || listBusy || importBusy}
+                  disabled={!enabled} aria-disabled={!enabled || listBusy || importBusy}
                 >
                   读取目录
                 </Button>
@@ -1262,7 +1262,8 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={!enabled || !root || importBusy || listBusy}
+                  className="w-36 shrink-0" aria-busy={importBusy}
+                  disabled={!enabled || !root} aria-disabled={importBusy || listBusy || !enabled || !root}
                   onClick={() => void importRecords()}
                 >
                   {importBusy ? "正在导入…" : "导入已完成测试"}
@@ -1321,7 +1322,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
           <div className="db-list-heading">
             <div className="db-panel-title">
               测试记录 <span className="db-count">{listing?.total ?? 0}</span>
-              <span className="db-panel-meta">
+              <span className="db-panel-meta" style={{ minWidth: "5em" }} role="status">
                 {listBusy ? "读取中…" : "按时间倒序"}
               </span>
             </div>
@@ -1407,8 +1408,8 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                 aria-label="上一页"
                 variant="ghost"
                 size="sm"
-                disabled={listBusy || !enabled || page <= 1}
-                onClick={() => setPage((value) => value - 1)}
+                disabled={!enabled || page <= 1} aria-disabled={listBusy || !enabled || page <= 1}
+                onClick={() => { if (!listBusy) setPage((value) => value - 1) }}
               >
                 <ChevronLeft size={16} />
               </Button>
@@ -1417,9 +1418,9 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                 variant="ghost"
                 size="sm"
                 disabled={
-                  listBusy || !enabled || page >= (listing?.pageCount ?? 1)
+                  !enabled || page >= (listing?.pageCount ?? 1)
                 }
-                onClick={() => setPage((value) => value + 1)}
+                aria-disabled={listBusy || !enabled || page >= (listing?.pageCount ?? 1)} onClick={() => { if (!listBusy) setPage((value) => value + 1) }}
               >
                 <ChevronRight size={16} />
               </Button>
@@ -1454,7 +1455,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
             <div className="db-actions">
               {!comparing && history.records.length > 1 && <Button size="sm" variant="ghost" aria-pressed={historyMode}
                 onClick={() => setHistorySn(currentRecord!.sn)}>履历 · {history.records.length} 次测试</Button>}
-              {!comparing && history.busy && <span className="db-help">履历查询中…</span>}
+              {!comparing && !history.records.length && history.busy && <span className="db-help">履历查询中…</span>}
               {comparing ? (
                 <Button
                   size="sm"
@@ -1503,7 +1504,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                   <summary>更多</summary>
                   <div>
                     <button
-                      disabled={fileBusy || !currentRecord.sourcePath}
+                      disabled={!currentRecord.sourcePath} aria-disabled={fileBusy || !currentRecord.sourcePath}
                       onClick={(event) => {
                         event.currentTarget
                           .closest("details")
@@ -1514,7 +1515,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                       打开原始 Excel
                     </button>
                     <button
-                      disabled={fileBusy || !currentRecord.sourcePath}
+                      disabled={!currentRecord.sourcePath} aria-disabled={fileBusy || !currentRecord.sourcePath}
                       onClick={(event) => {
                         event.currentTarget
                           .closest("details")
@@ -1556,7 +1557,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
             aria-busy={busy}
           >
             {historyMode ? (
-              !visible || !enabled ? <div className="db-empty">数据浏览当前不可用</div> : history.busy ? <div className="db-empty">正在查询同 SN 测试摘要…</div> : history.error ? <div role="alert" className="db-notice">{history.error}</div> :
+              !visible || !enabled ? <div className="db-empty">数据浏览当前不可用</div> : history.busy && !history.records.length ? <div className="db-empty">正在查询同 SN 测试摘要…</div> : history.error ? <div role="alert" className="db-notice">{history.error}</div> :
               <ProductHistory key={historySn} records={history.records} load={loadDetail}
                 onBack={() => setHistorySn(null)} onView={viewRecord} chosen={compareRecordIds} onToggle={toggleCompare}
                 onCompare={() => { setHistorySn(null); setComparing(true); setTab("info"); setCurveView("metrics") }} />
@@ -1568,7 +1569,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={() => setRefresh((value) => value + 1)}
+                  onClick={() => { if (!listBusy && !importLock.current) setRefresh((value) => value + 1) }}
                 >
                   重试
                 </Button>
@@ -2208,7 +2209,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={fileBusy || !item.record.sourcePath}
+                          disabled={!item.record.sourcePath} aria-disabled={fileBusy || !item.record.sourcePath}
                           onClick={() => void fileAction(item.record, false)}
                         >
                           打开原始 Excel
@@ -2216,7 +2217,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
                         <Button
                           size="sm"
                           variant="ghost"
-                          disabled={fileBusy || !item.record.sourcePath}
+                          disabled={!item.record.sourcePath} aria-disabled={fileBusy || !item.record.sourcePath}
                           onClick={() => void fileAction(item.record, true)}
                         >
                           在文件夹中显示

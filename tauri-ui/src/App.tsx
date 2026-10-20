@@ -3,6 +3,7 @@ import { isModalOpen } from "@/components/dialog-portal"
 import { ActivationView } from "@/components/license/ActivationView"
 import { AnimatedToastStack, type ToastStatus } from "@/components/motion/animated-toast-stack"
 import { Button } from "@/components/ui/button"
+import { PowerCouplingView } from "@/components/power-coupling-view"
 import { AutomaticCompletionDialog, AutomaticPauseDialog, PowerProtectionDialog, ShutdownFailureDialog } from "@/features/automatic/lifecycle-dialogs"
 import { AutomaticPage } from "@/features/automatic/page"
 import { BUILTIN_TEST_SCRIPT_OPTIONS, configurationPayload } from "@/features/configuration/model"
@@ -14,6 +15,7 @@ import { RunCommand } from "@/features/shared/controls"
 import { AppearanceProvider } from "@/hooks/use-appearance"
 import { useBackendSnapshot } from "@/hooks/use-backend-snapshot"
 import { useConfigurationEditor } from "@/hooks/use-configuration-editor"
+import { usePowerCouplingMode } from "@/hooks/use-power-coupling-mode"
 import { ACCENT_THEMES, normalizeLatestPointMarkerStyle, type AccentTheme, type CurveLineStyle, type LatestPointMarkerStyle, type Theme } from "@/lib/appearance"
 import { automaticPauseCommand } from "@/lib/automatic-pause"
 import { sendBackendRequest, type AutomaticPauseAction, type SnapshotView } from "@/lib/backend"
@@ -29,6 +31,7 @@ import {
   FileText,
   Hand,
   LoaderCircle,
+  Maximize2,
   OctagonAlert,
   Pause,
   Settings,
@@ -185,11 +188,12 @@ function pendingCommandLabel(method: string | null): string {
   return "正在处理操作"
 }
 
-const TitlebarActions = memo(function TitlebarActions({ active, canPause, commandPending, run }: Pick<ComponentProps<typeof AppTitlebar>, "active" | "canPause" | "commandPending" | "run">) {
+const TitlebarActions = memo(function TitlebarActions({ active, canPause, commandPending, run, coupling }: Pick<ComponentProps<typeof AppTitlebar>, "active" | "canPause" | "commandPending" | "run" | "coupling">) {
   return (
     <div className="app-titlebar__actions">
+        {coupling && <Button aria-disabled={commandPending || !coupling.available || coupling.busy} disabled={!coupling.available || coupling.busy} onClick={() => { if (!commandPending) coupling.enter() }} size="sm" title={coupling.available ? "全屏显示功率数字和曲线，按 Esc 退出" : "请先开始当前页面的功率采集"} variant="outline"><Maximize2 className="size-4" />功率耦合</Button>}
         {canPause && (
-          <Button disabled={!active || commandPending} onClick={() => void run("automatic.pause")} size="sm" variant="outline">
+          <Button aria-disabled={!active || commandPending} disabled={!active} onClick={() => { if (!commandPending) void run("automatic.pause") }} size="sm" variant="outline">
             <Pause className="size-4" />暂停测试
           </Button>
         )}
@@ -214,6 +218,7 @@ function AppTitlebar({
   commandPending,
   pendingCommand,
   run,
+  coupling,
 }: {
   automaticControls?: ReactNode
   manualControls?: ReactNode
@@ -222,28 +227,29 @@ function AppTitlebar({
   commandPending: boolean
   pendingCommand: string | null
   run: RunCommand
+  coupling?: { available: boolean; busy: boolean; enter: () => void }
 }) {
+  const showPending = commandPending && !(manualControls && (pendingCommand === "powerSupply.setCurrent" || pendingCommand === "app.configure"))
   return (
     <header className="app-titlebar" data-automatic-controls={Boolean(automaticControls)} data-manual-controls={Boolean(manualControls)} data-tauri-drag-region>
       <div className="app-titlebar__brand" data-tauri-drag-region>
         <span data-tauri-drag-region>Power Test</span>
-        {commandPending && (
-          <span className="app-titlebar__pending">
-            <LoaderCircle className="size-3.5 animate-spin text-primary" />
-            {pendingCommandLabel(pendingCommand)}
-          </span>
-        )}
+        <span aria-hidden={!showPending} className="app-titlebar__pending" style={{ visibility: showPending ? "visible" : "hidden" }}>
+          <LoaderCircle className="size-3.5 animate-spin text-primary" />
+          {pendingCommandLabel(pendingCommand)}
+        </span>
       </div>
       {automaticControls}
       {manualControls}
-      <TitlebarActions active={active} canPause={canPause} commandPending={commandPending} run={run} />
+      <TitlebarActions active={active} canPause={canPause} commandPending={commandPending} run={run} coupling={coupling} />
     </header>
   )
 }
 
-const NavigationSidebar = memo(function NavigationSidebar({ page, pageIsBlocked, pageBlockedReason, changePage }: {
+const NavigationSidebar = memo(function NavigationSidebar({ page, manualLocked, pageIsBlocked, pageBlockedReason, changePage }: {
   page: Page
-  pageIsBlocked: (page: Page) => boolean
+  manualLocked: boolean
+  pageIsBlocked: (page: Page, includePending?: boolean) => boolean
   pageBlockedReason: (page: Page) => string
   changePage: (page: Page) => void
 }) {
@@ -253,9 +259,10 @@ const NavigationSidebar = memo(function NavigationSidebar({ page, pageIsBlocked,
             {navigation.map((item) => (
               <button
                 aria-current={page === item.id ? "page" : undefined}
+                aria-disabled={"unavailable" in item || pageIsBlocked(item.id)}
                 aria-keyshortcuts={"shortcut" in item ? `Meta+${item.shortcut} Control+${item.shortcut}` : undefined}
                 className={`app-nav-item relative flex w-full items-center gap-3 rounded-lg px-3 py-3 text-[15px] outline-none transition-[color,background-color,box-shadow] duration-200 before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:origin-center before:rounded-full before:bg-primary before:transition-transform before:duration-200 focus-visible:ring-2 focus-visible:ring-ring/25 disabled:cursor-not-allowed disabled:text-[var(--app-text-tertiary)] ${page === item.id ? "bg-[var(--app-selected-soft)] font-medium text-[var(--app-text)] before:scale-y-100" : "text-[var(--app-text-tertiary)] before:scale-y-0 hover:bg-[var(--app-hover-soft)] hover:text-[var(--app-text-secondary)] disabled:hover:bg-transparent"}`}
-                disabled={"unavailable" in item || pageIsBlocked(item.id)}
+                disabled={"unavailable" in item || pageIsBlocked(item.id, false)}
                 key={item.id}
                 onClick={() => { if (!("unavailable" in item)) changePage(item.id) }}
                 onPointerEnter={() => { if (!pageIsBlocked(item.id)) preloadPage(item.id) }}
@@ -268,6 +275,9 @@ const NavigationSidebar = memo(function NavigationSidebar({ page, pageIsBlocked,
                 type="button"
               >
                 <item.icon className="app-nav-icon size-5 shrink-0" /><span className="whitespace-nowrap font-medium">{item.label}</span>
+                {item.id === "manual" && manualLocked ? (
+                  <span aria-label="手动加电已锁定" className="ml-auto size-2 shrink-0 rounded-full bg-[var(--app-success)]" role="img" title="手动加电已锁定" />
+                ) : null}
               </button>
             ))}
           </nav>
@@ -312,7 +322,6 @@ function LicensedApp({
     }
     closeRequestInFlightRef.current = true
     setCloseRequestPending(true)
-    setCloseFailure(null)
     let shutdownConfirmed = false
     try {
       const result = await sendBackendRequest("app.shutdown", {})
@@ -352,10 +361,15 @@ function LicensedApp({
   }, [licenseStatus.valid, currentConfiguration, waitForSave])
 
   const forceClose = useCallback(async () => {
+    if (closeRequestInFlightRef.current) return
+    closeRequestInFlightRef.current = true
+    setCloseRequestPending(true)
     try {
       await invoke("bridge_force_disconnect")
     } finally {
       await getCurrentWindow().destroy().catch(() => undefined)
+      closeRequestInFlightRef.current = false
+      setCloseRequestPending(false)
     }
   }, [])
 
@@ -419,7 +433,7 @@ function LicensedApp({
     }
   }, [latestPointMarkerStyle])
 
-  const pageIsBlocked = useCallback((targetPage: Page): boolean => {
+  const pageIsBlocked = useCallback((targetPage: Page, includePending = true): boolean => {
     if (targetPage === "settings") return false
     if (!licenseStatus.valid) return true
     // The data browser stays reachable while a run is active: the page keeps
@@ -429,7 +443,7 @@ function LicensedApp({
     if (targetPage === "pd") return false
     if (targetPage === "automatic" || targetPage === "manual") {
       if (targetPage === page) return false
-      return commandPending || (targetPage === "automatic" ? automaticPageBlocked : manualPageBlocked)
+      return (includePending && commandPending) || (targetPage === "automatic" ? automaticPageBlocked : manualPageBlocked)
     }
     return automaticInteractionLocked
   }, [automaticInteractionLocked, licenseStatus.valid, commandPending, automaticPageBlocked, manualPageBlocked, page])
@@ -606,7 +620,7 @@ function LicensedApp({
   }, [run, currentConfiguration, acceptConfiguration])
 
   const runAutomaticPauseAction = useCallback((action: AutomaticPauseAction, params: Record<string, unknown> = {}) => {
-    void run(automaticPauseCommand(action), params)
+    return run(automaticPauseCommand(action), params)
   }, [run])
 
   const visibleNotifications = notifications.filter((notification) => !dismissedNotifications.has(notification.key))
@@ -618,9 +632,18 @@ function LicensedApp({
   )
   const activeAlertNotification = powerProtectionNotification
   const toastNotifications = visibleNotifications.filter((notification) => notification !== powerProtectionNotification && notification !== spectrumSaturationNotification)
+  const coupling = usePowerCouplingMode(
+    (message) => notify({ title: "功率耦合全屏切换失败", message }),
+    Boolean(activeAlertNotification || closeFailure || automaticCompletion || snapshot?.automaticTest.state === "paused" || !licenseStatus.valid || error),
+  )
   return (
     <div className="app-shell flex h-screen flex-col overflow-hidden bg-background text-foreground" data-native={TAURI_RUNTIME_AVAILABLE}>
       <AppTitlebar
+        coupling={page === "manual" || page === "automatic" ? {
+          available: operational && snapshot?.devices.powerMeter.running === true && !(page === "manual" ? manualPageBlocked : automaticPageBlocked),
+          busy: coupling.busy,
+          enter: coupling.enter,
+        } : undefined}
         automaticControls={page === "automatic" ? <div className="automatic-titlebar-controls" ref={setAutomaticToolbarHost} /> : undefined}
         manualControls={page === "manual" ? <ManualSampleControls config={config} update={update} active={operational} controlsAllowed={snapshot?.safety.manualControlsAllowed === true} pending={commandPending} pendingPointCount={snapshot?.manualTest?.pendingCount ?? 0} run={run} /> : undefined}
         active={active}
@@ -644,7 +667,7 @@ function LicensedApp({
         </div>
       )}
       <div className="app-shell__body grid min-h-0 flex-1 overflow-hidden">
-        <NavigationSidebar page={page} pageIsBlocked={pageIsBlocked} pageBlockedReason={pageBlockedReason} changePage={changePage} />
+        <NavigationSidebar page={page} manualLocked={snapshot?.safety.workflowOwner === "manual" && automaticPageBlocked} pageIsBlocked={pageIsBlocked} pageBlockedReason={pageBlockedReason} changePage={changePage} />
 
         <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           {toastNotifications.length > 0 && (
@@ -675,10 +698,10 @@ function LicensedApp({
               exportStatus={snapshot?.automaticTest.exportStatus}
               journalPath={snapshot?.automaticTest.journalPath}
               message={automaticCompletion.message}
-              onChooseExportDirectory={() => void chooseAutomaticExportDirectory()}
+              onChooseExportDirectory={chooseAutomaticExportDirectory}
               onClose={() => setAutomaticCompletion(null)}
-              onNextDevice={() => void prepareNextDevice()}
-              onRetryExport={() => void retryAutomaticExport()}
+              onNextDevice={prepareNextDevice}
+              onRetryExport={retryAutomaticExport}
               outcome={snapshot?.automaticTest.terminalOutcome}
               sn={config.sn}
               shutdown={snapshot?.safety.shutdown}
@@ -686,7 +709,7 @@ function LicensedApp({
               totalPoints={snapshot?.automaticTest.currents?.length}
             />
           )}
-          {closeFailure && <ShutdownFailureDialog message={closeFailure.message} shutdownConfirmed={closeFailure.shutdownConfirmed} onCancel={cancelClose} onForceExit={() => void forceClose()} onRetry={() => void attemptGracefulClose()} pending={closeRequestPending} />}
+          {closeFailure && <ShutdownFailureDialog message={closeFailure.message} shutdownConfirmed={closeFailure.shutdownConfirmed} onCancel={cancelClose} onForceExit={forceClose} onRetry={attemptGracefulClose} pending={closeRequestPending} />}
 
           <div
             className={`page-enter flex flex-1 min-h-0 flex-col overflow-y-auto ${page === "automatic" ? "gap-2 px-3 py-0" : page === "manual" ? "gap-3 p-4" : "space-y-4 p-4"}`}
@@ -694,10 +717,10 @@ function LicensedApp({
             data-page={page}
             key={page}
           >
-            {page === "automatic" && <AutomaticPage toolbarHost={automaticToolbarHost} snapshot={snapshotForWorkflow(snapshot, "automatic")} config={config} update={update} active={operational} dirty={dirty} controlsLocked={automaticInteractionLocked || automaticPageBlocked || !licenseStatus.valid} curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} pending={commandPending} run={run} saveConfiguration={saveConfiguration} testScripts={snapshot?.testScripts ?? BUILTIN_TEST_SCRIPT_OPTIONS} onScriptSelect={selectTestScript} onCreateScript={createTestScript} onDeleteScript={deleteTestScript} onNextDevice={() => void prepareNextDevice()} onViewData={() => changePage("data")} onRetryExport={() => void retryAutomaticExport()} onChooseExportDirectory={() => void chooseAutomaticExportDirectory()} onShowCompletion={() => { const auto = snapshot?.automaticTest; if (auto?.terminalOutcome) setAutomaticCompletion({ title: automaticTerminalTitle(auto.terminalOutcome), message: auto.detail }) }} onNotify={notify} />}
+            {page === "automatic" && <AutomaticPage toolbarHost={automaticToolbarHost} snapshot={snapshotForWorkflow(snapshot, "automatic")} config={config} update={update} active={operational} dirty={dirty} controlsLocked={automaticInteractionLocked || automaticPageBlocked || !licenseStatus.valid} curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} pending={commandPending} run={run} saveConfiguration={saveConfiguration} testScripts={snapshot?.testScripts ?? BUILTIN_TEST_SCRIPT_OPTIONS} onScriptSelect={selectTestScript} onCreateScript={createTestScript} onDeleteScript={deleteTestScript} onNextDevice={prepareNextDevice} onViewData={() => changePage("data")} onRetryExport={retryAutomaticExport} onChooseExportDirectory={chooseAutomaticExportDirectory} onShowCompletion={() => { const auto = snapshot?.automaticTest; if (auto?.terminalOutcome) setAutomaticCompletion({ title: automaticTerminalTitle(auto.terminalOutcome), message: auto.detail }) }} onNotify={notify} />}
             {page === "manual" && <ManualPage curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} snapshot={snapshotForWorkflow(snapshot, "manual")} config={config} update={update} active={operational && !manualPageBlocked} pending={commandPending} run={run} saveConfiguration={saveConfiguration} onNotify={notify} />}
             {page === "pd" && <PdPage snapshot={snapshot} active={operational} pending={commandPending} run={run} />}
-            {page === "shipping" && <ShippingReportPage active={operational} controlsLocked={automaticInteractionLocked || !licenseStatus.valid} pending={commandPending} />}
+            {page === "shipping" && <ShippingReportPage active={operational} controlsLocked={automaticInteractionLocked || !licenseStatus.valid} />}
             {page === "settings" && <SystemSettingsPage curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} licenseStatus={licenseStatus} onCurveLineStyleChange={setCurveLineStyle} onImportLicense={onImportLicense} onLatestPointMarkerStyleChange={setLatestPointMarkerStyle} theme={theme} onThemeChange={setTheme} accentTheme={accentTheme} onAccentThemeChange={setAccentTheme} />}
           </div>
           <div className="db-page-host min-h-0 flex-1" style={{ display: page === "data" ? "flex" : "none", flexDirection: "column" }}>
@@ -714,6 +737,7 @@ function LicensedApp({
           </div>
         </main>
       </div>
+      {coupling.open && <PowerCouplingView snapshot={snapshot} curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} />}
     </div>
   )
 }

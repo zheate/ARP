@@ -12,7 +12,7 @@ import { normalizeNumericInput, stepNumericValue } from "@/lib/number-input"
 import { powerMeterResourceValue } from "@/lib/power-meter-resource"
 import { formatSpectrumNumber } from "@/lib/spectrum-annotations"
 import { cn } from "@/lib/utils"
-import { Play, Square } from "lucide-react"
+import { LoaderCircle, Play, Square } from "lucide-react"
 import { useEffect, useState, type ReactNode } from "react"
 
 
@@ -77,6 +77,7 @@ export function AutomaticTestControlCard({
   config,
   controlsLocked,
   pending,
+  actionPending = null,
   shutdown,
   onStart,
   onStop,
@@ -86,6 +87,7 @@ export function AutomaticTestControlCard({
   config: Pick<AppConfiguration, "sn" | "outputDir">
   controlsLocked: boolean
   pending: boolean
+  actionPending?: "start" | "stop" | null
   shutdown?: BackendSnapshot["safety"]["shutdown"]
   onStart: () => void
   onStop: () => void
@@ -114,20 +116,24 @@ export function AutomaticTestControlCard({
         <div className="automatic-test-control-card__actions">
           <Button
             className="automatic-test-start-btn"
-            disabled={!active || pending || controlsLocked || running}
-            onClick={onStart}
+            aria-busy={actionPending === "start"}
+            aria-disabled={pending || actionPending !== null}
+            disabled={!active || controlsLocked || running}
+            onClick={() => { if (!pending && !actionPending) onStart() }}
             size="sm"
             title={!canStart && readinessMessages.length > 0 ? readinessMessages.join("；") : undefined}
           >
-            <Play className="size-4" />开始
+            {actionPending === "start" ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}开始
           </Button>
           <Button
-            disabled={!active || pending || !running}
-            onClick={onStop}
+            aria-busy={actionPending === "stop"}
+            aria-disabled={pending || actionPending !== null}
+            disabled={!active || !running}
+            onClick={() => { if (!pending && !actionPending) onStop() }}
             size="sm"
             variant="destructive"
           >
-            <Square className="size-4" />停止
+            {actionPending === "stop" ? <LoaderCircle className="size-4 animate-spin" /> : <Square className="size-4" />}停止
           </Button>
         </div>
       </CardContent>

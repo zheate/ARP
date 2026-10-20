@@ -1,9 +1,9 @@
 // Deterministic browser checks against the product chart. No backend/devices.
-async (page) => {
+async (page, markerStyle = 'flappy-bird', outputFolder = 'output/playwright/flappy-bird-smooth-20261016') => {
   await page.addInitScript(() => {
     const now = performance.now.bind(performance);
     const raf = requestAnimationFrame.bind(window), cancel = cancelAnimationFrame.bind(window);
-    const probe = window.__birdMotion = { hold: false, time: 0, pending: new Map(), draws: 0, endpoints: {} };
+    const probe = window.__birdMotion = { hold: false, time: 0, pending: new Map(), draws: 0, endpoints: {}, directions: {} };
     let id = -1;
     performance.now = () => probe.hold ? probe.time : now();
     window.requestAnimationFrame = callback => {
@@ -18,17 +18,25 @@ async (page) => {
       callbacks.forEach(callback => callback(probe.time));
     };
     const proto = CanvasRenderingContext2D.prototype, begin = proto.beginPath, clear = proto.clearRect, stroke = proto.stroke;
-    proto.beginPath = function (...args) { this.__endpoint = null; return begin.apply(this, args); };
+    proto.beginPath = function (...args) { this.__endpoint = null; this.__direction = null; return begin.apply(this, args); };
     for (const method of ['moveTo', 'lineTo', 'bezierCurveTo']) {
       const original = proto[method];
-      proto[method] = function (...args) { this.__endpoint = args.slice(-2); return original.apply(this, args); };
+      proto[method] = function (...args) {
+        const end = args.slice(-2), control = method === 'bezierCurveTo' ? args.slice(2,4) : this.__endpoint;
+        if (method !== 'moveTo' && control && Math.hypot(end[0]-control[0],end[1]-control[1]) > 1e-8) this.__direction = Math.atan2(end[1]-control[1],end[0]-control[0]);
+        else if (method !== 'moveTo') this.__direction = null; // A zero-length prefix has no visible tangent.
+        this.__endpoint = end; return original.apply(this, args);
+      };
     }
     proto.clearRect = function (...args) {
-      if (this.canvas.getAttribute('aria-label') === '小鸟同步验证') { probe.draws++; probe.endpoints = {}; }
+      if (this.canvas.getAttribute('aria-label') === '小鸟同步验证') { probe.draws++; probe.endpoints = {}; probe.directions = {}; }
       return clear.apply(this, args);
     };
     proto.stroke = function (...args) {
-      if (this.canvas.getAttribute('aria-label') === '小鸟同步验证' && this.__endpoint && ['#00a884', '#b05cff'].includes(this.strokeStyle)) probe.endpoints[this.strokeStyle] = this.__endpoint;
+      if (this.canvas.getAttribute('aria-label') === '小鸟同步验证' && this.__endpoint && ['#00a884', '#b05cff'].includes(this.strokeStyle)) {
+        probe.endpoints[this.strokeStyle] = this.__endpoint;
+        probe.directions[this.strokeStyle] = this.__direction;
+      }
       return stroke.apply(this, args);
     };
   });
@@ -39,18 +47,25 @@ async (page) => {
   await page.evaluate(() => document.fonts.ready);
   const settle = () => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await settle();
-  await page.evaluate(() => window.birdSyncFixture.render({ smooth: true, rightAxis: true }));
+  await page.evaluate(style => window.birdSyncFixture.render({ smooth: true, rightAxis: true, style }), markerStyle);
   await settle();
+  await page.waitForFunction(() => [...document.querySelectorAll('.chart-character-marker,.chart-flappy-bird')].every(marker => marker.dataset.vectorReady === 'true'));
   const read = () => page.evaluate(() => ({ draws: window.__birdMotion.draws, pending: window.__birdMotion.pending.size, endpoints: Object.values(window.__birdMotion.endpoints),
-    birds: [...document.querySelectorAll('.chart-flappy-bird')].filter(el => getComputedStyle(el).visibility === 'visible').map(el => {
+    directions: Object.values(window.__birdMotion.directions),
+    angles: [...document.querySelectorAll('.chart-flappy-bird,.chart-character-marker,[data-static-marker]')].filter(el => getComputedStyle(el).visibility === 'visible').map(el => el.dataset.staticMarker === 'paper-plane' ? parseFloat(el.style.getPropertyValue('--marker-angle')) : null),
+    birds: [...document.querySelectorAll('.chart-flappy-bird,.chart-character-marker,[data-static-marker]')].filter(el => getComputedStyle(el).visibility === 'visible').map(el => {
       const rect = el.getBoundingClientRect(), container = el.parentElement.getBoundingClientRect();
-      return [rect.left - container.left + rect.width / 2, rect.top - container.top + rect.height / 2];
+      const anchorY = ['dinosaur', 'green-dinosaur'].includes(el.dataset.markerStyle) ? 305 / 310 : .5;
+      return [rect.left - container.left + rect.width / 2, rect.top - container.top + rect.height * anchorY];
     }), data: JSON.stringify(window.birdSyncFixture.data) }));
   const aligned = state => {
     if (state.birds.length !== state.endpoints.length) throw Error(`Marker count differs: ${JSON.stringify(state)}`);
     state.birds.forEach((bird, i) => bird.forEach((value, axis) => {
       if (Math.abs(value - state.endpoints[i][axis]) > 0.001) throw Error(`Marker detached at an animation frame: ${JSON.stringify(state)}`);
     }));
+    state.angles.forEach((angle, i) => {
+      if (angle !== null && state.directions[i] !== null && Math.abs(angle-state.directions[i]) > 1e-7) throw Error(`Plane does not follow curve tangent: ${JSON.stringify(state)}`);
+    });
   };
   await page.evaluate(() => window.__birdMotion.begin());
   const step = async ms => { await page.evaluate(ms => window.__birdMotion.step(ms), ms); const state = await read(); aligned(state); return state; };
@@ -114,7 +129,7 @@ async (page) => {
     window.birdSyncFixture.render({ data: [...window.birdSyncFixture.data, { time: 7.731, power: 4.337, voltage: 86.93 }] });
   });
   await step(50);
-  await page.screenshot({ path: 'output/playwright/flappy-bird-smooth-20261016/mid-animation.png' });
+  await page.screenshot({ path: `${outputFolder}/mid-animation.png` });
   await page.evaluate(() => window.birdSyncFixture.render({ data: [...window.birdSyncFixture.data, { time: 8.531, power: 5.337, voltage: 91.23 }] }));
   const burst = [];
   for (const ms of [0, 20, 20, 20]) burst.push(await step(ms));
@@ -128,8 +143,9 @@ async (page) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.waitForFunction(() => window.__birdMotion.pending.size === 0, null, { polling: 20 });
   aligned(await read());
-  const reduced = await page.locator('.chart-flappy-bird__frames').first().evaluate(el => getComputedStyle(el).animationName);
-  if (reduced !== 'none') throw Error('Reduced motion did not stop flapping');
+  const animationSelector = '.chart-flappy-bird__frames,.chart-character-marker__frames,.chart-character-marker__flame';
+  const reduced = await page.locator(animationSelector).evaluateAll(elements => elements.map(el => getComputedStyle(el).animationName));
+  if (reduced.some(name => name !== 'none')) throw Error('Reduced motion did not stop decorative animation');
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.evaluate(() => {
     window.__birdMotion.time += 200;
@@ -138,19 +154,29 @@ async (page) => {
   await step(40);
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
     document.dispatchEvent(new Event('visibilitychange'));
   });
   const hidden = await read(); aligned(hidden);
   if (hidden.pending) throw Error('Hidden page left an active animation');
-  await page.evaluate(() => { delete document.visibilityState; document.dispatchEvent(new Event('visibilitychange')); window.__birdMotion.hold = false; });
+  if (await page.locator(animationSelector).evaluateAll(elements => elements.some(el => el.style.animationPlayState !== 'paused'))) throw Error('Hidden decorative animation kept running');
+  await page.evaluate(() => { delete document.visibilityState; delete document.hidden; document.dispatchEvent(new Event('visibilitychange')); window.__birdMotion.hold = false; });
   for (const theme of ['light', 'dark']) for (const width of [1180, 1440]) {
     await page.setViewportSize({ width, height: 720 });
     await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
     await settle(); aligned(await read());
-    await page.screenshot({ path: `output/playwright/flappy-bird-smooth-20261016/${theme}-${width}.png` });
+    await page.screenshot({ path: `${outputFolder}/${theme}-${width}.png` });
   }
-  const wing = await page.locator('.chart-flappy-bird__frames').first().evaluate(el => ({ duration: getComputedStyle(el).animationDuration, timing: getComputedStyle(el).animationTimingFunction }));
-  if (wing.duration !== '0.4s' || wing.timing !== 'steps(4)') throw Error(`Wing cadence changed: ${JSON.stringify(wing)}`);
+  const frameSelector = '.chart-flappy-bird__frames,.chart-character-marker__frames';
+  let wing = null;
+  if (await page.locator(frameSelector).count()) {
+    wing = await page.locator(frameSelector).first().evaluate(el => ({ duration: getComputedStyle(el).animationDuration, timing: getComputedStyle(el).animationTimingFunction }));
+    const duration = markerStyle === 'flappy-bird' || markerStyle === 'bee' ? '0.4s' : '0.5s';
+    if (wing.duration !== duration || wing.timing !== 'steps(4)') throw Error(`Character cadence changed: ${JSON.stringify(wing)}`);
+    await page.waitForFunction(selector => [...document.querySelectorAll(selector)].every(el => el.style.animationPlayState === 'running'), frameSelector);
+    const frameTransform = await page.locator(frameSelector).first().evaluate(el => getComputedStyle(el).transform);
+    await page.waitForFunction(({selector, frameTransform}) => getComputedStyle(document.querySelector(selector)).transform !== frameTransform, {selector:frameSelector, frameTransform});
+  }
   await page.evaluate(() => { window.__birdMotion.begin(); window.birdSyncFixture.render({ data: [] }); window.__birdMotion.step(0); });
   const empty = await read();
   if (empty.birds.length || empty.pending) throw Error('Empty data left a visible bird or animation');
@@ -158,10 +184,24 @@ async (page) => {
   const reset = await read(); aligned(reset);
   if (reset.pending) throw Error('New session animated from the old one');
   await page.evaluate(() => {
+    window.__birdMotion.time += 200;
+    window.birdSyncFixture.render({data:[...window.birdSyncFixture.data,{time:2.8,power:5.3,voltage:63.13}]});
+    window.__birdMotion.step(20);
+  });
+  const switchedStyles=[];
+  for (const style of ['paper-plane','paw','flappy-bird','bee','green-dinosaur','dinosaur','point',markerStyle]) {
+    const source=(await read()).data;
+    await page.evaluate(style => { window.birdSyncFixture.render({style}); window.__birdMotion.step(20); },style);
+    await page.waitForFunction(() => [...document.querySelectorAll('.chart-character-marker,.chart-flappy-bird')].every(marker => marker.dataset.vectorReady === 'true'), null, {polling:20});
+    const state=await read(); aligned(state);
+    if(state.data!==source || state.birds.length!==2) throw Error(`Switching to ${style} changed source data or markers`);
+    switchedStyles.push(style);
+  }
+  await page.evaluate(() => {
     window.__birdMotion.time += 100;
     window.birdSyncFixture.render({ data: [...window.birdSyncFixture.data, { time: 3, power: 4, voltage: 50 }] });
     window.birdSyncFixture.unmount();
   });
   if ((await read()).pending) throw Error('Unmount left an animation callback');
-  return { results, reducedMotion: reduced, hiddenStopped: true, emptyAndReset: true, unmountCancelled: true, wing };
+  return { markerStyle, results, switchedStyles, tangentChecked: true, reducedMotion: reduced, hiddenStopped: true, emptyAndReset: true, unmountCancelled: true, wing };
 }

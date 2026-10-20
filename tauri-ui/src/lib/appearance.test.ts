@@ -3,12 +3,12 @@ import test from "node:test"
 import { chartTrailBoundary, DEFAULT_APPEARANCE, isAnimatedLatestPointMarker, LATEST_POINT_MARKER_OPTIONS, latestPointMarkerSize, normalizeAppearance, normalizeLatestPointMarkerStyle } from "./appearance.ts"
 
 test("stored endpoint styles restore both approved characters and all existing choices", () => {
-  const existing = ["point", "paper-plane", "paw", "comet", "ecg", "flappy-bird"]
+  const existing = ["point", "paper-plane", "paw", "flappy-bird"]
   for (const id of [...existing, "bee", "dinosaur", "green-dinosaur"]) {
     assert.equal(normalizeLatestPointMarkerStyle(JSON.parse(JSON.stringify(id))), id)
     assert.ok(LATEST_POINT_MARKER_OPTIONS.some((option) => option.id === id))
   }
-  for (const invalid of [null, undefined, "fish", "gecko", "dino", {}, 1]) {
+  for (const invalid of [null, undefined, "ecg", "comet", "fish", "gecko", "dino", {}, 1]) {
     assert.equal(normalizeLatestPointMarkerStyle(invalid), "point")
   }
 })

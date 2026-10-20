@@ -16,7 +16,7 @@ import { type AppConfiguration, type BackendSnapshot, type TestScript } from "@/
 import { powerMeterResourceValue } from "@/lib/power-meter-resource"
 import { scriptPresetCompatible } from "@/lib/test-script-presets"
 import { confirm, open as openDialog } from "@tauri-apps/plugin-dialog"
-import { FileText, FolderOpen, Gauge, Milestone, Pencil, Plus, Power, QrCode, Radio, Save, Thermometer, Trash2 } from "lucide-react"
+import { FileText, FolderOpen, Gauge, LoaderCircle, Milestone, Pencil, Plus, Power, QrCode, Radio, Save, Thermometer, Trash2 } from "lucide-react"
 import { memo, useCallback, useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 
@@ -27,6 +27,7 @@ type AutomaticSetupProps = {
   dirty: boolean
   controlsLocked: boolean
   pending: boolean
+  freezeReadiness: boolean
   saveConfiguration: () => Promise<void>
   testScripts: TestScript[]
   onScriptSelect: (scriptId: string) => void
@@ -36,13 +37,31 @@ type AutomaticSetupProps = {
   onNotify?: (notice: { level?: "error" | "info" | "warning"; title: string; message: string; durationMs?: number }) => void
 }
 
-const AutomaticSetup = memo(function AutomaticSetup({ config, update, active, dirty, controlsLocked, pending, saveConfiguration, testScripts, onScriptSelect, onNewScript, onEditScript, onDeleteScript, onNotify }: AutomaticSetupProps) {
+const AutomaticSetup = memo(function AutomaticSetup({ config, update, active, dirty, controlsLocked, pending, freezeReadiness, saveConfiguration, testScripts, onScriptSelect, onNewScript, onEditScript, onDeleteScript, onNotify }: AutomaticSetupProps) {
+  const saveLock = useRef(false)
+  const [saving, setSaving] = useState(false)
+  const settledDirty = useRef(dirty)
+  if (!freezeReadiness && !pending && !saving) settledDirty.current = dirty
+  const displayedDirty = freezeReadiness || pending || saving ? settledDirty.current : dirty
+  const saveScript = async () => {
+    if (!active || !dirty || controlsLocked || pending || saveLock.current) return
+    saveLock.current = true
+    setSaving(true)
+    try {
+      await saveConfiguration()
+    } catch (reason) {
+      onNotify?.({ level: "error", title: "保存失败", message: reason instanceof Error ? reason.message : String(reason) })
+    } finally {
+      saveLock.current = false
+      setSaving(false)
+    }
+  }
   const selectedPreset = config.testScriptPresets?.find((preset) => preset.id === config.selectedScriptPresetId)
   const availableTestScripts = testScripts.filter((script) => (
     !script.powerSupplyKinds || script.powerSupplyKinds.includes(config.powerSupplyKind)
   ))
   const chooseOutputDir = async () => {
-    if (controlsLocked) return
+    if (!active || controlsLocked || pending || saveLock.current) return
     try {
       const selected = await openDialog({
         multiple: false,
@@ -133,15 +152,15 @@ const AutomaticSetup = memo(function AutomaticSetup({ config, update, active, di
           <Label className="text-[13px] font-medium text-muted-foreground">
             <FileText className="mr-1 inline size-3.5" />脚本选择
           </Label>
-          <div className="sample-nameplate__script-controls">
-            <NativeSelect aria-label="脚本选择" disabled={controlsLocked || pending} value={config.selectedScriptPresetId || config.selectedScriptId} onChange={onScriptSelect}>
+          <div aria-busy={pending || saving} className="sample-nameplate__script-controls" onClickCapture={(event) => { if (pending || saveLock.current) { event.preventDefault(); event.stopPropagation() } }} onKeyDownCapture={(event) => { if ((pending || saveLock.current) && event.key !== "Tab" && event.key !== "Escape") { event.preventDefault(); event.stopPropagation() } }}>
+            <NativeSelect aria-label="脚本选择" disabled={controlsLocked} value={config.selectedScriptPresetId || config.selectedScriptId} onChange={(value) => { if (!pending && !saveLock.current) onScriptSelect(value) }}>
               {availableTestScripts.map((script) => <option key={script.id} value={script.id}>{script.name}</option>)}
               {(config.testScriptPresets ?? []).map((preset) => <option disabled={!scriptPresetCompatible(config, preset)} key={preset.id} value={preset.id}>{preset.name}</option>)}
             </NativeSelect>
-            <Button aria-label="添加脚本" aria-haspopup="dialog" disabled={!active || pending || controlsLocked} onClick={onNewScript} size="icon" title="另存为新脚本" variant="outline"><Plus className="size-4" /></Button>
-            <Button aria-label="保存脚本" disabled={!dirty || !active || pending || controlsLocked} onClick={() => void saveConfiguration().catch((reason) => onNotify?.({ level: "error", title: "保存失败", message: reason instanceof Error ? reason.message : String(reason) }))} size="icon" title="保存脚本" variant="outline"><Save className="size-4" /></Button>
-            <Button aria-label="编辑脚本" aria-haspopup="dialog" disabled={!active || pending || controlsLocked} onClick={onEditScript} size="icon" title="编辑脚本" variant="outline"><Pencil className="size-4" /></Button>
-            <Button aria-label="删除脚本" aria-haspopup="dialog" disabled={!selectedPreset || !active || pending || controlsLocked} onClick={onDeleteScript} size="icon" title={selectedPreset ? "删除当前自定义脚本" : "内置脚本不能删除"} variant="outline"><Trash2 className="size-4" /></Button>
+            <Button aria-disabled={pending || saving} aria-label="添加脚本" aria-haspopup="dialog" disabled={!active || controlsLocked} onClick={onNewScript} size="icon" title="另存为新脚本" variant="outline"><Plus className="size-4" /></Button>
+            <Button aria-busy={saving} aria-disabled={pending || saving || !dirty} aria-label="保存脚本" disabled={!displayedDirty || !active || controlsLocked} onClick={() => void saveScript()} size="icon" title="保存脚本" variant="outline">{saving ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}</Button>
+            <Button aria-disabled={pending || saving} aria-label="编辑脚本" aria-haspopup="dialog" disabled={!active || controlsLocked} onClick={onEditScript} size="icon" title="编辑脚本" variant="outline"><Pencil className="size-4" /></Button>
+            <Button aria-disabled={pending || saving} aria-label="删除脚本" aria-haspopup="dialog" disabled={!selectedPreset || !active || controlsLocked} onClick={onDeleteScript} size="icon" title={selectedPreset ? "删除当前自定义脚本" : "内置脚本不能删除"} variant="outline"><Trash2 className="size-4" /></Button>
           </div>
         </div>
       </div>
@@ -188,10 +207,10 @@ export const AutomaticPage = memo(function AutomaticPage({
   onScriptSelect: (scriptId: string) => void
   onCreateScript: (name: string) => Promise<void>
   onDeleteScript: (presetId: string) => Promise<void>
-  onNextDevice: () => void
+  onNextDevice: () => void | Promise<unknown>
   onViewData: () => void
-  onRetryExport: () => void
-  onChooseExportDirectory: () => void
+  onRetryExport: () => void | Promise<unknown>
+  onChooseExportDirectory: () => void | Promise<unknown>
   onShowCompletion: () => void
   onNotify?: (notice: { level?: "error" | "info" | "warning"; title: string; message: string; durationMs?: number }) => void
 }) {
@@ -202,6 +221,8 @@ export const AutomaticPage = memo(function AutomaticPage({
   const [testSettingsOpen, setTestSettingsOpen] = useState(false)
   const [newScriptOpen, setNewScriptOpen] = useState(false)
   const [deletingScript, setDeletingScript] = useState(false)
+  const testCommandLock = useRef(false)
+  const [testAction, setTestAction] = useState<"start" | "stop" | null>(null)
   const deleteLock = useRef(false)
   const deleteEligibility = useRef({ active, pending, controlsLocked, presetId: config.selectedScriptPresetId })
   deleteEligibility.current = { active, pending, controlsLocked, presetId: config.selectedScriptPresetId }
@@ -239,8 +260,9 @@ export const AutomaticPage = memo(function AutomaticPage({
     }
   }, [controlsLocked])
   const { canStart, messages: readinessMessages } = automaticStartPresentation(auto, config)
-  const startAutomaticTest = () => {
-    if (!canStart) {
+  const runTestAction = async (action: "start" | "stop") => {
+    if (!active || pending || testCommandLock.current || (action === "start" && controlsLocked)) return
+    if (action === "start" && !canStart) {
       onNotify?.({
         title: "未就绪",
         message: readinessMessages.length > 0 ? readinessMessages.join("；") : "当前状态无法开始测试",
@@ -248,7 +270,17 @@ export const AutomaticPage = memo(function AutomaticPage({
       })
       return
     }
-    void run("automatic.start", { ...config })
+    testCommandLock.current = true
+    setTestAction(action)
+    try {
+      if (action === "start") await run("automatic.start", { ...config })
+      else await run("automatic.end")
+    } catch (reason) {
+      onNotify?.({ level: "error", title: action === "start" ? "启动失败" : "停止失败", message: reason instanceof Error ? reason.message : String(reason) })
+    } finally {
+      testCommandLock.current = false
+      setTestAction(null)
+    }
   }
   const serialLabel = config.powerSupplyKind === "ru" ? "VARIED RU" : "TDK"
   const serialVoltage = config.powerSupplyKind === "ru" ? config.ruVoltageV : config.tdkVoltageV
@@ -286,7 +318,7 @@ export const AutomaticPage = memo(function AutomaticPage({
   return (
     <>
       {completed && snapshot ? <AutomaticCompletionSummary snapshot={snapshot} config={config} active={active} pending={pending} onNextDevice={onNextDevice} onViewData={onViewData} onRetryExport={onRetryExport} onChooseExportDirectory={onChooseExportDirectory} onShowDetails={onShowCompletion} /> : toolbarHost ? createPortal(
-        <AutomaticSetup config={config} update={update} active={active} dirty={dirty} controlsLocked={controlsLocked} pending={pending || deletingScript} saveConfiguration={saveConfiguration} testScripts={testScripts} onScriptSelect={onScriptSelect} onNewScript={openNewScript} onEditScript={openTestSettings} onDeleteScript={() => void deleteSelectedScript()} onNotify={onNotify} />,
+        <AutomaticSetup config={config} update={update} active={active} dirty={dirty} controlsLocked={controlsLocked} pending={pending || deletingScript} freezeReadiness={Boolean(openSettings || specificationsOpen || testSettingsOpen || newScriptOpen)} saveConfiguration={saveConfiguration} testScripts={testScripts} onScriptSelect={onScriptSelect} onNewScript={openNewScript} onEditScript={openTestSettings} onDeleteScript={() => void deleteSelectedScript()} onNotify={onNotify} />,
         toolbarHost,
       ) : null}
 
@@ -300,9 +332,10 @@ export const AutomaticPage = memo(function AutomaticPage({
             auto={auto}
             config={config}
             controlsLocked={controlsLocked}
-            onStart={startAutomaticTest}
-            onStop={() => void run("automatic.end")}
+            onStart={() => void runTestAction("start")}
+            onStop={() => void runTestAction("stop")}
             pending={pending}
+            actionPending={testAction}
             shutdown={snapshot?.safety.shutdown}
           />
         </section>
