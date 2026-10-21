@@ -72,7 +72,7 @@ try {
   check(`${key}-running-lock`,await page.getByRole('button',{name:'手动配置',exact:true}).isDisabled() && await page.getByRole('button',{name:'出货报告',exact:true}).isDisabled());
   check(`${key}-readouts-no-overflow`,live.readouts.every(r=>!r.overflow),live.readouts);
   if(dpr===1){
-   const spectrum=live.charts.find(c=>c.text==='光谱曲线');
+   const spectrum=live.charts.find(c=>c.text==='实时光谱曲线');
    check(`${key}-spectrum-visible`,spectrum && spectrum.rect.y>=0 && spectrum.rect.bottom<=height+1 && spectrum.rect.height>=(height>=1000?320:180),spectrum?.rect);
   }
   // Synthetic DOM text stress tests geometry only, never backend measurement data.
@@ -81,10 +81,15 @@ try {
   const stress=await page.evaluate(()=>[...document.querySelectorAll('.automatic-metric-card__number')].map(e=>{
     const readout=e.querySelector('.numeric-readout');if(!readout)return {passed:false};
     const original=[...readout.childNodes];const container=e.parentElement;const unit=container.querySelector('.automatic-metric-card__unit');const initial=container.getBoundingClientRect();const samples=[];
+    // The power chart reserves a right-aligned number column; spectrum sidebar
+    // metrics start at the left edge. Standalone metric cards remain centered.
+    const alignment=e.closest('.automatic-power-chart__reading')?'right':e.closest('.spectrum-metric-list')?'left':'center';
     try{
      for(const value of ['9.999','10.000','999.999','--','-12.345']){
       readout.textContent=value;const r=e.getBoundingClientRect();const bounds=container.getBoundingClientRect();const u=unit?.getBoundingClientRect();
-      samples.push({value,passed:Math.abs(bounds.x-initial.x)<1 && Math.abs(bounds.width-initial.width)<1 && Math.abs((r.x+r.width/2)-(bounds.x+bounds.width/2))<1 && r.x>=bounds.x-1 && u && u.x>=r.right && u.right<=bounds.right+1 && container.scrollWidth<=container.clientWidth+1});
+      const range=document.createRange();range.selectNodeContents(readout);const ink=range.getBoundingClientRect();
+      const aligned=alignment==='right'?Math.abs(ink.right-r.right)<1:alignment==='left'?Math.abs(ink.x-bounds.x)<1:Math.abs((ink.x+ink.width/2)-(bounds.x+bounds.width/2))<1;
+      samples.push({value,alignment,number:{x:r.x,right:r.right},ink:{x:ink.x,right:ink.right},container:{x:bounds.x,right:bounds.right},unit:u&&{x:u.x,right:u.right},passed:aligned && Math.abs(bounds.x-initial.x)<1 && Math.abs(bounds.width-initial.width)<1 && ink.width>0 && ink.height>0 && r.height>0 && r.x>=bounds.x-1 && ink.x>=r.x-1 && ink.right<=r.right+1 && u && u.width>0 && u.height>0 && u.x>=r.right && u.right<=bounds.right+1 && container.scrollWidth<=container.clientWidth+1});
      }
     }finally{readout.replaceChildren(...original);}
     return {passed:samples.every(s=>s.passed),samples};

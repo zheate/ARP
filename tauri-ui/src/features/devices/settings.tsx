@@ -298,18 +298,14 @@ export function PowerSupplySettingsForm({ snapshot, config, update, active, pend
             </ControlGrid>
           )}
           {mode === "manual" ? (
-            <>
+            config.powerSupplyKind === "ch341" && (
               <ControlGrid className="power-settings-action-grid">
                 <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline"><span className="device-settings-button__label">读取输出电压</span></Button>
                 <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline"><span className="device-settings-button__label">读取输出电流</span></Button>
-                {config.powerSupplyKind === "ch341" && (
-                  <>
-                    <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "inputVoltage" })} size="sm" variant="outline"><span className="device-settings-button__label">读取输入电压</span></Button>
-                    <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "temperature" })} size="sm" variant="outline"><span className="device-settings-button__label">读取模块温度</span></Button>
-                  </>
-                )}
+                <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "inputVoltage" })} size="sm" variant="outline"><span className="device-settings-button__label">读取输入电压</span></Button>
+                <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "temperature" })} size="sm" variant="outline"><span className="device-settings-button__label">读取模块温度</span></Button>
               </ControlGrid>
-            </>
+            )
           ) : (
             <>
               {serialSupply ? <>

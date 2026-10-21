@@ -9,6 +9,12 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
+.manual-power-parameters [data-slot="input"] {
+  font-size: 1.25rem;
+  line-height: 1.2;
+  text-align: right;
+}
+
 .manual-device-grid > .manual-device-card {
   gap: 0;
   padding-block: 0;

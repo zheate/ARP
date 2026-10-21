@@ -22,7 +22,13 @@ const kind=new URLSearchParams(location.search).get('fixture');
 const snapshot=structuredClone(DEMO_SNAPSHOT);
 snapshot.safety.manualControlsAllowed=true;
 snapshot.devices.powerSupply={...snapshot.devices.powerSupply,connected:kind!=='manual-disconnected',outputCurrentA:kind==='manual-missing'?null:0.25,activeCurrentA:1.25};
-snapshot.configuration.powerSupplyKind=kind==='manual-ch341'?'ch341':'tdk';
+snapshot.configuration.powerSupplyKind=kind?.startsWith('manual-ch341')?'ch341':'tdk';
+// Deliberately distinguish the target, TDK output feedback and CH341 active current.
+snapshot.configuration.setCurrentA=8;
+if(kind==='manual-zero')snapshot.devices.powerSupply.outputCurrentA=0;
+if(kind==='manual-ch341-zero')snapshot.devices.powerSupply.activeCurrentA=0;
+if(kind==='manual-ch341-missing')snapshot.devices.powerSupply.activeCurrentA=null;
+if(kind==='manual-ch341-disconnected')snapshot.devices.powerSupply.connected=false;
 snapshot.pd={devices:['Dev1-Long-NI-DAQ-Device-Name-For-Layout-Validation'],channels:['ai0'],ranges:[{value:10,label:'±10 V'}],state:'running',status:'采集中 · 示例数据',currentValue:1.234,voltage:1.234,sampleCount:6000,mean:1.2,standardDeviation:0.03,rangeText:'1.1 / 1.3',points:Array.from({length:60},(_,i)=>({elapsedS:i,value:1.2+Math.sin(i/6)*0.1})),settings:{device:'Dev1-Long-NI-DAQ-Device-Name-For-Layout-Validation',channel:'ai0',terminal:'DIFF',range:10,sampleRateHz:1000,blockSize:100,scale:1,offset:0,unit:'V',save:true,outputDir:'C:/ARP/QA'}};
 const longMessage=('仪器通信中断；请检查电源实体面板并核实数据保存位置。\\n').repeat(20);
 const noAction=async()=>undefined;
@@ -54,7 +60,7 @@ try{
   const page=await context.newPage();const key=`${width}x${height}-dpr${dpr}`;
   page.on('pageerror',error=>results.errors.push({key,message:error.message}));
   page.on('console',message=>{if(message.type()==='error')results.errors.push({key,message:message.text()});});
-  for(const fixture of ['protection','shutdown','shutdown-pending','pause','completion','specifications','profiles','save-error','save-pending','pd-running','manual','manual-missing','manual-disconnected','manual-ch341']){
+  for(const fixture of ['protection','shutdown','shutdown-pending','pause','completion','specifications','profiles','save-error','save-pending','pd-running','manual','manual-missing','manual-disconnected','manual-ch341','manual-zero','manual-ch341-zero','manual-ch341-missing','manual-ch341-disconnected']){
    const url=new URL(`/__qa/index.html?fixture=${fixture}`,target);
    await page.goto(url.href,{waitUntil:'networkidle'});
    const name=`${key}-${fixture}`;
@@ -64,8 +70,20 @@ try{
     check(`${name}-stop-visible-enabled`,await stop.isEnabled()&&r.y>=0&&r.y+r.height<=height,r);
     check(`${name}-chart-present`,await page.locator('canvas').count()>0);
    }else if(fixture.startsWith('manual')){
-    const expected=fixture==='manual'?'0.25 A':fixture==='manual-ch341'?'1.25 A':'-- A';
-    check(`${name}-readback-not-setpoint`,await page.locator('.automatic-metric-card__current').innerText()===expected);
+    const expected={manual:'0.25','manual-ch341':'1.25','manual-zero':'0.00','manual-ch341-zero':'0.00','manual-missing':'--','manual-disconnected':'--','manual-ch341-missing':'--','manual-ch341-disconnected':'--'}[fixture];
+    const current=page.locator('.automatic-metric-card__current');
+    await current.scrollIntoViewIfNeeded();
+    // NumericReadout exposes the unpadded semantic value. NumberFlow renders
+    // animated digits in a custom element; the unit is a separate visible span.
+    const reading=await current.evaluate(e=>{
+     const values=e.querySelectorAll('.numeric-readout');const units=e.querySelectorAll('.power-chart-readout__current-unit');
+     const number=values[0];const unit=units[0];const rendered=number?.firstElementChild;const digitBounds=rendered?.getBoundingClientRect();const r=e.getBoundingClientRect();const n=number?.getBoundingClientRect();const u=unit?.getBoundingClientRect();
+     const shown=el=>el&&el.checkVisibility({checkOpacity:true,checkVisibilityCSS:true});
+     return {valueCount:values.length,unitCount:units.length,value:number?.getAttribute('aria-label'),unit:unit?.textContent.trim(),placeholder:number?.textContent.trim(),visible:shown(e)&&shown(number)&&shown(rendered)&&shown(unit)&&digitBounds.width>0&&digitBounds.height>0,inViewport:r.x>=0&&r.y>=0&&r.right<=innerWidth+1&&r.bottom<=innerHeight+1,fits:n&&u&&n.width>0&&n.height>0&&u.width>0&&u.height>0&&n.x>=r.x-1&&u.x>=n.right&&u.right<=r.right+1&&e.scrollWidth<=e.clientWidth+1};
+    });
+    check(`${name}-readback-not-setpoint`,reading.valueCount===1 && reading.value===expected && reading.value!=='8.00' && (expected!=='--'||reading.placeholder==='--'),{expected,...reading});
+    check(`${name}-current-unit`,reading.unitCount===1 && reading.unit==='A',reading);
+    check(`${name}-current-visible-without-overflow`,reading.visible && reading.inViewport && reading.fits,reading);
    }else{
     await page.locator('#launcher').click();const dialog=page.locator('[role="dialog"],[role="alertdialog"]').last();await dialog.waitFor();await page.waitForTimeout(200);
     const rect=await dialog.boundingBox();check(`${name}-dialog-bounded`,rect.y>=0&&rect.x>=0&&rect.y+rect.height<=height+1&&rect.x+rect.width<=width+1,rect);
