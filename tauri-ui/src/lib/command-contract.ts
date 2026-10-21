@@ -34,6 +34,7 @@ export interface CommandMap {
   "powerMeter.profile.save": Entry<Profile>
   "powerMeter.profile.select": Entry<Profile>
   "powerMeter.profile.restore": Entry<Profile>
+  "powerMeter.profile.delete": Entry<Profile>
   "spectrometer.start": Entry<{}>
   "spectrometer.stop": Entry<{}>
   "spectrometer.saveCsv": Entry<{ path?: string }>

@@ -1429,12 +1429,7 @@ class StationAutomaticMixin:
             except Exception:
                 if self.power_supply_kind in {"tdk", "ru"}:
                     supply.set_output_enabled(False)
-                    measured_current_a = float(supply.read_output_current())
-                    self._shutdown_measurement_candidate = measured_current_a
-                    if not math.isfinite(measured_current_a) or abs(measured_current_a) > 0.01:
-                        raise RuntimeError(
-                            f"无法确认电源输出电流已归零：{measured_current_a:.3f} A"
-                        )
+                    measured_current_a = self._wait_for_zero_output_current(supply)
                     self.active_current_a = 0.0
                     self.configuration["setCurrentA"] = 0.0
                     self.latest_power_supply_output_current_a = measured_current_a
@@ -1456,11 +1451,7 @@ class StationAutomaticMixin:
             # state immediately after connecting to an already-running supply.
             supply.set_output_enabled(False)
         if self.power_supply_kind in {"tdk", "ru"}:
-            measured_current_a = float(supply.read_output_current())
-            self._shutdown_measurement_candidate = measured_current_a
-            self.latest_power_supply_output_current_a = measured_current_a
-            if not math.isfinite(measured_current_a) or abs(measured_current_a) > 0.01:
-                raise RuntimeError(f"无法确认电源输出电流已归零：{measured_current_a:.3f} A")
+            measured_current_a = self._wait_for_zero_output_current(supply)
             return measured_current_a, True
         return None, True
 

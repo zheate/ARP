@@ -83,6 +83,17 @@
   font-variant-numeric: tabular-nums;
 }
 
+.manual-device-card--power .manual-power-readouts {
+  align-items: flex-start;
+  font-size: 1rem;
+  /* Retain the original 12px readout row height so controls stay in place. */
+  line-height: calc(0.75rem * var(--text-sm--line-height, 1.428571));
+}
+
+.manual-device-card--power .manual-power-readouts > span {
+  height: 1lh;
+}
+
 .manual-power-measurement--unconfirmed {
   color: var(--app-danger);
 }

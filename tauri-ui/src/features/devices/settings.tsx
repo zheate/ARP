@@ -12,7 +12,7 @@ import { BUILTIN_TEST_SCRIPT_OPTIONS, UpdateConfig, applyTestScript } from "@/fe
 import { NumberField, NumberInput, RunCommand, StatusDot, formatDuration, formatMeasurementAge, formatNumber, formatTrimmedNumber } from "@/features/shared/controls"
 import { type AppConfiguration, type BackendSnapshot, type DeviceSnapshot, type PowerMeterCoefficientLibrary, type PowerMeterCoefficientRevision } from "@/lib/backend"
 import { powerMeterCoefficientLibraryForResource, powerMeterIdentityForResource, powerMeterResourceValue } from "@/lib/power-meter-resource"
-import { ChevronRight, Gauge, Play, Plus, Power, Radio, RotateCcw, Save, Settings, SlidersHorizontal, Square, X, type LucideIcon } from "lucide-react"
+import { ChevronRight, Gauge, Play, Plus, Power, Radio, RotateCcw, Save, Settings, SlidersHorizontal, Square, Trash2, X, type LucideIcon } from "lucide-react"
 import { Tooltip } from "radix-ui"
 import { memo, useEffect, useRef, useState } from "react"
 
@@ -431,6 +431,10 @@ export function PowerMeterProfileEditor({ snapshot, config, active, pending, run
     reason: "",
   })
   const [draftTarget, setDraftTarget] = useState<{ profileId: string; expectedVersion: number } | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ profileId: string; expectedVersion: number; name: string } | null>(null)
+  const deleteButtonRef = useRef<HTMLButtonElement>(null)
+  const deleteCancelRef = useRef<HTMLButtonElement>(null)
+  const newButtonRef = useRef<HTMLButtonElement>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
@@ -460,9 +464,24 @@ export function PowerMeterProfileEditor({ snapshot, config, active, pending, run
   useEffect(() => {
     setDraftIntent(null)
     setDraftTarget(null)
+    setDeleteTarget(null)
     setHistoryOpen(false)
     setError("")
   }, [probeIdentity])
+
+  useEffect(() => {
+    if (deleteTarget) deleteCancelRef.current?.focus()
+  }, [deleteTarget])
+
+  const closeDeleteConfirmation = () => {
+    if (profileCommandLock.current) return
+    setDeleteTarget(null)
+    requestAnimationFrame(() => {
+      const target = deleteButtonRef.current
+      if (target && !target.disabled) target.focus()
+      else newButtonRef.current?.focus()
+    })
+  }
 
   const beginDraft = (intent: PowerMeterProfileDraftIntent) => {
     const source = selectedRevision
@@ -492,6 +511,15 @@ export function PowerMeterProfileEditor({ snapshot, config, active, pending, run
       setError("")
       setDraftIntent(null)
       setDraftTarget(null)
+      setDeleteTarget(null)
+      setHistoryOpen(false)
+      if (method === "powerMeter.profile.delete") {
+        requestAnimationFrame(() => {
+          const target = deleteButtonRef.current
+          if (target && !target.disabled) target.focus()
+          else newButtonRef.current?.focus()
+        })
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
       throw reason
@@ -554,6 +582,26 @@ export function PowerMeterProfileEditor({ snapshot, config, active, pending, run
     }).catch(() => undefined)
   }
 
+  const beginDelete = () => {
+    if (mutationLocked || profileCommandLock.current || !selectedProfile) return
+    const latest = selectedProfile.versions[selectedProfile.versions.length - 1]
+    if (!latest) return
+    setError("")
+    setHistoryOpen(false)
+    setDeleteTarget({ profileId: selectedProfile.id, expectedVersion: latest.version, name: latest.name })
+  }
+
+  const deleteProfile = async () => {
+    if (!deleteTarget) return
+    await perform("powerMeter.profile.delete", {
+      profileId: deleteTarget.profileId,
+      expectedVersion: deleteTarget.expectedVersion,
+    }).catch(() => undefined)
+  }
+
+  const replacementProfile = deleteTarget ? library?.profiles.find((profile) => profile.id !== deleteTarget.profileId) : null
+  const replacementRevision = replacementProfile?.versions[replacementProfile.versions.length - 1]
+
   const updateDraft = <K extends keyof PowerMeterProfileDraft>(key: K, value: PowerMeterProfileDraft[K]) => {
     setDraft((current) => ({ ...current, [key]: value }))
   }
@@ -574,7 +622,14 @@ export function PowerMeterProfileEditor({ snapshot, config, active, pending, run
   </>
 
   return (
-    <section aria-busy={busy} {...busyInteraction(() => pending || profileCommandLock.current)} className={`power-meter-profile ${compact ? "power-meter-profile--compact" : ""}`}>
+    <section aria-busy={busy} {...busyInteraction(() => pending || profileCommandLock.current)} className={`power-meter-profile ${compact ? "power-meter-profile--compact" : ""}`} onKeyDownCapture={(event) => {
+      busyInteraction(() => pending || profileCommandLock.current).onKeyDownCapture(event)
+      if (deleteTarget && event.key === "Escape") {
+        event.preventDefault()
+        event.stopPropagation()
+        closeDeleteConfirmation()
+      }
+    }}>
       <div className="power-meter-profile__heading">
         <div>
           <p className="power-meter-profile__title">系数方案</p>
@@ -586,7 +641,7 @@ export function PowerMeterProfileEditor({ snapshot, config, active, pending, run
       {library?.profiles.length ? <Field label="当前方案">
         <NativeSelect
           ariaLabel="系数方案"
-          disabled={unavailable || draftIntent !== null}
+          disabled={unavailable || draftIntent !== null || deleteTarget !== null}
           value={library.selectedProfileId}
           onChange={(value) => void selectProfile(value)}
         >
@@ -628,11 +683,22 @@ export function PowerMeterProfileEditor({ snapshot, config, active, pending, run
         {draftStale && <p className="power-meter-profile__message is-warning">此方案在草稿打开后已有新版本。草稿仍保留，保存时会由后端阻止覆盖；建议取消后查看最新版本。</p>}
       </div>}
 
-      {!draftIntent && <div className="power-meter-profile__actions">
-        <Button disabled={unavailable || !serialNumber} onClick={() => beginDraft("new")} size="sm" variant="outline"><Plus className="size-3.5" />新建</Button>
+      {deleteTarget && <div className="power-meter-profile__delete" role="group" aria-label="删除方案确认">
+        <p><strong>确认删除“{deleteTarget.name}”？</strong></p>
+        <p>该方案及其历史版本将从方案库移除，无法恢复。已保存的测试记录不受影响。</p>
+        <p>{replacementRevision ? `删除后将切换到“${replacementRevision.name}”。` : "这是最后一套方案，删除后需新建方案才能开始采集。"}</p>
+        <div className="power-meter-profile__draft-actions">
+          <Button className="w-28" ref={deleteCancelRef} aria-disabled={busy || undefined} onClick={closeDeleteConfirmation} size="sm" variant="outline">取消删除</Button>
+          <Button className="w-28" aria-busy={busy} aria-disabled={mutationLocked || undefined} disabled={unavailable} onClick={() => void deleteProfile()} size="sm" variant="destructive">{busy ? "删除中…" : "确认删除"}</Button>
+        </div>
+      </div>}
+
+      {!draftIntent && !deleteTarget && <div className="power-meter-profile__actions">
+        <Button ref={newButtonRef} disabled={unavailable || !serialNumber} onClick={() => beginDraft("new")} size="sm" variant="outline"><Plus className="size-3.5" />新建</Button>
         <Button disabled={unavailable || !selectedRevision} onClick={() => beginDraft("copy")} size="sm" variant="outline">另存为</Button>
         <Button disabled={unavailable || !selectedRevision} onClick={() => beginDraft("save")} size="sm" variant="outline">保存修改</Button>
         <Button disabled={!selectedProfile} onClick={() => setHistoryOpen((current) => !current)} size="sm" variant="outline">{historyOpen ? "收起历史" : "查看历史"}</Button>
+        <Button ref={deleteButtonRef} disabled={unavailable || !selectedProfile} onClick={beginDelete} size="sm" variant="outline" className="text-destructive"><Trash2 className="size-3.5" />删除方案</Button>
       </div>}
 
       {historyOpen && selectedProfile && <div className="power-meter-profile__history">

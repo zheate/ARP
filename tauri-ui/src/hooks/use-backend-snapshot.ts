@@ -42,7 +42,7 @@ function demoConfigurationForLibrary(
     powerMeterProfileName: revision?.name ?? "未绑定方案",
     powerMeterProfileVersion: revision?.version ?? 0,
     powerMeterProfileNotes: revision?.notes ?? "",
-    powerMeterProfileWavelengthPending: revision?.wavelengthNm == null,
+    powerMeterProfileWavelengthPending: Boolean(revision && revision.wavelengthNm == null),
     softwareGain: revision?.softwareGain ?? 1,
     powerMeterWavelengthNm: revision?.wavelengthNm ?? 976,
   }
@@ -68,7 +68,7 @@ function demoProfileRevision(params: Record<string, unknown>, version: number): 
   }
 }
 
-function runDemoPowerMeterProfileCommand(
+export function runDemoPowerMeterProfileCommand(
   base: BackendSnapshot,
   method: string,
   params: Record<string, unknown>,
@@ -81,7 +81,7 @@ function runDemoPowerMeterProfileCommand(
   const library = JSON.parse(JSON.stringify(current)) as PowerMeterCoefficientLibrary
   const profileId = String(params.profileId ?? "")
   let profile = library.profiles.find((item) => item.id === profileId)
-  let revision: PowerMeterCoefficientRevision
+  let revision: PowerMeterCoefficientRevision | undefined
   if (method === "powerMeter.profile.create") {
     revision = demoProfileRevision(params, 1)
     profile = { id: `demo-profile-${Date.now()}-${library.profiles.length}`, versions: [revision] }
@@ -94,6 +94,13 @@ function runDemoPowerMeterProfileCommand(
     }
     if (method === "powerMeter.profile.select") {
       revision = latest
+    } else if (method === "powerMeter.profile.delete") {
+      library.profiles = library.profiles.filter((item) => item.id !== profileId)
+      if (library.selectedProfileId === profileId) {
+        const replacement = library.profiles[0]
+        library.selectedProfileId = replacement?.id ?? ""
+        library.selectedVersion = replacement?.versions[replacement.versions.length - 1]?.version ?? 0
+      }
     } else if (method === "powerMeter.profile.save") {
       revision = demoProfileRevision(params, latest.version + 1)
       profile.versions.push(revision)
@@ -110,11 +117,13 @@ function runDemoPowerMeterProfileCommand(
       throw new Error("未知系数方案操作")
     }
   }
-  if (library.profiles.some((item) => item.id !== profile!.id && item.versions[item.versions.length - 1]?.name === revision.name)) {
-    throw new Error("同一探头已有同名方案，请使用不同名称")
+  if (method !== "powerMeter.profile.delete" && revision) {
+    if (library.profiles.some((item) => item.id !== profile!.id && item.versions[item.versions.length - 1]?.name === revision!.name)) {
+      throw new Error("同一探头已有同名方案，请使用不同名称")
+    }
+    library.selectedProfileId = profile.id
+    library.selectedVersion = revision.version
   }
-  library.selectedProfileId = profile.id
-  library.selectedVersion = revision.version
   const configuration = demoConfigurationForLibrary(base.configuration!, library)
   return {
     ...base,
@@ -126,7 +135,7 @@ function runDemoPowerMeterProfileCommand(
         coefficientLibrary: library,
         resourceProfiles: base.devices.powerMeter.resourceProfiles?.map((item) => (
           item.driverKind === library.driverKind && item.serialNumber === library.serialNumber
-            ? { ...item, softwareGain: revision.softwareGain, coefficientLibrary: library }
+            ? { ...item, softwareGain: configuration.softwareGain, coefficientLibrary: library }
             : item
         )),
       },

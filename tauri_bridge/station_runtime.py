@@ -945,6 +945,31 @@ class StationRuntime(StationAutomaticMixin):
                 supply.set_voltage(voltage_v)
             self.configuration["ruVoltageV" if self.power_supply_kind == "ru" else "tdkVoltageV"] = voltage_v
 
+    def _wait_for_zero_output_current(
+        self, supply: ControllerPowerSupply, *, failure_message: str = "无法确认电源输出电流已归零",
+    ) -> float:
+        """Confirm current after output-off; callers hold the supply I/O lock.
+
+        Retry only valid, finite residual readings. Never repeat device writes
+        or hide communication failures while waiting for feedback to settle.
+        """
+        deadline = time.monotonic() + OUTPUT_OFF_CURRENT_CONFIRM_TIMEOUT_S
+        self._shutdown_measurement_candidate = None
+        reads = 0
+        while True:
+            measured_current_a = float(supply.read_output_current())
+            reads += 1
+            self._shutdown_measurement_candidate = measured_current_a
+            self.latest_power_supply_output_current_a = measured_current_a
+            if math.isfinite(measured_current_a) and abs(measured_current_a) <= 0.01:
+                if reads > 1:
+                    _LOGGER.info("输出关闭后电流已确认归零 | current_a=%.6f | reads=%d", measured_current_a, reads)
+                return measured_current_a
+            remaining = deadline - time.monotonic()
+            if not math.isfinite(measured_current_a) or remaining <= 0:
+                raise RuntimeError(f"{failure_message}：{measured_current_a:.3f} A")
+            time.sleep(min(OUTPUT_OFF_CURRENT_CONFIRM_INTERVAL_S, remaining))
+
     def set_output(self, params: dict[str, Any]) -> None:
         guard = (self.command_safety.command() if params.get("enabled", False) is not False
                  else self.command_safety.stopping())
@@ -984,27 +1009,19 @@ class StationRuntime(StationAutomaticMixin):
                     raise
                 if not enabled and self.power_supply_kind in {"tdk", "ru"}:
                     self._invalidate_manual_power_capture("输出已关闭，未完成的测试点已取消")
+                    self._shutdown_measurement_candidate = None
                     try:
                         # Turn output off first, then clear the stored hardware
                         # setpoint so a later enable cannot restore the old current.
                         supply.set_current(0.0)
                         # Output is already off. Allow current feedback to settle
                         # without replaying the write or changing the shutdown ramp.
-                        deadline = time.monotonic() + OUTPUT_OFF_CURRENT_CONFIRM_TIMEOUT_S
-                        while True:
-                            measured_current_a = float(supply.read_output_current())
-                            self.latest_power_supply_output_current_a = measured_current_a
-                            if math.isfinite(measured_current_a) and abs(measured_current_a) <= 0.01:
-                                break
-                            remaining = deadline - time.monotonic()
-                            if not math.isfinite(measured_current_a) or remaining <= 0:
-                                raise RuntimeError(
-                                    f"输出已关闭，但无法确认电流归零：{measured_current_a:.3f} A"
-                                )
-                            time.sleep(min(OUTPUT_OFF_CURRENT_CONFIRM_INTERVAL_S, remaining))
+                        measured_current_a = self._wait_for_zero_output_current(
+                            supply, failure_message="输出已关闭，但无法确认电流归零",
+                        )
                     except Exception as exc:
                         if self.power_supply_kind == "ru":
-                            self._record_shutdown_result(confirmed=False, measured_current_a=measured_current_a,
+                            self._record_shutdown_result(confirmed=False, measured_current_a=self._shutdown_measurement_candidate,
                                                          output_off_confirmed=True, reason=str(exc))
                         raise
                     self.active_current_a = 0.0

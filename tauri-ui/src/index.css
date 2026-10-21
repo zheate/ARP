@@ -1381,11 +1381,28 @@ textarea,
   gap: 0.5rem;
 }
 
+.power-meter-profile__actions {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 .power-meter-profile__draft {
   display: grid;
   gap: 0.625rem;
   border-top: 1px solid var(--border);
   padding-top: 0.75rem;
+}
+
+.power-meter-profile__delete {
+  display: grid;
+  gap: 0.625rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+
+.power-meter-profile__delete p {
+  margin: 0;
 }
 
 .power-meter-profile__draft-title {
