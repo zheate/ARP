@@ -56,7 +56,6 @@ struct PythonBridge {
 
 #[derive(Clone, Debug)]
 enum PythonBridgeError {
-    Backend(String),
     Remote { code: String, message: String, runtime_id: Option<String> },
     Contextual { source: Box<PythonBridgeError>, request_id: String },
     Timeout(String),
@@ -66,7 +65,7 @@ enum PythonBridgeError {
 impl PythonBridgeError {
     fn message(self) -> String {
         match self {
-            Self::Backend(message) | Self::Timeout(message) | Self::Transport(message) => message,
+            Self::Timeout(message) | Self::Transport(message) => message,
             Self::Remote { message, .. } => message,
             Self::Contextual { source, .. } => source.message(),
         }
@@ -103,7 +102,6 @@ impl PythonBridgeError {
                 return failure;
             }
             Self::Remote { code, runtime_id, .. } => ("backend", code.as_str(), runtime_id.clone()),
-            Self::Backend(_) => ("backend", "action_failed", None),
             Self::Timeout(_) => ("timeout", "request_timeout", None),
             Self::Transport(_) => ("transport", "transport_failed", None),
         };
@@ -1048,7 +1046,11 @@ mod tests {
 
     #[test]
     fn backend_action_errors_do_not_restart_the_python_process() {
-        let backend_error = Err(PythonBridgeError::Backend("invalid settings".to_string()));
+        let backend_error = Err(PythonBridgeError::Remote {
+            code: "action_failed".to_string(),
+            message: "invalid settings".to_string(),
+            runtime_id: None,
+        });
         let timeout_error = Err(PythonBridgeError::Timeout("request timed out".to_string()));
         let transport_error = Err(PythonBridgeError::Transport("broken pipe".to_string()));
 
