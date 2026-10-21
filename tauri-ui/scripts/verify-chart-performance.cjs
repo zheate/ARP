@@ -3,10 +3,14 @@
 async (page) => {
   await page.addInitScript(() => {
     if (window.__chartRegression) return;
-    window.__chartRegression = { baseDraws: 0, rectReads: 0 };
+    window.__chartRegression = { baseDraws: 0, powerDraws: 0, rectReads: 0 };
+    // Exercise high-refresh scheduling even on a 60 Hz test machine.
+    window.requestAnimationFrame = callback => window.setTimeout(() => callback(performance.now()), 4);
+    window.cancelAnimationFrame = id => window.clearTimeout(id);
     const clear = CanvasRenderingContext2D.prototype.clearRect;
     CanvasRenderingContext2D.prototype.clearRect = function (...args) {
       if (this.canvas.hasAttribute('aria-label')) window.__chartRegression.baseDraws++;
+      if (this.canvas.getAttribute('aria-label') === '功率实时曲线') window.__chartRegression.powerDraws++;
       return clear.apply(this, args);
     };
     const rect = Element.prototype.getBoundingClientRect;
@@ -16,6 +20,7 @@ async (page) => {
     };
   });
   await page.setViewportSize({ width: 1180, height: 720 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('http://localhost:1420/scripts/fixtures/chart-performance.html');
   const power = page.getByRole('img', { name: '功率实时曲线', exact: true });
   await power.waitFor();
@@ -33,13 +38,13 @@ async (page) => {
   const hovered = await power.evaluate(canvas => ({
     base: canvas.toDataURL(),
     text: canvas.parentElement.textContent,
-    overlayVisible: [...canvas.nextElementSibling.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data].some(value => value !== 0),
+    overlayVisible: [...canvas.parentElement.querySelector('canvas[aria-hidden="true"]').getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data].some(value => value !== 0),
   }));
   if (hovered.base !== original || !hovered.overlayVisible || !hovered.text.includes('实时功率')) throw new Error('Hover changed base pixels or lost tooltip/crosshair');
   await page.mouse.move(2, 2); await page.waitForTimeout(80);
   const hoverDraws = await page.evaluate(() => window.__chartRegression.baseDraws);
   if (hoverDraws !== 0) throw new Error(`Hover unnecessarily repainted the base ${hoverDraws} times`);
-  const clearOverlay = await power.evaluate(canvas => [...canvas.nextElementSibling.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data].every(value => value === 0));
+  const clearOverlay = await power.evaluate(canvas => [...canvas.parentElement.querySelector('canvas[aria-hidden="true"]').getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data].every(value => value === 0));
   if (!clearOverlay) throw new Error('Pointer leave did not clear the crosshair');
   await page.evaluate(() => { window.__chartRegression.baseDraws = 0; window.chartPerformanceFixture.advance(); });
   await page.waitForTimeout(250);
@@ -73,5 +78,18 @@ async (page) => {
   await page.waitForTimeout(150);
   const afterTheme = await power.evaluate(canvas => canvas.toDataURL());
   if (beforeTheme === afterTheme) throw new Error('Theme change did not repaint canvas');
-  return { mountRectReads: setup.rectReads, hoverBaseDraws: hoverDraws, changedFrameDraws: updateDraws, hiddenFrameDraws: hiddenDraws, tooltipAndCrosshair: true, pointerLeaveClears: true, sizes, themeRepaint: true };
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  const presentation = await page.evaluate(async () => {
+    window.__chartRegression.powerDraws = 0;
+    const started = performance.now();
+    const firstFrame = window.chartPerformanceFixture.frame;
+    for (let index = 0; index < 20; index++) {
+      window.chartPerformanceFixture.advance();
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    await new Promise(resolve => setTimeout(resolve, 250));
+    return { seconds: (performance.now() - started) / 1000, draws: window.__chartRegression.powerDraws, updates: window.chartPerformanceFixture.frame - firstFrame };
+  });
+  if (presentation.updates !== 20 || presentation.draws <= 20 || presentation.draws > Math.ceil(presentation.seconds * 60) + 2) throw new Error('High-refresh presentation must stay bounded while preserving updates and animation: ' + JSON.stringify(presentation));
+  return { mountRectReads: setup.rectReads, hoverBaseDraws: hoverDraws, changedFrameDraws: updateDraws, hiddenFrameDraws: hiddenDraws, tooltipAndCrosshair: true, pointerLeaveClears: true, sizes, themeRepaint: true, presentation };
 }

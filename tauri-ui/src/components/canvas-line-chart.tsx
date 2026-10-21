@@ -888,8 +888,20 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
   const revealFromLayoutRef = useRef<ChartLayout | null>(null)
   const presentedLayoutRef = useRef<ChartLayout | null>(null)
   const reducedMotionRef = useRef(false)
-  const flushBaseDraw = useCallback((): void => {
+  const lastDrawTimeRef = useRef<number | null>(null)
+  const flushBaseDraw = useCallback((frameTime?: number): void => {
     baseFrameRef.current = null
+    // High-refresh monitors otherwise rebuild the full canvas up to 240 times/s.
+    // Bound presentation work only; every acquisition sample stays in chartData.
+    // Direct calls (hidden windows/reduced motion) must still draw immediately.
+    const now = frameTime ?? performance.now()
+    const interval = 1000 / 60
+    const elapsed = lastDrawTimeRef.current === null ? interval : now - lastDrawTimeRef.current
+    if (frameTime !== undefined && elapsed < interval) {
+      baseFrameRef.current = window.requestAnimationFrame(flushBaseDraw)
+      return
+    }
+    lastDrawTimeRef.current = frameTime === undefined ? now : now - Math.max(0, elapsed % interval)
     const args = baseDrawArgsRef.current
     const canvas = baseCanvasRef.current
     const container = containerRef.current
