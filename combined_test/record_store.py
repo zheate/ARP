@@ -95,6 +95,7 @@ class MeasurementAttempt:
     stable_window_s: float
     integration_time_us: int | None
     spectrum_path: str = ""
+    power_stability: Mapping[str, Any] | None = None
 
 
 def utc_now_iso() -> str:
@@ -318,6 +319,7 @@ class SessionRecordStore:
         stability_limit_percent: float = math.nan,
         stable_window_s: float = math.nan,
         integration_time_us: int | None = None,
+        power_stability: Mapping[str, Any] | None = None,
     ) -> None:
         session = self.current_session
         if session is None:
@@ -352,6 +354,7 @@ class SessionRecordStore:
             stability_limit_percent=stability_limit_percent,
             stable_window_s=stable_window_s,
             integration_time_us=integration_time_us,
+            power_stability=power_stability,
         )
         if self._journal is not None:
             self._journal.append(
@@ -366,6 +369,12 @@ class SessionRecordStore:
         self.pending_records[current] = record
         self.recorded_currents.add(current)
         self.exported_currents.discard(current)
+
+    def record_stability_diagnostic(self, current_a: float, diagnostic: Mapping[str, Any]) -> None:
+        """Persist decisions from the automation worker, never the reader callback."""
+        if self._journal is not None and self.current_session is not None:
+            self._journal.append({"type": "power_stability", "current_a": current_a,
+                                  "created_at_utc": utc_now_iso(), "diagnostic": diagnostic})
 
     def record_invalid_attempt(
         self,

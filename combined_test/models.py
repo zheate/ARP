@@ -103,6 +103,9 @@ class PowerMeterReading:
     stability_drift_limit_w: float = math.nan
     stability_drift_exceeded: bool = False
     stability_two_sigma_w: float = math.nan
+    connection_generation: int = 0
+    transaction_started_monotonic_s: float = 0.0
+    instrument_configuration_token: str = ""
 
 
 @dataclass(frozen=True)

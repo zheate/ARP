@@ -129,7 +129,7 @@ class StationAutomaticMixin:
             mode="automatic",
             product_model=str(self.configuration.get("productModel", "")),
             batch=str(self.configuration.get("batch", "")),
-            settings=dict(self.configuration),
+            settings={**self.configuration, "powerStability": self.power_stability.session_metadata()},
             devices=self._device_snapshots(),
         )
         self.record_store.configure_sequence(self.automatic.currents)
@@ -631,6 +631,10 @@ class StationAutomaticMixin:
         def block(code: str, message: str) -> None:
             blockers.append({"code": code, "message": message})
 
+        stability_blocker = self.power_stability.blocker()
+        if stability_blocker:
+            block("power_background_not_ready", stability_blocker)
+
         if self.automatic.state not in {
             AutomaticTestState.IDLE,
             AutomaticTestState.COMPLETED,
@@ -700,6 +704,7 @@ class StationAutomaticMixin:
         if not aging_test:
             self._select_latest_test_reference(params)
         settings = self._require_automatic_ready()
+        self.power_stability.freeze()
         self.reset_charts()
         self.automatic.start(
             settings,
@@ -823,6 +828,7 @@ class StationAutomaticMixin:
         )
         stability_generation = reader.reset_stability_window()
         with self._lock:
+            self.power_stability.begin_point(stability_generation)
             self.automatic_stability_generation = stability_generation
             self.automatic_stability_reading = None
             self.automatic_stable_hold_elapsed_s = 0.0
@@ -872,6 +878,9 @@ class StationAutomaticMixin:
             and (power_received_at is None or power_received_at < minimum_received_monotonic_s)
         ):
             return None
+        if (self.power_stability.controls and minimum_received_monotonic_s is not None
+                and reading.transaction_started_monotonic_s < minimum_received_monotonic_s):
+            return None
         if not use_spectrometer:
             return reading, None
         if (
@@ -912,7 +921,10 @@ class StationAutomaticMixin:
         self.automatic_detail = (
             f"{retry_reason}，正在重新判稳" if retry_reason else f"正在等待 {current_a:g} A 稳定"
         )
-        point_deadline = time.monotonic() + settings.point_timeout_s
+        point_deadline = (
+            self._power_point_deadline if self.power_stability.controls
+            else time.monotonic() + settings.point_timeout_s
+        )
         while time.monotonic() < point_deadline:
             if self._automatic_stop.is_set():
                 raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
@@ -920,6 +932,14 @@ class StationAutomaticMixin:
             if paused_duration is None:
                 raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
             point_deadline += paused_duration
+            if self.power_stability.controls:
+                self._power_point_deadline = point_deadline
+            self.power_stability.journal_diagnostic(current_a)
+            if self.power_stability.controls:
+                reason = self.power_stability.decision.reason
+                self.automatic_detail = reason
+                if self.power_stability.decision.code in {"capability_insufficient", "background_invalid"}:
+                    raise ValueError(reason)
             measurement = self._fresh_automatic_measurement(
                 stability_generation=stability_generation,
                 spectrum_revision=spectrum_revision,
@@ -941,12 +961,17 @@ class StationAutomaticMixin:
         spectrum_revision: int,
     ) -> tuple[PowerMeterReading, Any]:
         """Respect explicit dwell and controller-specific confirmation before reading."""
-        required_s = automatic_voltage_read_delay_s(self.power_supply_kind, index, len(self.automatic.currents))
+        required_s = (
+            automatic_post_stable_delay_s(index, len(self.automatic.currents))
+            if self.power_stability.controls else
+            automatic_voltage_read_delay_s(self.power_supply_kind, index, len(self.automatic.currents))
+        )
         dwell_s = self.automatic.current_dwell_s
         timer = StableHoldTimer(required_s, max(1.0, float(self.configuration["powerMeterIntervalMs"]) * 3.0 / 1000.0))
         started_at = time.monotonic()
         self.automatic_hold_started_at = started_at
-        deadline = started_at + dwell_s + settings.point_timeout_s
+        deadline = (self._power_point_deadline + dwell_s if self.power_stability.controls
+                    else started_at + dwell_s + settings.point_timeout_s)
         next_sample_s = 1.0
         while True:
             paused_s = self._await_automatic_resume()
@@ -957,6 +982,9 @@ class StationAutomaticMixin:
                 started_at += paused_s
                 deadline += paused_s
                 self.automatic_hold_started_at = started_at
+                if self.power_stability.controls:
+                    self._power_point_deadline += paused_s
+            self.power_stability.journal_diagnostic(current_a)
             with self._lock:
                 now = time.monotonic()
                 if self._automatic_stop.is_set():
@@ -995,6 +1023,7 @@ class StationAutomaticMixin:
                         self.efficiency_points.pop(current_a, None)
                         self.series_revisions["stable"] += 1
                     if elapsed_s >= required_s and now - started_at >= dwell_s:
+                        self._power_candidate_failure_revision = self.power_stability.failure_revision
                         return reading, frame
             if now >= deadline:
                 raise TimeoutError(
@@ -1100,6 +1129,7 @@ class StationAutomaticMixin:
         settings: AutomaticTestSettings,
     ) -> None:
         self._wait_for_automatic_acquisition()
+        self._power_point_deadline = time.monotonic() + settings.point_timeout_s
         self.automatic.set_state(AutomaticTestState.SETTING_CURRENT)
         self.automatic_detail = f"正在设置 {current_a:g} A"
         if settings.custom_hold_ramp_enabled:
@@ -1114,6 +1144,31 @@ class StationAutomaticMixin:
         else:
             self._set_automatic_current(current_a)
 
+        if self.power_stability.controls:
+            # The measured settling interval is a minimum. Serial supplies must
+            # additionally provide a fresh, on-target actual-current readback.
+            settled_after = time.monotonic() + float(self.configuration["powerStabilitySettleS"])
+            while True:
+                paused_s = self._await_automatic_resume()
+                if paused_s is None or self._automatic_stop.is_set():
+                    raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
+                self._power_point_deadline += paused_s
+                settled_after += paused_s
+                now = time.monotonic()
+                if now >= self._power_point_deadline:
+                    raise TimeoutError("电流建立超时，未开始功率判稳")
+                ready = now >= settled_after
+                if ready and self.power_supply_kind in {"tdk", "ru"}:
+                    measured = self.latest_power_supply_output_current_a
+                    read_at = self._last_live_current_read_at
+                    ready = (measured is not None and read_at is not None and 0 <= now - read_at <= 1
+                             and abs(measured - current_a) <= float(self.configuration["powerStabilityCurrentToleranceA"]))
+                if ready:
+                    break
+                self.automatic_detail = "等待电流建立与实际电流到位"
+                if self._automatic_stop.wait(0.05):
+                    raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
+
         (
             stable_reading,
             stable_frame,
@@ -1126,13 +1181,45 @@ class StationAutomaticMixin:
             settings, current_a, index, stability_generation, spectrum_revision,
         )
 
-        self._validate_automatic_spectrum(stable_frame)
+        while True:
+            self._validate_automatic_spectrum(stable_frame)
+            failure_revision = (self._power_candidate_failure_revision if self.power_stability.controls
+                                else self.power_stability.failure_revision)
+            voltage_started = time.monotonic()
+            with self._supply_io_lock:
+                self._tdk_voltage_burst_stop.set()
+                self._reserve_power_supply_command(wait=True)
+                raw_voltage_v = self._require_power_supply().read_output_voltage()
+                self.latest_power_supply_output_voltage_v = float(raw_voltage_v)
+            if not self.power_stability.controls:
+                break
+            # A candidate cannot survive an unstable sample during voltage IO.
+            # Require a fresh transaction/frame after that IO began, then use
+            # the latest median while preserving the LIV median convention.
+            fresh = None
+            while time.monotonic() < self._power_point_deadline + dwell_s:
+                if self._automatic_stop.is_set():
+                    raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
+                if failure_revision != self.power_stability.failure_revision:
+                    break
+                fresh = self._fresh_automatic_measurement(
+                    stability_generation=stability_generation, spectrum_revision=spectrum_revision,
+                    use_spectrometer=settings.use_spectrometer,
+                    minimum_received_monotonic_s=voltage_started, require_live=True,
+                )
+                if fresh is not None:
+                    break
+                self._automatic_stop.wait(0.05)
+            if fresh is not None and failure_revision == self.power_stability.failure_revision:
+                stable_reading, stable_frame = fresh
+                self._validate_automatic_spectrum(stable_frame)
+                break
+            if time.monotonic() >= self._power_point_deadline + dwell_s:
+                raise TimeoutError("采集期间未能保持功率稳定，当前候选点已作废")
+            stable_reading, stable_frame = self._wait_for_automatic_stable_hold(
+                settings, current_a, index, stability_generation, spectrum_revision,
+            )
         stable_power_w = self._stable_power_w(stable_reading)
-        with self._supply_io_lock:
-            self._tdk_voltage_burst_stop.set()
-            self._reserve_power_supply_command(wait=True)
-            raw_voltage_v = self._require_power_supply().read_output_voltage()
-            self.latest_power_supply_output_voltage_v = float(raw_voltage_v)
         voltage_v = (
             compensate_tdk_output_voltage(raw_voltage_v, current_a)
             if self.power_supply_kind == "tdk"
@@ -1176,6 +1263,17 @@ class StationAutomaticMixin:
         )
         self.automatic.set_state(AutomaticTestState.SAVING_POINT)
         with self._lock:
+            if self._automatic_stop.is_set():
+                raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
+            if self.power_stability.controls and (
+                self.power_stability.failure_revision != failure_revision
+                or self._fresh_automatic_measurement(
+                    stability_generation=stability_generation, spectrum_revision=spectrum_revision,
+                    use_spectrometer=settings.use_spectrometer, require_live=True,
+                ) is None
+                or time.monotonic() >= self._power_point_deadline + dwell_s
+            ):
+                raise TimeoutError("采集期间功率失稳、采样中断或超时，候选点未写入")
             self.automatic_stability_reading = stable_reading
         while True:
             try:
@@ -1188,6 +1286,7 @@ class StationAutomaticMixin:
                     stability_percent=stable_reading.stability_percent,
                     stability_limit_percent=float(self.configuration["stabilityLimitPercent"]),
                     integration_time_us=int(self.configuration["integrationTimeUs"]),
+                    power_stability=self.power_stability.snapshot(),
                 )
                 break
             except SessionJournalError as exc:

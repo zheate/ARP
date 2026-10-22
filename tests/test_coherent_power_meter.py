@@ -187,6 +187,7 @@ class CoherentPowerMeterTests(unittest.TestCase):
         ):
             meter = power_meter_mvp.LaserPointPowerMeter("COM9")
             self.assertTrue(math.isclose(meter.read_power_w(), 0.86))
+            self.assertEqual(meter.measurement_configuration_token, "laserpoint:2:1:0.001")
             self.assertTrue(math.isclose(meter.read_power_w(), 0.86))
             meter.close()
 

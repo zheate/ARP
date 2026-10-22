@@ -61,6 +61,7 @@ from .workflow_access import WorkflowAccess
 from .command_safety import CommandSafetyGate, finite_number
 from .test_script_presets import normalize_script_presets
 from .station_automatic import StationAutomaticMixin
+from .power_stability_runtime import IDENTITY_KEYS, POLICY_KEYS, PowerStabilityRuntime
 from .power_meter_profiles import MEASUREMENT_CONFIGURATION_KEYS
 from .station_support import (
     AGING_TEST_SCRIPT_ID,
@@ -106,6 +107,7 @@ class StationRuntime(StationAutomaticMixin):
         self.power_meter_configuration_migrated = _normalize_power_meter_configuration(
             self.configuration
         )
+        self.power_stability = PowerStabilityRuntime(self)
 
         if str(self.configuration.get("selectedScriptId", "standard")) == AGING_TEST_SCRIPT_ID:
             if str(self.configuration.get("powerSupplyKind", "ch341")).lower() == "ch341":
@@ -536,6 +538,19 @@ class StationRuntime(StationAutomaticMixin):
         with self._lock:
             params = self.backend.power_meter_profiles.protect_configuration(dict(params))
             candidate = dict(self.configuration)
+            protected = (*IDENTITY_KEYS, *POLICY_KEYS, "powerMeterResource")
+            if any(key in params and params[key] != candidate.get(key) for key in protected):
+                if not self.manual_controls_allowed() or self.power_stability.job:
+                    raise ValueError("测试或本底任务期间不能修改功率判稳和测量配置")
+                if self.power_meter_reader is not None and any(
+                    key in params and params[key] != candidate.get(key)
+                    for key in (*IDENTITY_KEYS, "powerMeterResource")
+                ):
+                    raise ValueError("请先停止功率采集，再修改本底绑定的测量配置")
+                if (self.record_store.current_session is not None
+                        and self.record_store.current_session.mode == "manual"
+                        and self.record_store.unsaved_records()):
+                    raise ValueError("请先保存手动测试点，再修改判稳配置")
             kind = str(params.get("powerSupplyKind", candidate["powerSupplyKind"])).lower()
             if kind not in {"ch341", "tdk", "ru"}:
                 raise ValueError("powerSupplyKind must be ch341, tdk or ru")
@@ -590,7 +605,7 @@ class StationRuntime(StationAutomaticMixin):
                 params["testTemperatureC"] = str(params["testTemperatureC"] or "").strip()
 
             for key in DEFAULT_CONFIGURATION:
-                if key in params:
+                if key in params and key != "powerStabilityConfirmedSignature":
                     candidate[key] = params[key]
             if selected_script_id == AGING_TEST_SCRIPT_ID:
                 _apply_aging_script_configuration(candidate)
@@ -626,17 +641,23 @@ class StationRuntime(StationAutomaticMixin):
             candidate["currentPlanMode"] = mode
             self.backend.power_meter_profiles.resolve_configuration(candidate, self.configuration)
             self._validate_configuration(candidate)
+            if candidate["powerStabilityParametersConfirmed"] and not self.configuration["powerStabilityParametersConfirmed"]:
+                candidate["powerStabilityConfirmedSignature"] = self.power_stability.confirmation_signature(candidate)
             if self.power_meter_reader is not None:
                 self.power_meter_reader.update_stability_settings(
                     candidate["stableWindowS"], candidate["stabilityLimitPercent"],
                     **({"absolute_floor_w": candidate["powerStabilityAbsoluteFloorW"]}
                        if candidate.get("powerMeterDriverKind") == "laserpoint" else {}),
                 )
+            old_configuration = self.configuration
             self.configuration = candidate
+            self.power_stability.configure(old_configuration, candidate)
             self.power_supply_kind = kind
 
     @staticmethod
     def _validate_configuration(candidate: dict[str, Any]) -> None:
+        if candidate["powerStabilityMode"] not in {"legacy", "shadow", "dual"}:
+            raise ValueError("未知功率判稳策略")
         positive = {
             "powerMeterWavelengthNm", "softwareGain", "powerMeterIntervalMs", "integrationTimeUs",
             "spectrometerIntervalMs", "spectrumAverageFrames", "pibCenterWavelengthNm", "pibHalfRangeNm",
@@ -674,6 +695,18 @@ class StationRuntime(StationAutomaticMixin):
                 "dwellS": finite_number(point.get("dwellS", 0), "dwellS"),
             })
         candidate["customCurrentPoints"] = cleaned_points
+        if candidate["powerStabilityReferenceS"] <= 0:
+            raise ValueError("漂移参考时间必须大于 0 秒")
+        if not isinstance(candidate["powerStabilityInstrumentSettings"], str):
+            raise ValueError("仪器量程和滤波设置必须是文本")
+        if candidate["powerStabilityParametersConfirmed"] and (
+            candidate["powerStabilityResponseS"] <= 0
+            or candidate["powerStabilitySettleS"] <= 0
+            or candidate["powerStabilityCurrentToleranceA"] <= 0
+            or candidate["powerStabilityQuantizationW"] <= 0
+            or max(candidate["powerStabilityAbsoluteDriftW"], candidate["powerStabilityRelativeDriftPercent"]) <= 0
+        ):
+            raise ValueError("确认判稳参数前，请填写响应时间、电流建立时间、量化步进和漂移容差")
         if candidate["ruBaudRate"] not in RU_BAUD_RATES:
             raise ValueError("RU 波特率不在手册支持范围内")
         if not 1 <= candidate["ruAddress"] <= 255:
@@ -1161,6 +1194,7 @@ class StationRuntime(StationAutomaticMixin):
     def _on_power_reading(self, reading: PowerMeterReading) -> None:
         with self._lock:
             received_at = time.monotonic()
+            reading = self.power_stability.observe(reading, received_at)
             previous = self.latest_power
             # Count only observed, consecutive stable samples in the same
             # measurement window. Snapshot refreshes never advance this clock.
@@ -1474,6 +1508,7 @@ class StationRuntime(StationAutomaticMixin):
 
     def _on_power_failed(self, message: str) -> None:
         with self._lock:
+            self.power_stability.invalidate("功率计通信失败，请重新复核本底")
             self.power_stable_started_elapsed_s = None
             self.power_stable_elapsed_s = None
         self._invalidate_manual_power_capture()
@@ -1495,6 +1530,7 @@ class StationRuntime(StationAutomaticMixin):
 
     def _on_power_finished(self) -> None:
         with self._lock:
+            self.power_stability.invalidate("功率计采集已停止，请重新复核本底")
             self.power_stable_started_elapsed_s = None
             self.power_stable_elapsed_s = None
         self._invalidate_manual_power_capture()
@@ -1536,6 +1572,7 @@ class StationRuntime(StationAutomaticMixin):
         meter_class = CoherentPowerMeter if driver_kind == "coherent" else CaihuangPowerMeter
         meter = meter_class(resource)
         try:
+            self.power_stability.before_zero_command()
             meter.set_relative_zero(enabled)
         finally:
             meter.close()
@@ -1615,6 +1652,10 @@ class StationRuntime(StationAutomaticMixin):
                 saturated = bool(frame.saturation and frame.saturation.saturated)
             else:
                 saturated = False
+            if (self.power_stability.controls and self.automatic.settings is not None
+                    and self.automatic.settings.use_spectrometer
+                    and (frame is None or saturated or not self.latest_wavelength_stable)):
+                self.power_stability.failure_revision += 1
         if (
             saturated
             and self.automatic.settings is not None

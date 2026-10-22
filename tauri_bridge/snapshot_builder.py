@@ -142,6 +142,8 @@ class SnapshotBuilder:
             active_st.configuration["stableWindowS"],
             active_st.automatic.current_a,
         )
+        if active_st.power_stability.controls:
+            stability_window_s = 20.0
         stability_quality = (
             power_freshness["quality"]
             if stability_reading is active_st.latest_power else "stale"
@@ -153,7 +155,10 @@ class SnapshotBuilder:
             if 0 <= active_st.automatic.current_index < len(active_st.automatic.currents)
             else 0.0 if active_st.power_supply_kind in {"tdk", "ru"} else ORDINARY_AUTO_POST_STABLE_DELAY_S
         )
+        if active_st.power_stability.controls and active_st.automatic.currents:
+            hold_required_s = 10.0 if active_st.automatic.current_index == len(active_st.automatic.currents) - 1 else 5.0
         automatic_stability = {
+            "background": active_st.power_stability.snapshot(),
             "powerStable": bool(stability_reading and stability_reading.stable),
             "elapsedS": (
                 stability_window_s if stability_reading and stability_reading.stable else
@@ -167,7 +172,7 @@ class SnapshotBuilder:
             ),
             "holdRequiredS": hold_required_s,
             "spanW": finite(stability_reading.stable_span_w) if stability_reading else None,
-            "spanLimitW": automatic_power_stability_span_limit_w(
+            "spanLimitW": None if active_st.power_stability.controls else automatic_power_stability_span_limit_w(
                 active_st.automatic.current_a,
                 str(active_st.configuration.get("powerMeterDriverKind", "")),
             ),
@@ -175,7 +180,7 @@ class SnapshotBuilder:
             "limitPercent": float(active_st.configuration["stabilityLimitPercent"]),
             "absoluteFloorW": (
                 float(active_st.configuration["powerStabilityAbsoluteFloorW"])
-                if active_st.configuration.get("powerMeterDriverKind") == "laserpoint"
+                if not active_st.power_stability.controls and active_st.configuration.get("powerMeterDriverKind") == "laserpoint"
                 and automatic_power_stability_span_limit_w(active_st.automatic.current_a, "laserpoint") is None
                 else 0.0
             ),
@@ -369,6 +374,7 @@ class SnapshotBuilder:
                     "stabilityLimitPercent": float(
                         active_st.configuration["stabilityLimitPercent"]
                     ),
+                    "powerBackground": active_st.power_stability.snapshot(),
                     **power_freshness,
                     "resources": [item.label() for item in power_meter_options],
                     "coefficientLibrary": backend.power_meter_profiles.library(),

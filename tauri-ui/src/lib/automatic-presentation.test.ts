@@ -37,6 +37,23 @@ const stability: NonNullable<Automatic["stability"]> = {
   wavelengthRequired: false, wavelengthStable: false,
 }
 
+test("dual-window presentation preserves diagnostic reasons, hold, freshness and pause states", () => {
+  const background = {
+    mode: "dual" as const, algorithm: "background-dual-window-v1", state: "本底已复核", job: null,
+    parametersConfirmed: true, model: null,
+    decision: { stable: false, reason: "测量能力不足：本底保护量超过目标容差", metrics: null,
+      tolerance_w: 0.1, noise_limit_w: 0.075, guarded_shift_w: 0.15, guarded_drift_w: 0.15 },
+  }
+  const dual = { ...stability, background }
+  assert.match(automaticStabilityPresentation(auto({ state: "waiting_stable", stability: dual })).label, /测量能力不足/)
+  assert.equal(automaticStabilityPresentation(auto({ state: "waiting_stable", stability: { ...dual, quality: "stale" } })).label, "等待有效采样")
+  assert.equal(automaticStabilityPresentation(auto({ state: "paused", stability: dual })).label, "已暂停")
+  assert.equal(automaticStabilityPresentation(auto({ state: "completed", stability: dual })).label, "判稳已结束")
+  assert.equal(automaticStabilityPresentation(auto({ state: "waiting_voltage", stability: { ...dual, powerStable: true, holdElapsedS: 3.2 } })).time, "3.2 / 5.0 秒")
+  const shadow = { ...dual, background: { ...background, mode: "shadow" as const } }
+  assert.match(automaticStabilityPresentation(auto({ state: "waiting_stable", stability: shadow })).detail, /旁路诊断/)
+})
+
 test("confirmation starts only after stability and completes after five seconds", () => {
   const pending = automaticStabilityPresentation(auto({ state: "waiting_stable", stability }))
   assert.equal(pending.label, "判稳中")

@@ -50,6 +50,7 @@ export interface Ch341State {
 }
 
 export interface DeviceSnapshot {
+  powerBackground?: PowerBackgroundSnapshot
   state: DeviceConnectionState
   label: string
   detail: string
@@ -176,6 +177,18 @@ export interface AppConfiguration {
   stableWindowS: number
   stabilityLimitPercent: number
   powerStabilityAbsoluteFloorW?: number
+  powerStabilityMode?: "legacy" | "shadow" | "dual"
+  powerStabilityQuantizationW?: number
+  powerStabilityInstrumentSettings?: string
+  powerStabilityAbsoluteDriftW?: number
+  powerStabilityRelativeDriftPercent?: number
+  powerStabilityReferenceS?: number
+  powerStabilityExtraNoisePercent?: number
+  powerStabilityResponseS?: number
+  powerStabilitySettleS?: number
+  powerStabilityCurrentToleranceA?: number
+  powerStabilityParametersConfirmed?: boolean
+  powerStabilityConfirmedSignature?: string
   initialCurrentA: number
   targetCurrentA: number
   currentStepA: number
@@ -263,6 +276,7 @@ export interface BackendSnapshot {
     elapsedS?: number | null
     runContext?: Pick<AppConfiguration, "sn" | "station" | "testTemperatureC" | "selectedScriptId"> | null
     stability?: {
+      background?: PowerBackgroundSnapshot
       powerStable: boolean
       /** Continuous qualifying sample coverage, computed by the backend. */
       elapsedS: number
@@ -367,6 +381,25 @@ export interface BackendSnapshot {
     shutdown: SafetyShutdownResult
   }
   status?: { message: string }
+}
+
+export interface PowerBackgroundSnapshot {
+  mode: "legacy" | "shadow" | "dual"
+  algorithm: string
+  state: string
+  job: "learn" | "verify" | "saving" | null
+  parametersConfirmed: boolean
+  model: { model_id: string; center_w: number; quantization_w: number; noise_sigma_w: number; shift_guard_w: number; slope_guard_w_s: number; created_at: string } | null
+  decision: {
+    code?: string
+    stable: boolean
+    reason: string
+    tolerance_w: number | null
+    noise_limit_w: number | null
+    guarded_shift_w: number | null
+    guarded_drift_w: number | null
+    metrics: { mean_w: number; median_w: number; span_w: number; residual_sigma_w: number; block_shift_w: number; slope_w_s: number; covered_s: number; sample_count: number } | null
+  }
 }
 
 export type BackendSnapshotPatch = Omit<BackendSnapshot, "measurements" | "pd"> & {

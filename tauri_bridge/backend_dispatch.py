@@ -36,6 +36,13 @@ class BackendDispatcher:
         backend = self._backend
         st = backend.runtime
 
+        if st.power_stability.job and (
+            method == "automatic.start" or method.startswith("powerMeter.profile.")
+            or method in {"powerSupply.setCurrent", "powerSupply.setVoltage", "powerMeter.setRelativeZero"}
+            or (method == "powerSupply.setOutput" and params.get("enabled") is True)
+        ):
+            raise CommandRejected("control_conflict", "本底任务进行中，请先完成或取消")
+
         if method in MANUAL_CONTROL_METHODS and not st.manual_controls_allowed():
             raise CommandRejected(
                 "control_conflict", "硬件控制权由自动测试持有；请先结束并安全下电"
@@ -54,6 +61,9 @@ class BackendDispatcher:
             "powerMeter.start": lambda _p: st.start_power_meter(),
             "powerMeter.stop": lambda _p: st.stop_power_meter(),
             "powerMeter.setRelativeZero": lambda p: st.set_relative_zero(p),
+            "powerMeter.background.learn": lambda p: st.power_stability.start_background(p),
+            "powerMeter.background.verify": lambda p: st.power_stability.start_background(p, verify=True),
+            "powerMeter.background.cancel": lambda _p: st.power_stability.cancel_background(),
             "manual.saveExcel": lambda _p: st.save_manual_records(),
             "spectrometer.start": lambda _p: st.start_spectrometer(),
             "spectrometer.stop": lambda _p: st.stop_spectrometer(),

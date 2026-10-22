@@ -598,6 +598,7 @@ class LaserPointPowerMeter:
         self.inst = None
         self.probe_serial_number = ""
         self._power_ranges_to_w: dict[int, tuple[float, float]] = {}
+        self.measurement_configuration_token = ""
         try:
             self.inst = self.rm.open_resource(self.resource)
             configure_laserpoint(self.inst)
@@ -696,6 +697,7 @@ class LaserPointPowerMeter:
             # on a 3,000 W scale. Retry instead of publishing that sample.
             if abs(power_w) > full_scale_w * 1.05:
                 continue
+            self.measurement_configuration_token = f"laserpoint:{gain_after}:{full_scale_w:.17g}:{scale_to_w:.17g}"
             return power_w
 
         raise RuntimeError("LaserPoint 自动量程切换期间未获得一致功率读数")

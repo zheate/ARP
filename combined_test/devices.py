@@ -612,6 +612,7 @@ class PowerMeterReaderThread(WorkerThread):
                 absolute_floor_w=absolute_floor_w,
             )
             start = time.monotonic()
+            connection_generation = 0
             poll_interval_s = self.settings.interval_ms / 1000.0
             next_poll_at = start
             while not self._stop_requested.is_set():
@@ -636,7 +637,8 @@ class PowerMeterReaderThread(WorkerThread):
                     detector.stability_limit_percent = stability_limit_percent
                     detector.absolute_span_limit_w = absolute_span_limit_w
                     detector.absolute_floor_w = absolute_floor_w
-                elapsed = time.monotonic() - start
+                transaction_started = time.monotonic()
+                elapsed = transaction_started - start
                 try:
                     power_w = meter.read_power_w() * self.settings.software_gain
                 except Exception as exc:
@@ -670,6 +672,8 @@ class PowerMeterReaderThread(WorkerThread):
                             last_error = reconnect_exc
                             continue
                         self.status.emit("功率计自动重连成功，继续采集")
+                        connection_generation += 1
+                        self.reset_stability_window()
                         detector = PowerStabilityDetector(
                             stable_window_s,
                             stability_limit_percent,
@@ -687,6 +691,9 @@ class PowerMeterReaderThread(WorkerThread):
                 if self._stop_requested.is_set():
                     break
                 stability = detector.add_sample(elapsed, power_w)
+                instrument_token = getattr(meter, "measurement_configuration_token", "")
+                if not isinstance(instrument_token, str):
+                    instrument_token = ""
                 self.reading.emit(
                     PowerMeterReading(
                         elapsed_s=elapsed,
@@ -704,6 +711,9 @@ class PowerMeterReaderThread(WorkerThread):
                         stability_drift_limit_w=stability.drift_limit_w,
                         stability_drift_exceeded=stability.drift_exceeded,
                         stability_two_sigma_w=stability.two_sigma_w,
+                        connection_generation=connection_generation,
+                        transaction_started_monotonic_s=transaction_started,
+                        instrument_configuration_token=instrument_token,
                     )
                 )
                 next_poll_at += poll_interval_s

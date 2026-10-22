@@ -720,6 +720,76 @@ export function PowerMeterProfileEditor({ snapshot, config, active, pending, run
   )
 }
 
+function PowerBackgroundSettings({ snapshot, config, update, active, pending, run }: {
+  snapshot: BackendSnapshot | null; config: AppConfiguration; update: UpdateConfig; active: boolean; pending: boolean; run: RunCommand
+}) {
+  const meter = snapshot?.devices.powerMeter
+  const background = meter?.powerBackground
+  const [confirmedDark, setConfirmedDark] = useState(false)
+  const [commandBusy, setCommandBusy] = useState(false)
+  const commandLock = useRef(false)
+  const [error, setError] = useState("")
+  const selectedMode = config.powerStabilityMode ?? "shadow"
+  const taskRunning = Boolean(background?.job)
+  const disabled = !active || pending || taskRunning
+  const numericFields: Array<[keyof AppConfiguration, string, number]> = [
+    ["powerStabilityQuantizationW", "量化步进 (W，含软件增益)", 0.01],
+    ["powerStabilityAbsoluteDriftW", "绝对漂移容差 (W)", 0.01],
+    ["powerStabilityRelativeDriftPercent", "相对漂移容差 (%)", 0.01],
+    ["powerStabilityReferenceS", "漂移参考时间 (s)", 1],
+    ["powerStabilityExtraNoisePercent", "额外 2σ 波动容差 (%)", 0.01],
+    ["powerStabilitySettleS", "电流最短建立时间 (s)", 0.1],
+    ["powerStabilityCurrentToleranceA", "电流回读容差 (A)", 0.01],
+    ["powerStabilityResponseS", "探头最短响应时间 (s)", 0.1],
+  ]
+  useEffect(() => { setConfirmedDark(false) }, [config.powerMeterResource, config.powerMeterSerialNumber])
+  async function backgroundCommand(method: "powerMeter.background.learn" | "powerMeter.background.verify" | "powerMeter.background.cancel") {
+    if (commandLock.current) return
+    commandLock.current = true
+    setCommandBusy(true)
+    setError("")
+    try {
+      if (method === "powerMeter.background.cancel") await run(method, {}, false)
+      else await run(method, { confirmedDark }, true)
+      setConfirmedDark(false)
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure))
+    } finally {
+      commandLock.current = false
+      setCommandBusy(false)
+    }
+  }
+  return <section className="space-y-3" aria-label="功率本底与判稳">
+    <Field label="自动功率判稳策略">
+      <NativeSelect aria-label="自动功率判稳策略" disabled={disabled} value={selectedMode} onChange={(value) => update("powerStabilityMode", value as "legacy" | "shadow" | "dual")}>
+        <option value="legacy">原有策略</option><option value="shadow">旁路验证（原有策略控制）</option><option value="dual">本底与双窗口控制</option>
+      </NativeSelect>
+    </Field>
+    {selectedMode !== "legacy" && <>
+      <p className="text-xs text-muted-foreground">{selectedMode === "shadow" ? "新算法只计算并记录诊断，升流仍由原有策略控制。" : "参数已确认且本底有效时，可直接开始自动测试。"}同一探头、设置和连接未变时直接复用；重连或采样异常后才需复核。未知参数保持 0；不会自动放宽容差。</p>
+      <details className="space-y-3">
+        <summary className="cursor-pointer text-sm">本底与判稳参数</summary>
+        <Field label="仪器量程、滤波及采样设置">
+          <Input aria-label="仪器量程、滤波及采样设置" disabled={disabled || meter?.running} value={config.powerStabilityInstrumentSettings ?? ""} placeholder="填写当前仪器设置；更改后须重新学习" onChange={(event) => { update("powerStabilityParametersConfirmed", false); update("powerStabilityInstrumentSettings", event.target.value) }} />
+        </Field>
+        <ControlGrid>{numericFields.map(([key, label, step]) => <NumberField key={key} disabled={disabled || meter?.running} label={label} min={key === "powerStabilityReferenceS" ? 0.1 : 0} step={String(step)} value={Number(config[key] ?? 0)} onChange={(value) => { update("powerStabilityParametersConfirmed", false); update(key, value) }} />)}</ControlGrid>
+        <p className="text-xs text-muted-foreground">5 s / 20 s 双窗口；本底学习至少 180 s，复核 20 s。0.15 W 仅适用于对应探头，需乘以当前软件增益。漂移限值取绝对与相对容差较大值；噪声与漂移分开检查。仪器内部量程或滤波变化须停止采集并更新上述设置。</p>
+        <label className="device-settings-checkbox"><input type="checkbox" disabled={disabled || meter?.running} checked={config.powerStabilityParametersConfirmed ?? false} onChange={(event) => update("powerStabilityParametersConfirmed", event.target.checked)} />已用响应实测和测试规范确认上述参数</label>
+      </details>
+      <p role="status" className="text-xs text-muted-foreground">{background?.state ?? "尚未学习本底"}{background?.model ? ` · 模型 ${background.model.model_id.slice(0, 8)}` : ""}</p>
+      {background?.model && <p className="text-xs text-muted-foreground">零点 {formatNumber(background.model.center_w, " W", 4)} · 均值差保护量 {formatNumber(background.model.shift_guard_w, " W", 4)} · 斜率保护量 {formatNumber(background.model.slope_guard_w_s, " W/s", 5)}</p>}
+      <label className="device-settings-checkbox"><input type="checkbox" disabled={disabled} checked={confirmedDark} onChange={(event) => setConfirmedDark(event.target.checked)} />已确认 0 A、无光输出且探头已冷却</label>
+      <ControlGrid>
+        <Button variant="outline" disabled={!active || !meter?.running || !confirmedDark || taskRunning} aria-disabled={commandBusy || undefined} onClick={() => void backgroundCommand("powerMeter.background.learn")}>学习本底 (180 s)</Button>
+        <Button variant="outline" disabled={!active || !meter?.running || !confirmedDark || !background?.model || taskRunning} aria-disabled={commandBusy || undefined} onClick={() => void backgroundCommand("powerMeter.background.verify")}>复核本底 (20 s)</Button>
+      </ControlGrid>
+      {taskRunning && <Button variant="outline" aria-disabled={commandBusy || undefined} onClick={() => void backgroundCommand("powerMeter.background.cancel")}>取消本底任务</Button>}
+      {selectedMode === "shadow" && background?.decision.metrics && <p className="text-xs text-muted-foreground">旁路：{background.decision.reason} · 短窗残差 σ {formatNumber(background.decision.metrics.residual_sigma_w, " W", 4)} · 长窗均值差 {formatNumber(background.decision.metrics.block_shift_w, " W", 4)}</p>}
+      {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+    </>}
+  </section>
+}
+
 export function PowerMeterSettingsForm({ snapshot, config, update, active, pending, run, mode = "auto" }: {
   snapshot: BackendSnapshot | null; config: AppConfiguration; update: UpdateConfig; active: boolean; pending: boolean; run: RunCommand
   mode?: "auto" | "manual"
@@ -751,6 +821,7 @@ export function PowerMeterSettingsForm({ snapshot, config, update, active, pendi
         </ControlRow>
       </Field>
       <PowerMeterProfileEditor active={active} config={config} pending={pending} run={run} snapshot={snapshot} />
+      {mode === "auto" && <PowerBackgroundSettings snapshot={snapshot} config={config} update={update} active={active} pending={pending} run={run} />}
       {config.powerMeterDriverKind === "laserpoint" && (
         <div className="space-y-2">
           <NumberField disabled={!active || pending || meter?.running} label="判稳绝对下限 (W)" min={0} step="0.01" value={config.powerStabilityAbsoluteFloorW ?? 0.2} onChange={(value) => update("powerStabilityAbsoluteFloorW", value)} />
