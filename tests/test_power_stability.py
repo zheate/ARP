@@ -127,6 +127,35 @@ class BackgroundDualWindowTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 StabilityPolicy(**{"quantization_w": 0.15, **kwargs})
 
+    def test_auto_step_uses_observed_units_once_and_preserves_manual_models(self):
+        for gain in (1, 1.04):
+            samples = [(i * 0.5, (-0.3 + (i % 3) * 0.15) * gain) for i in range(361)]
+            model = learn_background(samples, identity="a", model_id="auto", created_at="now",
+                                     policy=replace(self.policy, quantization_w=0))
+            self.assertAlmostEqual(model.quantization_w, 0.15 * gain)
+            self.assertEqual(model.quantization_source, "observed-grid-v1")
+            self.assertEqual(BackgroundModel.from_dict(asdict(model)), model)
+        legacy = asdict(self.model)
+        del legacy["quantization_source"]
+        self.assertEqual(BackgroundModel.from_dict(legacy).quantization_source, "manual")
+
+    def test_auto_step_refuses_flat_continuous_nonuniform_or_one_way_data(self):
+        rng = random.Random(42)
+        functions = (lambda i: 0, lambda i: rng.random() * 0.15,
+                     lambda i: (0, 0.15, 0.37)[i % 3], lambda i: i // 120 * 0.15,
+                     lambda i: 0.15 if i == 180 else 0)
+        for function in functions:
+            with self.subTest(function=function), self.assertRaisesRegex(ValueError, "无法可靠估计"):
+                learn_background([(i * 0.5, function(i)) for i in range(361)],
+                                 identity="a", model_id="auto", created_at="now",
+                                 policy=replace(self.policy, quantization_w=0))
+
+    def test_auto_step_still_rejects_drifting_background(self):
+        samples = [(i * 0.5, (i // 120) * 0.15 + (i % 2) * 0.15) for i in range(361)]
+        with self.assertRaisesRegex(ValueError, "本底尚未稳定"):
+            learn_background(samples, identity="a", model_id="auto", created_at="now",
+                             policy=replace(self.policy, quantization_w=0))
+
 
 if __name__ == "__main__":
     unittest.main()

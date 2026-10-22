@@ -389,7 +389,8 @@ export interface PowerBackgroundSnapshot {
   state: string
   job: "learn" | "verify" | "saving" | null
   parametersConfirmed: boolean
-  model: { model_id: string; center_w: number; quantization_w: number; noise_sigma_w: number; shift_guard_w: number; slope_guard_w_s: number; created_at: string } | null
+  detectedSettings?: { fullScaleW: number | null; filter: "unavailable"; softwareGain: number; intervalMs: number }
+  model: { model_id: string; center_w: number; quantization_w: number; quantization_source?: "manual" | "observed-grid-v1"; noise_sigma_w: number; shift_guard_w: number; slope_guard_w_s: number; created_at: string } | null
   decision: {
     code?: string
     stable: boolean

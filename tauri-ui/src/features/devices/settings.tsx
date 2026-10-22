@@ -731,9 +731,10 @@ function PowerBackgroundSettings({ snapshot, config, update, active, pending, ru
   const [error, setError] = useState("")
   const selectedMode = config.powerStabilityMode ?? "shadow"
   const taskRunning = Boolean(background?.job)
+  const detected = background?.detectedSettings
   const disabled = !active || pending || taskRunning
   const numericFields: Array<[keyof AppConfiguration, string, number]> = [
-    ["powerStabilityQuantizationW", "量化步进 (W，含软件增益)", 0.01],
+    ["powerStabilityQuantizationW", "手动步进 (W，0 为自动估计)", 0.01],
     ["powerStabilityAbsoluteDriftW", "绝对漂移容差 (W)", 0.01],
     ["powerStabilityRelativeDriftPercent", "相对漂移容差 (%)", 0.01],
     ["powerStabilityReferenceS", "漂移参考时间 (s)", 1],
@@ -766,14 +767,16 @@ function PowerBackgroundSettings({ snapshot, config, update, active, pending, ru
       </NativeSelect>
     </Field>
     {selectedMode !== "legacy" && <>
-      <p className="text-xs text-muted-foreground">{selectedMode === "shadow" ? "新算法只计算并记录诊断，升流仍由原有策略控制。" : "参数已确认且本底有效时，可直接开始自动测试。"}同一探头、设置和连接未变时直接复用；重连或采样异常后才需复核。未知参数保持 0；不会自动放宽容差。</p>
+      <p className="text-xs text-muted-foreground">{selectedMode === "shadow" ? "新算法只计算并记录诊断，升流仍由原有策略控制。" : "参数已确认且本底有效时，可直接开始自动测试。"}同一探头、设置和连接未变时直接复用；重连或采样异常后才需复核。</p>
+      <p className="text-xs text-muted-foreground" aria-label="自动获取的功率计设置">量程：{detected?.fullScaleW != null ? `${formatTrimmedNumber(detected.fullScaleW, 6)} W（设备返回，软件增益前）` : "设备未提供"} · 软件增益 ×{formatTrimmedNumber(detected?.softwareGain ?? config.softwareGain, 6)} · 采样间隔 {detected?.intervalMs ?? config.powerMeterIntervalMs} ms（ARP 设置） · 滤波：设备未提供</p>
+      <p className="text-xs text-muted-foreground">步进：{Number(config.powerStabilityQuantizationW ?? 0) > 0 ? `${formatTrimmedNumber(config.powerStabilityQuantizationW!, 6)} W（手动值，含软件增益）` : background?.model ? `${formatTrimmedNumber(background.model.quantization_w, 6)} W（观测估计值，含软件增益）` : "随 180 秒本底学习自动估计，无需手填"}。改变仪器面板滤波等设置后，请重新学习本底。</p>
       <details className="space-y-3">
-        <summary className="cursor-pointer text-sm">本底与判稳参数</summary>
-        <Field label="仪器量程、滤波及采样设置">
-          <Input aria-label="仪器量程、滤波及采样设置" disabled={disabled || meter?.running} value={config.powerStabilityInstrumentSettings ?? ""} placeholder="填写当前仪器设置；更改后须重新学习" onChange={(event) => { update("powerStabilityParametersConfirmed", false); update("powerStabilityInstrumentSettings", event.target.value) }} />
+        <summary className="cursor-pointer text-sm">高级判稳参数（首次旁路测试可跳过）</summary>
+        <Field label="仪器设置备注（可选）">
+          <Input aria-label="仪器设置备注（可选）" disabled={disabled || meter?.running} value={config.powerStabilityInstrumentSettings ?? ""} placeholder="可补充设备未提供的滤波等设置" onChange={(event) => { update("powerStabilityParametersConfirmed", false); update("powerStabilityInstrumentSettings", event.target.value) }} />
         </Field>
         <ControlGrid>{numericFields.map(([key, label, step]) => <NumberField key={key} disabled={disabled || meter?.running} label={label} min={key === "powerStabilityReferenceS" ? 0.1 : 0} step={String(step)} value={Number(config[key] ?? 0)} onChange={(value) => { update("powerStabilityParametersConfirmed", false); update(key, value) }} />)}</ControlGrid>
-        <p className="text-xs text-muted-foreground">5 s / 20 s 双窗口；本底学习至少 180 s，复核 20 s。0.15 W 仅适用于对应探头，需乘以当前软件增益。漂移限值取绝对与相对容差较大值；噪声与漂移分开检查。仪器内部量程或滤波变化须停止采集并更新上述设置。</p>
+        <p className="text-xs text-muted-foreground">5 s / 20 s 双窗口；本底学习至少 180 s，复核 20 s。自动步进只表示本次观察到的台阶，不保证仪器真实分辨率；仅用于旁路诊断。启用新策略控制前，须填写已实测确认的步进、响应时间和测试容差。手动步进使用 ARP 显示单位，已含增益时不要重复换算。未知参数保持 0；不会自动放宽容差。</p>
         <label className="device-settings-checkbox"><input type="checkbox" disabled={disabled || meter?.running} checked={config.powerStabilityParametersConfirmed ?? false} onChange={(event) => update("powerStabilityParametersConfirmed", event.target.checked)} />已用响应实测和测试规范确认上述参数</label>
       </details>
       <p role="status" className="text-xs text-muted-foreground">{background?.state ?? "尚未学习本底"}{background?.model ? ` · 模型 ${background.model.model_id.slice(0, 8)}` : ""}</p>

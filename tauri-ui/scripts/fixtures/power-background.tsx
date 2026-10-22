@@ -30,7 +30,12 @@ function Fixture() {
       await new Promise(resolve => setTimeout(resolve, 600))
       setSnapshot(s => ({ ...s, devices: { ...s.devices, [device]: { ...s.devices[device], detecting: false } } }))
     } else if (method === "powerMeter.start" || method === "powerMeter.stop") {
-      setSnapshot(s => ({ ...s, devices: { ...s.devices, powerMeter: { ...s.devices.powerMeter, running: method === "powerMeter.start" } } }))
+      setSnapshot(s => ({ ...s, devices: { ...s.devices, powerMeter: { ...s.devices.powerMeter, running: method === "powerMeter.start",
+        powerBackground: { ...s.devices.powerMeter.powerBackground!, detectedSettings: {
+          fullScaleW: method === "powerMeter.start" ? 3000 : null,
+          filter: "unavailable", softwareGain: config.softwareGain, intervalMs: config.powerMeterIntervalMs,
+        } },
+      } } }))
     } else if (method.startsWith("powerMeter.background.")) {
       setSnapshot(s => ({ ...s, devices: { ...s.devices, powerMeter: { ...s.devices.powerMeter,
         powerBackground: { ...s.devices.powerMeter.powerBackground!,

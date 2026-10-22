@@ -84,14 +84,18 @@ class PowerStabilityRuntime:
 
     def policy(self) -> StabilityPolicy:
         c = self.station.configuration
+        quantization = float(c["powerStabilityQuantizationW"])
+        if quantization == 0 and self.model is not None and self.model.identity == self.identity():
+            quantization = self.model.quantization_w
         return StabilityPolicy(
-            quantization_w=float(c["powerStabilityQuantizationW"]),
+            quantization_w=quantization,
             absolute_drift_w=float(c["powerStabilityAbsoluteDriftW"]),
             relative_drift_percent=float(c["powerStabilityRelativeDriftPercent"]),
             reference_s=float(c["powerStabilityReferenceS"]),
             extra_noise_percent=float(c["powerStabilityExtraNoisePercent"]),
             response_s=float(c["powerStabilityResponseS"]),
             parameters_confirmed=(bool(c["powerStabilityParametersConfirmed"])
+                                  and float(c["powerStabilityQuantizationW"]) > 0
                                   and c.get("powerStabilityConfirmedSignature") == self.confirmation_signature()),
             gap_s=min(5.0, max(1.0, float(c["powerMeterIntervalMs"]) * 0.003)),
         )
@@ -169,11 +173,7 @@ class PowerStabilityRuntime:
                     raise ValueError("电源实际电流尚未确认归零")
             if not str(st.configuration["powerMeterSerialNumber"]).strip():
                 raise ValueError("本底必须绑定已验证的探头 SN")
-            if not str(st.configuration["powerStabilityInstrumentSettings"]).strip():
-                raise ValueError("请填写并确认当前仪器量程和滤波设置")
             policy = self.policy()
-            if policy.quantization_w <= 0:
-                raise ValueError("请填写经软件增益换算后的量化步进 (W)")
             if verify and (self.model is None or self.model.identity != self.identity()):
                 raise ValueError("没有匹配本底，请先学习本底")
             self.invalidate("正在复核本底" if verify else "正在学习 0 A 本底")
@@ -191,6 +191,10 @@ class PowerStabilityRuntime:
             return "本底任务进行中，请完成或取消后再开始测试"
         if not self.controls:
             return None
+        if float(self.station.configuration["powerStabilityQuantizationW"]) <= 0:
+            return "自动估计的步进仅用于旁路诊断；新策略控制前请填写实测确认的步进"
+        if not str(self.station.configuration["powerStabilityInstrumentSettings"]).strip():
+            return "新策略控制前请在仪器设置备注中确认设备未提供的滤波等设置"
         if (not self.policy().ready or float(self.station.configuration["powerStabilitySettleS"]) <= 0
                 or float(self.station.configuration["powerStabilityCurrentToleranceA"]) <= 0):
             return "新判稳策略的响应时间、电流建立时间和漂移容差尚未确认"
@@ -229,6 +233,7 @@ class PowerStabilityRuntime:
                 if not isinstance(saved, dict):
                     saved = {}
                 saved[identity] = {"model": asdict(model), "samples": samples,
+                                   "detectedSettings": self.detected_settings(),
                                    "instrument": {key: self.station.configuration.get(key) for key in IDENTITY_KEYS}}
                 self.station.backend.settings.set("runtime/powerBackgrounds", saved)
                 self.model = model
@@ -242,7 +247,18 @@ class PowerStabilityRuntime:
                     self.state = "本底已保存，使用前请在当前连接复核 20 秒"
         except Exception as exc:
             with self.station._lock:
-                if epoch == self.job_epoch:
+                if epoch == self.job_epoch and identity == self.identity():
+                    # Retain the last failed trace for analysis, without qualifying it.
+                    attempts = self.station.backend.settings.get("runtime/powerBackgroundLearningAttempts", {})
+                    if not isinstance(attempts, dict):
+                        attempts = {}
+                    attempts[identity] = {"samples": samples, "error": str(exc),
+                                          "detectedSettings": self.detected_settings()}
+                    try:
+                        self.station.backend.settings.set("runtime/powerBackgroundLearningAttempts", attempts)
+                    except Exception as save_error:
+                        self.invalidate(f"本底学习失败：{exc}；诊断数据保存失败：{save_error}")
+                        return
                     self.invalidate(f"本底学习失败：{exc}")
 
     def observe(self, reading: Any, received_at: float) -> Any:
@@ -294,7 +310,8 @@ class PowerStabilityRuntime:
                             self.job = "saving"
                             self.state = "正在校验并保存本底"
                             threading.Thread(target=self._finish_learning,
-                                             args=(self.job_epoch, list(self.samples), self.identity(), policy),
+                                             args=(self.job_epoch, list(self.samples), self.identity(),
+                                                   replace(policy, quantization_w=float(st.configuration["powerStabilityQuantizationW"]))),
                                              name="power-background-learning", daemon=True).start()
         active = not st.manual_controls_allowed() and not st._aging_test_selected()
         if not active or self.mode == "legacy":
@@ -323,10 +340,27 @@ class PowerStabilityRuntime:
                        stable_median_w=math.nan if metrics is None else metrics.median_w,
                        stable_span_w=math.nan if metrics is None else metrics.span_w)
 
+    def detected_settings(self) -> dict:
+        # Reuse the driver's existing range token. This never queries hardware.
+        full_scale = None
+        parts = self.instrument_token.split(":")
+        if len(parts) == 4 and parts[0] == "laserpoint":
+            try:
+                value = float(parts[2])
+                if math.isfinite(value) and value > 0:
+                    full_scale = value
+            except ValueError:
+                pass
+        c = self.station.configuration
+        return {"fullScaleW": full_scale, "filter": "unavailable",
+                "softwareGain": float(c["softwareGain"]),
+                "intervalMs": float(c["powerMeterIntervalMs"])}
+
     def snapshot(self) -> dict:
         return {"mode": self.mode, "algorithm": ALGORITHM_VERSION,
                 "state": self.state, "job": self.job,
                 "parametersConfirmed": self.policy().ready,
+                "detectedSettings": self.detected_settings(),
                 "model": None if self.model is None else asdict(self.model),
                 "decision": asdict(self.decision)}
 

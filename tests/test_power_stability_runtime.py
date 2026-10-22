@@ -417,6 +417,78 @@ class PowerStabilityRuntimeTests(unittest.TestCase):
         self.station.configuration["powerStabilityMode"] = "dual"
         self.assertIsNone(self.manager.blocker())
 
+    def test_automatic_learning_needs_no_manual_fields_and_reuses_after_reconnect_check(self):
+        self.station.configuration.update({"powerStabilityQuantizationW": 0,
+                                            "powerStabilityInstrumentSettings": "", "softwareGain": 1.04})
+        finished = threading.Event()
+        original = self.manager._finish_learning
+
+        def finish(*args):
+            try:
+                original(*args)
+            finally:
+                finished.set()
+
+        with patch.object(self.manager, "_finish_learning", side_effect=finish):
+            self.manager.start_background({"confirmedDark": True})
+            for i in range(1, 362):
+                self.publish(i * 0.5, 0.156 if i % 2 else 0, stable=True)
+            self.assertTrue(finished.wait(2))
+        model = self.manager.model
+        self.assertIsNotNone(model, self.manager.state)
+        self.assertAlmostEqual(model.quantization_w, 0.156)
+        self.assertEqual(model.quantization_source, "observed-grid-v1")
+        self.assertAlmostEqual(self.manager.policy().quantization_w, 0.156)
+        self.assertFalse(self.manager.policy().ready)
+        self.assertEqual(self.station.configuration["powerStabilityQuantizationW"], 0)
+        self.assertIsNotNone(self.manager.verified_connection)
+        for _ in range(2):
+            self.manager.freeze()
+            self.assertIs(self.manager.model, model)
+        self.station.configuration["powerStabilityMode"] = "dual"
+        self.assertIn("仅用于旁路", self.manager.blocker())
+        self.station.configuration["powerStabilityMode"] = "shadow"
+        self.publish(181, 0, connection=1)
+        self.assertIsNone(self.manager.verified_connection)
+        self.manager.start_background({"confirmedDark": True}, verify=True)
+        for i in range(1, 42):
+            self.publish(181 + i * 0.5, 0.156 if i % 2 else 0, connection=1)
+        self.assertIn("复核通过", self.manager.state)
+        self.assertEqual(self.manager.model.model_id, model.model_id)
+        # Relearning must estimate again, rather than silently reusing old q.
+        finished.clear()
+        started = self.clock[0] - 1000
+        with patch.object(self.manager, "_finish_learning", side_effect=finish):
+            self.manager.start_background({"confirmedDark": True})
+            for i in range(1, 362):
+                self.publish(started + i * 0.5, 0.312 if i % 2 else 0, connection=1)
+            self.assertTrue(finished.wait(2))
+        self.assertAlmostEqual(self.manager.model.quantization_w, 0.312)
+        self.assertNotEqual(self.manager.model.model_id, model.model_id)
+
+    def test_failed_auto_estimation_retains_raw_data_without_qualifying_background(self):
+        self.station.configuration.update({"powerStabilityQuantizationW": 0,
+                                            "powerStabilityInstrumentSettings": ""})
+        self.manager.start_background({"confirmedDark": True})
+        samples = [(i * 0.5, 0) for i in range(361)]
+        self.manager._finish_learning(self.manager.job_epoch, samples, self.manager.identity(), self.manager.policy())
+        self.assertIn("无法可靠估计", self.manager.state)
+        self.assertIsNone(self.manager.verified_connection)
+        self.assertIsNone(self.manager.model)
+        attempt = self.backend.settings.get("runtime/powerBackgroundLearningAttempts")[self.manager.identity()]
+        self.assertEqual(attempt["samples"], samples)
+
+    def test_detected_settings_use_existing_range_token_and_do_not_invent_filter(self):
+        self.manager.instrument_token = "laserpoint:2:3000:1"
+        settings = self.manager.snapshot()["detectedSettings"]
+        self.assertEqual(settings["fullScaleW"], 3000)
+        self.assertEqual(settings["filter"], "unavailable")
+        self.assertEqual(settings["softwareGain"], self.station.configuration["softwareGain"])
+        self.assertEqual(settings["intervalMs"], self.station.configuration["powerMeterIntervalMs"])
+        for token in ("", "other:2:3000:1", "laserpoint:2:nan:1", "laserpoint:2:bad:1"):
+            self.manager.instrument_token = token
+            self.assertIsNone(self.manager.detected_settings()["fullScaleW"])
+
 
 if __name__ == "__main__":
     unittest.main()

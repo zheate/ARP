@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import math
 from collections import deque
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from statistics import median
 
 
@@ -136,12 +136,15 @@ class BackgroundModel:
     sample_count: int
     duration_s: float
     algorithm: str = ALGORITHM_VERSION
+    quantization_source: str = "manual"
 
     @classmethod
     def from_dict(cls, value: dict) -> BackgroundModel:
         model = cls(**value)
         if model.algorithm != ALGORITHM_VERSION:
             raise ValueError("本底算法版本不匹配")
+        if model.quantization_source not in {"manual", "observed-grid-v1"}:
+            raise ValueError("本底步进来源无效")
         if not all(isinstance(item, str) and item for item in
                    (model.model_id, model.identity, model.created_at)):
             raise ValueError("本底身份不完整")
@@ -163,16 +166,51 @@ def percentile95(values: list[float]) -> float:
     return sorted(values)[max(0, math.ceil(len(values) * 0.95) - 1)]
 
 
+def estimate_observed_step(samples: list[tuple[float, float]]) -> float:
+    """Estimate a recurrent observed grid, never the instrument's true resolution.
+
+    Require recurrent levels and transitions in both halves. Continuous noise,
+    flat traces and one-way cooling steps must not invent a usable resolution.
+    Input powers already include software gain; do not multiply it again.
+    """
+    powers = [power for _, power in samples]
+    levels = sorted(set(powers))
+    failure = "无法可靠估计步进：需要反复出现的功率台阶；请保留数据，检查冷却后重试，或在高级参数填写已知步进"
+    if not 2 <= len(levels) <= 64:
+        raise ValueError(failure)
+    step = min(b - a for a, b in zip(levels, levels[1:]))
+    if step <= max(1e-12, max(abs(p) for p in powers) * 1e-12):
+        raise ValueError(failure)
+    origin = levels[0]
+    if any(abs((level - origin) / step - round((level - origin) / step)) > 1e-5
+           for level in levels):
+        raise ValueError(failure)
+    midpoint = (samples[0][0] + samples[-1][0]) / 2
+    halves = [[power for t, power in samples if (t <= midpoint) == first]
+              for first in (True, False)]
+    recurring = [{level for level in levels if half.count(level) >= 5} for half in halves]
+    if len(recurring[0] & recurring[1]) < 2:
+        raise ValueError(failure)
+    for half in halves:
+        rising = sum(b > a for a, b in zip(half, half[1:]))
+        falling = sum(b < a for a, b in zip(half, half[1:]))
+        if min(rising, falling) < 3:
+            raise ValueError(failure)
+    return step
+
+
 def learn_background(samples: list[tuple[float, float]], *, identity: str,
                      model_id: str, created_at: str, policy: StabilityPolicy) -> BackgroundModel:
-    if policy.quantization_w <= 0:
-        raise ValueError("请填写当前探头经增益换算后的量化步进 (W)")
     if not samples or samples[-1][0] - samples[0][0] < LEARNING_DURATION_S:
         raise ValueError("本底采集至少需要 180 秒")
     if any(not math.isfinite(t) or not math.isfinite(p) for t, p in samples):
         raise ValueError("本底包含无效读数")
     if any(not 0 < b[0] - a[0] <= policy.gap_s for a, b in zip(samples, samples[1:])):
         raise ValueError("本底采样中断或时间戳重复，请重新学习")
+    source = "manual"
+    if policy.quantization_w == 0:
+        policy = replace(policy, quantization_w=estimate_observed_step(samples))
+        source = "observed-grid-v1"
     duration = samples[-1][0] - samples[0][0]
     slope, _ = fitted_line(samples)
     # A fixed quantization-based gate precedes noise estimation. A cooling
@@ -202,7 +240,7 @@ def learn_background(samples: list[tuple[float, float]], *, identity: str,
         max(policy.quantization_w / 2, percentile95([m.residual_sigma_w for m in metrics])),
         max(policy.quantization_w, percentile95([m.block_shift_w for m in metrics])),
         max(policy.quantization_w / LONG_WINDOW_S, percentile95([abs(m.slope_w_s) for m in metrics])),
-        len(samples), duration,
+        len(samples), duration, quantization_source=source,
     )
 
 

@@ -6,7 +6,7 @@ import argparse
 import csv
 import json
 import sys
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,7 +25,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--background", type=Path, required=True, help="至少 180 秒的 0 A CSV")
     parser.add_argument("--samples", type=Path, required=True, help="同一探头、量程、滤波和增益的功率 CSV")
-    parser.add_argument("--quantization-w", type=float, required=True)
+    parser.add_argument("--quantization-w", type=float, default=0, help="已含增益的步进 W；0（默认）从本底估计，仅诊断")
     parser.add_argument("--absolute-drift-w", type=float, default=0)
     parser.add_argument("--relative-drift-percent", type=float, default=0)
     parser.add_argument("--reference-s", type=float, default=20)
@@ -39,6 +39,8 @@ def main() -> int:
                              args.reference_s, args.extra_noise_percent, args.response_s, args.confirmed, args.gap_s)
     model = learn_background(read_samples(args.background), identity="offline-same-configuration",
                             model_id="offline-replay", created_at=datetime.now(timezone.utc).isoformat(), policy=policy)
+    if args.quantization_w == 0:
+        policy = replace(policy, quantization_w=model.quantization_w, parameters_confirmed=False)
     window = PowerWindow(policy.gap_s)
     samples = read_samples(args.samples)
     started = samples[0][0] if samples else 0
