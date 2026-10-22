@@ -36,6 +36,11 @@ class StabilityResult:
     median_w: float
     stability_percent: float = math.nan
     stable_duration_s: float = 0.0
+    effective_limit_w: float = math.nan
+    drift_w: float = math.nan
+    drift_limit_w: float = math.nan
+    drift_exceeded: bool = False
+    two_sigma_w: float = math.nan
 
 
 @dataclass(frozen=True)
@@ -207,7 +212,9 @@ class PowerStabilityDetector:
     """Time-window power detector using relative or absolute stability.
 
     Relative mode uses ``2σ / μ × 100%``. Absolute mode uses the peak-to-peak
-    span over the same complete, continuously sampled time window.
+    span over the same complete, continuously sampled time window. An optional
+    absolute floor widens only relative-mode 2-sigma noise acceptance; fitted
+    linear drift must still satisfy the original relative allowance.
     """
 
     MIN_SAMPLE_COUNT = 5
@@ -218,6 +225,7 @@ class PowerStabilityDetector:
         window_s: float,
         stability_limit_percent: float,
         absolute_span_limit_w: float | None = None,
+        absolute_floor_w: float = 0.0,
     ) -> None:
         if window_s <= 0:
             raise ValueError("稳定窗口必须大于 0 秒")
@@ -233,7 +241,24 @@ class PowerStabilityDetector:
         self.absolute_span_limit_w = (
             None if absolute_span_limit_w is None else float(absolute_span_limit_w)
         )
+        if not math.isfinite(float(absolute_floor_w)) or absolute_floor_w < 0:
+            raise ValueError("功率判稳绝对下限必须是大于或等于 0 W 的有限数值")
+        self.absolute_floor_w = float(absolute_floor_w)
         self._samples: Deque[tuple[float, float]] = deque()
+
+    def _relative_limits(self, mean_w: float) -> tuple[float, float]:
+        relative_w = mean_w * self.stability_limit_percent / 100.0
+        return max(relative_w, self.absolute_floor_w), relative_w
+
+    @staticmethod
+    def _within(value: float, limit: float) -> bool:
+        return value <= limit + max(1e-12, abs(limit) * 1e-12)
+
+    def _relative_stable(self, mean_w: float, two_sigma_w: float, drift_w: float) -> bool:
+        limit_w, drift_limit_w = self._relative_limits(mean_w)
+        return mean_w > 0 and self._within(two_sigma_w, limit_w) and (
+            self.absolute_floor_w == 0 or self._within(drift_w, drift_limit_w)
+        )
 
     def reset(self) -> None:
         self._samples.clear()
@@ -247,6 +272,7 @@ class PowerStabilityDetector:
         minimum = math.inf
         maximum = -math.inf
         mean = variance_sum = duration = 0.0
+        mean_time = time_variance_sum = covariance_sum = 0.0
         count = 0
         for elapsed, power in reversed(self._samples):
             if previous - elapsed > self.window_s * self.MAX_SAMPLE_GAP_FRACTION:
@@ -258,18 +284,25 @@ class PowerStabilityDetector:
             delta = power - mean
             mean += delta / count
             variance_sum += delta * (power - mean)
+            # Welford covariance keeps suffix progress consistent with the
+            # complete-window trend test without rescanning each suffix.
+            time_offset = elapsed - newest
+            delta_time = time_offset - mean_time
+            mean_time += delta_time / count
+            time_variance_sum += delta_time * (time_offset - mean_time)
+            covariance_sum += delta_time * (power - mean)
             if self.absolute_span_limit_w is not None:
                 limit = self.absolute_span_limit_w
                 if maximum - minimum > limit + max(1e-12, limit * 1e-12):
                     break
                 qualifies = True
             else:
-                percent = (
-                    2.0 * math.sqrt(max(0.0, variance_sum) / (count - 1)) / mean * 100.0
-                    if count > 1 and mean > 0.0 else math.inf
+                two_sigma = (
+                    2.0 * math.sqrt(max(0.0, variance_sum) / (count - 1))
+                    if count > 1 else math.inf
                 )
-                limit = self.stability_limit_percent
-                qualifies = percent <= limit + max(1e-12, limit * 1e-12)
+                drift = abs(covariance_sum / time_variance_sum) * (newest - elapsed) if time_variance_sum > 0 else 0.0
+                qualifies = self._relative_stable(mean, two_sigma, drift)
             if qualifies:
                 duration = newest - elapsed
         return min(self.window_s, max(0.0, duration))
@@ -282,6 +315,11 @@ class PowerStabilityDetector:
         covered_s: float,
         median_w: float = math.nan,
         stability_percent: float = math.nan,
+        effective_limit_w: float = math.nan,
+        drift_w: float = math.nan,
+        drift_limit_w: float = math.nan,
+        drift_exceeded: bool = False,
+        two_sigma_w: float = math.nan,
     ) -> StabilityResult:
         return StabilityResult(
             stable=stable,
@@ -291,6 +329,11 @@ class PowerStabilityDetector:
             median_w=median_w,
             stability_percent=stability_percent,
             stable_duration_s=self.window_s if stable else self._stable_duration_s(),
+            effective_limit_w=effective_limit_w,
+            drift_w=drift_w,
+            drift_limit_w=drift_limit_w,
+            drift_exceeded=drift_exceeded,
+            two_sigma_w=two_sigma_w,
         )
 
     def add_sample(self, elapsed_s: float, power_w: float) -> StabilityResult:
@@ -333,16 +376,28 @@ class PowerStabilityDetector:
             )
 
         mean_w = math.fsum(powers) / len(powers)
+        two_sigma_w = math.inf
         if mean_w <= 0.0:
             stability_percent = math.inf
         else:
             sample_variance = math.fsum((value - mean_w) ** 2 for value in powers) / (
                 len(powers) - 1
             )
-            stability_percent = 2.0 * math.sqrt(sample_variance) / mean_w * 100.0
+            two_sigma_w = 2.0 * math.sqrt(sample_variance)
+            stability_percent = two_sigma_w / mean_w * 100.0
+        effective_limit_w = drift_w = drift_limit_w = math.nan
+        drift_exceeded = False
         if self.absolute_span_limit_w is None:
-            margin = max(1e-12, self.stability_limit_percent * 1e-12)
-            stable = stability_percent <= self.stability_limit_percent + margin
+            effective_limit_w, relative_limit_w = self._relative_limits(mean_w)
+            if self.absolute_floor_w > 0:
+                offsets = [sample[0] - samples[0][0] for sample in samples]
+                mean_time = math.fsum(offsets) / len(offsets)
+                time_variance = math.fsum((offset - mean_time) ** 2 for offset in offsets)
+                covariance = math.fsum((offset - mean_time) * (power - mean_w) for offset, power in zip(offsets, powers))
+                drift_w = abs(covariance / time_variance) * covered_s if time_variance > 0 else math.inf
+                drift_limit_w = relative_limit_w
+                drift_exceeded = not self._within(drift_w, drift_limit_w)
+            stable = self._relative_stable(mean_w, two_sigma_w, drift_w)
         else:
             margin = max(1e-12, self.absolute_span_limit_w * 1e-12)
             stable = span_w <= self.absolute_span_limit_w + margin
@@ -352,6 +407,11 @@ class PowerStabilityDetector:
             covered_s=covered_s,
             median_w=median_w,
             stability_percent=stability_percent,
+            effective_limit_w=effective_limit_w,
+            drift_w=drift_w,
+            drift_limit_w=drift_limit_w,
+            drift_exceeded=drift_exceeded,
+            two_sigma_w=two_sigma_w,
         )
 
 

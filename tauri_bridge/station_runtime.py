@@ -629,6 +629,8 @@ class StationRuntime(StationAutomaticMixin):
             if self.power_meter_reader is not None:
                 self.power_meter_reader.update_stability_settings(
                     candidate["stableWindowS"], candidate["stabilityLimitPercent"],
+                    **({"absolute_floor_w": candidate["powerStabilityAbsoluteFloorW"]}
+                       if candidate.get("powerMeterDriverKind") == "laserpoint" else {}),
                 )
             self.configuration = candidate
             self.power_supply_kind = kind
@@ -1108,6 +1110,10 @@ class StationRuntime(StationAutomaticMixin):
                     else float(stable_window_s)
                 ),
                 stability_limit_percent=float(self.configuration["stabilityLimitPercent"]),
+                absolute_floor_w=(
+                    float(self.configuration["powerStabilityAbsoluteFloorW"])
+                    if self.configuration.get("powerMeterDriverKind") == "laserpoint" else 0.0
+                ),
                 driver_kind=str(self.configuration.get("powerMeterDriverKind", "caihuang")),
                 serial_number=str(self.configuration.get("powerMeterSerialNumber", "")),
             )

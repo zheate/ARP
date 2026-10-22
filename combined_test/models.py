@@ -71,6 +71,7 @@ class PowerMeterSettings:
     stability_limit_percent: float
     driver_kind: str = "caihuang"
     serial_number: str = ""
+    absolute_floor_w: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -97,6 +98,11 @@ class PowerMeterReading:
     stability_percent: float = math.nan
     stability_limit_percent: float = math.nan
     stable_duration_s: float = 0.0
+    stability_limit_w: float = math.nan
+    stability_drift_w: float = math.nan
+    stability_drift_limit_w: float = math.nan
+    stability_drift_exceeded: bool = False
+    stability_two_sigma_w: float = math.nan
 
 
 @dataclass(frozen=True)

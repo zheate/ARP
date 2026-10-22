@@ -175,6 +175,7 @@ export interface AppConfiguration {
   pibMinimumPercent: number
   stableWindowS: number
   stabilityLimitPercent: number
+  powerStabilityAbsoluteFloorW?: number
   initialCurrentA: number
   targetCurrentA: number
   currentStepA: number
@@ -273,6 +274,12 @@ export interface BackendSnapshot {
       spanLimitW: number | null
       percent: number | null
       limitPercent: number
+      absoluteFloorW?: number
+      effectiveLimitW?: number | null
+      twoSigmaW?: number | null
+      driftW?: number | null
+      driftLimitW?: number | null
+      driftExceeded?: boolean
       quality: MeasurementQuality
       hasReading: boolean
       wavelengthRequired: boolean

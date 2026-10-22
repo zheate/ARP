@@ -8,6 +8,10 @@ import { formatElapsedMinutesSeconds } from "@/lib/elapsed-time"
 import { spectrumPeakAnnotations, spectrumPeakLegend } from "@/lib/spectrum-annotations"
 import { memo, type ReactNode, useMemo, useRef } from "react"
 
+const EMPTY_CHART_ROWS: Array<Record<string, number | null>> = []
+const EMPTY_SPECTRUM = { wavelengthNm: [], intensity: [] }
+const EMPTY_SPECTRUM_PEAKS: NonNullable<BackendSnapshot["measurements"]>["spectrumPeaks"] = []
+
 export const POWER_PLOT_HISTORY_S = 60
 
 export const POWER_TIME_TICK_INTERVAL_S = 10
@@ -127,7 +131,7 @@ export function ChartLegend({ lines, stacked = false }: { lines: CanvasChartLine
   )
 }
 
-export const ChartPanel = memo(function ChartPanel({ title, subtitle, data = [], columns, xKey, lines, empty = "暂无实时数据", heightClassName, annotations, annotationLegend, stretch = false, compactHeader = false, hideHeader = false, insetLegend = false, sidebar, headerTrailing, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, preserveAllPoints = false, displayScale, xLabel, xTickSuffix, xValueFormatter, yLabel }: {
+export const ChartPanel = memo(function ChartPanel({ title, subtitle, data = EMPTY_CHART_ROWS, columns, xKey, lines, empty = "暂无实时数据", heightClassName, annotations, annotationLegend, stretch = false, compactHeader = false, hideHeader = false, insetLegend = false, sidebar, headerTrailing, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, preserveAllPoints = false, displayScale, xLabel, xTickSuffix, xValueFormatter, yLabel }: {
   title: string
   subtitle?: string
   data?: Array<Record<string, number | null>>
@@ -430,24 +434,31 @@ export const PowerEfficiencyChart = memo(function PowerEfficiencyChart({ snapsho
 
 export const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snapshot, smoothing = true, stretch = false, heightClassName, metrics }: { snapshot: BackendSnapshot | null; smoothing?: boolean; stretch?: boolean; heightClassName?: string; metrics?: ReactNode }) {
   const spectrumSource = snapshot?.measurements?.spectrum
-  const spectrumData = spectrumSource
+  // Readouts can change between spectrum arrivals. Keep all drawing inputs
+  // stable so those updates neither redraw the curve nor advance its Y-axis
+  // frame hysteresis without an actual spectrum frame.
+  const spectrumData = useMemo(() => spectrumSource
     ? { wavelengthNm: spectrumSource.wavelengthNm, intensity: spectrumSource.intensity }
-    : { wavelengthNm: [], intensity: [] }
+    : EMPTY_SPECTRUM, [spectrumSource?.wavelengthNm, spectrumSource?.intensity])
   const spectrum = snapshot?.devices.spectrometer
-  const spectrumPeaks = snapshot?.measurements?.spectrumPeaks ?? []
-  const peakAnnotations = spectrumPeakAnnotations(spectrumPeaks)
+  const spectrumPeaks = snapshot?.measurements?.spectrumPeaks ?? EMPTY_SPECTRUM_PEAKS
+  const peakAnnotations = useMemo(() => spectrumPeakAnnotations(spectrumPeaks), [spectrumPeaks])
+  const peakLegend = useMemo(() => spectrumPeakLegend(spectrumPeaks), [spectrumPeaks])
+  const spectrumLines = useMemo<CanvasChartLine[]>(() => [{ key: "intensity", label: "光谱（实时）", color: PLM_CHART_SERIES.accent, interpolation: smoothing ? "monotone" : "linear" }], [smoothing])
+  const windowCenterNm = spectrum?.spectrumWindow?.centerNm
+  const windowHalfRangeNm = spectrum?.spectrumWindow?.halfRangeNm
   const spectrumYAxisStateRef = useRef<SpectrumYAxisState | null>(null)
   const spectrumXDomain = useMemo<[number, number] | undefined>(() => {
-    const spectrumWindow = spectrum?.spectrumWindow
     if (
-      spectrumWindow
-      && Number.isFinite(spectrumWindow.centerNm)
-      && Number.isFinite(spectrumWindow.halfRangeNm)
-      && spectrumWindow.halfRangeNm > 0
+      windowCenterNm !== undefined
+      && windowHalfRangeNm !== undefined
+      && Number.isFinite(windowCenterNm)
+      && Number.isFinite(windowHalfRangeNm)
+      && windowHalfRangeNm > 0
     ) {
       return [
-        spectrumWindow.centerNm - spectrumWindow.halfRangeNm,
-        spectrumWindow.centerNm + spectrumWindow.halfRangeNm,
+        windowCenterNm - windowHalfRangeNm,
+        windowCenterNm + windowHalfRangeNm,
       ]
     }
 
@@ -459,7 +470,7 @@ export const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snaps
       maximum = Math.max(maximum, wavelength)
     }
     return minimum < maximum ? [minimum, maximum] : undefined
-  }, [spectrum?.spectrumWindow, spectrumData])
+  }, [windowCenterNm, windowHalfRangeNm, spectrumData.wavelengthNm])
   const spectrumYDomain = useMemo<[number, number]>(() => {
     if (spectrumData.intensity.length === 0) {
       spectrumYAxisStateRef.current = null
@@ -491,11 +502,11 @@ export const SpectrumRealtimeChart = memo(function SpectrumRealtimeChart({ snaps
       yDomain={spectrumYDomain}
       yMinimumLimit={SPECTRUM_Y_AXIS_MINIMUM_LIMIT}
       preserveAllPoints
-      lines={[{ key: "intensity", label: "光谱（实时）", color: PLM_CHART_SERIES.accent, interpolation: smoothing ? "monotone" : "linear" }]}
+      lines={spectrumLines}
       stretch={stretch}
       heightClassName={heightClassName}
       annotations={peakAnnotations}
-      annotationLegend={spectrumPeakLegend(spectrumPeaks)}
+      annotationLegend={peakLegend}
     />
   )
 }, (previous, next) => {

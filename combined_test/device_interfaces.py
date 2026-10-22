@@ -59,6 +59,8 @@ class PowerMeter(Protocol):
         window_s: float,
         limit_percent: float,
         absolute_span_limit_w: float | None = None,
+        *,
+        absolute_floor_w: float | None = None,
     ) -> None: ...
 
     def stop(self) -> None: ...

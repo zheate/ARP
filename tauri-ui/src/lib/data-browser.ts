@@ -451,6 +451,7 @@ const CONDITION_FIELDS = [
   ["spectrumAverageFrames", "光谱平均帧数"], ["spectrumSmoothing", "光谱平滑"],
   ["pibCenterWavelengthNm", "PIB 中心波长 (nm)"], ["pibHalfRangeNm", "PIB 半宽 (nm)"],
   ["stableWindowS", "稳定窗口 (s)"], ["stabilityLimitPercent", "稳定限值 (%)"],
+  ["powerStabilityAbsoluteFloorW", "LaserPoint 判稳绝对下限 (W)"],
   ["currentPlanMode", "电流计划模式"], ["initialCurrentA", "起始电流 (A)"], ["targetCurrentA", "目标电流 (A)"],
   ["currentStepA", "电流步进 (A)"], ["customCurrentPoints", "自定义电流点"],
   ["selectedScriptId", "脚本 ID"], ["selectedScriptPresetId", "脚本预设 ID"],
@@ -458,7 +459,7 @@ const CONDITION_FIELDS = [
 ] as const
 const NUMERIC_CONDITIONS = new Set([
   "powerMeterWavelengthNm", "softwareGain", "powerMeterProfileVersion", "integrationTimeUs", "spectrumAverageFrames",
-  "pibCenterWavelengthNm", "pibHalfRangeNm", "stableWindowS", "stabilityLimitPercent", "initialCurrentA", "targetCurrentA", "currentStepA",
+  "pibCenterWavelengthNm", "pibHalfRangeNm", "stableWindowS", "stabilityLimitPercent", "powerStabilityAbsoluteFloorW", "initialCurrentA", "targetCurrentA", "currentStepA",
 ])
 
 function objectValue(value: unknown): value is Record<string, unknown> {

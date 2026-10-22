@@ -46,6 +46,7 @@ export const emptyConfig: AppConfiguration = {
   pibMinimumPercent: 95,
   stableWindowS: 3,
   stabilityLimitPercent: 0.2,
+  powerStabilityAbsoluteFloorW: 0.2,
   initialCurrentA: 1,
   targetCurrentA: 20,
   currentStepA: 3,

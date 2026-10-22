@@ -132,8 +132,12 @@ export function automaticStabilityPresentation(auto: Automatic | undefined, mete
   const usable = stability.hasReading && (!sampling || stability.quality === "live") && !preparing
   const elapsed = usable && stability.powerStable ? Math.min(required, Math.max(0, holdElapsed)) : 0
   const time = required === 0 ? "—" : `${elapsed.toFixed(1)} / ${required.toFixed(1)} 秒`
+  const floor = stability.absoluteFloorW ?? 0
+  const floorActive = stability.spanLimitW === null && floor > 0
   const criterion = stability.spanLimitW === null
-    ? `相对波动 ≤ ${stability.limitPercent}%`
+    ? floorActive
+      ? `2σ ≤ max(平均功率 × ${stability.limitPercent}%, ${floor} W)，线性漂移 ≤ 平均功率 × ${stability.limitPercent}%`
+      : `相对波动 ≤ ${stability.limitPercent}%`
     : `峰峰值 ≤ ${stability.spanLimitW} W`
   const detail = required === 0
     ? `功率${criterion}，满足稳定条件后直接读取最终电压。`
@@ -149,8 +153,11 @@ export function automaticStabilityPresentation(auto: Automatic | undefined, mete
       ? result("等待波长稳定", "warning", time, `${detail}功率已稳定，等待波长满足条件。`)
       : result(required === 0 ? "已稳定" : elapsed < required ? "保持中" : "保持完成", "success", time, detail)
   }
+  if (floorActive && stability.driftExceeded) return result("功率漂移", "warning", time, detail)
   const exceeds = stability.spanLimitW === null
-    ? stability.percent !== null && stability.percent > stability.limitPercent
+    ? floorActive
+      ? typeof stability.twoSigmaW === "number" && typeof stability.effectiveLimitW === "number" && stability.twoSigmaW > stability.effectiveLimitW + 1e-12
+      : stability.percent !== null && stability.percent > stability.limitPercent
     : stability.spanW !== null && stability.spanW > stability.spanLimitW + 1e-12
   return result(elapsed === 0 && exceeds ? "波动超限" : "判稳中", "warning", time, detail)
 }

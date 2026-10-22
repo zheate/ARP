@@ -102,6 +102,24 @@ test("paused and finished runs retain their recorded confirmation interval", () 
   assert.equal(automaticStabilityPresentation(auto({ state: "waiting_voltage", stability, runContext: { selectedScriptId: "aging", sn: "", station: "", testTemperatureC: "" } })).label, "定时老化")
 })
 
+test("absolute floor uses backend acceptance and reports drift separately", () => {
+  const noisy = { ...stability, spanLimitW: null, percent: 0.4, absoluteFloorW: 0.2, effectiveLimitW: 0.2, driftW: 0.01, driftLimitW: 0.065, driftExceeded: false }
+  const gathering = automaticStabilityPresentation(auto({ state: "waiting_stable", stability: noisy }))
+  assert.equal(gathering.label, "判稳中")
+  assert.match(gathering.detail, /0.2 W/)
+  assert.match(gathering.detail, /漂移/)
+  const drifting = automaticStabilityPresentation(auto({ state: "waiting_stable", stability: { ...noisy, driftW: 0.15, driftExceeded: true } }))
+  assert.equal(drifting.label, "功率漂移")
+  assert.equal(drifting.time, "0.0 / 5.0 秒")
+  const accepted = automaticStabilityPresentation(auto({ state: "waiting_voltage", stability: { ...noisy, powerStable: true } }))
+  assert.equal(accepted.label, "保持中")
+})
+
+test("noise above the absolute floor still reports fluctuation", () => {
+  const noisy = { ...stability, spanLimitW: null, percent: 1, absoluteFloorW: 0.2, effectiveLimitW: 0.2, twoSigmaW: 0.325 }
+  assert.equal(automaticStabilityPresentation(auto({ state: "waiting_stable", stability: noisy })).label, "波动超限")
+})
+
 test("older timing fields cannot be mistaken for the post-stability hold", () => {
   const meter = { state: "connected", label: "功率计", detail: "", running: true, quality: "live", powerW: 0.8, stable: true, stableElapsedS: 97 } as const
   const oldStability = { ...stability, powerStable: true, holdElapsedS: undefined, holdRequiredS: undefined }

@@ -751,6 +751,12 @@ export function PowerMeterSettingsForm({ snapshot, config, update, active, pendi
         </ControlRow>
       </Field>
       <PowerMeterProfileEditor active={active} config={config} pending={pending} run={run} snapshot={snapshot} />
+      {config.powerMeterDriverKind === "laserpoint" && (
+        <div className="space-y-2">
+          <NumberField disabled={!active || pending || meter?.running} label="判稳绝对下限 (W)" min={0} step="0.01" value={config.powerStabilityAbsoluteFloorW ?? 0.2} onChange={(value) => update("powerStabilityAbsoluteFloorW", value)} />
+          <p className="text-xs text-muted-foreground">相对判稳时，2σ 限值取相对限值与此值中较大者；漂移仍受相对限值约束。0 表示关闭。2 A 及以下保留原峰峰值规则，原始数据不做平滑。</p>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
         <label className="device-settings-checkbox"><input checked={config.powerSmoothing ?? true} onChange={(e) => update("powerSmoothing", e.target.checked)} type="checkbox" />功率曲线平滑</label>
         <span className="text-xs text-muted-foreground">仅影响显示，不改变测量数据</span>

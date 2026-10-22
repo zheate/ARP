@@ -464,6 +464,7 @@ class PowerMeterReaderThread(WorkerThread):
         self._stability_generation = 0
         self._stable_window_s = float(settings.stable_window_s)
         self._stability_limit_percent = float(settings.stability_limit_percent)
+        self._absolute_floor_w = float(settings.absolute_floor_w)
         self._absolute_span_limit_w: float | None = (
             OPHIR_POWER_STABILITY_SPAN_W if settings.driver_kind == "ophir" else None
         )
@@ -485,8 +486,14 @@ class PowerMeterReaderThread(WorkerThread):
         window_s: float,
         limit_percent: float,
         absolute_span_limit_w: float | None = None,
+        *,
+        absolute_floor_w: float | None = None,
     ) -> None:
         """Apply stability settings to the active acquisition loop."""
+        if absolute_floor_w is not None and (
+            not math.isfinite(float(absolute_floor_w)) or absolute_floor_w < 0
+        ):
+            raise ValueError("功率判稳绝对下限必须是大于或等于 0 W 的有限数值")
         if window_s <= 0:
             raise ValueError("稳定窗口必须大于 0 秒")
         if limit_percent < 0:
@@ -497,6 +504,10 @@ class PowerMeterReaderThread(WorkerThread):
         ):
             raise ValueError("功率峰峰值限值必须大于或等于 0 W")
         with self._stability_state_lock:
+            if absolute_floor_w is not None and self._absolute_floor_w != float(absolute_floor_w):
+                self._absolute_floor_w = float(absolute_floor_w)
+                self._stability_generation += 1
+                self._stability_reset_requested.set()
             self._stable_window_s = float(window_s)
             self._stability_limit_percent = float(limit_percent)
             self._absolute_span_limit_w = (
@@ -593,10 +604,12 @@ class PowerMeterReaderThread(WorkerThread):
                 stable_window_s = self._stable_window_s
                 stability_limit_percent = self._stability_limit_percent
                 absolute_span_limit_w = self._absolute_span_limit_w
+                absolute_floor_w = self._absolute_floor_w
             detector = PowerStabilityDetector(
                 stable_window_s,
                 stability_limit_percent,
                 absolute_span_limit_w,
+                absolute_floor_w=absolute_floor_w,
             )
             start = time.monotonic()
             poll_interval_s = self.settings.interval_ms / 1000.0
@@ -610,16 +623,19 @@ class PowerMeterReaderThread(WorkerThread):
                     stable_window_s = self._stable_window_s
                     stability_limit_percent = self._stability_limit_percent
                     absolute_span_limit_w = self._absolute_span_limit_w
+                    absolute_floor_w = self._absolute_floor_w
                 if reset_requested:
                     detector = PowerStabilityDetector(
                         stable_window_s,
                         stability_limit_percent,
                         absolute_span_limit_w,
+                        absolute_floor_w=absolute_floor_w,
                     )
                 else:
                     detector.window_s = stable_window_s
                     detector.stability_limit_percent = stability_limit_percent
                     detector.absolute_span_limit_w = absolute_span_limit_w
+                    detector.absolute_floor_w = absolute_floor_w
                 elapsed = time.monotonic() - start
                 try:
                     power_w = meter.read_power_w() * self.settings.software_gain
@@ -658,6 +674,7 @@ class PowerMeterReaderThread(WorkerThread):
                             stable_window_s,
                             stability_limit_percent,
                             absolute_span_limit_w,
+                            absolute_floor_w=absolute_floor_w,
                         )
                         next_poll_at = time.monotonic()
                         break
@@ -682,6 +699,11 @@ class PowerMeterReaderThread(WorkerThread):
                         stability_percent=stability.stability_percent,
                         stability_limit_percent=stability_limit_percent,
                         stable_duration_s=stability.stable_duration_s,
+                        stability_limit_w=stability.effective_limit_w,
+                        stability_drift_w=stability.drift_w,
+                        stability_drift_limit_w=stability.drift_limit_w,
+                        stability_drift_exceeded=stability.drift_exceeded,
+                        stability_two_sigma_w=stability.two_sigma_w,
                     )
                 )
                 next_poll_at += poll_interval_s

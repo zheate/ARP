@@ -128,6 +128,7 @@ DEFAULT_CONFIGURATION: dict[str, Any] = {
     "pibMinimumPercent": 95.0,
     "stableWindowS": 3.0,
     "stabilityLimitPercent": 0.2,
+    "powerStabilityAbsoluteFloorW": 0.2,
     "initialCurrentA": 1.0,
     "targetCurrentA": 20.0,
     "currentStepA": 3.0,

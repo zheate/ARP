@@ -173,6 +173,17 @@ class SnapshotBuilder:
             ),
             "percent": finite(stability_reading.stability_percent) if stability_reading else None,
             "limitPercent": float(active_st.configuration["stabilityLimitPercent"]),
+            "absoluteFloorW": (
+                float(active_st.configuration["powerStabilityAbsoluteFloorW"])
+                if active_st.configuration.get("powerMeterDriverKind") == "laserpoint"
+                and automatic_power_stability_span_limit_w(active_st.automatic.current_a, "laserpoint") is None
+                else 0.0
+            ),
+            "effectiveLimitW": finite(stability_reading.stability_limit_w) if stability_reading else None,
+            "twoSigmaW": finite(stability_reading.stability_two_sigma_w) if stability_reading else None,
+            "driftW": finite(stability_reading.stability_drift_w) if stability_reading else None,
+            "driftLimitW": finite(stability_reading.stability_drift_limit_w) if stability_reading else None,
+            "driftExceeded": bool(stability_reading and stability_reading.stability_drift_exceeded),
             "quality": stability_quality,
             "hasReading": stability_reading is not None,
             "wavelengthRequired": bool(active_st.automatic.settings and active_st.automatic.settings.use_spectrometer),
