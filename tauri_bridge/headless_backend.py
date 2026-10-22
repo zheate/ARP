@@ -76,7 +76,7 @@ class HeadlessBackend:
         self.power_meter_detection_detail: str = ""
         self.power_supply_detect_thread: _DeviceDiscoveryThread | None = None
         self.power_supply_detection_detail: str = ""
-        self.power_supply_detection_kind: Literal["ch341", "tdk"] | None = None
+        self.power_supply_detection_kind: Literal["ch341", "tdk", "ru"] | None = None
         self.spectrometer_detect_thread: _DeviceDiscoveryThread | None = None
         self.spectrometer_detection_detail: str = ""
         self.spectrometer_resources: list[dict[str, Any]] = []

@@ -1,0 +1,49 @@
+.chart-flappy-bird {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.chart-flappy-bird__frames {
+  opacity: 0;
+  display: block;
+  max-width: none;
+  animation: chart-flappy-bird-flap 400ms steps(4, end) infinite;
+}
+
+.chart-flappy-bird__frames img {
+  display: block;
+  max-width: none;
+}
+
+.chart-flappy-bird[data-vector-ready="true"] .chart-flappy-bird__frames {
+  opacity: 1;
+}
+
+.chart-flappy-bird__fallback {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px;
+  border-radius: 50%;
+  background: var(--chart-1, currentColor);
+}
+
+.chart-flappy-bird[data-vector-ready="true"] .chart-flappy-bird__fallback {
+  display: none;
+}
+
+@keyframes chart-flappy-bird-flap {
+  to { transform: translateX(-100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-flappy-bird__frames {
+    animation: none !important;
+    will-change: auto;
+  }
+}

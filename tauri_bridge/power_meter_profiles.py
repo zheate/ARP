@@ -220,6 +220,12 @@ class PowerMeterProfiles:
                     raise ValueError("方案已被修改，请刷新后查看最新版本；本次编辑未覆盖已有修改")
                 if action == "select":
                     revision = latest
+                elif action == "delete":
+                    profiles.remove(profile)
+                    if entry["selectedProfileId"] == profile["id"]:
+                        replacement = profiles[0] if profiles else None
+                        entry["selectedProfileId"] = replacement["id"] if replacement else ""
+                        entry["selectedVersion"] = replacement["versions"][-1]["version"] if replacement else 0
                 elif action in {"save", "restore"}:
                     values = params
                     if action == "restore":
@@ -232,10 +238,11 @@ class PowerMeterProfiles:
                     profile["versions"].append(revision)
                 else:
                     raise ValueError("未知系数方案操作")
-            if any(p["id"] != profile["id"] and p["versions"][-1]["name"] == revision["name"] for p in profiles):
-                raise ValueError("同一探头已有同名方案，请使用不同名称")
-            entry["selectedProfileId"] = profile["id"]
-            entry["selectedVersion"] = revision["version"]
+            if action != "delete":
+                if any(p["id"] != profile["id"] and p["versions"][-1]["name"] == revision["name"] for p in profiles):
+                    raise ValueError("同一探头已有同名方案，请使用不同名称")
+                entry["selectedProfileId"] = profile["id"]
+                entry["selectedVersion"] = revision["version"]
             previous_profiles = backend.device_profiles
             previous_config = dict(backend.runtime.configuration)
             candidate = copy.deepcopy(previous_profiles)

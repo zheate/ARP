@@ -1,0 +1,108 @@
+.manual-power-parameters,
+.manual-power-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.manual-power-parameters[data-serial="false"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.manual-power-parameters [data-slot="input"] {
+  font-size: 1.25rem;
+  line-height: 1.2;
+  text-align: right;
+}
+
+.manual-device-grid > .manual-device-card {
+  gap: 0;
+  padding-block: 0;
+  container: manual-device / inline-size;
+}
+
+.manual-device-grid .manual-device-card__content {
+  justify-content: flex-start;
+}
+
+.manual-device-card--power .manual-device-card__body {
+  flex: 1;
+  justify-content: space-between;
+}
+
+.manual-device-grid .manual-device-card .manual-device-card__footer {
+  margin-top: auto;
+  padding-top: 0;
+}
+
+.manual-device-grid .manual-device-inline-field {
+  grid-template-columns: 4.5rem minmax(0, 1fr);
+  gap: 0.5rem;
+}
+
+.manual-device-grid .manual-device-inline-field .manual-inline-field-label {
+  justify-content: flex-start;
+}
+
+.manual-device-grid .device-settings-checkbox {
+  min-height: 1.5rem;
+}
+
+@container manual-device (min-width: 300px) {
+  .manual-device-card__body .device-settings-field-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.manual-device-grid .manual-device-card--acquisition .manual-device-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.manual-device-card--acquisition .device-settings-form {
+  --form-grid-gap: 0.5rem;
+  gap: 0.5rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.manual-power-status {
+  min-height: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.manual-power-readouts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1rem;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.manual-device-card--power .manual-power-readouts {
+  align-items: flex-start;
+  font-size: 1rem;
+  /* Retain the original 12px readout row height so controls stay in place. */
+  line-height: calc(0.75rem * var(--text-sm--line-height, 1.428571));
+}
+
+.manual-device-card--power .manual-power-readouts > span {
+  height: 1lh;
+}
+
+.manual-power-measurement--unconfirmed {
+  color: var(--app-danger);
+}
+
+.manual-device-card__content [data-slot="button"] {
+  line-height: 1;
+}
+
+.manual-device-button__label {
+  text-box-trim: trim-both;
+  text-box-edge: cap alphabetic;
+}

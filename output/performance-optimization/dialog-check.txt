@@ -1,0 +1,64 @@
+### Result
+{"results":[{"device":"电源","viewport":[1440,960],"selected":"TDK RS232","cardStable":true,"dropdownStable":true,"escape":true,"saveStableDuringRecognition":true,"saved":true},{"device":"功率计","viewport":[1440,960],"selected":"Caihuang CHLP-P | ASRL3::INSTR | 探头 SN W500-DEMO-001","cardStable":true,"dropdownStable":true,"escape":true,"saveStableDuringRecognition":true,"saved":true},{"device":"光谱仪","viewport":[1440,960],"selected":"自动选择第一台 Ocean Insight","cardStable":true,"dropdownStable":true,"escape":true,"saveStableDuringRecognition":true,"saved":true},{"device":"电源","viewport":[1180,720],"selected":"TDK RS232","cardStable":true,"dropdownStable":true,"escape":true,"saveStableDuringRecognition":true,"saved":true},{"device":"功率计","viewport":[1180,720],"selected":"Caihuang CHLP-P | ASRL3::INSTR | 探头 SN W500-DEMO-001","cardStable":true,"dropdownStable":true,"escape":true,"saveStableDuringRecognition":true,"saved":true},{"device":"光谱仪","viewport":[1180,720],"selected":"自动选择第一台 Ocean Insight","cardStable":true,"dropdownStable":true,"escape":true,"saveStableDuringRecognition":true,"saved":true}],"errors":[],"scope":"browser demo; disconnected power fixture; no hardware"}
+### Ran Playwright code
+```js
+await (async () => {
+ const errors=[]; page.on('pageerror', error=>errors.push(error.message));
+ // Browser-only fixture: expose the power resource selector in disconnected state.
+ await page.route('**/src/lib/demo-snapshot.ts*', async route => {
+  const response=await route.fetch();
+  await route.fulfill({response, body:(await response.text())+'\nDEMO_SNAPSHOT.devices.powerSupply.connected=false; DEMO_RUN_SNAPSHOT.devices.powerSupply.connected=false;'});
+ });
+ await page.goto('http://127.0.0.1:1423/?demo=1&run=1');
+ const results=[];
+ for(const size of [[1440,960],[1180,720]]) {
+  await page.setViewportSize({width:size[0],height:size[1]});
+  for(const [device,resource] of [['电源','TDK 串口'],['功率计','串口资源'],['光谱仪','设备资源']]) {
+   const card=page.getByRole('button',{name:device+'信息，点击打开设置'});
+   const before=await card.boundingBox(); await card.click();
+   const dialog=page.getByRole('dialog'); await dialog.waitFor(); await page.waitForTimeout(350);
+   const after=await card.boundingBox();
+   if(Math.abs(before.x-after.x)>1 || Math.abs(before.width-after.width)>1) throw Error(device+' card shifted');
+   const selector=dialog.getByRole('combobox',{name:resource,exact:true});
+   const box=await dialog.boundingBox();
+   await selector.click();
+   await page.getByRole('listbox',{name:resource,exact:true}).waitFor();
+   const openBox=await dialog.boundingBox();
+   if(Math.abs(box.height-openBox.height)>1) throw Error(device+' dropdown resized dialog '+JSON.stringify({box,openBox}));
+   await page.keyboard.press('Escape');
+   if(await page.getByRole('listbox').count()) throw Error('Escape did not close dropdown');
+   if(!await dialog.isVisible()) throw Error('Escape closed dialog too soon');
+   await selector.click();
+   const choices=page.getByRole('listbox',{name:resource,exact:true}).getByRole('option');
+   const choice=choices.nth((await choices.count())>1?1:0); const label=await choice.innerText(); await choice.click();
+   if(!await dialog.isVisible() || await page.getByRole('listbox').count()) throw Error('selection closed wrong layer');
+   const save=dialog.getByRole('button',{name:'保存设置',exact:true});
+   const saveBefore=await save.boundingBox();
+   const detect=dialog.getByRole('button',{name:'识别',exact:true});
+   await detect.click();
+   const saveDuring=await save.boundingBox();
+   if((await save.innerText())!=='保存设置' || Math.abs(saveBefore.x-saveDuring.x)>1 || Math.abs(saveBefore.width-saveDuring.width)>1) throw Error('recognition moved/restyled save');
+   await page.waitForTimeout(450);
+   if(device==='光谱仪') {
+    const input=dialog.getByRole('textbox',{name:'积分时间 (μs)',exact:true});
+    await input.fill('2300'); await input.press('Tab');
+   }
+   await page.screenshot({path:'output/playwright/performance-'+device+'-'+size[0]+'.png'});
+   await save.click(); await dialog.waitFor({state:'hidden'});
+   await card.click(); await dialog.waitFor();
+   if(device==='光谱仪' && await dialog.getByRole('textbox',{name:'积分时间 (μs)',exact:true}).inputValue()!=='2300') throw Error('configuration not retained');
+   await page.keyboard.press('Escape'); await dialog.waitFor({state:'hidden'});
+   const overflow=await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth);
+   if(overflow) throw Error('horizontal overflow');
+   results.push({device,viewport:size,selected:label,cardStable:true,dropdownStable:true,escape:true,saveStableDuringRecognition:true,saved:true});
+  }
+ }
+ await page.unroute('**/src/lib/demo-snapshot.ts*');
+ return {results,errors,scope:'browser demo; disconnected power fixture; no hardware'};
+})(page);
+```
+### Page
+- Page URL: http://127.0.0.1:1423/?demo=1&run=1
+- Page Title: Power Test
+### Events
+- New console entries: .playwright-cli/console-2026-09-18T05-16-51-053Z.log#L10-L12

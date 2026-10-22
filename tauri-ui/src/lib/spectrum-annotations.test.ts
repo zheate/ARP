@@ -15,14 +15,14 @@ test("spectrum peak legend only includes detected peaks with wavelength values",
   assert.deepEqual(spectrumPeakLegend([
     { label: "P1", peakWavelengthNm: 976.18, peakIntensity: 12_400 },
   ]), [
-    { label: "Peak 1", color: "#3b82f6", value: "976.180 nm" },
+    { label: "Peak 1", color: "#3b82f6", value: "976.18 nm" },
   ])
   assert.deepEqual(spectrumPeakLegend([
     { label: "P1", peakWavelengthNm: 976.18, peakIntensity: 12_400 },
     { label: "P3", peakWavelengthNm: 974.02, peakIntensity: 900 },
   ]), [
-    { label: "Peak 1", color: "#3b82f6", value: "976.180 nm" },
-    { label: "Peak 3", color: "#9ca3af", value: "974.020 nm" },
+    { label: "Peak 1", color: "#3b82f6", value: "976.18 nm" },
+    { label: "Peak 3", color: "#9ca3af", value: "974.02 nm" },
   ])
   assert.deepEqual(spectrumPeakLegend([]), [])
 })

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-from contextlib import nullcontext
 import re
 import threading
 import time
@@ -54,8 +53,11 @@ from combined_test.tdk_power_supply import (
     TdkLambdaPowerSupply,
     compensate_tdk_output_voltage,
 )
+from combined_test.ru_power_supply import RU_BAUD_RATES, RuPowerSupply
 
 
+from .errors import CommandRejected
+from .workflow_access import WorkflowAccess
 from .command_safety import CommandSafetyGate, finite_number
 from .test_script_presets import normalize_script_presets
 from .station_automatic import StationAutomaticMixin
@@ -74,6 +76,11 @@ from .station_support import (
 
 
 _LOGGER = get_runtime_logger("headless_backend")
+TDK_VOLTAGE_BURST_READ_COUNT = 5
+TDK_VOLTAGE_BURST_INTERVAL_S = 0.2
+OUTPUT_OFF_CURRENT_CONFIRM_TIMEOUT_S = 1.0
+OUTPUT_OFF_CURRENT_CONFIRM_INTERVAL_S = 0.05
+MANUAL_POWER_SUPPLY_REFRESH_INTERVAL_S = 1.0
 
 class StationRuntime(StationAutomaticMixin):
     """Isolated hardware, automation, and measurement state for one test station."""
@@ -82,6 +89,7 @@ class StationRuntime(StationAutomaticMixin):
         self.backend = backend
         self._lock = threading.RLock()
         self.command_safety = CommandSafetyGate()
+        self.workflow_access = WorkflowAccess(self)
 
         self.configuration = dict(DEFAULT_CONFIGURATION)
         if initial_config:
@@ -115,6 +123,10 @@ class StationRuntime(StationAutomaticMixin):
         self.latest_power_supply_output_voltage_v: float | None = None
         self.latest_power_supply_output_current_a: float | None = None
         self._last_live_current_read_at: float | None = None
+        self._last_manual_power_supply_refresh_at: float | None = None
+        self._manual_power_supply_refresh_thread: threading.Thread | None = None
+        self._tdk_voltage_burst_stop = threading.Event()
+        self._tdk_voltage_burst_thread: threading.Thread | None = None
         self.latest_power_supply_temperature_c: float | None = None
         self._last_power_supply_command_at: float | None = None
 
@@ -163,6 +175,12 @@ class StationRuntime(StationAutomaticMixin):
         self.recorded_manual_stable_current_a: float | None = None
         self.recorded_manual_stability_generation: int | None = None
         self._manual_voltage_timer_generation = 0
+        self.manual_current_request_a: float | None = None
+        self.manual_power_stopping = False
+        self.manual_capture: dict[str, Any] = {
+            "state": "idle", "detail": "施加电流后等待功率稳定", "currentA": None,
+        }
+        self._manual_voltage_due_at: float | None = None
 
         self.automatic = AutomaticTestOrchestrator()
         self.automatic_stability_generation: int | None = None
@@ -305,41 +323,159 @@ class StationRuntime(StationAutomaticMixin):
             self.shutdown_output_off_confirmed = False
             self.shutdown_reason = ""
 
+    def _require_output_safety(self) -> None:
+        if self.power_supply_kind == "ru" and self.shutdown_requested and not self.shutdown_confirmed:
+            raise CommandRejected("shutdown_unconfirmed", "RU 安全下电尚未确认，请先执行归零下电并确认成功")
+
     def _power_supply(self) -> ControllerPowerSupply | None:
         return ControllerPowerSupply(self.power_supply_controller) if self.power_supply_controller is not None else None
 
     def _require_power_supply(self) -> ControllerPowerSupply:
         supply = self._power_supply()
         if supply is None:
-            raise RuntimeError("请先连接电源控制器")
+            raise CommandRejected("device_not_connected", "请先连接电源控制器")
         if self.power_supply_identity_error:
             raise RuntimeError(f"电源状态异常：{self.power_supply_identity_error}")
         return supply
+
+    def _power_supply_command_delay(self) -> float:
+        """Read the remaining CH341 interval while holding the supply I/O lock."""
+        if self.power_supply_kind != "ch341":
+            return 0.0
+        previous = self._last_power_supply_command_at
+        return (
+            0.0
+            if previous is None
+            else max(0.0, MIN_POWER_SUPPLY_COMMAND_INTERVAL_S - (time.monotonic() - previous))
+        )
+
+    def _wait_power_supply_command_interval(self, remaining: float) -> None:
+        automatic_active = self.automatic.state not in {
+            AutomaticTestState.IDLE,
+            AutomaticTestState.COMPLETED,
+        }
+        if automatic_active:
+            if self._automatic_stop.wait(remaining):
+                raise RuntimeError("自动测试已停止")
+        else:
+            time.sleep(remaining)
 
     def _reserve_power_supply_command(self, *, wait: bool) -> None:
         """Keep CH341 commands outside the controller's unsafe 1.1 s window."""
         if self.power_supply_kind != "ch341":
             return
-        now = time.monotonic()
-        previous = self._last_power_supply_command_at
-        remaining = (
-            0.0
-            if previous is None
-            else MIN_POWER_SUPPLY_COMMAND_INTERVAL_S - (now - previous)
-        )
+        remaining = self._power_supply_command_delay()
         if remaining > 0.0:
             if not wait:
                 raise RuntimeError(f"电源命令过快，请等待 {remaining:.1f} 秒后重试")
-            automatic_active = self.automatic.state not in {
-                AutomaticTestState.IDLE,
-                AutomaticTestState.COMPLETED,
-            }
-            if automatic_active:
-                if self._automatic_stop.wait(remaining):
-                    raise RuntimeError("自动测试已停止")
-            else:
-                time.sleep(remaining)
+            self._wait_power_supply_command_interval(remaining)
         self._last_power_supply_command_at = time.monotonic()
+
+    def _start_tdk_voltage_read_burst(self) -> None:
+        """Read five display values after a current write, without blocking state."""
+        self._tdk_voltage_burst_stop.set()
+        stop = threading.Event()
+        self._tdk_voltage_burst_stop = stop
+        controller = self.power_supply_controller
+
+        def read_burst() -> None:
+            for index in range(TDK_VOLTAGE_BURST_READ_COUNT):
+                if stop.is_set():
+                    return
+                started = time.monotonic()
+                with self._supply_io_lock:
+                    if (
+                        stop.is_set()
+                        or controller is not self.power_supply_controller
+                        or self.command_safety.capture() < 0
+                    ):
+                        return
+                    try:
+                        voltage_v = float(ControllerPowerSupply(controller).read_output_voltage())
+                        value = voltage_v if math.isfinite(voltage_v) else None
+                    except Exception:
+                        value = None
+                        _LOGGER.debug("TDK 加电后电压读取失败", exc_info=True)
+                    if stop.is_set():
+                        return
+                    self.latest_power_supply_output_voltage_v = value
+                # The serial and state locks are free throughout the interval.
+                if index < TDK_VOLTAGE_BURST_READ_COUNT - 1 and stop.wait(
+                    max(0.0, TDK_VOLTAGE_BURST_INTERVAL_S - (time.monotonic() - started))
+                ):
+                    return
+
+        self._tdk_voltage_burst_thread = threading.Thread(
+            target=read_burst, name="tdk-voltage-burst", daemon=True,
+        )
+        self._tdk_voltage_burst_thread.start()
+
+    def refresh_manual_power_supply_in_background(self) -> None:
+        """Schedule display telemetry under the station lock; never wait for I/O."""
+        if (
+            self.power_supply_kind not in {"tdk", "ru"}
+            or self.power_supply_controller is None
+            or not self.manual_controls_allowed()
+            or self.workflow_access.owner == "automatic"
+            or self.manual_power_stopping
+            or self.manual_current_request_a is not None
+            or self.command_safety.capture() < 0
+        ):
+            return
+        worker = self._manual_power_supply_refresh_thread
+        if worker is not None and worker.is_alive():
+            return
+        now = time.monotonic()
+        previous = self._last_manual_power_supply_refresh_at
+        if previous is not None and now - previous < MANUAL_POWER_SUPPLY_REFRESH_INTERVAL_S:
+            return
+        self._last_manual_power_supply_refresh_at = now
+        controller = self.power_supply_controller
+        generation = self.command_safety.capture()
+        if generation < 0:
+            return
+
+        def read_feedback() -> None:
+            # Skip busy serial links. Do not hold station state during a read:
+            # snapshots, acquisition callbacks and safety commands need that lock.
+            supply = ControllerPowerSupply(controller)
+            for reader, cache_name, label in (
+                (supply.read_output_current, "latest_power_supply_output_current_a", "电流"),
+                (supply.read_output_voltage, "latest_power_supply_output_voltage_v", "电压"),
+            ):
+                if not self._supply_io_lock.acquire(blocking=False):
+                    return
+                try:
+                    if (
+                        controller is not self.power_supply_controller
+                        or generation != self.command_safety.capture()
+                        or not self.manual_controls_allowed()
+                        or self.workflow_access.owner == "automatic"
+                        or self.manual_power_stopping
+                        or self.manual_current_request_a is not None
+                    ):
+                        return
+                    try:
+                        measured = float(reader())
+                        value = measured if math.isfinite(measured) else None
+                    except Exception:
+                        value = None
+                        _LOGGER.debug("手动模式实时%s读取失败", label, exc_info=True)
+                    if (
+                        controller is self.power_supply_controller
+                        and generation == self.command_safety.capture()
+                    ):
+                        setattr(self, cache_name, value)
+                        if cache_name == "latest_power_supply_output_current_a":
+                            self._last_live_current_read_at = time.monotonic()
+                finally:
+                    # Give waiting writes and safety operations a chance between reads.
+                    self._supply_io_lock.release()
+
+        self._manual_power_supply_refresh_thread = threading.Thread(
+            target=read_feedback, name="manual-power-supply-refresh", daemon=True,
+        )
+        self._manual_power_supply_refresh_thread.start()
 
     def _refresh_live_power_supply_current(self, *, force: bool = False) -> bool:
         """Refresh TDK telemetry without waiting for another hardware operation.
@@ -347,7 +483,7 @@ class StationRuntime(StationAutomaticMixin):
         CH341 reads consume the same guarded command slots as current writes,
         so its live display follows active_current_a instead.
         """
-        if self.power_supply_kind != "tdk" or not self._supply_io_lock.acquire(blocking=False):
+        if self.power_supply_kind not in {"tdk", "ru"} or not self._supply_io_lock.acquire(blocking=False):
             return False
         try:
             now = time.monotonic()
@@ -377,8 +513,8 @@ class StationRuntime(StationAutomaticMixin):
                 role="电源",
                 kind=self.power_supply_kind,
                 resource=(
-                    str(self.configuration.get("tdkResource", ""))
-                    if self.power_supply_kind == "tdk"
+                    str(self.configuration.get("ruResource" if self.power_supply_kind == "ru" else "tdkResource", ""))
+                    if self.power_supply_kind in {"tdk", "ru"}
                     else str(ch341.get("locationPath", self.configuration.get("ch341SelectedLocationPath", "")))
                 ),
                 detail=str(ch341.get("name", "")),
@@ -401,13 +537,13 @@ class StationRuntime(StationAutomaticMixin):
             params = self.backend.power_meter_profiles.protect_configuration(dict(params))
             candidate = dict(self.configuration)
             kind = str(params.get("powerSupplyKind", candidate["powerSupplyKind"])).lower()
-            if kind not in {"ch341", "tdk"}:
-                raise ValueError("powerSupplyKind must be ch341 or tdk")
+            if kind not in {"ch341", "tdk", "ru"}:
+                raise ValueError("powerSupplyKind must be ch341, tdk or ru")
             selected_script_id = str(
                 params.get("selectedScriptId", candidate["selectedScriptId"])
             )
             if selected_script_id == AGING_TEST_SCRIPT_ID and kind != "ch341":
-                raise ValueError("AU 老化测试仅支持 CH341 电源，TDK RS232 不允许使用此模式")
+                raise ValueError("AU 老化测试仅支持 CH341 电源")
 
             if "ch341PortBindings" in params:
                 raw_bindings = params["ch341PortBindings"]
@@ -445,6 +581,10 @@ class StationRuntime(StationAutomaticMixin):
 
             if self.power_supply_controller is not None and kind != self.power_supply_kind:
                 raise ValueError("请先断开电源，再切换控制器类型")
+            if self.power_supply_controller is not None:
+                connection_keys = ("ruResource", "ruBaudRate", "ruAddress") if kind == "ru" else ()
+                if any(key in params and params[key] != candidate[key] for key in connection_keys):
+                    raise ValueError("请先断开电源，再修改 RU 串口参数")
 
             if "testTemperatureC" in params:
                 params["testTemperatureC"] = str(params["testTemperatureC"] or "").strip()
@@ -532,17 +672,22 @@ class StationRuntime(StationAutomaticMixin):
                 "dwellS": finite_number(point.get("dwellS", 0), "dwellS"),
             })
         candidate["customCurrentPoints"] = cleaned_points
+        if candidate["ruBaudRate"] not in RU_BAUD_RATES:
+            raise ValueError("RU 波特率不在手册支持范围内")
+        if not 1 <= candidate["ruAddress"] <= 255:
+            raise ValueError("RU 地址必须为 1–255，禁止广播地址 0")
 
     def connect_power_supply(self) -> None:
         with self._lock:
             if self.power_supply_controller is not None:
                 return
             kind = self.power_supply_kind
-            if kind == "tdk":
-                resource = str(self.configuration["tdkResource"]).strip()
+            if kind in {"tdk", "ru"}:
+                resource = str(self.configuration["ruResource" if kind == "ru" else "tdkResource"]).strip()
                 if not resource:
-                    raise ValueError("请选择 TDK 串口资源")
-                supply = TdkLambdaPowerSupply(resource)
+                    raise ValueError("请选择电源串口资源")
+                supply = (RuPowerSupply(resource, self.configuration["ruBaudRate"], self.configuration["ruAddress"])
+                          if kind == "ru" else TdkLambdaPowerSupply(resource))
                 connected, detail = supply.connect_device(0)
                 if not connected:
                     raise RuntimeError(str(detail))
@@ -555,7 +700,7 @@ class StationRuntime(StationAutomaticMixin):
                     supply.disconnect_device()
                     self.power_supply_controller = None
                     raise
-                self.notify("info", "电源连接", f"TDK 电源已连接：{resource}")
+                self.notify("info", "电源连接", f"{kind.upper()} 电源已连接：{resource}")
                 return
 
             # CH341 connection
@@ -623,11 +768,20 @@ class StationRuntime(StationAutomaticMixin):
             self._last_power_supply_command_at = None
             self.notify("info", "电源连接", f"CH341 Device {target_index} 已连接")
 
+    def _maximum_current_a(self) -> float | None:
+        if self.power_supply_kind == "ch341":
+            return 20.0
+        if self.power_supply_kind == "ru":
+            return getattr(self.power_supply_controller, "maximum_current_a", None)
+        return None
+
     def disconnect_power_supply(self) -> None:
         # All shutdown paths acquire the ramp lock before station or I/O locks.
         with self.command_safety.stopping(), self._safe_ramp_lock, self._lock:
+            self._tdk_voltage_burst_stop.set()
             if self.power_supply_controller is None:
                 return
+            self._invalidate_manual_power_capture("电源断开，未完成的测试点已取消")
             if self.power_supply_kind == "ch341" and self.power_supply_identity_error:
                 # A post-open port identity mismatch forbids current commands,
                 # but must never make the retained handle impossible to close.
@@ -651,6 +805,9 @@ class StationRuntime(StationAutomaticMixin):
             measured_current_a: float | None = None
             if self.power_supply_kind == "ch341" and self.active_current_a and abs(self.active_current_a) > 0.01:
                 self.safe_ramp_down()
+            if self.power_supply_kind == "ru":
+                self.safe_ramp_down()
+                measured_current_a = self.latest_power_supply_output_current_a
             with self._supply_io_lock:
                 if self.power_supply_kind == "tdk":
                     # The cached output flag starts false after connecting and
@@ -662,7 +819,7 @@ class StationRuntime(StationAutomaticMixin):
                     self.latest_power_supply_output_current_a = measured_current_a
                     if not math.isfinite(measured_current_a) or abs(measured_current_a) > 0.01:
                         raise RuntimeError(
-                            f"安全断开已取消：无法确认 TDK 输出电流归零（{measured_current_a:.3f} A）"
+                            f"安全断开已取消：无法确认电源输出电流归零（{measured_current_a:.3f} A）"
                         )
                     self.active_current_a = 0.0
                     self.configuration["setCurrentA"] = 0.0
@@ -688,59 +845,147 @@ class StationRuntime(StationAutomaticMixin):
                 )
             self.notify("info", "电源断开", "电源控制器已安全断开")
 
+    def set_manual_current(self, params: dict[str, Any]) -> None:
+        """Wait for one safe command slot; shutdown invalidates this request."""
+        with self.command_safety.command():
+            current_a = finite_number(params.get("currentA"), "电流")
+            with self._lock:
+                self.command_safety.check()
+                self.manual_current_request_a = current_a
+            try:
+                self.set_current(params, wait_for_slot=True)
+            finally:
+                with self._lock:
+                    self.manual_current_request_a = None
+
+    def safe_manual_power_down(self) -> None:
+        # Invalidate queued writes before waiting for any state or device lock.
+        with self.command_safety.stopping():
+            with self._lock:
+                if not self.manual_controls_allowed():
+                    raise RuntimeError("硬件控制权由自动测试持有；请先结束并安全下电")
+                self.manual_power_stopping = True
+                self.manual_current_request_a = None
+                self._invalidate_manual_power_capture("安全下电，未完成的测试点已取消")
+            try:
+                self.safe_ramp_down()
+            finally:
+                with self._lock:
+                    self.manual_power_stopping = False
+
     def set_current(self, params: dict[str, Any], *, wait_for_slot: bool = False) -> None:
-        with self.command_safety.command(), self._lock:
+        with self.command_safety.command():
             current_a = finite_number(params.get("currentA"), "电流")
             if current_a < 0.0:
                 raise ValueError("电流设定值不能为负数")
-            if self.power_supply_kind == "ch341" and current_a > 20.0:
-                raise ValueError("CH341 最大电流不能超过 20 A")
-            supply = self._require_power_supply()
-            with self._supply_io_lock:
-                self._reserve_power_supply_command(wait=wait_for_slot)
-                self.command_safety.check()
-                self._clear_shutdown_result()
-                supply.set_current(current_a)
-                self.latest_power_supply_output_current_a = None
-                self._last_live_current_read_at = None
-            self.active_current_a = current_a
-            self.configuration["setCurrentA"] = current_a
-            if self.automatic.state in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED}:
-                self.pending_manual_stable_current_a = current_a
-                self.recorded_manual_stable_current_a = None
-                self.recorded_manual_stability_generation = None
-                self.efficiency_points.pop(current_a, None)
-                self._manual_voltage_timer_generation += 1
-                self.pending_manual_stability_generation = (
-                    self.power_meter_reader.reset_stability_window()
-                    if self.power_meter_reader is not None
-                    else None
-                )
+            while True:
+                # Preserve the shared state -> I/O lock order. Do not retain
+                # either lock during the interval: snapshots and acquisitions
+                # need state, while emergency shutdown needs the I/O lock.
+                with self._lock:
+                    self.command_safety.check()
+                    if current_a > 0:
+                        self._require_output_safety()
+                    if self.power_supply_kind == "ch341" and current_a > 20.0:
+                        raise ValueError("CH341 最大电流不能超过 20 A")
+                    supply = self._require_power_supply()
+                    with self._supply_io_lock:
+                        remaining = self._power_supply_command_delay()
+                        ready = not wait_for_slot or remaining <= 0.0
+                        if ready:
+                            self._reserve_power_supply_command(wait=False)
+                            self.command_safety.check()
+                            if not (self.power_supply_kind == "ru" and self.shutdown_requested
+                                    and not self.shutdown_confirmed):
+                                self._clear_shutdown_result()
+                            supply.set_current(current_a)
+                            self.latest_power_supply_output_current_a = None
+                            self._last_live_current_read_at = None
+                            if self.power_supply_kind in {"tdk", "ru"}:
+                                self._tdk_voltage_burst_stop.set()
+                                self.latest_power_supply_output_voltage_v = None
+                    if ready:
+                        self.active_current_a = current_a
+                        self.configuration["setCurrentA"] = current_a
+                        if self.automatic.state in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED}:
+                            cancelled = self.manual_capture["state"] in {"waiting_stable", "waiting_voltage", "reading_voltage", "validating"}
+                            self.pending_manual_stable_current_a = current_a
+                            self.recorded_manual_stable_current_a = None
+                            self.recorded_manual_stability_generation = None
+                            self.efficiency_points.pop(current_a, None)
+                            self._manual_voltage_timer_generation += 1
+                            self.pending_manual_stability_generation = (
+                                self.power_meter_reader.reset_stability_window()
+                                if self.power_meter_reader is not None
+                                else None
+                            )
+                            detail = "等待功率稳定" if self.power_meter_reader else "等待功率计采集；开始采集后请重新施加电流"
+                            if cancelled:
+                                detail = "电流已改变，上一测试点已取消；" + detail
+                            if current_a <= 0:
+                                detail = "电流已归零，未完成的测试点已取消"
+                            self._set_manual_capture("waiting_stable" if current_a > 0 else "cancelled", detail, current_a)
+                        if self.power_supply_kind in {"tdk", "ru"}:
+                            self._start_tdk_voltage_read_burst()
+                        return
+                self._wait_power_supply_command_interval(remaining)
+                # Another command or a disconnect may have won the slot while
+                # we waited. Recheck the gate, controller and interval together.
 
     def set_voltage(self, params: dict[str, Any]) -> None:
         with self.command_safety.command(), self._lock:
             voltage_v = finite_number(params.get("voltageV"), "电压")
-            if self.power_supply_kind != "tdk":
-                raise ValueError("仅 TDK 电源支持设置电压")
+            if self.power_supply_kind not in {"tdk", "ru"}:
+                raise ValueError("当前电源不支持设置电压")
+            self._require_output_safety()
             supply = self._require_power_supply()
             with self._supply_io_lock:
                 self.command_safety.check()
                 self._clear_shutdown_result()
                 supply.set_voltage(voltage_v)
-            self.configuration["tdkVoltageV"] = voltage_v
+            self.configuration["ruVoltageV" if self.power_supply_kind == "ru" else "tdkVoltageV"] = voltage_v
+
+    def _wait_for_zero_output_current(
+        self, supply: ControllerPowerSupply, *, failure_message: str = "无法确认电源输出电流已归零",
+    ) -> float:
+        """Confirm current after output-off; callers hold the supply I/O lock.
+
+        Retry only valid, finite residual readings. Never repeat device writes
+        or hide communication failures while waiting for feedback to settle.
+        """
+        deadline = time.monotonic() + OUTPUT_OFF_CURRENT_CONFIRM_TIMEOUT_S
+        self._shutdown_measurement_candidate = None
+        reads = 0
+        while True:
+            measured_current_a = float(supply.read_output_current())
+            reads += 1
+            self._shutdown_measurement_candidate = measured_current_a
+            self.latest_power_supply_output_current_a = measured_current_a
+            if math.isfinite(measured_current_a) and abs(measured_current_a) <= 0.01:
+                if reads > 1:
+                    _LOGGER.info("输出关闭后电流已确认归零 | current_a=%.6f | reads=%d", measured_current_a, reads)
+                return measured_current_a
+            remaining = deadline - time.monotonic()
+            if not math.isfinite(measured_current_a) or remaining <= 0:
+                raise RuntimeError(f"{failure_message}：{measured_current_a:.3f} A")
+            time.sleep(min(OUTPUT_OFF_CURRENT_CONFIRM_INTERVAL_S, remaining))
 
     def set_output(self, params: dict[str, Any]) -> None:
-        guard = self.command_safety.command() if params.get("enabled", False) is not False else nullcontext()
+        guard = (self.command_safety.command() if params.get("enabled", False) is not False
+                 else self.command_safety.stopping())
         with guard, self._lock:
             enabled = params.get("enabled")
             if not isinstance(enabled, bool):
                 raise ValueError("enabled 必须是 JSON 布尔值")
             supply = self._require_power_supply()
             measured_current_a: float | None = None
+            self._tdk_voltage_burst_stop.set()
             with self._supply_io_lock:
                 if enabled:
                     self.command_safety.check()
-                if enabled and self.power_supply_kind == "tdk":
+                    self._require_output_safety()
+                if enabled and self.power_supply_kind in {"tdk", "ru"}:
+                    self._invalidate_manual_power_capture("开启输出前归零，未完成的测试点已取消")
                     supply.set_current(0.0)
                     self.active_current_a = 0.0
                     self.configuration["setCurrentA"] = 0.0
@@ -749,24 +994,40 @@ class StationRuntime(StationAutomaticMixin):
                     self.latest_power_supply_output_current_a = measured_current_a
                     if not math.isfinite(measured_current_a) or abs(measured_current_a) > 0.01:
                         raise RuntimeError(
-                            "开启输出已取消：TDK 电流未归零，"
+                            "开启输出已取消：电源电流未归零，"
                             f"当前实测 {measured_current_a:.3f} A"
                         )
                 if enabled:
                     self.command_safety.check()
                     self._clear_shutdown_result()
-                supply.set_output_enabled(enabled)
-                if not enabled and self.power_supply_kind == "tdk":
-                    measured_current_a = float(supply.read_output_current())
-                    self.latest_power_supply_output_current_a = measured_current_a
-                    if not math.isfinite(measured_current_a) or abs(measured_current_a) > 0.01:
-                        raise RuntimeError(
-                            f"TDK 输出已关闭，但无法确认输出电流归零：{measured_current_a:.3f} A"
+                try:
+                    supply.set_output_enabled(enabled)
+                except Exception as exc:
+                    if self.power_supply_kind == "ru":
+                        self._record_shutdown_result(confirmed=False, measured_current_a=None,
+                                                     output_off_confirmed=False, reason=str(exc))
+                    raise
+                if not enabled and self.power_supply_kind in {"tdk", "ru"}:
+                    self._invalidate_manual_power_capture("输出已关闭，未完成的测试点已取消")
+                    self._shutdown_measurement_candidate = None
+                    try:
+                        # Turn output off first, then clear the stored hardware
+                        # setpoint so a later enable cannot restore the old current.
+                        supply.set_current(0.0)
+                        # Output is already off. Allow current feedback to settle
+                        # without replaying the write or changing the shutdown ramp.
+                        measured_current_a = self._wait_for_zero_output_current(
+                            supply, failure_message="输出已关闭，但无法确认电流归零",
                         )
+                    except Exception as exc:
+                        if self.power_supply_kind == "ru":
+                            self._record_shutdown_result(confirmed=False, measured_current_a=self._shutdown_measurement_candidate,
+                                                         output_off_confirmed=True, reason=str(exc))
+                        raise
                     self.active_current_a = 0.0
                     self.configuration["setCurrentA"] = 0.0
                     self._manual_voltage_timer_generation += 1
-            if self.automatic.state == AutomaticTestState.COMPLETED:
+            if self.automatic.state == AutomaticTestState.COMPLETED or (self.power_supply_kind == "ru" and not enabled):
                 if enabled:
                     self._clear_shutdown_result()
                 else:
@@ -811,7 +1072,7 @@ class StationRuntime(StationAutomaticMixin):
             if operation is None:
                 raise ValueError("未知电源读取项")
             if self.power_supply_kind != "ch341" and value_name in {"inputVoltage", "temperature"}:
-                raise ValueError("TDK 电源不支持该读取项")
+                raise ValueError("当前电源不支持该读取项")
             reader, label, unit, cache_name = operation
             with self._supply_io_lock:
                 self._reserve_power_supply_command(wait=False)
@@ -852,6 +1113,7 @@ class StationRuntime(StationAutomaticMixin):
             )
             reader = PowerMeterReaderThread(settings)
             if self.automatic.state in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED}:
+                self._invalidate_manual_power_capture("功率计已启动，请重新施加电流以记录测试点")
                 self.stable_power_points.clear()
                 self.efficiency_points.clear()
                 self.pending_manual_stable_current_a = None
@@ -973,6 +1235,7 @@ class StationRuntime(StationAutomaticMixin):
                         if self.power_meter_reader is not None
                         else None
                     )
+                    self._set_manual_capture("waiting_stable", "功率稳定中断，重新等待稳定", current_a)
 
     def _capture_manual_stable_point(self, reading: PowerMeterReading) -> None:
         with self._lock:
@@ -992,9 +1255,16 @@ class StationRuntime(StationAutomaticMixin):
             self.series_revisions["stable"] += 1
             self._manual_voltage_timer_generation += 1
             timer_generation = self._manual_voltage_timer_generation
+            read_delay_s = 0.0 if self.power_supply_kind in {"tdk", "ru"} else 5.0
+            if read_delay_s:
+                self._set_manual_capture("waiting_voltage", "功率已稳定，等待读取电压", current_a)
+                self._manual_voltage_due_at = time.monotonic() + read_delay_s
+            else:
+                self._set_manual_capture("reading_voltage", "功率已稳定，正在读取输出电压", current_a)
 
-        def delayed_read() -> None:
-            time.sleep(5.0)
+        def read_final_voltage() -> None:
+            if read_delay_s:
+                time.sleep(read_delay_s)
             if (
                 timer_generation != self._manual_voltage_timer_generation
                 or self.automatic.state not in {AutomaticTestState.IDLE, AutomaticTestState.COMPLETED}
@@ -1002,23 +1272,41 @@ class StationRuntime(StationAutomaticMixin):
             ):
                 return
             try:
+                with self._lock:
+                    if timer_generation != self._manual_voltage_timer_generation:
+                        return
+                    self._set_manual_capture("reading_voltage", "正在读取输出电压", current_a)
                 with self._supply_io_lock:
+                    if timer_generation != self._manual_voltage_timer_generation:
+                        return
+                    self._tdk_voltage_burst_stop.set()
                     self._reserve_power_supply_command(wait=True)
                     raw_voltage_v = float(self._require_power_supply().read_output_voltage())
-                self.latest_power_supply_output_voltage_v = raw_voltage_v
+                    self.latest_power_supply_output_voltage_v = raw_voltage_v
                 self._record_manual_voltage_point(raw_voltage_v)
             except Exception as exc:
+                with self._lock:
+                    if timer_generation != self._manual_voltage_timer_generation:
+                        return
+                    self._set_manual_capture("failed", f"测试点未暂存：{exc}", current_a)
                 self.notify("error", "手动效率记录", str(exc))
 
         threading.Thread(
-            target=delayed_read,
+            target=read_final_voltage,
             name="manual-voltage",
             daemon=True,
         ).start()
 
-    def _invalidate_manual_power_capture(self) -> None:
+    def _set_manual_capture(self, state: str, detail: str, current_a: float | None) -> None:
+        with self._lock:
+            self.manual_capture = {"state": state, "detail": detail, "currentA": current_a}
+            self._manual_voltage_due_at = None
+
+    def _invalidate_manual_power_capture(self, reason: str = "功率采集已停止，未完成的测试点已取消") -> None:
         """Cancel unfinished point capture without discarding measured history."""
         with self._lock:
+            if self.manual_capture["state"] in {"waiting_stable", "waiting_voltage", "reading_voltage", "validating"}:
+                self._set_manual_capture("cancelled", reason, self.manual_capture["currentA"])
             self._manual_voltage_timer_generation += 1
             self.pending_manual_stable_current_a = None
             self.pending_manual_stability_generation = None
@@ -1058,6 +1346,8 @@ class StationRuntime(StationAutomaticMixin):
                 or received_at is None
                 or time.monotonic() - received_at > live_limit_s
             ):
+                if self.recorded_manual_stable_current_a is not None:
+                    self._set_manual_capture("cancelled", "功率数据不可用或已过期，本次测试点已取消", self.recorded_manual_stable_current_a)
                 return
             self._record_manual_voltage_point_locked(raw_voltage_v)
 
@@ -1083,10 +1373,12 @@ class StationRuntime(StationAutomaticMixin):
         )
         if not math.isfinite(voltage_v) or voltage_v <= 0.0:
             raise RuntimeError("输出电压无效，未记录效率点")
+        self._set_manual_capture("validating", "正在校验光谱并暂存测试点", current_a)
         frame = self.latest_spectrum
         try:
             self._validate_automatic_spectrum(frame)
         except _AutomaticPointQualityError as exc:
+            self._set_manual_capture("failed", f"测试点未暂存：{exc}", current_a)
             self.notify("warning", "手动测试点未记录", str(exc))
             return
         efficiency = power_w / current_a / voltage_v
@@ -1129,6 +1421,7 @@ class StationRuntime(StationAutomaticMixin):
             self.efficiency_points[current_a] = efficiency * 100.0
             self.series_revisions["stable"] += 1
         self.export_status = "recording"
+        self._set_manual_capture("recorded", f"已暂存 {current_a:g} A 测试点，可保存", current_a)
         self.notify("info", "手动测试点", f"已暂存 {current_a:g} A 测试点，可保存 Excel")
 
     def save_manual_records(self) -> dict[str, Any]:

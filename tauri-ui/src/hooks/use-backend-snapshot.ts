@@ -1,3 +1,6 @@
+import { commandRuntimeIsCurrent } from "@/lib/bridge-validation"
+import { BridgeRequestError } from "@/lib/bridge-error"
+import type { SnapshotCommand } from "@/lib/command-contract"
 import { useCallback, useEffect, useRef, useState } from "react"
 
 import { fetchBackendSnapshot, mergeBackendSnapshot, sendBackendCommand, subscribeBackendSnapshots, type AppConfiguration, type BackendSnapshot, type PowerMeterCoefficientLibrary, type PowerMeterCoefficientRevision, type SeriesRevisions, type SnapshotView } from "@/lib/backend"
@@ -10,8 +13,14 @@ const DEMO_PREVIEW_ENABLED = typeof window !== "undefined" && new URLSearchParam
 // against. `run=1` replays the staged sequence instead, including the 停留 dwell.
 const DEMO_RUN_ENABLED = DEMO_PREVIEW_ENABLED && typeof window !== "undefined" && new URLSearchParams(window.location.search).get("run") === "1"
 
-import { DEMO_RUN_SNAPSHOT, DEMO_SNAPSHOT, resetDemoRun } from "@/lib/demo-snapshot"
-import { demoRunSnapshot } from "@/lib/demo-run"
+// Device operation never needs the preview fixtures or replay timeline.
+async function loadDemoRuntime() {
+  const [snapshots, replay] = await Promise.all([
+    import("@/lib/demo-snapshot"),
+    import("@/lib/demo-run"),
+  ])
+  return { ...snapshots, ...replay }
+}
 
 function selectedDemoRevision(library: PowerMeterCoefficientLibrary): PowerMeterCoefficientRevision | null {
   const profile = library.profiles.find((item) => item.id === library.selectedProfileId)
@@ -33,7 +42,7 @@ function demoConfigurationForLibrary(
     powerMeterProfileName: revision?.name ?? "未绑定方案",
     powerMeterProfileVersion: revision?.version ?? 0,
     powerMeterProfileNotes: revision?.notes ?? "",
-    powerMeterProfileWavelengthPending: revision?.wavelengthNm == null,
+    powerMeterProfileWavelengthPending: Boolean(revision && revision.wavelengthNm == null),
     softwareGain: revision?.softwareGain ?? 1,
     powerMeterWavelengthNm: revision?.wavelengthNm ?? 976,
   }
@@ -59,7 +68,7 @@ function demoProfileRevision(params: Record<string, unknown>, version: number): 
   }
 }
 
-function runDemoPowerMeterProfileCommand(
+export function runDemoPowerMeterProfileCommand(
   base: BackendSnapshot,
   method: string,
   params: Record<string, unknown>,
@@ -72,7 +81,7 @@ function runDemoPowerMeterProfileCommand(
   const library = JSON.parse(JSON.stringify(current)) as PowerMeterCoefficientLibrary
   const profileId = String(params.profileId ?? "")
   let profile = library.profiles.find((item) => item.id === profileId)
-  let revision: PowerMeterCoefficientRevision
+  let revision: PowerMeterCoefficientRevision | undefined
   if (method === "powerMeter.profile.create") {
     revision = demoProfileRevision(params, 1)
     profile = { id: `demo-profile-${Date.now()}-${library.profiles.length}`, versions: [revision] }
@@ -85,6 +94,13 @@ function runDemoPowerMeterProfileCommand(
     }
     if (method === "powerMeter.profile.select") {
       revision = latest
+    } else if (method === "powerMeter.profile.delete") {
+      library.profiles = library.profiles.filter((item) => item.id !== profileId)
+      if (library.selectedProfileId === profileId) {
+        const replacement = library.profiles[0]
+        library.selectedProfileId = replacement?.id ?? ""
+        library.selectedVersion = replacement?.versions[replacement.versions.length - 1]?.version ?? 0
+      }
     } else if (method === "powerMeter.profile.save") {
       revision = demoProfileRevision(params, latest.version + 1)
       profile.versions.push(revision)
@@ -101,11 +117,13 @@ function runDemoPowerMeterProfileCommand(
       throw new Error("未知系数方案操作")
     }
   }
-  if (library.profiles.some((item) => item.id !== profile!.id && item.versions[item.versions.length - 1]?.name === revision.name)) {
-    throw new Error("同一探头已有同名方案，请使用不同名称")
+  if (method !== "powerMeter.profile.delete" && revision) {
+    if (library.profiles.some((item) => item.id !== profile!.id && item.versions[item.versions.length - 1]?.name === revision!.name)) {
+      throw new Error("同一探头已有同名方案，请使用不同名称")
+    }
+    library.selectedProfileId = profile.id
+    library.selectedVersion = revision.version
   }
-  library.selectedProfileId = profile.id
-  library.selectedVersion = revision.version
   const configuration = demoConfigurationForLibrary(base.configuration!, library)
   return {
     ...base,
@@ -117,7 +135,7 @@ function runDemoPowerMeterProfileCommand(
         coefficientLibrary: library,
         resourceProfiles: base.devices.powerMeter.resourceProfiles?.map((item) => (
           item.driverKind === library.driverKind && item.serialNumber === library.serialNumber
-            ? { ...item, softwareGain: revision.softwareGain, coefficientLibrary: library }
+            ? { ...item, softwareGain: configuration.softwareGain, coefficientLibrary: library }
             : item
         )),
       },
@@ -134,9 +152,10 @@ export function useBackendSnapshot(view: SnapshotView) {
   const [pendingCommand, setPendingCommand] = useState<string | null>(null)
   const mountedRef = useRef(true)
   const commandPendingRef = useRef(false)
+  const safetyGenerationRef = useRef(0)
   const latestViewRef = useRef(view)
   const snapshotRef = useRef<BackendSnapshot | null>(null)
-  const demoSnapshotRef = useRef(DEMO_RUN_ENABLED ? DEMO_RUN_SNAPSHOT : DEMO_SNAPSHOT)
+  const demoSnapshotRef = useRef<BackendSnapshot | null>(null)
   const demoGenerationRef = useRef(0)
   const revisionsRef = useRef<SeriesRevisions | null>(null)
   latestViewRef.current = view
@@ -153,10 +172,13 @@ export function useBackendSnapshot(view: SnapshotView) {
     }
     try {
       if (DEMO_PREVIEW_ENABLED) {
+        const { DEMO_RUN_SNAPSHOT, DEMO_SNAPSHOT } = await loadDemoRuntime()
+        const demo = demoSnapshotRef.current ?? (DEMO_RUN_ENABLED ? DEMO_RUN_SNAPSHOT : DEMO_SNAPSHOT)
+        demoSnapshotRef.current = demo
         if (mountedRef.current && latestViewRef.current === requestedView) {
-          snapshotRef.current = demoSnapshotRef.current
-          revisionsRef.current = demoSnapshotRef.current.seriesRevisions ?? null
-          setSnapshot(demoSnapshotRef.current)
+          snapshotRef.current = demo
+          revisionsRef.current = demo.seriesRevisions ?? null
+          setSnapshot(demo)
           setError(null)
         }
         return
@@ -191,11 +213,18 @@ export function useBackendSnapshot(view: SnapshotView) {
 
   const refresh = useCallback(() => loadSnapshot(true, view), [loadSnapshot, view])
 
-  const command = useCallback(async (method: string, params: Record<string, unknown> = {}) => {
-    if (method === "app.stopAll" && !DEMO_PREVIEW_ENABLED) {
+  const command = useCallback(async (method: SnapshotCommand, params: Record<string, unknown> = {}) => {
+    const safetyCommand = method === "app.stopAll" || method === "powerSupply.safeRampDown"
+    if (safetyCommand) safetyGenerationRef.current += 1
+    const startedSafetyGeneration = safetyGenerationRef.current
+    if (safetyCommand && !DEMO_PREVIEW_ENABLED) {
       try {
         const requestedView = view
+        const startedRuntime = snapshotRef.current?.backend.runtimeId
         const response = await sendBackendCommand(method, params)
+        if (!commandRuntimeIsCurrent(startedRuntime, snapshotRef.current?.backend.runtimeId, response.backend.runtimeId)) {
+          throw new BridgeRequestError({ kind: "protocol", code: "stale_response", method, message: "后端会话已变化，已忽略旧命令响应" })
+        }
         const matchesView = latestViewRef.current === requestedView
         const nextSnapshot = matchesView ? mergeBackendSnapshot(snapshotRef.current, response) : response
         if (mountedRef.current && matchesView) {
@@ -210,17 +239,24 @@ export function useBackendSnapshot(view: SnapshotView) {
         throw reason
       }
     }
-    if (commandPendingRef.current) {
+    if (commandPendingRef.current && !safetyCommand) {
       if (snapshotRef.current) return snapshotRef.current
       throw new Error("上一项操作仍在处理中")
     }
-    commandPendingRef.current = true
-    setCommandPending(true)
-    setPendingCommand(method)
+    if (!safetyCommand) {
+      commandPendingRef.current = true
+      setCommandPending(true)
+      setPendingCommand(method)
+    }
     try {
       if (DEMO_PREVIEW_ENABLED) {
-        const base = demoSnapshotRef.current
+        const { DEMO_RUN_SNAPSHOT, DEMO_SNAPSHOT, resetDemoRun, demoRunSnapshot } = await loadDemoRuntime()
+        const base = demoSnapshotRef.current ?? (DEMO_RUN_ENABLED ? DEMO_RUN_SNAPSHOT : DEMO_SNAPSHOT)
+        demoSnapshotRef.current = base
         const publishDemo = (next: BackendSnapshot) => {
+          if (!safetyCommand && startedSafetyGeneration !== safetyGenerationRef.current) {
+            throw new Error("操作已因安全下电取消，请重新操作")
+          }
           demoSnapshotRef.current = next
           snapshotRef.current = next
           if (mountedRef.current) setSnapshot(next)
@@ -312,6 +348,28 @@ export function useBackendSnapshot(view: SnapshotView) {
             },
           })
         }
+        if (method === "powerSupply.setCurrent") {
+          const currentA = Number(params.currentA)
+          return publishDemo({
+            ...base,
+            configuration: { ...base.configuration!, setCurrentA: currentA },
+            devices: { ...base.devices, powerSupply: { ...base.devices.powerSupply, activeCurrentA: currentA, outputCurrentA: currentA } },
+            manualTest: { pendingCount: base.manualTest?.pendingCount ?? 0, exportStatus: "recording", exportPath: "", exportError: "",
+              capture: { state: "waiting_stable", detail: "等待功率稳定（示例）", currentA, remainingS: null } },
+            safety: { ...base.safety, shutdown: { requested: false, confirmed: false, measuredCurrentA: null, outputOffConfirmed: false, reason: "" } },
+          })
+        }
+        if (method === "powerSupply.setOutput" || method === "powerSupply.safeRampDown") {
+          const enabled = method === "powerSupply.setOutput" && params.enabled === true
+          return publishDemo({
+            ...base,
+            configuration: { ...base.configuration!, setCurrentA: 0 },
+            devices: { ...base.devices, powerSupply: { ...base.devices.powerSupply, outputEnabled: enabled, activeCurrentA: 0, outputCurrentA: 0 } },
+            manualTest: { pendingCount: base.manualTest?.pendingCount ?? 0, exportStatus: base.manualTest?.exportStatus ?? "idle", exportPath: "", exportError: "",
+              capture: { state: "cancelled", detail: enabled ? "开启输出前已归零（示例）" : "安全下电，未完成的测试点已取消（示例）", currentA: null, remainingS: null } },
+            safety: { ...base.safety, shutdown: { requested: !enabled, confirmed: !enabled, measuredCurrentA: 0, outputOffConfirmed: !enabled, reason: enabled ? "" : "示例数据已确认安全下电" } },
+          })
+        }
         if (method === "automatic.start") {
           const runConfiguration = { ...base.configuration!, ...params }
           const generation = ++demoGenerationRef.current
@@ -324,7 +382,7 @@ export function useBackendSnapshot(view: SnapshotView) {
             if (next.automaticTest.state !== "completed") window.setTimeout(advance, 200)
           }
           advance()
-          return demoSnapshotRef.current
+          return demoSnapshotRef.current ?? base
         }
 
         if (method === "automatic.end" || method === "app.stopAll") {
@@ -381,7 +439,14 @@ export function useBackendSnapshot(view: SnapshotView) {
         return publishDemo(base)
       }
       const requestedView = view
+      const startedRuntime = snapshotRef.current?.backend.runtimeId
       const response = await sendBackendCommand(method, params)
+      if (startedSafetyGeneration !== safetyGenerationRef.current) {
+        throw new Error("操作已因安全下电取消，请重新操作")
+      }
+      if (!commandRuntimeIsCurrent(startedRuntime, snapshotRef.current?.backend.runtimeId, response.backend.runtimeId)) {
+        throw new BridgeRequestError({ kind: "protocol", code: "stale_response", method, message: "后端会话已变化，已忽略旧命令响应" })
+      }
       const matchesView = latestViewRef.current === requestedView
       const nextSnapshot = matchesView ? mergeBackendSnapshot(snapshotRef.current, response) : response
       if (mountedRef.current && matchesView) {
@@ -393,11 +458,11 @@ export function useBackendSnapshot(view: SnapshotView) {
       return nextSnapshot
     } catch (reason) {
       const message = reason instanceof Error ? reason.message : String(reason)
-      if (mountedRef.current) setError(message)
+      if (mountedRef.current && startedSafetyGeneration === safetyGenerationRef.current) setError(message)
       throw reason
     } finally {
-      commandPendingRef.current = false
-      if (mountedRef.current) {
+      if (!safetyCommand) commandPendingRef.current = false
+      if (!safetyCommand && mountedRef.current) {
         setCommandPending(false)
         setPendingCommand(null)
       }

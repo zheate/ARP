@@ -1,0 +1,71 @@
+### Result
+{"status":"PASS","results":[{"dropdown":"TDK 串口","status":"PASS"},{"dropdown":"CH341 设备","status":"PASS"},{"dropdown":"串口资源","status":"PASS"},{"dropdown":"设备资源","status":"PASS"}],"identify":"4 simulated refreshes; footer unchanged","manual":{"sections":1,"width":662,"child":662}}
+### Ran Playwright code
+```js
+await (async (page) => {
+  await page.keyboard.press('Escape');
+  await page.getByRole('button',{name:'自动测试',exact:true}).click();
+  await page.getByRole('button',{name:'电源信息，点击打开设置',exact:true}).click();
+  await page.waitForTimeout(300);
+  const dialog = page.getByRole('dialog');
+  const disconnect=dialog.getByRole('button',{name:'安全断开',exact:true});
+  if(await disconnect.count()) await disconnect.click();
+  const results=[];
+  const checkDropdown = async (name) => {
+    const select=dialog.getByRole('combobox',{name,exact:true});
+    await select.scrollIntoViewIfNeeded();
+    const before=await dialog.boundingBox();
+    await select.click();
+    if(!await dialog.getByRole('listbox').isVisible()) throw new Error(name+' did not open');
+    if(JSON.stringify(before)!==JSON.stringify(await dialog.boundingBox())) throw new Error(name+' moved dialog');
+    await page.keyboard.press('Escape');
+    if(!await dialog.isVisible() || await dialog.getByRole('listbox').count()) throw new Error('Escape order');
+    await select.click();
+    const option=dialog.getByRole('option').last();
+    await option.click();
+    if(await dialog.getByRole('listbox').count() || !await dialog.isVisible()) throw new Error('Option did not dismiss only dropdown');
+    results.push({dropdown:name,status:'PASS'});
+  };
+  const checkIdentify=async()=>{
+    const footer=dialog.locator('.device-settings-dialog__footer');
+    const state=()=>footer.evaluate(el=>({rect:el.getBoundingClientRect().toJSON(),buttons:[...el.querySelectorAll('button')].map(b=>({text:b.textContent,rect:b.getBoundingClientRect().toJSON(),bg:getComputedStyle(b).backgroundColor,color:getComputedStyle(b).color}))}));
+    await dialog.getByRole('button',{name:'识别',exact:true}).scrollIntoViewIfNeeded();
+    const before=await state();
+    await dialog.getByRole('button',{name:'识别',exact:true}).click();
+    if(JSON.stringify(before)!==JSON.stringify(await state()))throw new Error('Identify changed footer');
+    await page.waitForTimeout(400);
+    if(JSON.stringify(before)!==JSON.stringify(await state()))throw new Error('Identify completion changed footer');
+  };
+  await checkDropdown('TDK 串口');
+  await checkIdentify();
+  for(const controller of ['CH341 I²C','TDK RS232']){
+    await dialog.getByRole('combobox',{name:'控制器',exact:true}).click();
+    await dialog.getByRole('option',{name:controller,exact:true}).click();
+    if(controller.startsWith('CH')) {await checkDropdown('CH341 设备');await checkIdentify();}
+    for(const [width,height] of [[1440,900],[1180,720],[760,700]]){
+      await page.setViewportSize({width,height});
+      const overflow=await dialog.evaluate(el=>el.scrollWidth>el.clientWidth);
+      if(overflow)throw new Error('Controller overflow');
+      await page.screenshot({path:`output/playwright/ui-coordination/after-${controller.startsWith('CH')?'ch341':'tdk-disconnected'}-${width}.png`});
+    }
+  }
+  await page.setViewportSize({width:1440,height:900});
+  await page.keyboard.press('Escape');
+  for(const [name,selector] of [['功率计','串口资源'],['光谱仪','设备资源']]){
+    const card=page.getByRole('button',{name:name+'信息，点击打开设置',exact:true});
+    const before=await card.boundingBox();
+    await card.click();
+    await checkDropdown(selector);
+    await checkIdentify();
+    await page.keyboard.press('Escape');
+    if(JSON.stringify(before)!==JSON.stringify(await card.boundingBox()))throw new Error('Opening dialog moved card');
+  }
+  await page.getByRole('button',{name:'手动配置',exact:true}).click();
+  await page.getByRole('button',{name:'电源控制',exact:true}).click();
+  await page.waitForTimeout(300);
+  const manual=await dialog.locator('.power-settings-layout').evaluate(el=>({sections:el.children.length,width:el.clientWidth,child:el.firstElementChild.getBoundingClientRect().width}));
+  if(manual.sections!==1 || Math.abs(manual.width-manual.child)>1)throw new Error('Manual settings empty column');
+  await page.keyboard.press('Escape');
+  return {status:'PASS',results,identify:'4 simulated refreshes; footer unchanged',manual};
+})(page);
+```

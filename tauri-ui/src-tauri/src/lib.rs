@@ -1,6 +1,12 @@
 mod license;
 mod snapshot_stream;
 
+#[cfg(test)]
+mod realtime_transport_benchmark;
+
+#[cfg(test)]
+mod float_precision_benchmark;
+
 use license::{license_get_status, license_install, LicenseState};
 use serde_json::{json, Value};
 use snapshot_stream::{run_snapshot_stream, wait_for_generation, StreamRequestError};
@@ -50,7 +56,8 @@ struct PythonBridge {
 
 #[derive(Clone, Debug)]
 enum PythonBridgeError {
-    Backend(String),
+    Remote { code: String, message: String, runtime_id: Option<String> },
+    Contextual { source: Box<PythonBridgeError>, request_id: String },
     Timeout(String),
     Transport(String),
 }
@@ -58,12 +65,51 @@ enum PythonBridgeError {
 impl PythonBridgeError {
     fn message(self) -> String {
         match self {
-            Self::Backend(message) | Self::Timeout(message) | Self::Transport(message) => message,
+            Self::Timeout(message) | Self::Transport(message) => message,
+            Self::Remote { message, .. } => message,
+            Self::Contextual { source, .. } => source.message(),
         }
     }
 
     fn is_transport(&self) -> bool {
-        matches!(self, Self::Transport(_))
+        match self {
+            Self::Contextual { source, .. } => source.is_transport(),
+            _ => matches!(self, Self::Transport(_)),
+        }
+    }
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BridgeFailure {
+    kind: String,
+    code: String,
+    message: String,
+    method: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    runtime_id: Option<String>,
+    outcome_unknown: bool,
+}
+
+impl PythonBridgeError {
+    fn failure(&self, method: &str) -> BridgeFailure {
+        let (kind, code, runtime_id) = match self {
+            Self::Contextual { source, request_id } => {
+                let mut failure = source.failure(method);
+                failure.request_id = Some(request_id.clone());
+                return failure;
+            }
+            Self::Remote { code, runtime_id, .. } => ("backend", code.as_str(), runtime_id.clone()),
+            Self::Timeout(_) => ("timeout", "request_timeout", None),
+            Self::Transport(_) => ("transport", "transport_failed", None),
+        };
+        BridgeFailure {
+            kind: kind.into(), code: code.into(), message: self.clone().message(),
+            method: method.into(), request_id: None, runtime_id,
+            outcome_unknown: kind == "timeout" || kind == "transport",
+        }
     }
 }
 
@@ -71,7 +117,7 @@ fn request_timeout(method: &str) -> Duration {
     let seconds = match method {
         "app.snapshot" => SNAPSHOT_REQUEST_TIMEOUT_SECS,
         "app.shutdown" => SHUTDOWN_REQUEST_TIMEOUT_SECS,
-        "shippingReport.inspect" | "shippingReport.batchInspect" | "dataBrowser.list" | "dataBrowser.inspect" => FILE_SCAN_REQUEST_TIMEOUT_SECS,
+        "shippingReport.inspect" | "shippingReport.batchInspect" | "dataBrowser.list" | "dataBrowser.inspect" | "dataBrowser.import" => FILE_SCAN_REQUEST_TIMEOUT_SECS,
         "shippingReport.preview"
         | "shippingReport.generate"
         | "shippingReport.batchGenerateItem" => REPORT_REQUEST_TIMEOUT_SECS,
@@ -135,7 +181,7 @@ impl PythonBridge {
                         }
                     }
 
-                    let response: Value = match serde_json::from_str(&line) {
+                    let mut response: Value = match serde_json::from_str(&line) {
                         Ok(response) => response,
                         Err(error) => {
                             Self::fail_pending(
@@ -147,7 +193,11 @@ impl PythonBridge {
                             break;
                         }
                     };
-                    let Some(request_id) = response.get("id").and_then(Value::as_str) else {
+                    let Some(request_id) = response
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                    else {
                         Self::fail_pending(
                             &pending,
                             PythonBridgeError::Transport("Python 响应缺少请求编号".to_string()),
@@ -155,20 +205,29 @@ impl PythonBridge {
                         break;
                     };
                     let result = if response.get("ok").and_then(Value::as_bool) == Some(true) {
-                        response.get("result").cloned().ok_or_else(|| {
-                            PythonBridgeError::Transport("Python 响应缺少 result".to_string())
-                        })
+                        // The reader owns this response. Transfer the result to
+                        // the waiting request instead of cloning every sample.
+                        response
+                            .as_object_mut()
+                            .and_then(|root| root.remove("result"))
+                            .ok_or_else(|| {
+                                PythonBridgeError::Transport("Python 响应缺少 result".to_string())
+                            })
                     } else {
                         let message = response
                             .pointer("/error/message")
                             .and_then(Value::as_str)
                             .unwrap_or("Python 后端返回未知错误");
-                        Err(PythonBridgeError::Backend(message.to_string()))
+                        Err(PythonBridgeError::Remote {
+                            message: message.to_string(),
+                            code: response.pointer("/error/code").and_then(Value::as_str).unwrap_or("action_failed").to_string(),
+                            runtime_id: response.pointer("/error/runtimeId").and_then(Value::as_str).map(str::to_string),
+                        })
                     };
                     let sender = pending
                         .lock()
                         .ok()
-                        .and_then(|mut requests| requests.remove(request_id));
+                        .and_then(|mut requests| requests.remove(&request_id));
                     if let Some(sender) = sender {
                         let _ = sender.send(result);
                     }
@@ -281,6 +340,7 @@ impl PythonBridge {
     }
 
     fn spawn_with(python: &Path) -> Result<(Self, String), String> {
+        let started_at = Instant::now();
         let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
         let is_bundled_sidecar = python
             .file_stem()
@@ -322,9 +382,20 @@ impl PythonBridge {
             shutdown_confirmed: AtomicBool::new(false),
             force_exit_requested: AtomicBool::new(false),
         };
-        let ping = bridge
-            .request("system.ping", json!({}))
-            .map_err(PythonBridgeError::message)?;
+        let ping = match bridge.request("system.ping", json!({})) {
+            Ok(ping) => ping,
+            Err(error) => {
+                // No operator command has been sent to this newly spawned process.
+                bridge.allow_forced_exit();
+                return Err(error.message());
+            }
+        };
+        if ping.get("protocolVersion").and_then(Value::as_u64) != Some(2) {
+            // This new process has not accepted any device command.
+            bridge.allow_forced_exit();
+            return Err("前后端协议版本不兼容，请重新安装匹配版本".into());
+        }
+        eprintln!("ARP backend ready | handshake_ms={:.3}", started_at.elapsed().as_secs_f64() * 1000.0);
         let mode = ping
             .get("mode")
             .and_then(Value::as_str)
@@ -371,7 +442,7 @@ impl PythonBridge {
         &self,
         method: &str,
         params: Value,
-        _queued_at: Instant,
+        queued_at: Instant,
     ) -> Result<Value, PythonBridgeError> {
         let status = self
             .child
@@ -441,7 +512,12 @@ impl PythonBridge {
                 "Python 响应线程意外退出".to_string(),
             )),
         };
-        let result = result?;
+        if method != "app.snapshot" || queued_at.elapsed() >= Duration::from_millis(100) {
+            eprintln!("ARP bridge request | id={request_id} | method={method} | elapsed_ms={:.3} | ok={}", queued_at.elapsed().as_secs_f64() * 1000.0, result.is_ok());
+        }
+        let result = result.map_err(|source| PythonBridgeError::Contextual {
+            source: Box::new(source), request_id: request_id.clone(),
+        })?;
         validate_columnar_spectrum(&result)?;
         if method == "app.shutdown"
             && result.get("shutdownConfirmed").and_then(Value::as_bool) == Some(true)
@@ -485,6 +561,7 @@ fn is_safe_unlicensed_method(method: &str) -> bool {
         method,
         "app.snapshot"
             | "app.stopAll"
+            | "powerSupply.safeRampDown"
             | "app.shutdown"
             | "automatic.end"
             | "automatic.retryPersist"
@@ -637,10 +714,13 @@ fn snapshot_interval_ms(view: &str) -> u64 {
 }
 
 fn stream_envelope(subscription_id: &str, message: Value) -> Value {
-    json!({
-        "__arpSnapshotStream": subscription_id,
-        "message": message,
-    })
+    Value::Object(serde_json::Map::from_iter([
+        (
+            "__arpSnapshotStream".to_owned(),
+            Value::String(subscription_id.to_owned()),
+        ),
+        ("message".to_owned(), message),
+    ]))
 }
 
 #[cfg(any(windows, test))]
@@ -727,14 +807,19 @@ async fn bridge_request(
     app: AppHandle,
     license_state: State<'_, LicenseState>,
     state: State<'_, BridgeState>,
-) -> Result<Value, String> {
-    authorize_bridge_request(&app, &license_state, &state, &method)?;
+) -> Result<Value, BridgeFailure> {
+    authorize_bridge_request(&app, &license_state, &state, &method).map_err(|message| BridgeFailure {
+        kind: "authorization".into(), code: "authorization_required".into(), message,
+        method: method.clone(), request_id: None, runtime_id: None, outcome_unknown: false,
+    })?;
     let shared_bridge = Arc::clone(&state.bridge);
+    let request_method = method.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        request_shared_bridge(&shared_bridge, &method, params)
+        request_shared_bridge_result(&shared_bridge, &request_method, params)
+            .map_err(|error| error.failure(&request_method))
     })
     .await
-    .map_err(|error| format!("Python 后端任务异常结束：{error}"))?
+    .map_err(|error| PythonBridgeError::Transport(format!("Python 后端任务异常结束：{error}")).failure(&method))?
 }
 
 fn start_bridge_stream(view: String, sender: StreamSender, state: &BridgeState) -> u64 {
@@ -750,7 +835,7 @@ fn start_bridge_stream(view: String, sender: StreamSender, state: &BridgeState) 
             |params| {
                 request_shared_bridge_result(&shared_bridge, "app.snapshot", params).map_err(
                     |error| match error {
-                        PythonBridgeError::Timeout(message) => StreamRequestError::Timeout(message),
+                        error if error.failure("app.snapshot").kind == "timeout" => StreamRequestError::Timeout(error.message()),
                         other => StreamRequestError::Fatal(other.message()),
                     },
                 )
@@ -918,6 +1003,30 @@ mod tests {
     };
 
     #[test]
+    fn bridge_contract_preserves_remote_identity_and_timeout_semantics() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!("../../../tests/fixtures/bridge-contract.json")).unwrap();
+        let error = PythonBridgeError::Contextual {
+            source: Box::new(PythonBridgeError::Remote {
+                code: fixture["errorResponse"]["error"]["code"].as_str().unwrap().into(),
+                message: fixture["errorResponse"]["error"]["message"].as_str().unwrap().into(),
+                runtime_id: Some("contract-runtime".into()),
+            }), request_id: "contract-2".into(),
+        };
+        let value = serde_json::to_value(error.failure("powerSupply.setCurrent")).unwrap();
+        assert_eq!(value["code"], "device_not_connected");
+        assert_eq!(value["requestId"], "contract-2");
+        assert_eq!(value["runtimeId"], "contract-runtime");
+        assert_eq!(value["outcomeUnknown"], false);
+        assert!(!error.is_transport());
+        let timeout = PythonBridgeError::Contextual {
+            source: Box::new(PythonBridgeError::Timeout("timeout".into())), request_id: "request-timeout".into(),
+        };
+        assert!(timeout.failure("powerSupply.setCurrent").outcome_unknown);
+        assert_eq!(timeout.failure("powerSupply.setCurrent").kind, "timeout");
+        assert!(!should_reset_bridge(&Err(timeout)));
+    }
+
+    #[test]
     fn webview_send_callback_error_is_propagated() {
         let result = await_webview_send_result(|sender| {
             sender
@@ -937,7 +1046,11 @@ mod tests {
 
     #[test]
     fn backend_action_errors_do_not_restart_the_python_process() {
-        let backend_error = Err(PythonBridgeError::Backend("invalid settings".to_string()));
+        let backend_error = Err(PythonBridgeError::Remote {
+            code: "action_failed".to_string(),
+            message: "invalid settings".to_string(),
+            runtime_id: None,
+        });
         let timeout_error = Err(PythonBridgeError::Timeout("request timed out".to_string()));
         let transport_error = Err(PythonBridgeError::Transport("broken pipe".to_string()));
 
@@ -949,6 +1062,7 @@ mod tests {
     #[test]
     fn request_timeouts_match_operation_cost() {
         assert_eq!(request_timeout("app.snapshot").as_secs(), 15);
+        assert_eq!(request_timeout("dataBrowser.import").as_secs(), 120);
         assert_eq!(request_timeout("shippingReport.generate").as_secs(), 600);
         assert_eq!(request_timeout("app.shutdown").as_secs(), 90);
         assert_eq!(request_timeout("automatic.start").as_secs(), 60);
@@ -1006,6 +1120,45 @@ mod tests {
     }
 
     #[test]
+    fn stream_envelope_moves_the_complete_owned_message() {
+        let message = serde_json::json!({"snapshot": {"pd": {"points": [
+            {"elapsedS": 1.0, "value": -0.0}, {"elapsedS": 2.0, "value": 1e-200}
+        ]}, "extra": [null, false, "完整数据"]}});
+        let expected = serde_json::json!({"__arpSnapshotStream": "pd-1", "message": message});
+        let buffer = message["snapshot"]["pd"]["points"].as_array().unwrap().as_ptr();
+        let envelope = stream_envelope("pd-1", message);
+        assert_eq!(envelope, expected);
+        assert_eq!(serde_json::to_vec(&envelope).unwrap(), serde_json::to_vec(&expected).unwrap());
+        assert_eq!(envelope["message"]["snapshot"]["pd"]["points"].as_array().unwrap().as_ptr(), buffer,
+            "owned history must move into the envelope without another sample-array copy");
+    }
+
+    #[test]
+    fn snapshot_fingerprint_preserves_all_non_history_fields() {
+        for pd in [
+            serde_json::json!({"state": "running", "points": [1, 2], "extra": {"nested": [null, "中文", false]}}),
+            serde_json::json!({"state": "idle", "points": null, "settings": {"unit": "W"}}),
+            serde_json::json!({"state": "idle"}),
+            serde_json::json!([1, 2]), serde_json::json!("unknown"), serde_json::Value::Null,
+        ] {
+            let snapshot = serde_json::json!({"capturedAt": "now", "measurements": [1],
+                "seriesPatches": {}, "pd": pd, "extra": {"preserved": true},
+                "seriesRevisions": {"pd": 7}});
+            // Contract of the previous implementation, including malformed PD values.
+            let mut expected = snapshot.clone();
+            let root = expected.as_object_mut().unwrap();
+            for key in ["capturedAt", "measurements", "seriesPatches"] { root.remove(key); }
+            if let Some(pd) = root.get_mut("pd").and_then(serde_json::Value::as_object_mut) { pd.remove("points"); }
+            let actual = snapshot_state_fingerprint(&snapshot);
+            assert_eq!(serde_json::to_vec(&actual).unwrap(), serde_json::to_vec(&expected).unwrap());
+            assert!(snapshot.get("capturedAt").is_some());
+        }
+        for snapshot in [serde_json::json!([null, 1]), serde_json::Value::Null] {
+            assert_eq!(snapshot_state_fingerprint(&snapshot), snapshot);
+        }
+    }
+
+    #[test]
     fn snapshot_intervals_keep_shipping_and_pd_at_500_ms() {
         assert_eq!(snapshot_interval_ms("automatic"), 100);
         assert_eq!(snapshot_interval_ms("manual"), 100);
@@ -1018,6 +1171,7 @@ mod tests {
         for method in [
             "app.snapshot",
             "app.stopAll",
+            "powerSupply.safeRampDown",
             "app.shutdown",
             "automatic.end",
             "automatic.retryPersist",

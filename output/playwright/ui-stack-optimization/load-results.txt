@@ -1,0 +1,27 @@
+### Result
+{"status":"PASS","results":[{"phase":"before","round":0,"readyMs":2058.6999999955297,"scripts":[{"name":"index-CzjADQ96.js","bytes":850223},{"name":"tauri-vendor-BvoPdSUf.js","bytes":1794}],"css":[{"name":"index-qSkNXEP3.css","bytes":190581}]},{"phase":"after","round":0,"readyMs":1451.7000000029802,"scripts":[{"name":"index-J4zcBXwN.js","bytes":731705},{"name":"tauri-vendor-BvoPdSUf.js","bytes":1794}],"css":[{"name":"index-DKM94_ew.css","bytes":173933}]},{"phase":"before","round":1,"readyMs":1040.6000000014901,"scripts":[{"name":"index-CzjADQ96.js","bytes":850223},{"name":"tauri-vendor-BvoPdSUf.js","bytes":1794}],"css":[{"name":"index-qSkNXEP3.css","bytes":190581}]},{"phase":"after","round":1,"readyMs":547.3000000044703,"scripts":[{"name":"index-J4zcBXwN.js","bytes":731705},{"name":"tauri-vendor-BvoPdSUf.js","bytes":1794}],"css":[{"name":"index-DKM94_ew.css","bytes":173933}]},{"phase":"before","round":2,"readyMs":703.8999999985099,"scripts":[{"name":"index-CzjADQ96.js","bytes":850223},{"name":"tauri-vendor-BvoPdSUf.js","bytes":1794}],"css":[{"name":"index-qSkNXEP3.css","bytes":190581}]},{"phase":"after","round":2,"readyMs":598.2000000029802,"scripts":[{"name":"index-J4zcBXwN.js","bytes":731705},{"name":"tauri-vendor-BvoPdSUf.js","bytes":1794}],"css":[{"name":"index-DKM94_ew.css","bytes":173933}]},{"phase":"before","round":3,"readyMs":871.1999999955297,"scripts":[{"name":"index-CzjADQ96.js","bytes":850223},{"name":"tauri-vendor-BvoPdSUf.js","bytes":1794}],"css":[{"name":"index-qSkNXEP3.css","bytes":190581}]},{"phase":"after","round":3,"readyMs":640.1999999955297,"scripts":[{"name":"index-J4zcBXwN.js","bytes":731705},{"name":"tauri-vendor-BvoPdSUf.js","bytes":1794}],"css":[{"name":"index-DKM94_ew.css","bytes":173933}]},{"phase":"before","round":4,"readyMs":652,"scripts":[{"name":"index-CzjADQ96.js","bytes":850223},{"name":"tauri-vendor-BvoPdSUf.js","bytes":1794}],"css":[{"name":"index-qSkNXEP3.css","bytes":190581}]},{"phase":"after","round":4,"readyMs":623.5,"scripts":[{"name":"tauri-vendor-BvoPdSUf.js","bytes":1794},{"name":"index-J4zcBXwN.js","bytes":731705}],"css":[{"name":"index-DKM94_ew.css","bytes":173933}]}]}
+### Ran Playwright code
+```js
+await (async (page) => {
+  const cdp=await page.context().newCDPSession(page);
+  await cdp.send('Network.enable');await cdp.send('Network.setCacheDisabled',{cacheDisabled:true});
+  await cdp.send('Emulation.setCPUThrottlingRate',{rate:4});
+  const results=[];
+  for(let round=0;round<5;round++) for(const [phase,port] of [['before',1431],['after',1432]]){
+    await page.goto(`http://127.0.0.1:${port}/?demo=1&run=1`,{waitUntil:'load'});
+    await page.getByRole('textbox',{name:'产品 SN',exact:true}).waitFor();
+    const result=await page.evaluate(()=>({readyMs:performance.now(),scripts:performance.getEntriesByType('resource').filter(r=>r.name.endsWith('.js')).map(r=>({name:r.name.split('/').at(-1),bytes:r.decodedBodySize})),css:performance.getEntriesByType('resource').filter(r=>r.name.endsWith('.css')).map(r=>({name:r.name.split('/').at(-1),bytes:r.decodedBodySize}))}));
+    if(phase==='after' && result.scripts.some(s=>/^report-|^data-browser-page-/.test(s.name))) throw new Error('Deferred pages loaded on startup');
+    results.push({phase,round,...result});
+  }
+  await cdp.send('Emulation.setCPUThrottlingRate',{rate:1});await cdp.detach();
+  await page.getByRole('button',{name:'数据浏览',exact:true}).click();
+  await page.getByPlaceholder('搜索产品 SN…').waitFor();
+  return {status:'PASS',results};
+})(page);
+```
+### Page
+- Page URL: http://127.0.0.1:1432/?demo=1&run=1
+- Page Title: Power Test
+### Events
+- New console entries: .playwright-cli/console-2026-10-13T02-53-58-726Z.log#L2

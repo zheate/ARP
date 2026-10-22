@@ -1,0 +1,455 @@
+{
+  "environment": {
+    "platform": "macOS-27.0-arm64-arm-64bit",
+    "python": "3.11.15",
+    "numpy": "2.4.6",
+    "scipy": "1.17.1",
+    "native": {
+      "available": true,
+      "reason": "available",
+      "abiVersion": 2,
+      "library": "libarp_realtime_core.dylib",
+      "disabled": false
+    }
+  },
+  "workload": {
+    "seed": 20260918,
+    "batches": 15,
+    "iterations_per_batch": 10,
+    "source": "deterministic synthetic spectra; no hardware"
+  },
+  "results": [
+    {
+      "points": 1024,
+      "case": "single_peak",
+      "stats": {
+        "python": {
+          "median_us": 189.3375,
+          "p95_us": 193.01749999999998
+        },
+        "native": {
+          "median_us": 154.0084,
+          "p95_us": 158.94713
+        },
+        "speedup": 1.2293972276836849,
+        "parity": true
+      },
+      "pib": {
+        "python": {
+          "median_us": 123.8666,
+          "p95_us": 142.53704999999997
+        },
+        "native": {
+          "median_us": 94.6083,
+          "p95_us": 98.21338999999999
+        },
+        "speedup": 1.3092572216179765,
+        "parity": true
+      },
+      "array_conversion": {
+        "median_us": 26.2583,
+        "p95_us": 27.16965
+      },
+      "native_stats_array_input": {
+        "median_us": 9.9417,
+        "p95_us": 11.60536
+      }
+    },
+    {
+      "points": 1024,
+      "case": "multi_peak",
+      "stats": {
+        "python": {
+          "median_us": 189.3125,
+          "p95_us": 194.86455999999998
+        },
+        "native": {
+          "median_us": 154.475,
+          "p95_us": 196.0841999999999
+        },
+        "speedup": 1.2255219291147434,
+        "parity": true
+      },
+      "pib": {
+        "python": {
+          "median_us": 124.50410000000001,
+          "p95_us": 131.72463
+        },
+        "native": {
+          "median_us": 100.0,
+          "p95_us": 110.96412999999998
+        },
+        "speedup": 1.245041,
+        "parity": true
+      },
+      "array_conversion": {
+        "median_us": 26.975,
+        "p95_us": 30.45126
+      },
+      "native_stats_array_input": {
+        "median_us": 10.3708,
+        "p95_us": 11.645439999999997
+      }
+    },
+    {
+      "points": 1024,
+      "case": "offset_noise",
+      "stats": {
+        "python": {
+          "median_us": 195.35,
+          "p95_us": 218.33374
+        },
+        "native": {
+          "median_us": 163.98329999999999,
+          "p95_us": 227.4392099999999
+        },
+        "speedup": 1.191279843740186,
+        "parity": true
+      },
+      "pib": {
+        "python": {
+          "median_us": 131.9042,
+          "p95_us": 266.99748999999986
+        },
+        "native": {
+          "median_us": 100.3334,
+          "p95_us": 104.13376
+        },
+        "speedup": 1.3146589271369256,
+        "parity": true
+      },
+      "array_conversion": {
+        "median_us": 27.016599999999997,
+        "p95_us": 27.90786
+      },
+      "native_stats_array_input": {
+        "median_us": 10.5,
+        "p95_us": 13.024979999999998
+      }
+    },
+    {
+      "points": 1024,
+      "case": "flat",
+      "stats": {
+        "python": {
+          "median_us": 192.0125,
+          "p95_us": 208.05748999999997
+        },
+        "native": {
+          "median_us": 152.65,
+          "p95_us": 164.64624
+        },
+        "speedup": 1.2578611202096297,
+        "parity": true
+      },
+      "pib": {
+        "python": {
+          "median_us": 119.0167,
+          "p95_us": 129.87664
+        },
+        "native": {
+          "median_us": 89.3541,
+          "p95_us": 92.52035000000001
+        },
+        "speedup": 1.3319668599426326,
+        "parity": true
+      },
+      "array_conversion": {
+        "median_us": 26.6083,
+        "p95_us": 27.760450000000002
+      },
+      "native_stats_array_input": {
+        "median_us": 10.1041,
+        "p95_us": 11.794199999999998
+      }
+    },
+    {
+      "points": 3648,
+      "case": "single_peak",
+      "stats": {
+        "python": {
+          "median_us": 629.1125,
+          "p95_us": 653.44079
+        },
+        "native": {
+          "median_us": 470.2917,
+          "p95_us": 542.3541299999998
+        },
+        "speedup": 1.3377070018458757,
+        "parity": true
+      },
+      "pib": {
+        "python": {
+          "median_us": 331.7125,
+          "p95_us": 334.80625000000003
+        },
+        "native": {
+          "median_us": 302.575,
+          "p95_us": 307.26207
+        },
+        "speedup": 1.0962984384037016,
+        "parity": true
+      },
+      "array_conversion": {
+        "median_us": 90.70830000000001,
+        "p95_us": 91.61912000000001
+      },
+      "native_stats_array_input": {
+        "median_us": 25.125,
+        "p95_us": 26.81213
+      }
+    },
+    {
+      "points": 3648,
+      "case": "multi_peak",
+      "stats": {
+        "python": {
+          "median_us": 624.9875,
+          "p95_us": 712.6375199999997
+        },
+        "native": {
+          "median_us": 467.8542,
+          "p95_us": 473.47792000000004
+        },
+        "speedup": 1.3358595476966968,
+        "parity": true
+      },
+      "pib": {
+        "python": {
+          "median_us": 330.0833,
+          "p95_us": 331.89873
+        },
+        "native": {
+          "median_us": 304.2875,
+          "p95_us": 311.58499
+        },
+        "speedup": 1.084774432074929,
+        "parity": true
+      },
+      "array_conversion": {
+        "median_us": 90.6417,
+        "p95_us": 91.64124
+      },
+      "native_stats_array_input": {
+        "median_us": 24.6958,
+        "p95_us": 26.13919
+      }
+    },
+    {
+      "points": 3648,
+      "case": "offset_noise",
+      "stats": {
+        "python": {
+          "median_us": 624.3915999999999,
+          "p95_us": 633.4258000000001
+        },
+        "native": {
+          "median_us": 471.2875,
+          "p95_us": 479.07875
+        },
+        "speedup": 1.3248634856642705,
+        "parity": true
+      },
+      "pib": {
+        "python": {
+          "median_us": 338.6833,
+          "p95_us": 349.39251
+        },
+        "native": {
+          "median_us": 354.0833,
+          "p95_us": 374.04909999999995
+        },
+        "speedup": 0.9565074094146772,
+        "parity": true
+      },
+      "array_conversion": {
+        "median_us": 92.4667,
+        "p95_us": 95.92088
+      },
+      "native_stats_array_input": {
+        "median_us": 25.5167,
+        "p95_us": 28.76625
+      }
+    },
+    {
+      "points": 3648,
+      "case": "flat",
+      "stats": {
+        "python": {
+          "median_us": 633.025,
+          "p95_us": 643.7554399999999
+        },
+        "native": {
+          "median_us": 482.9958,
+          "p95_us": 499.49421
+        },
+        "speedup": 1.3106221627600074,
+        "parity": true
+      },
+      "pib": {
+        "python": {
+          "median_us": 325.3292,
+          "p95_us": 340.92918000000003
+        },
+        "native": {
+          "median_us": 286.1209,
+          "p95_us": 292.03955
+        },
+        "speedup": 1.137034030020177,
+        "parity": true
+      },
+      "array_conversion": {
+        "median_us": 90.73339999999999,
+        "p95_us": 92.29337999999998
+      },
+      "native_stats_array_input": {
+        "median_us": 25.0667,
+        "p95_us": 26.300449999999998
+      }
+    },
+    {
+      "points": 8192,
+      "case": "single_peak",
+      "stats": {
+        "python": {
+          "median_us": 1360.5375,
+          "p95_us": 1367.72839
+        },
+        "native": {
+          "median_us": 1012.5042,
+          "p95_us": 1021.9899999999999
+        },
+        "speedup": 1.3437351667281972,
+        "parity": true
+      },
+      "pib": {
+        "python": {
+          "median_us": 692.7416999999999,
+          "p95_us": 709.1166299999999
+        },
+        "native": {
+          "median_us": 654.525,
+          "p95_us": 659.77875
+        },
+        "speedup": 1.0583884496390512,
+        "parity": true
+      },
+      "array_conversion": {
+        "median_us": 200.8666,
+        "p95_us": 201.99329
+      },
+      "native_stats_array_input": {
+        "median_us": 51.2292,
+        "p95_us": 51.77457
+      }
+    },
+    {
+      "points": 8192,
+      "case": "multi_peak",
+      "stats": {
+        "python": {
+          "median_us": 1360.4291,
+          "p95_us": 1367.94545
+        },
+        "native": {
+          "median_us": 1014.35,
+          "p95_us": 1019.2462400000001
+        },
+        "speedup": 1.3411831221964805,
+        "parity": true
+      },
+      "pib": {
+        "python": {
+          "median_us": 695.1791999999999,
+          "p95_us": 726.2420599999999
+        },
+        "native": {
+          "median_us": 668.35,
+          "p95_us": 674.85875
+        },
+        "speedup": 1.040142440338146,
+        "parity": true
+      },
+      "array_conversion": {
+        "median_us": 202.00420000000003,
+        "p95_us": 204.40875
+      },
+      "native_stats_array_input": {
+        "median_us": 51.2542,
+        "p95_us": 53.57627
+      }
+    },
+    {
+      "points": 8192,
+      "case": "offset_noise",
+      "stats": {
+        "python": {
+          "median_us": 1366.5458,
+          "p95_us": 1390.53374
+        },
+        "native": {
+          "median_us": 1023.2625,
+          "p95_us": 1032.07874
+        },
+        "speedup": 1.3354792147664944,
+        "parity": true
+      },
+      "pib": {
+        "python": {
+          "median_us": 715.3959,
+          "p95_us": 740.60295
+        },
+        "native": {
+          "median_us": 778.8666999999999,
+          "p95_us": 797.58955
+        },
+        "speedup": 0.9185087769190801,
+        "parity": true
+      },
+      "array_conversion": {
+        "median_us": 202.725,
+        "p95_us": 206.21208
+      },
+      "native_stats_array_input": {
+        "median_us": 52.133300000000006,
+        "p95_us": 53.61036
+      }
+    },
+    {
+      "points": 8192,
+      "case": "flat",
+      "stats": {
+        "python": {
+          "median_us": 1355.3333,
+          "p95_us": 1365.48412
+        },
+        "native": {
+          "median_us": 1016.6625,
+          "p95_us": 1023.99038
+        },
+        "speedup": 1.3331201849187906,
+        "parity": true
+      },
+      "pib": {
+        "python": {
+          "median_us": 679.8542,
+          "p95_us": 686.66456
+        },
+        "native": {
+          "median_us": 626.15,
+          "p95_us": 643.2570499999999
+        },
+        "speedup": 1.0857689052144055,
+        "parity": true
+      },
+      "array_conversion": {
+        "median_us": 199.3875,
+        "p95_us": 203.52042
+      },
+      "native_stats_array_input": {
+        "median_us": 51.208400000000005,
+        "p95_us": 52.33874
+      }
+    }
+  ]
+}

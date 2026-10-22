@@ -1,0 +1,11 @@
+{
+  "status": "PASS",
+  "checks": [
+    "production import failure and retry",
+    "global emergency control remains enabled",
+    "data filter survives navigation",
+    "unsaved configuration survives navigation",
+    "extracted setup add/edit callbacks",
+    "direct data-page entry"
+  ]
+}

@@ -11,6 +11,7 @@ from typing import Any
 from combined_test.native_realtime import native_realtime_status
 from combined_test.runtime_logging import get_runtime_logger, runtime_log_path
 
+from .errors import CommandRejected
 from .protocol import PROTOCOL_VERSION, error_response, success_response
 
 
@@ -20,6 +21,7 @@ BACKGROUND_FILE_TASK_METHODS = frozenset(
     {
         "dataBrowser.list",
         "dataBrowser.inspect",
+        "dataBrowser.import",
         "shippingReport.inspect",
         "shippingReport.batchInspect",
         "shippingReport.preview",
@@ -33,6 +35,7 @@ SAFETY_TASK_METHODS = frozenset(
         "app.stopAll",
         "app.shutdown",
         "automatic.end",
+        "powerSupply.safeRampDown",
     }
 )
 
@@ -156,6 +159,12 @@ class BridgeService:
                     result = self.backend.dispatch(str(method), params)
                 _LOGGER.info("前端命令完成 | id=%s | method=%s", request_id, method)
                 return success_response(request_id, result)
+            except CommandRejected as exc:
+                response = error_response(request_id, exc.code, str(exc))
+                runtime_id = getattr(self.backend, "runtime_id", None)
+                if runtime_id:
+                    response["error"]["runtimeId"] = runtime_id
+                return response
             except KeyError:
                 pass
             except (TypeError, ValueError) as exc:

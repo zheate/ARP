@@ -8,11 +8,11 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-from combined_test.automation import AutomaticTestState, ORDINARY_AUTO_POST_STABLE_DELAY_S, automatic_post_stable_delay_s
+from combined_test.automation import AutomaticTestState, ORDINARY_AUTO_POST_STABLE_DELAY_S
 from combined_test.runtime_logging import runtime_log_path
 from combined_test.spectrum import SPECTRUM_CENTER_LOCK_HALF_RANGE_NM
 
-from .station_automatic import automatic_power_stability_span_limit_w, automatic_power_stability_window_s
+from .station_automatic import automatic_power_stability_span_limit_w, automatic_power_stability_window_s, automatic_voltage_read_delay_s
 from .station_support import (
     BUILTIN_TEST_SCRIPTS,
     device_state,
@@ -66,6 +66,9 @@ class SnapshotBuilder:
         if view not in {"automatic", "manual", "pd", "shipping", "data", "full"}:
             raise ValueError(f"未知视图：{view}")
         active_st = backend.runtime
+
+        if view == "manual":
+            active_st.refresh_manual_power_supply_in_background()
 
         notices = shared["notices"]
         status_message = shared["status_message"]
@@ -146,9 +149,9 @@ class SnapshotBuilder:
         if auto_state in {AutomaticTestState.WAITING_STABLE, AutomaticTestState.WAITING_VOLTAGE} and stability_quality != "live":
             stability_reading = None
         hold_required_s = (
-            automatic_post_stable_delay_s(active_st.automatic.current_index, len(active_st.automatic.currents))
+            automatic_voltage_read_delay_s(active_st.power_supply_kind, active_st.automatic.current_index, len(active_st.automatic.currents))
             if 0 <= active_st.automatic.current_index < len(active_st.automatic.currents)
-            else ORDINARY_AUTO_POST_STABLE_DELAY_S
+            else 0.0 if active_st.power_supply_kind in {"tdk", "ru"} else ORDINARY_AUTO_POST_STABLE_DELAY_S
         )
         automatic_stability = {
             "powerStable": bool(stability_reading and stability_reading.stable),
@@ -189,6 +192,8 @@ class SnapshotBuilder:
         }
 
         def include_series(name: str, active_for_view: bool) -> bool:
+            if name != "pd" and not active_st.workflow_access.allows_series(name, view):
+                return False
             if not active_for_view:
                 return False
             if since_revisions is None:
@@ -220,6 +225,13 @@ class SnapshotBuilder:
             }
 
         measurements: dict[str, Any] = {}
+        if include_live:
+            for name, empty in (("power", []), ("stable", []), ("aging", []),
+                                ("spectrum", {"wavelengthNm": [], "intensity": []})):
+                if not active_st.workflow_access.allows_series(name, view):
+                    measurements["agingPower" if name == "aging" else name] = empty
+                    if name == "spectrum":
+                        measurements["spectrumPeaks"] = []
         series_patches: dict[str, Any] = {}
         if include_series("power", include_live):
             power_points = list(active_st.power_points)
@@ -314,7 +326,8 @@ class SnapshotBuilder:
             "devices": {
                 "powerSupply": {
                     "state": "connecting" if power_supply_detecting else device_state(supply is not None, False, active_st.power_supply_identity_error),
-                    "label": "TDK RS232" if active_st.power_supply_kind == "tdk" else "CH341 I²C",
+                    "label": {"tdk": "TDK RS232", "ru": "VARIED RU RS232"}.get(active_st.power_supply_kind, "CH341 I²C"),
+                    "maximumCurrentA": active_st._maximum_current_a(),
                     "detail": power_supply_detection_detail if power_supply_detecting or (supply is None and power_supply_detection_detail) else power_supply_detail,
                     "connected": supply is not None,
                     "detecting": power_supply_detecting,
@@ -425,11 +438,28 @@ class SnapshotBuilder:
                 "exportError": active_st.export_error,
                 "reference": (
                     active_st._test_reference.reference_payload()
-                    if active_st._test_reference is not None
+                    if active_st._test_reference is not None and view != "manual"
+                    and active_st.workflow_access.owner != "manual"
                     else None
                 ),
             },
             "manualTest": {
+                "currentCommand": {
+                    "pending": active_st.manual_current_request_a is not None,
+                    "requestedCurrentA": finite(active_st.manual_current_request_a),
+                    "remainingS": (
+                        math.ceil(active_st._power_supply_command_delay() * 10.0) / 10.0
+                        if active_st.manual_current_request_a is not None else 0.0
+                    ),
+                    "stopping": active_st.manual_power_stopping,
+                },
+                "capture": {
+                    **active_st.manual_capture,
+                    "remainingS": (
+                        math.ceil(max(0.0, active_st._manual_voltage_due_at - time.monotonic()) * 10.0) / 10.0
+                        if active_st._manual_voltage_due_at is not None else None
+                    ),
+                },
                 "pendingCount": (
                     len(active_st.record_store.unsaved_records())
                     if active_st.record_store.current_session is not None
@@ -448,6 +478,8 @@ class SnapshotBuilder:
                 "detail": "设备命令、自动流程和安全下电由无界面 Python 后台执行",
                 "controlOwner": "manual" if active_st.manual_controls_allowed() else "automatic",
                 "manualControlsAllowed": active_st.manual_controls_allowed(),
+                "workflowOwner": active_st.workflow_access.owner,
+                "workflowBusy": active_st.workflow_access.busy(),
                 "shutdown": active_st.shutdown_snapshot(),
             },
             "status": {"message": status_message},

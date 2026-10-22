@@ -1,0 +1,53 @@
+.spectral-waterfall {
+  container-type: inline-size;
+  min-width: 0;
+  font-size: var(--db-font-body, 16px);
+  line-height: 1.5;
+}
+.sw-title {
+  font-size: var(--db-font-heading, 18px);
+}
+.sw-caption {
+  font-size: var(--db-font-caption, 14px);
+}
+.sw-controls {
+  font-size: var(--db-font-body, 16px);
+}
+.sw-controls button {
+  min-height: 36px;
+}
+.sw-plot {
+  height: 400px;
+}
+.sw-hud-value {
+  font-size: 22px;
+}
+.sw-tooltip {
+  font-size: var(--db-font-caption, 14px);
+  line-height: 1.6;
+  max-width: calc(100% - 16px);
+  overflow-wrap: anywhere;
+}
+.sw-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.sw-metric {
+  min-width: 0;
+  padding: 14px;
+}
+.sw-metric-value {
+  font-size: 24px;
+  line-height: 1.5;
+}
+@container (min-width: 960px) {
+  .sw-metrics {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+@container (max-width: 460px) {
+  .sw-metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

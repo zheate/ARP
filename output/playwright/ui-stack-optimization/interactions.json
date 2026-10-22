@@ -1,0 +1,27 @@
+{
+  "status": "PASS",
+  "results": [
+    {
+      "dropdown": "TDK 串口",
+      "status": "PASS"
+    },
+    {
+      "dropdown": "CH341 设备",
+      "status": "PASS"
+    },
+    {
+      "dropdown": "串口资源",
+      "status": "PASS"
+    },
+    {
+      "dropdown": "设备资源",
+      "status": "PASS"
+    }
+  ],
+  "identify": "4 simulated refreshes; footer unchanged",
+  "manual": {
+    "sections": 1,
+    "width": 662,
+    "child": 662
+  }
+}

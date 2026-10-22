@@ -1,22 +1,30 @@
-Power Test 应用与离线驱动文件包
+Power Test 完整离线安装
 
-本安装包只安装 Power Test，不会自动安装任何硬件驱动或厂商软件。
+本安装包安装 Power Test、Microsoft WebView2 和您勾选的设备驱动。
+默认勾选全部支持组件；您可以按实际使用的设备取消不需要的组件。
+软件和 WebView2 是必需组件，客户无需单独安装 Python、Node.js 或 Rust。
 
-Microsoft WebView2 离线安装程序也会复制到驱动目录，但不会自动安装。首次启动 Power Test 前，如果电脑尚未安装 WebView2，请由用户手动运行该安装程序。
+设备组件：
+- CH341 I²C 电源控制器
+- Ocean Insight / OceanHR4 光谱仪
+- LaserPoint / FTDI 功率计
+- CH341 / CH343 USB 转串口
+- 串口仪器运行环境 NI-VISA（Caihuang、LaserPoint、Coherent、TDK）
+- PD 采集卡运行环境 NI-DAQmx
+- Ophir USB 功率计（StarLab、USB 驱动和 COM 接口）
+- Coherent PowerMax USB 功率计
 
-下列离线驱动文件会复制到 C:\ProgramData\Power Test\Drivers，供用户按需手动安装：
+继续安装表示您同意安装所选厂商组件并接受其许可条款。所选厂商组件仍适用各自许可条款。
+安装使用随包提供的离线文件。安装程序保留 Windows 驱动签名检查，不会禁用系统安全设置。
+Windows 或厂商可能仍显示安全确认提示。请在安装前关闭 Power Test 和其他仪器软件。
 
-- WCH CH341 I2C 和 CH341/CH343 串口驱动
-- Ocean Optics OceanHR4 WinUSB 驱动
-- LaserPoint / FTDI USB 串口驱动
-- Ophir StarLab、Ophir USB 驱动及 COM 接口
-- Coherent Meter Connection / PowerMax USB 驱动
-- National Instruments Package Manager 24.0
-- NI-DAQmx Runtime 23.5
-- NI-VISA Runtime 23.5
-- Microsoft WebView2 Runtime 离线安装程序
+安装过程不会主动重启电脑。
+如果 NI 等组件要求先重启才能继续，完成页会明确显示“安装尚未完成”。
+请重启 Windows，并用本次安装的同一管理员账户登录，安装将自动继续。
+若使用其他管理员凭据进行安装，重启后也需要登录该管理员账户。
+安装程序不会把等待重启或失败的状态报告为全部完成。
 
-安装结束后请打开该目录，阅读 DRIVER-INSTALLATION.txt，只安装实际使用设备对应的驱动。
-手动安装厂商驱动表示您接受对应厂商的许可条款。部分驱动安装后可能需要重启电脑。
-
-Power Test 安装过程不会执行驱动安装程序，也不会从互联网下载驱动。
+安装日志：C:\ProgramData\Power Test\InstallerLogs
+安装缓存：C:\Program Files\Common Files\ARP\Setup\<版本号>\<本次安装>
+完整离线源和全部依赖必须由发布者在 Windows 构建机上准备。
+安装后仍需导入本机许可证，真实仪器是否可用还需设备连接和测量验证。

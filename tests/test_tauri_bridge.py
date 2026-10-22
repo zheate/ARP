@@ -365,6 +365,7 @@ class TauriBridgeServiceTests(unittest.TestCase):
                 {
                     "dataBrowser.list",
                     "dataBrowser.inspect",
+                    "dataBrowser.import",
                     "shippingReport.inspect",
                     "shippingReport.batchInspect",
                     "shippingReport.preview",
@@ -375,7 +376,7 @@ class TauriBridgeServiceTests(unittest.TestCase):
         )
         self.assertEqual(
             SAFETY_TASK_METHODS,
-            frozenset({"app.stopAll", "app.shutdown", "automatic.end"}),
+            frozenset({"app.stopAll", "app.shutdown", "automatic.end", "powerSupply.safeRampDown"}),
         )
 
     def test_request_pipe_is_decoded_as_utf8_on_windows(self) -> None:

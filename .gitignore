@@ -46,3 +46,12 @@ tmp/
 # of generated image and virtual-environment files on every workspace update.
 pixel2motion_arp_icon/.venv/
 pixel2motion_arp_icon/outputs/
+
+.codex/
+
+# Browser snapshots, caches, and copied performance baselines stay local.
+.playwright-cli/
+output/performance-optimization/snapshots/
+output/playwright/ui-stack-optimization/baseline-source/
+output/playwright/ui-stack-optimization/build-before/
+

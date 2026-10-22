@@ -87,6 +87,28 @@ class HeadlessBackendTests(unittest.TestCase):
             self.assertEqual(controller.current_a, 0.0)
             self.assertFalse(controller.output_enabled)
 
+    def test_tdk_direct_close_confirms_settling_current_without_replaying_output_off(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            backend = self.backend(directory)
+            self.addCleanup(backend.export_worker.graceful_stop, 2)
+            controller = _FakeController()
+            controller.output_enabled = True
+            controller.current_a = 4
+            backend.power_supply_controller = controller
+            backend.power_supply_kind = "tdk"
+            backend.configuration["powerSupplyKind"] = "tdk"
+            with patch.object(controller, "read_output_current", side_effect=[0.4, 0.1, 0]) as read_current, \
+                    patch.object(controller, "set_output_current", wraps=controller.set_output_current) as set_current, \
+                    patch.object(controller, "set_output_enabled", wraps=controller.set_output_enabled) as set_output:
+                result = backend.dispatch("powerSupply.setOutput", {"enabled": False})
+            set_output.assert_called_once_with(False)
+            set_current.assert_called_once_with(0)
+            self.assertEqual(controller.current_a, 0)
+            self.assertEqual(read_current.call_count, 3)
+            self.assertFalse(result["devices"]["powerSupply"]["outputEnabled"])
+            self.assertEqual(result["devices"]["powerSupply"]["outputCurrentA"], 0)
+            self.assertEqual(backend.configuration["setCurrentA"], 0)
+
     def test_snapshot_keeps_the_existing_frontend_contract(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             snapshot = self.backend(directory).snapshot({"view": "manual"})

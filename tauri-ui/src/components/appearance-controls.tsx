@@ -1,3 +1,4 @@
+import { NativeSelect } from "@/components/native-select"
 import { useEffect, useState } from "react"
 import { Check, ChevronDown, Eye, Monitor, Moon, PanelTop, PanelTopDashed, RotateCcw, Settings, Sun } from "lucide-react"
 import { DropdownMenu } from "radix-ui"
@@ -5,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { CanvasLineChart } from "@/components/canvas-line-chart"
 import { NumericReadout } from "@/components/numeric-readout"
 import { useAppearance } from "@/hooks/use-appearance"
-import { ACCENT_THEMES, CHART_CANVASES, DEFAULT_APPEARANCE, INTERFACE_DENSITIES, type AccentTheme, type AppearancePreferences, type CurveLineStyle, type InterfaceDensity, type LatestPointMarkerStyle, type Theme } from "@/lib/appearance"
+import { ACCENT_THEMES, CHART_CANVASES, DEFAULT_APPEARANCE, INTERFACE_DENSITIES, LATEST_POINT_MARKER_OPTIONS, type AccentTheme, type AppearancePreferences, type CurveLineStyle, type InterfaceDensity, type LatestPointMarkerStyle, type Theme } from "@/lib/appearance"
 
 const PREVIEW_DATA = Array.from({ length: 181 }, (_, index) => ({
   elapsedS: index / 3,
@@ -146,16 +147,16 @@ export function AppearanceSettings({ theme, accentTheme, curveLineStyle, latestP
       </div>
 
       <div className="appearance-section appearance-trail-section">
-        <div className="appearance-option-row"><div><h2>曲线尾迹</h2><p className="appearance-help">自动测试最近 {appearance.trailSeconds} 秒提亮，保留完整历史曲线。</p></div><AppearanceSwitch checked={appearance.trailEnabled} label="曲线尾迹" onChange={(trailEnabled) => updateAppearance({ trailEnabled })} /></div>
+        <div className="appearance-option-row"><div><h2>曲线尾迹</h2><p className="appearance-help">实时功率最近 {appearance.trailSeconds} 秒提亮，保留完整历史曲线。</p></div><AppearanceSwitch checked={appearance.trailEnabled} label="曲线尾迹" onChange={(trailEnabled) => updateAppearance({ trailEnabled })} /></div>
         <div className="appearance-chart-options">
-          <label>尾迹时长<select aria-label="尾迹时长" disabled={!appearance.trailEnabled} value={appearance.trailSeconds} onChange={(event) => updateAppearance({ trailSeconds: Number(event.target.value) })}>{[3, 5, 10, 15].map((seconds) => <option value={seconds} key={seconds}>{seconds} 秒</option>)}</select></label>
-          <label>曲线线型<select aria-label="自动测试功率实时曲线线型" value={curveLineStyle} onChange={(event) => onCurveLineStyleChange(event.target.value as CurveLineStyle)}><option value="solid">实线</option><option value="dashed">虚线</option><option value="dotted">点线</option></select></label>
-          <label>末端样式<select aria-label="自动测试功率实时曲线末端样式" value={latestPointMarkerStyle} onChange={(event) => onLatestPointMarkerStyleChange(event.target.value as LatestPointMarkerStyle)}><option value="point">圆点</option><option value="paper-plane">纸飞机</option><option value="paw">爪印</option><option value="comet">彗星</option><option value="ecg">心电图</option></select></label>
+          <label>尾迹时长<NativeSelect aria-label="尾迹时长" disabled={!appearance.trailEnabled} value={appearance.trailSeconds} onChange={(value) => updateAppearance({ trailSeconds: Number(value) })}>{[3, 5, 10, 15].map((seconds) => <option value={seconds} key={seconds}>{seconds} 秒</option>)}</NativeSelect></label>
+          <label>曲线线型<NativeSelect aria-label="功率实时曲线线型" value={curveLineStyle} onChange={(value) => onCurveLineStyleChange(value as CurveLineStyle)}><option value="solid">实线</option><option value="dashed">虚线</option><option value="dotted">点线</option></NativeSelect></label>
+          <label>末端样式<NativeSelect aria-label="功率实时曲线末端样式" value={latestPointMarkerStyle} onChange={(value) => onLatestPointMarkerStyleChange(value as LatestPointMarkerStyle)}>{LATEST_POINT_MARKER_OPTIONS.map((marker) => <option value={marker.id} key={marker.id}>{marker.label}</option>)}</NativeSelect></label>
         </div>
       </div>
 
       <div className="appearance-section"><DensityChoice value={appearance.density} onChange={(density) => updateAppearance({ density })} /></div>
-      <div className="appearance-option-row appearance-section"><div><h2>数值变化提示</h2><p className="appearance-help">可选 · 变化的数字短暂高亮，约 0.7 秒后恢复，位置保持不动。</p></div><AppearanceSwitch checked={appearance.highlightChanges} label="数值变化提示" onChange={(highlightChanges) => updateAppearance({ highlightChanges })} /></div>
+      <div className="appearance-option-row appearance-section"><div><h2>数值变化动效</h2><p className="appearance-help">可选 · 变化的数字短暂滚动，小数位和单位保持稳定。</p></div><AppearanceSwitch checked={appearance.highlightChanges} label="数值变化动效" onChange={(highlightChanges) => updateAppearance({ highlightChanges })} /></div>
       <button className="appearance-reset" onClick={reset} type="button"><RotateCcw className="size-4" />恢复外观默认值</button>
     </div>
 
@@ -169,7 +170,7 @@ export function AppearanceSettings({ theme, accentTheme, curveLineStyle, latestP
         <div className="appearance-preview__metrics">{[["实时功率", "0.860", "W"], ["中心波长", "976.200", "nm"], ["FWHM", "0.776", "nm"], ["PIB", "96.85", "%"]].map(([label, value, unit]) => <div key={label}><small>{label}</small><strong>{value}<small>{unit}</small></strong></div>)}</div>
       </div>
       <p className="appearance-preview__caption">{CHART_CANVASES.find((item) => item.id === appearance.canvas)?.label} · {INTERFACE_DENSITIES.find((item) => item.id === appearance.density)?.label} · {appearance.trailEnabled ? `尾迹 ${appearance.trailSeconds} s` : "尾迹关闭"}</p>
-      <div className="appearance-readout-example"><small>实时功率 · 数字变化示例</small><strong><NumericReadout value={previewValue} /><small>W</small></strong><p className="appearance-help">{appearance.highlightChanges ? "0.860 ↔ 0.861：末位变化时高亮，并带有轻微光晕。" : "调整左侧选项，在这里查看效果。"}</p></div>
+      <div className="appearance-readout-example"><small>实时功率 · 数字变化示例</small><strong><NumericReadout value={previewValue} /><small>W</small></strong><p className="appearance-help">{appearance.highlightChanges ? "0.860 ↔ 0.861：末位数字滚动；系统减少动态效果时直接更新。" : "开启数值变化动效，在这里查看数字滚动效果。"}</p></div>
     </aside>
   </div>
 }
