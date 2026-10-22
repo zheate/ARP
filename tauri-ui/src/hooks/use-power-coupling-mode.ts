@@ -1,12 +1,15 @@
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { useCallback, useEffect, useRef, useState } from "react"
-import { acquirePresentationFullscreen } from "@/lib/presentation-fullscreen"
+import { acquireWindowPresentationFullscreen } from "@/lib/presentation-fullscreen"
 
 function enterFullscreen() {
   if ("__TAURI_INTERNALS__" in window) {
     const appWindow = getCurrentWindow()
-    return acquirePresentationFullscreen({
+    return acquireWindowPresentationFullscreen({
       isFullscreen: () => appWindow.isFullscreen(),
+      isMaximized: () => appWindow.isMaximized(),
+      unmaximize: () => appWindow.unmaximize(),
+      maximize: () => appWindow.maximize(),
       enter: () => appWindow.setFullscreen(true),
       exit: () => appWindow.setFullscreen(false),
     })
