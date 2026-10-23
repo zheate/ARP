@@ -16,6 +16,10 @@ export function validateCommandResponse(method: string, value: unknown): void {
     if (value.shutdownConfirmed !== value.shutdown.confirmed) invalid(method)
   }
   if (method === "app.configure" && !objectValue(value.configuration)) invalid(method)
+  if (method === "automatic.exportDiagnostics" && (
+    typeof value.path !== "string" || !value.path || typeof value.sessionId !== "string" || !value.sessionId
+    || !Array.isArray(value.warnings) || value.warnings.some(item => typeof item !== "string")
+  )) invalid(method)
 }
 export function validateSnapshot(value: unknown): void {
   if (!objectValue(value) || !objectValue(value.backend) || !objectValue(value.devices) || !objectValue(value.automaticTest) || !objectValue(value.safety)) invalid("app.snapshot")

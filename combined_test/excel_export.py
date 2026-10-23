@@ -486,6 +486,10 @@ def _write_xlsx_session_information(
     for key, value in sorted(dict(getattr(session, "settings", {}) or {}).items()):
         if key == "testTemperatureC":
             continue
+        if key == "powerStability" and isinstance(value, dict):
+            # Full baseline samples belong to JSONL/diagnostic ZIP, not a single
+            # Excel cell (32,767 characters). Keep the existing model metadata.
+            value = {name: item for name, item in value.items() if name != "backgroundLearning"}
         row += 1
         sheet.write(row, 0, str(key))
         sheet.write(row, 1, str(value))

@@ -448,6 +448,7 @@ class SnapshotBuilder:
                 "savedPointCount": len(active_st.record_store.recorded_currents),
                 "exportedPointCount": len(active_st.record_store.exported_currents),
                 "journalPath": "" if active_st.record_store.journal_path is None else str(active_st.record_store.journal_path),
+                "sessionId": None if active_st.record_store.current_session is None else active_st.record_store.current_session.session_id,
                 "canNextDevice": active_st.automatic.state == AutomaticTestState.COMPLETED and active_st.shutdown_confirmed,
                 "canRetryExport": active_st.automatic.state == AutomaticTestState.COMPLETED and active_st.export_status == "failed",
                 "exportStatus": active_st.export_status,

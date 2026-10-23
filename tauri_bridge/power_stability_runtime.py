@@ -30,7 +30,32 @@ POLICY_KEYS = (
     "powerStabilityParametersConfirmed", "powerStabilitySettleS",
     "powerStabilityCurrentToleranceA",
     "powerSupplyKind",
+    "powerStabilityTolerancePreset",
+    "powerStabilityResponseConfirmationRevision",
 )
+RESPONSE_KEYS = (
+    "powerStabilityResponseS", "powerStabilitySettleS", "powerStabilityCurrentToleranceA",
+    "powerSupplyKind",
+)
+STANDARD_TOLERANCE = {
+    "absolute_drift_w": 0.0, "relative_drift_percent": 0.2,
+    "reference_s": 20.0, "extra_noise_percent": 0.0,
+}
+
+
+def tolerance_policy(config: dict) -> dict[str, float]:
+    """Resolve acceptance limits without overwriting the saved custom preset."""
+    preset = config.get("powerStabilityTolerancePreset", "standard")
+    if preset == "standard":
+        return dict(STANDARD_TOLERANCE)
+    if preset != "custom":
+        raise ValueError("未知功率判稳容差预设")
+    return {
+        "absolute_drift_w": float(config["powerStabilityAbsoluteDriftW"]),
+        "relative_drift_percent": float(config["powerStabilityRelativeDriftPercent"]),
+        "reference_s": float(config["powerStabilityReferenceS"]),
+        "extra_noise_percent": float(config["powerStabilityExtraNoisePercent"]),
+    }
 
 
 class PowerStabilityRuntime:
@@ -89,23 +114,34 @@ class PowerStabilityRuntime:
             quantization = self.model.quantization_w
         return StabilityPolicy(
             quantization_w=quantization,
-            absolute_drift_w=float(c["powerStabilityAbsoluteDriftW"]),
-            relative_drift_percent=float(c["powerStabilityRelativeDriftPercent"]),
-            reference_s=float(c["powerStabilityReferenceS"]),
-            extra_noise_percent=float(c["powerStabilityExtraNoisePercent"]),
+            **tolerance_policy(c),
             response_s=float(c["powerStabilityResponseS"]),
-            parameters_confirmed=(bool(c["powerStabilityParametersConfirmed"])
-                                  and float(c["powerStabilityQuantizationW"]) > 0
-                                  and c.get("powerStabilityConfirmedSignature") == self.confirmation_signature()),
+            parameters_confirmed=self.response_parameters_confirmed(),
             gap_s=min(5.0, max(1.0, float(c["powerMeterIntervalMs"]) * 0.003)),
         )
 
     def confirmation_signature(self, config: dict | None = None) -> str:
         config = self.station.configuration if config is None else config
+        values = {key: config.get(key) for key in RESPONSE_KEYS}
+        values["identity"] = self.identity(config)
+        values["version"] = "device-response-v2"
+        return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
+
+    def _legacy_confirmation_signature(self, config: dict) -> str:
         values = {key: config.get(key) for key in POLICY_KEYS
-                  if key not in {"powerStabilityMode", "powerStabilityParametersConfirmed"}}
+                  if key not in {"powerStabilityMode", "powerStabilityParametersConfirmed",
+                                 "powerStabilityTolerancePreset", "powerStabilityResponseConfirmationRevision"}}
         values["identity"] = self.identity(config)
         return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
+
+    def response_parameters_confirmed(self, config: dict | None = None) -> bool:
+        config = self.station.configuration if config is None else config
+        if not config["powerStabilityParametersConfirmed"] or any(
+            float(config[key]) <= 0 for key in RESPONSE_KEYS if key != "powerSupplyKind"
+        ):
+            return False
+        signature = config.get("powerStabilityConfirmedSignature")
+        return signature in (self.confirmation_signature(config), self._legacy_confirmation_signature(config))
 
     @property
     def mode(self) -> str:
@@ -191,15 +227,17 @@ class PowerStabilityRuntime:
             return "本底任务进行中，请完成或取消后再开始测试"
         if not self.controls:
             return None
-        if float(self.station.configuration["powerStabilityQuantizationW"]) <= 0:
-            return "自动估计的步进仅用于旁路诊断；新策略控制前请填写实测确认的步进"
-        if not str(self.station.configuration["powerStabilityInstrumentSettings"]).strip():
-            return "新策略控制前请在仪器设置备注中确认设备未提供的滤波等设置"
-        if (not self.policy().ready or float(self.station.configuration["powerStabilitySettleS"]) <= 0
-                or float(self.station.configuration["powerStabilityCurrentToleranceA"]) <= 0):
-            return "新判稳策略的响应时间、电流建立时间和漂移容差尚未确认"
+        return self.control_blocker()
+
+    def control_blocker(self) -> str | None:
+        """Expose setup readiness even while the legacy algorithm still controls."""
+        if not self.response_parameters_confirmed():
+            return "设备响应参数尚未确认，请在一次确认中保存响应时间、电流建立时间和回读容差"
+        policy = self.policy()
+        if max(policy.absolute_drift_w, policy.relative_drift_percent) <= 0:
+            return "请选择有效的测试容差预设"
         if self.model is None or self.model.identity != self.identity():
-            return "新判稳策略需要匹配的 0 A 本底"
+            return "请学习 0 A 本底，自动获取步进与噪声保护量"
         if (self.verified_at is None or self.verified_connection is None
                 or self.verified_connection != self.connection):
             return "连接或本底状态已改变，请在 0 A 复核 20 秒；通过后可连续复用"
@@ -360,16 +398,29 @@ class PowerStabilityRuntime:
         return {"mode": self.mode, "algorithm": ALGORITHM_VERSION,
                 "state": self.state, "job": self.job,
                 "parametersConfirmed": self.policy().ready,
+                "responseParametersConfirmed": self.response_parameters_confirmed(),
+                "controlBlocker": self.control_blocker(),
+                "tolerancePreset": self.station.configuration["powerStabilityTolerancePreset"],
+                "tolerance": tolerance_policy(self.station.configuration),
                 "detectedSettings": self.detected_settings(),
                 "model": None if self.model is None else asdict(self.model),
                 "decision": asdict(self.decision)}
 
     def session_metadata(self) -> dict:
+        learning = None
+        if self.frozen_model is not None:
+            saved = self.station.backend.settings.get("runtime/powerBackgrounds", {})
+            candidate = saved.get(self.frozen_model.identity) if isinstance(saved, dict) else None
+            candidate_model = candidate.get("model") if isinstance(candidate, dict) else None
+            if isinstance(candidate_model, dict) and candidate_model.get("model_id") == self.frozen_model.model_id:
+                learning = candidate
         return {"mode": self.mode, "algorithm": ALGORITHM_VERSION,
                 "legacyAlgorithm": "relative-or-span-v1",
+                "tolerancePreset": self.station.configuration["powerStabilityTolerancePreset"],
                 "policy": asdict(self.policy()),
                 "identity": {key: self.station.configuration.get(key) for key in IDENTITY_KEYS},
                 "instrumentToken": self.instrument_token,
+                "backgroundLearning": learning,
                 "background": None if self.frozen_model is None else asdict(self.frozen_model)}
 
     def journal_diagnostic(self, current_a: float, *, force: bool = False) -> None:

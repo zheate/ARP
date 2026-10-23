@@ -61,7 +61,7 @@ from .workflow_access import WorkflowAccess
 from .command_safety import CommandSafetyGate, finite_number
 from .test_script_presets import normalize_script_presets
 from .station_automatic import StationAutomaticMixin
-from .power_stability_runtime import IDENTITY_KEYS, POLICY_KEYS, PowerStabilityRuntime
+from .power_stability_runtime import IDENTITY_KEYS, POLICY_KEYS, PowerStabilityRuntime, tolerance_policy
 from .power_meter_profiles import MEASUREMENT_CONFIGURATION_KEYS
 from .station_support import (
     AGING_TEST_SCRIPT_ID,
@@ -104,6 +104,12 @@ class StationRuntime(StationAutomaticMixin):
                 self.configuration["centerWavelengthSpecNm"] = self.configuration["pibCenterWavelengthNm"]
             if "centerWavelengthToleranceNm" not in initial_config and "pibHalfRangeNm" in initial_config:
                 self.configuration["centerWavelengthToleranceNm"] = self.configuration["pibHalfRangeNm"]
+            if "powerStabilityTolerancePreset" not in initial_config and any(
+                float(initial_config.get(key, 0)) > 0
+                for key in ("powerStabilityAbsoluteDriftW", "powerStabilityRelativeDriftPercent",
+                            "powerStabilityExtraNoisePercent")
+            ):
+                self.configuration["powerStabilityTolerancePreset"] = "custom"
         self.power_meter_configuration_migrated = _normalize_power_meter_configuration(
             self.configuration
         )
@@ -204,6 +210,7 @@ class StationRuntime(StationAutomaticMixin):
         self.shutdown_reason = ""
         self.automatic_sample_path = ""
         self.automatic_sample_recorder: AutomaticSampleRecorder | None = None
+        self._diagnostic_export_lock = threading.Lock()
         journal_root = (
             self.backend.settings.path.parent
             / "test-records"
@@ -641,7 +648,14 @@ class StationRuntime(StationAutomaticMixin):
             candidate["currentPlanMode"] = mode
             self.backend.power_meter_profiles.resolve_configuration(candidate, self.configuration)
             self._validate_configuration(candidate)
-            if candidate["powerStabilityParametersConfirmed"] and not self.configuration["powerStabilityParametersConfirmed"]:
+            if candidate["powerStabilityParametersConfirmed"] and (
+                not self.configuration["powerStabilityParametersConfirmed"]
+                or candidate["powerStabilityResponseConfirmationRevision"] != self.configuration["powerStabilityResponseConfirmationRevision"]
+            ):
+                candidate["powerStabilityConfirmedSignature"] = self.power_stability.confirmation_signature(candidate)
+            elif (self.power_stability.response_parameters_confirmed()
+                  and self.power_stability.confirmation_signature(candidate) == self.power_stability.confirmation_signature()):
+                # Upgrade an older confirmation before switching tolerance presets.
                 candidate["powerStabilityConfirmedSignature"] = self.power_stability.confirmation_signature(candidate)
             if self.power_meter_reader is not None:
                 self.power_meter_reader.update_stability_settings(
@@ -697,16 +711,15 @@ class StationRuntime(StationAutomaticMixin):
         candidate["customCurrentPoints"] = cleaned_points
         if candidate["powerStabilityReferenceS"] <= 0:
             raise ValueError("漂移参考时间必须大于 0 秒")
+        tolerance_policy(candidate)
         if not isinstance(candidate["powerStabilityInstrumentSettings"], str):
             raise ValueError("仪器量程和滤波设置必须是文本")
         if candidate["powerStabilityParametersConfirmed"] and (
             candidate["powerStabilityResponseS"] <= 0
             or candidate["powerStabilitySettleS"] <= 0
             or candidate["powerStabilityCurrentToleranceA"] <= 0
-            or candidate["powerStabilityQuantizationW"] <= 0
-            or max(candidate["powerStabilityAbsoluteDriftW"], candidate["powerStabilityRelativeDriftPercent"]) <= 0
         ):
-            raise ValueError("确认判稳参数前，请填写响应时间、电流建立时间、量化步进和漂移容差")
+            raise ValueError("确认设备响应前，请填写响应时间、电流建立时间和回读容差")
         if candidate["ruBaudRate"] not in RU_BAUD_RATES:
             raise ValueError("RU 波特率不在手册支持范围内")
         if not 1 <= candidate["ruAddress"] <= 255:

@@ -33,6 +33,7 @@ class PowerStabilityRuntimeTests(unittest.TestCase):
             "powerStabilityInstrumentSettings": "100 W range; filter off; fixed range",
             "powerStabilityResponseS": 2, "powerStabilitySettleS": 1,
             "powerStabilityCurrentToleranceA": 0.01,
+            "powerStabilityTolerancePreset": "custom",
             "powerStabilityAbsoluteDriftW": 0.35, "powerStabilityParametersConfirmed": True,
         })
         self.station._validate_configuration(self.station.configuration)
@@ -186,7 +187,7 @@ class PowerStabilityRuntimeTests(unittest.TestCase):
     def test_parameter_confirmation_cannot_be_reused_for_another_probe_range_or_controller(self):
         self.assertTrue(self.manager.policy().ready)
         for key, value in (("powerMeterSerialNumber", "head-B"), ("powerSupplyKind", "ru"),
-                           ("powerStabilityResponseS", 3), ("powerStabilityAbsoluteDriftW", 0.5)):
+                           ("powerStabilityResponseS", 3)):
             previous = self.station.configuration[key]
             self.station.configuration[key] = value
             self.assertFalse(self.manager.policy().ready, key)
@@ -446,7 +447,7 @@ class PowerStabilityRuntimeTests(unittest.TestCase):
             self.manager.freeze()
             self.assertIs(self.manager.model, model)
         self.station.configuration["powerStabilityMode"] = "dual"
-        self.assertIn("仅用于旁路", self.manager.blocker())
+        self.assertIn("响应参数尚未确认", self.manager.blocker())
         self.station.configuration["powerStabilityMode"] = "shadow"
         self.publish(181, 0, connection=1)
         self.assertIsNone(self.manager.verified_connection)
@@ -488,6 +489,124 @@ class PowerStabilityRuntimeTests(unittest.TestCase):
         for token in ("", "other:2:3000:1", "laserpoint:2:nan:1", "laserpoint:2:bad:1"):
             self.manager.instrument_token = token
             self.assertIsNone(self.manager.detected_settings()["fullScaleW"])
+
+    def test_learned_step_and_empty_notes_can_control_without_manual_transcription(self):
+        reader = self.station.power_meter_reader
+        self.station.power_meter_reader = None
+        self.station.configure({"powerStabilityQuantizationW": 0, "powerStabilityInstrumentSettings": "",
+                                "powerStabilityTolerancePreset": "standard",
+                                "powerStabilityParametersConfirmed": False})
+        self.station.configure({"powerStabilityParametersConfirmed": True})
+        self.station.power_meter_reader = reader
+        self.assertTrue(self.manager.response_parameters_confirmed())
+        self.assertFalse(self.manager.policy().ready, "background step is still unknown")
+        self.assertIn("学习", self.manager.control_blocker())
+        samples = [(i * 0.5, 0.15 if i % 2 else 0) for i in range(361)]
+        self.manager.job_connection = self.manager.connection
+        self.manager._finish_learning(self.manager.job_epoch, samples, self.manager.identity(), self.manager.policy())
+        self.assertEqual(self.manager.model.quantization_source, "observed-grid-v1")
+        self.station.configure({"powerStabilityMode": "dual"})
+        self.assertIsNone(self.manager.blocker())
+        self.assertTrue(self.manager.policy().ready)
+        self.assertEqual(self.station.configuration["powerStabilityQuantizationW"], 0)
+        self.manager.freeze()
+        self.station.automatic.state = AutomaticTestState.WAITING_STABLE
+        self.manager.begin_point(7)
+        for i in range(1, 45):
+            self.publish(i * 0.5, 1000 + (0.15 if i % 2 else 0))
+        self.assertTrue(self.station.latest_power.stable, self.manager.decision)
+
+    def test_preset_switch_preserves_response_confirmation_background_and_custom_values(self):
+        self.install_model()
+        self.verify()
+        original_model = self.manager.model
+        verified_at = self.manager.verified_at
+        self.station.configure({"powerStabilityTolerancePreset": "standard"})
+        policy = self.manager.policy()
+        self.assertEqual((policy.absolute_drift_w, policy.relative_drift_percent, policy.reference_s,
+                          policy.extra_noise_percent), (0, 0.2, 20, 0))
+        self.assertTrue(policy.ready)
+        self.assertEqual(self.station.configuration["powerStabilityAbsoluteDriftW"], 0.35)
+        self.station.configure({"powerStabilityTolerancePreset": "custom"})
+        self.assertEqual(self.manager.policy().absolute_drift_w, 0.35)
+        self.assertTrue(self.manager.response_parameters_confirmed())
+        self.assertIs(self.manager.model, original_model)
+        self.assertEqual(self.manager.verified_at, verified_at)
+        self.assertEqual(self.manager.session_metadata()["tolerancePreset"], "custom")
+
+    def test_empty_custom_preset_and_unknown_device_response_still_block_control(self):
+        self.station.configure({"powerStabilityMode": "dual", "powerStabilityAbsoluteDriftW": 0})
+        self.assertIn("容差预设", self.manager.blocker())
+        self.station.configure({"powerStabilityTolerancePreset": "standard",
+                                "powerStabilityParametersConfirmed": False})
+        self.assertIn("响应参数尚未确认", self.manager.blocker())
+        with self.assertRaisesRegex(ValueError, "未知.*预设"):
+            self.station.configure({"powerStabilityTolerancePreset": "unknown"})
+        self.assertEqual(self.station.configuration["powerStabilityTolerancePreset"], "standard")
+
+    def test_old_custom_configuration_and_confirmation_migrate_without_changing_limits(self):
+        from tauri_bridge.station_runtime import StationRuntime
+
+        old_config = dict(self.station.configuration)
+        del old_config["powerStabilityTolerancePreset"]
+        old_config["powerStabilityConfirmedSignature"] = self.manager._legacy_confirmation_signature(old_config)
+        migrated = StationRuntime(self.backend, initial_config=old_config)
+        self.assertEqual(migrated.configuration["powerStabilityTolerancePreset"], "custom")
+        self.assertEqual(migrated.power_stability.policy().absolute_drift_w, 0.35)
+        self.assertTrue(migrated.power_stability.response_parameters_confirmed())
+        migrated.configure({"powerStabilityTolerancePreset": "standard"})
+        self.assertTrue(migrated.power_stability.response_parameters_confirmed())
+        self.assertEqual(migrated.configuration["powerStabilityConfirmedSignature"],
+                         migrated.power_stability.confirmation_signature())
+
+    def test_saved_preset_response_and_learned_model_survive_restart_without_hardware_access(self):
+        self.backend.power_meter_profiles.initialize(dict(self.station.configuration))
+        self.station.configure({"powerStabilityParametersConfirmed": False})
+        self.station.configure({"powerStabilityParametersConfirmed": True})
+        self.station.configure({"powerStabilityTolerancePreset": "standard"})
+        samples = self.install_model()
+        self.manager._finish_learning(self.manager.job_epoch, samples, self.manager.identity(), self.manager.policy())
+        self.backend._persist_configuration()
+        with (patch("tauri_bridge.station_runtime.PowerMeterReaderThread") as reader,
+              patch("tauri_bridge.station_runtime.PowerMeterDetectThread") as detect,
+              patch("tauri_bridge.station_runtime.create_ch341_controller") as controller):
+            restarted = HeadlessBackend(JsonSettings(self.backend.settings.path))
+            try:
+                self.assertEqual(restarted.configuration["powerStabilityTolerancePreset"], "standard")
+                self.assertTrue(restarted.runtime.power_stability.response_parameters_confirmed(),
+                                {key: (self.station.configuration[key], restarted.configuration[key])
+                                 for key in self.station.configuration
+                                 if self.station.configuration[key] != restarted.configuration[key]})
+                self.assertEqual(restarted.runtime.power_stability.model.model_id, self.manager.model.model_id)
+                self.assertIsNone(restarted.runtime.power_stability.verified_connection)
+                reader.assert_not_called()
+                detect.assert_not_called()
+                controller.assert_not_called()
+            finally:
+                restarted.export_worker.graceful_stop(timeout_s=5)
+
+    def test_standard_preset_does_not_relax_limits_when_background_capability_is_insufficient(self):
+        self.activate_dual()
+        self.station.automatic.state = AutomaticTestState.IDLE
+        self.station.configure({"powerStabilityTolerancePreset": "standard"})
+        self.manager.freeze()
+        self.station.automatic.state = AutomaticTestState.WAITING_STABLE
+        self.manager.begin_point(7)
+        start = self.clock[0] - 1000
+        for i in range(1, 45):
+            self.publish(start + i * 0.5, 32.4 + (0.15 if i % 2 else 0))
+        self.assertFalse(self.station.latest_power.stable)
+        self.assertEqual(self.manager.decision.code, "capability_insufficient")
+        self.assertEqual(self.manager.policy().relative_drift_percent, 0.2)
+
+    def test_changed_instrument_settings_require_explicit_reconfirmation_not_an_ordinary_save(self):
+        self.manager.instrument_token = "laserpoint:2:3000:1"
+        self.assertFalse(self.manager.response_parameters_confirmed())
+        self.station.configure({"powerStabilityTolerancePreset": "standard"})
+        self.assertFalse(self.manager.response_parameters_confirmed())
+        self.station.configure({"powerStabilityParametersConfirmed": True,
+                                "powerStabilityResponseConfirmationRevision": 1})
+        self.assertTrue(self.manager.response_parameters_confirmed())
 
 
 if __name__ == "__main__":

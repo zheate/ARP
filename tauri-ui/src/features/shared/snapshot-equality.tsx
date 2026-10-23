@@ -91,6 +91,7 @@ export function sameDeviceSnapshot(left: DeviceSnapshot | undefined, right: Devi
     && sameStringArray(left.resources, right.resources)
     && samePowerMeterResourceProfiles(left.resourceProfiles, right.resourceProfiles)
     && JSON.stringify(left.coefficientLibrary ?? null) === JSON.stringify(right.coefficientLibrary ?? null)
+    && JSON.stringify(left.powerBackground ?? null) === JSON.stringify(right.powerBackground ?? null)
     && sameCh341State(left.ch341, right.ch341)
     && left.outputEnabled === right.outputEnabled
     && left.maximumCurrentA === right.maximumCurrentA
@@ -189,6 +190,7 @@ export function sameAutomaticTestState(
     && left.canStart === right.canStart
     && left.exportedPointCount === right.exportedPointCount
     && left.journalPath === right.journalPath
+    && left.sessionId === right.sessionId
     && left.canNextDevice === right.canNextDevice
     && left.canRetryExport === right.canRetryExport
     && left.pauseKind === right.pauseKind

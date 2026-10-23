@@ -178,6 +178,7 @@ export interface AppConfiguration {
   stabilityLimitPercent: number
   powerStabilityAbsoluteFloorW?: number
   powerStabilityMode?: "legacy" | "shadow" | "dual"
+  powerStabilityTolerancePreset?: "standard" | "custom"
   powerStabilityQuantizationW?: number
   powerStabilityInstrumentSettings?: string
   powerStabilityAbsoluteDriftW?: number
@@ -188,6 +189,7 @@ export interface AppConfiguration {
   powerStabilitySettleS?: number
   powerStabilityCurrentToleranceA?: number
   powerStabilityParametersConfirmed?: boolean
+  powerStabilityResponseConfirmationRevision?: number
   powerStabilityConfirmedSignature?: string
   initialCurrentA: number
   targetCurrentA: number
@@ -310,6 +312,7 @@ export interface BackendSnapshot {
     savedPointCount?: number
     exportedPointCount?: number
     journalPath?: string
+    sessionId?: string | null
     canNextDevice?: boolean
     canRetryExport?: boolean
     exportStatus?: string
@@ -383,7 +386,17 @@ export interface BackendSnapshot {
   status?: { message: string }
 }
 
+export interface DiagnosticExportResult {
+  path: string
+  sessionId: string
+  warnings: string[]
+}
+
 export interface PowerBackgroundSnapshot {
+  responseParametersConfirmed?: boolean
+  controlBlocker?: string | null
+  tolerancePreset?: "standard" | "custom"
+  tolerance?: { absolute_drift_w: number; relative_drift_percent: number; reference_s: number; extra_noise_percent: number }
   mode: "legacy" | "shadow" | "dual"
   algorithm: string
   state: string

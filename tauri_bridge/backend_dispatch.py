@@ -79,6 +79,7 @@ class BackendDispatcher:
             "automatic.end": lambda _p: st.end_automatic(),
             "automatic.nextDevice": lambda _p: st.prepare_next_device(),
             "automatic.retryExport": lambda p: st.retry_automatic_export(p),
+            "automatic.exportDiagnostics": self._export_diagnostics,
             "shippingReport.inspect": self._inspect_shipping_report,
             "dataBrowser.list": self._list_data_records,
             "dataBrowser.inspect": self._inspect_data_record,
@@ -115,6 +116,7 @@ class BackendDispatcher:
     def dispatch_file_task(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         backend = self._backend
         actions: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+            "automatic.exportDiagnostics": self._export_diagnostics,
             "dataBrowser.list": self._list_data_records,
             "dataBrowser.inspect": self._inspect_data_record,
             "dataBrowser.import": self._import_data_records,
@@ -128,6 +130,11 @@ class BackendDispatcher:
         if action is not None:
             return action(params)
         raise KeyError(method)
+
+    def _export_diagnostics(self, params: dict[str, Any]) -> dict[str, Any]:
+        from .diagnostic_export import export_current_session
+        self._backend.validate_runtime_target(params)
+        return export_current_session(self._backend.runtime, params)
 
     def _list_data_records(self, params: dict[str, Any]) -> dict[str, Any]:
         from combined_test.data_browser import list_data_records

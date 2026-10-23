@@ -1,4 +1,6 @@
 import { useActionFeedback } from "@/hooks/use-action-feedback"
+import { DiagnosticExportButton } from "@/components/diagnostic-export-button"
+import { diagnosticExportAvailable } from "@/lib/diagnostic-export"
 import { useEffect, useRef, useState, type CSSProperties } from "react"
 import { Check, CheckCircle2, ChevronRight, CircleAlert, Clock3, FileText, FolderOpen, Info, LoaderCircle, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -187,6 +189,7 @@ export function AutomaticCompletionSummary({ snapshot, config, active, pending, 
         </dl>
 
         <div className="automatic-completion-summary__actions">
+          <DiagnosticExportButton key={`${auto.sessionId}:${auto.exportStatus}:${auto.exportPath}:${auto.exportError}`} sessionId={auto.sessionId} disabled={!snapshot.backend.connected || snapshot.backend.mode !== "active" || !diagnosticExportAvailable(auto)} />
           {feedback.error && <span role="alert">{feedback.error}</span>}
           {auto.canRetryExport && (
             <>

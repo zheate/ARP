@@ -18,6 +18,7 @@ import { useConfigurationEditor } from "@/hooks/use-configuration-editor"
 import { usePowerCouplingMode } from "@/hooks/use-power-coupling-mode"
 import { ACCENT_THEMES, normalizeLatestPointMarkerStyle, type AccentTheme, type CurveLineStyle, type LatestPointMarkerStyle, type Theme } from "@/lib/appearance"
 import { automaticPauseCommand } from "@/lib/automatic-pause"
+import { diagnosticExportAvailable } from "@/lib/diagnostic-export"
 import { sendBackendRequest, type AutomaticPauseAction, type SnapshotView } from "@/lib/backend"
 import { getLicenseStatus, installLicense, licenseReasonLabels, type LicenseStatus } from "@/lib/license"
 import { automaticTerminalTitle } from "@/lib/safety-state"
@@ -697,6 +698,8 @@ function LicensedApp({
               exportPath={snapshot?.automaticTest.exportPath}
               exportStatus={snapshot?.automaticTest.exportStatus}
               journalPath={snapshot?.automaticTest.journalPath}
+              sessionId={snapshot?.automaticTest.sessionId}
+              canExportDiagnostics={Boolean(snapshot?.backend.connected && snapshot.backend.mode === "active" && diagnosticExportAvailable(snapshot.automaticTest))}
               message={automaticCompletion.message}
               onChooseExportDirectory={chooseAutomaticExportDirectory}
               onClose={() => setAutomaticCompletion(null)}

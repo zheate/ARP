@@ -1,4 +1,4 @@
-import type { AppConfiguration, AppShutdownResult, BackendSnapshot, BackendSnapshotPatch, ShippingReportBatchGenerationResult, ShippingReportBatchInspection, ShippingReportGenerationResult, ShippingReportLanguage, ShippingReportFieldDefinition, ShippingReportPreviewResult, ShippingReportType, ShippingWorkbookInspection, SnapshotView, SpectrumAxisMode } from "./backend"
+import type { AppConfiguration, AppShutdownResult, BackendSnapshot, BackendSnapshotPatch, DiagnosticExportResult, ShippingReportBatchGenerationResult, ShippingReportBatchInspection, ShippingReportGenerationResult, ShippingReportLanguage, ShippingReportFieldDefinition, ShippingReportPreviewResult, ShippingReportType, ShippingWorkbookInspection, SnapshotView, SpectrumAxisMode } from "./backend"
 import type { DataDetail, DataList } from "./data-browser"
 
 type Context = { view?: SnapshotView }
@@ -53,6 +53,7 @@ export interface CommandMap {
   "automatic.end": Entry<{}>
   "automatic.nextDevice": Entry<{}>
   "automatic.retryExport": Entry<{ outputDir?: string }>
+  "automatic.exportDiagnostics": Entry<{ sessionId: string }, DiagnosticExportResult>
   "pd.refresh": Entry<{}>
   "pd.configure": Entry<Partial<NonNullable<BackendSnapshot["pd"]>["settings"]>>
   "pd.start": Entry<Partial<NonNullable<BackendSnapshot["pd"]>["settings"]>>

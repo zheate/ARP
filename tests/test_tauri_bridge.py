@@ -366,6 +366,7 @@ class TauriBridgeServiceTests(unittest.TestCase):
                     "dataBrowser.list",
                     "dataBrowser.inspect",
                     "dataBrowser.import",
+                    "automatic.exportDiagnostics",
                     "shippingReport.inspect",
                     "shippingReport.batchInspect",
                     "shippingReport.preview",

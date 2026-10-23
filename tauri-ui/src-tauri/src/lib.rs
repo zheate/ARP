@@ -119,6 +119,7 @@ fn request_timeout(method: &str) -> Duration {
         "app.shutdown" => SHUTDOWN_REQUEST_TIMEOUT_SECS,
         "shippingReport.inspect" | "shippingReport.batchInspect" | "dataBrowser.list" | "dataBrowser.inspect" | "dataBrowser.import" => FILE_SCAN_REQUEST_TIMEOUT_SECS,
         "shippingReport.preview"
+        | "automatic.exportDiagnostics"
         | "shippingReport.generate"
         | "shippingReport.batchGenerateItem" => REPORT_REQUEST_TIMEOUT_SECS,
         _ => DEFAULT_REQUEST_TIMEOUT_SECS,
@@ -566,6 +567,7 @@ fn is_safe_unlicensed_method(method: &str) -> bool {
             | "automatic.end"
             | "automatic.retryPersist"
             | "automatic.retryExport"
+            | "automatic.exportDiagnostics"
             | "pd.stop"
             | "powerMeter.stop"
             | "spectrometer.stop"
@@ -1064,6 +1066,7 @@ mod tests {
         assert_eq!(request_timeout("app.snapshot").as_secs(), 15);
         assert_eq!(request_timeout("dataBrowser.import").as_secs(), 120);
         assert_eq!(request_timeout("shippingReport.generate").as_secs(), 600);
+        assert_eq!(request_timeout("automatic.exportDiagnostics").as_secs(), 600);
         assert_eq!(request_timeout("app.shutdown").as_secs(), 90);
         assert_eq!(request_timeout("automatic.start").as_secs(), 60);
     }
@@ -1176,6 +1179,7 @@ mod tests {
             "automatic.end",
             "automatic.retryPersist",
             "automatic.retryExport",
+            "automatic.exportDiagnostics",
             "pd.stop",
             "powerMeter.stop",
             "spectrometer.stop",

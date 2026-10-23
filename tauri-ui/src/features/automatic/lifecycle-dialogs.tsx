@@ -2,6 +2,7 @@ import { busyInteraction } from "@/components/busy-interaction"
 import { useActionFeedback } from "@/hooks/use-action-feedback"
 import { DialogPortal } from "@/components/dialog-portal"
 import { Button } from "@/components/ui/button"
+import { DiagnosticExportButton } from "@/components/diagnostic-export-button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { automaticPauseCopy, pauseRemainingSeconds } from "@/lib/automatic-pause"
@@ -145,6 +146,8 @@ export function AutomaticCompletionDialog({
   exportPath,
   exportError,
   journalPath,
+  sessionId,
+  canExportDiagnostics = false,
   canNextDevice,
   canRetryExport,
   onNextDevice,
@@ -163,6 +166,8 @@ export function AutomaticCompletionDialog({
   exportPath?: string
   exportError?: string
   journalPath?: string
+  sessionId?: string | null
+  canExportDiagnostics?: boolean
   canNextDevice: boolean
   canRetryExport: boolean
   onNextDevice: () => void | Promise<unknown>
@@ -328,6 +333,7 @@ export function AutomaticCompletionDialog({
           </div>
 
           <div className="flex flex-wrap justify-end gap-2 border-t border-border/70 bg-muted/20 px-6 py-3.5">
+            <DiagnosticExportButton key={`${sessionId}:${exportStatus}:${exportPath}:${exportError}`} sessionId={sessionId} disabled={!canExportDiagnostics} />
             {feedback.error && <p role="alert">{feedback.error}</p>}
             {exportPath && exportStatus === "completed" && <Button className="w-32" aria-disabled={openingResult} onClick={() => void handleOpenResult()} size="sm" variant="outline">{openingResult ? <LoaderCircle className="size-4 animate-spin" /> : <FileText className="size-4" />}{openingResult ? "正在打开…" : "打开结果"}</Button>}
             {canRetryExport && <Button aria-busy={feedback.action === "retry"} aria-disabled={feedback.action !== null} onClick={() => void feedback.runAction("retry", onRetryExport)} size="sm" variant="outline"><RefreshCw className={`size-4 ${feedback.action === "retry" ? "animate-spin" : ""}`} />重新生成 Excel</Button>}
