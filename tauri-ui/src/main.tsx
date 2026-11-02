@@ -7,6 +7,9 @@ import { installPersistentZoom } from "./lib/persistent-zoom";
 
 installPersistentZoom();
 
+// Suppress the WebView's browser menu throughout the operator interface.
+window.addEventListener("contextmenu", (event) => event.preventDefault(), { capture: true });
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <App />,
 );

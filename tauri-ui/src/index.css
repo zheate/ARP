@@ -1250,6 +1250,16 @@ textarea,
   line-height: 1;
 }
 
+.device-settings-dialog .power-settings-disconnect:not(:disabled) {
+  border-color: transparent;
+  background: var(--destructive);
+  color: var(--primary-foreground);
+}
+
+.device-settings-dialog .power-settings-disconnect:not(:disabled):hover {
+  background: color-mix(in srgb, var(--destructive) 90%, var(--foreground));
+}
+
 .device-settings-dialog[data-kind="powerSupply"] :is(.device-settings-button__label, .device-detect-button__label) {
   text-box-trim: trim-both;
   text-box-edge: cap alphabetic;

@@ -3,9 +3,9 @@ import { memo, useMemo } from "react"
 import { useAppearance } from "@/hooks/use-appearance"
 import { numberFlowReadout } from "@/lib/numeric-readout"
 
-// Live snapshots can arrive every 100 ms. Finish each transition within that interval.
-const READOUT_TIMING = { duration: 100, easing: "ease-out" }
-const OPACITY_TIMING = { duration: 80, easing: "ease-out" }
+// Finish promptly, leaving time at rest between 100 ms live snapshots.
+const READOUT_TIMING = { duration: 60, easing: "ease-out" }
+const OPACITY_TIMING = { duration: 40, easing: "ease-out" }
 
 export const NumericReadout = memo(function NumericReadout({ value, minimumIntegerDigits = 1 }: { value: string; minimumIntegerDigits?: number }) {
   const { appearance } = useAppearance()

@@ -10,9 +10,10 @@ import "../../src/index.css"
 import "../../src/workbench-appearance.css"
 
 const learned = new URLSearchParams(window.location.search).has("learned")
+const supplyPreview = new URLSearchParams(window.location.search)
 const initialConfig: AppConfiguration = {
   ...emptyConfig, ...DEMO_SNAPSHOT.configuration!, setCurrentA: 0,
-
+  powerSupplyKind: (supplyPreview.get("supply") as AppConfiguration["powerSupplyKind"]) || DEMO_SNAPSHOT.configuration!.powerSupplyKind,
 }
 
 function Fixture() {
@@ -21,7 +22,7 @@ function Fixture() {
   const [snapshot, setSnapshot] = useState<BackendSnapshot>({ ...DEMO_SNAPSHOT,
     configuration: initialConfig,
     devices: { ...DEMO_SNAPSHOT.devices,
-      powerSupply: { ...DEMO_SNAPSHOT.devices.powerSupply, connected: false, outputEnabled: false },
+      powerSupply: { ...DEMO_SNAPSHOT.devices.powerSupply, connected: supplyPreview.has("connected"), outputEnabled: supplyPreview.has("output") },
       powerMeter: { ...DEMO_SNAPSHOT.devices.powerMeter, running: false, powerBackground: {
         mode: "shadow", algorithm: "background-dual-window-v1", state: learned ? "SN DEMO-PROBE：已记住反复跳动量" : "尚未学习跳动量", job: null,
         parametersConfirmed: learned, responseParametersConfirmed: learned,
@@ -34,7 +35,15 @@ function Fixture() {
     }, automaticTest: { ...DEMO_SNAPSHOT.automaticTest, state: "idle" },
   })
   const run: RunCommand = async (method, params) => {
-    if (method === "device.refresh") {
+    if (method === "powerSupply.connect" || method === "powerSupply.disconnect") {
+      setSnapshot(s => ({ ...s, devices: { ...s.devices, powerSupply: { ...s.devices.powerSupply,
+        connected: method === "powerSupply.connect", outputEnabled: false,
+      } } }))
+    } else if (method === "powerSupply.setOutput") {
+      setSnapshot(s => ({ ...s, devices: { ...s.devices, powerSupply: { ...s.devices.powerSupply,
+        outputEnabled: Boolean((params as { enabled: boolean }).enabled),
+      } } }))
+    } else if (method === "device.refresh") {
       const device = (params as { device: keyof BackendSnapshot["devices"] }).device
       setSnapshot(s => ({ ...s, devices: { ...s.devices, [device]: { ...s.devices[device], detecting: true } } }))
       await new Promise(resolve => setTimeout(resolve, 600))

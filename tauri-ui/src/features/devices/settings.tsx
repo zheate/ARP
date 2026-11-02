@@ -310,8 +310,8 @@ export function PowerSupplySettingsForm({ snapshot, config, update, active, pend
             <>
               {serialSupply ? <>
                 <ControlGrid className="power-settings-action-grid">
-                  <Button aria-disabled={psu?.detecting || undefined} disabled={!active || pending} onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}><span className="device-settings-button__label">{psu?.connected ? "安全断开" : `连接 ${serialLabel}`}</span></Button>
-                  <Button className={psu?.outputEnabled ? "btn-power-active" : ""} disabled={!active || pending || !psu?.connected || (shutdownUnconfirmed && !psu?.outputEnabled)} onClick={() => void run("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled && <span className="size-2 rounded-full bg-white animate-pulse shrink-0 mr-1.5 inline-block" />}<span className="device-settings-button__label">{psu?.outputEnabled ? "关闭输出" : "开启输出"}</span></Button>
+                  <Button className={psu?.connected ? "power-settings-disconnect" : undefined} aria-disabled={psu?.detecting || undefined} disabled={!active || pending} onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "destructive" : "default"}><span className="device-settings-button__label">{psu?.connected ? "安全断开" : `连接 ${serialLabel}`}</span></Button>
+                  <Button className={psu?.outputEnabled ? "btn-power-active" : ""} disabled={!active || pending || !psu?.connected || (shutdownUnconfirmed && !psu?.outputEnabled)} onClick={() => void run("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "default"}>{psu?.outputEnabled && <span className="size-2 rounded-full bg-white animate-pulse shrink-0 mr-1.5 inline-block" />}<span className="device-settings-button__label">{psu?.outputEnabled ? "关闭输出" : "开启输出"}</span></Button>
                 </ControlGrid>
                 <ControlGrid className="power-settings-value-grid">
                   <ParameterControl>
@@ -339,9 +339,10 @@ export function PowerSupplySettingsForm({ snapshot, config, update, active, pend
                     : "连接电源"
                   return (
                     <Button
+                      className={psu?.connected ? "power-settings-disconnect" : undefined}
                       aria-disabled={psu?.detecting || undefined} disabled={!active || pending || (!psu?.connected && !isCh341ReadyToConnect)}
                       onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)}
-                      variant={psu?.connected ? "outline" : "default"}
+                      variant={psu?.connected ? "destructive" : "default"}
                     >
                       <span className="device-settings-button__label">{btnText}</span>
                     </Button>
