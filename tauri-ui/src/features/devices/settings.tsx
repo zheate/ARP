@@ -12,7 +12,6 @@ import { BUILTIN_TEST_SCRIPT_OPTIONS, UpdateConfig, applyTestScript } from "@/fe
 import { NumberField, NumberInput, RunCommand, StatusDot, formatDuration, formatMeasurementAge, formatNumber, formatTrimmedNumber } from "@/features/shared/controls"
 import { type AppConfiguration, type BackendSnapshot, type DeviceSnapshot, type PowerMeterCoefficientLibrary, type PowerMeterCoefficientRevision } from "@/lib/backend"
 import { powerMeterCoefficientLibraryForResource, powerMeterIdentityForResource, powerMeterResourceValue } from "@/lib/power-meter-resource"
-import { powerStabilityResponseConfirmed, powerStabilityTolerance } from "@/lib/power-stability-setup"
 import { ChevronRight, Gauge, Play, Plus, Power, Radio, RotateCcw, Save, Settings, SlidersHorizontal, Square, Trash2, X, type LucideIcon } from "lucide-react"
 import { Tooltip } from "radix-ui"
 import { memo, useEffect, useRef, useState } from "react"
@@ -721,108 +720,42 @@ export function PowerMeterProfileEditor({ snapshot, config, active, pending, run
   )
 }
 
-function PowerBackgroundSettings({ snapshot, config, update, active, pending, run }: {
-  snapshot: BackendSnapshot | null; config: AppConfiguration; update: UpdateConfig; active: boolean; pending: boolean; run: RunCommand
+function PowerMeterNoiseSettings({ snapshot, active, pending, run }: {
+  snapshot: BackendSnapshot | null; active: boolean; pending: boolean; run: RunCommand
 }) {
   const meter = snapshot?.devices.powerMeter
-  const background = meter?.powerBackground
-  const [confirmedDark, setConfirmedDark] = useState(false)
-  const [commandBusy, setCommandBusy] = useState(false)
-  const commandLock = useRef(false)
+  const noise = meter?.powerBackground
+  const learning = Boolean(noise?.job)
+  const [confirmedZero, setConfirmedZero] = useState(false)
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
-  const selectedMode = config.powerStabilityMode ?? "shadow"
-  const taskRunning = Boolean(background?.job)
-  const detected = background?.detectedSettings
-  const disabled = !active || pending || taskRunning
-  const toleranceFields: Array<[keyof AppConfiguration, string, number]> = [
-    ["powerStabilityAbsoluteDriftW", "绝对漂移容差 (W)", 0.01],
-    ["powerStabilityRelativeDriftPercent", "相对漂移容差 (%)", 0.01],
-    ["powerStabilityReferenceS", "漂移参考时间 (s)", 1],
-    ["powerStabilityExtraNoisePercent", "额外 2σ 波动容差 (%)", 0.01],
-  ]
-  const responseFields: Array<[keyof AppConfiguration, string, number]> = [
-    ["powerStabilitySettleS", "电流最短建立时间 (s)", 0.1],
-    ["powerStabilityCurrentToleranceA", "电流回读容差 (A)", 0.01],
-    ["powerStabilityResponseS", "探头最短响应时间 (s)", 0.1],
-  ]
-  const tolerance = powerStabilityTolerance(config)
-  const responseConfirmed = powerStabilityResponseConfirmed(config, snapshot?.configuration, background?.responseParametersConfirmed)
-  const responseComplete = responseFields.every(([key]) => Number(config[key] ?? 0) > 0)
-  const responseConfirmationPending = Boolean(config.powerStabilityParametersConfirmed && responseComplete && (
-    !snapshot?.configuration?.powerStabilityParametersConfirmed
-    || (config.powerStabilityResponseConfirmationRevision ?? 0) !== (snapshot?.configuration?.powerStabilityResponseConfirmationRevision ?? 0)
-  ))
-  const settingsDisabled = disabled || meter?.running
-  useEffect(() => { setConfirmedDark(false) }, [config.powerMeterResource, config.powerMeterSerialNumber])
-  async function backgroundCommand(method: "powerMeter.background.learn" | "powerMeter.background.verify" | "powerMeter.background.cancel") {
-    if (commandLock.current) return
-    commandLock.current = true
-    setCommandBusy(true)
+  const lock = useRef(false)
+  useEffect(() => { setConfirmedZero(false) }, [snapshot?.configuration?.powerMeterSerialNumber])
+  async function command(cancel = false) {
+    if (lock.current) return
+    lock.current = true
+    setBusy(true)
     setError("")
     try {
-      if (method === "powerMeter.background.cancel") await run(method, {}, false)
-      else await run(method, { confirmedDark }, true)
-      setConfirmedDark(false)
+      if (cancel) await run("powerMeter.background.cancel", {}, false)
+      else await run("powerMeter.background.learn", { confirmedDark: confirmedZero }, true)
+      setConfirmedZero(false)
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure))
     } finally {
-      commandLock.current = false
-      setCommandBusy(false)
+      lock.current = false
+      setBusy(false)
     }
   }
-  return <section className="space-y-3" aria-label="功率本底与判稳">
-    <Field label="自动功率判稳策略">
-      <NativeSelect aria-label="自动功率判稳策略" disabled={disabled} value={selectedMode} onChange={(value) => update("powerStabilityMode", value as "legacy" | "shadow" | "dual")}>
-        <option value="legacy">原有策略</option><option value="shadow">旁路验证（原有策略控制）</option><option value="dual">本底与双窗口控制</option>
-      </NativeSelect>
-    </Field>
-    {selectedMode !== "legacy" && <>
-      <p className="text-xs text-muted-foreground">{selectedMode === "shadow" ? "原有策略控制测试，新算法只记录诊断。" : "设备响应已确认、本底有效后，由双窗口规则控制测试。"}设置保存后复用，无需每轮填写。</p>
-      <Field label="测试容差预设">
-        <NativeSelect aria-label="测试容差预设" disabled={disabled} value={config.powerStabilityTolerancePreset ?? "standard"} onChange={(value) => update("powerStabilityTolerancePreset", value as "standard" | "custom")}>
-          <option value="standard">标准 · 相对漂移 0.2%</option>
-          <option value="custom">已保存的自定义容差</option>
-        </NativeSelect>
-      </Field>
-      <p className="text-xs text-muted-foreground" aria-label="当前测试容差">漂移限值取 {formatTrimmedNumber(tolerance.absoluteW, 6)} W 与平均功率的 {formatTrimmedNumber(tolerance.relativePercent, 4)}% 中较大值 · 参考 {formatTrimmedNumber(tolerance.referenceS, 2)} s · 额外 2σ 波动 {formatTrimmedNumber(tolerance.extraNoisePercent, 4)}%。预设用于双窗口规则，旁路模式仍沿用原有规则。</p>
-      {config.powerStabilityTolerancePreset === "custom" && <details className="space-y-3">
-        <summary className="cursor-pointer text-sm">编辑自定义容差</summary>
-        <p className="text-xs text-muted-foreground">按测试规范设置一次并保存。切换标准预设不会覆盖这些值。</p>
-        <ControlGrid>{toleranceFields.map(([key, label, step]) => <NumberField key={key} disabled={disabled} label={label} min={key === "powerStabilityReferenceS" ? 0.1 : 0} step={String(step)} value={Number(config[key] ?? 0)} onChange={(value) => update(key, value)} />)}</ControlGrid>
-        {Math.max(tolerance.absoluteW, tolerance.relativePercent) <= 0 && <p role="alert" className="text-xs text-destructive">请填写至少一种漂移容差，或选择标准预设。</p>}
-      </details>}
-      <p className="text-sm font-medium">设备信息与本底</p>
-      <p className="text-xs text-muted-foreground" aria-label="自动获取的功率计设置">量程：{detected?.fullScaleW != null ? `${formatTrimmedNumber(detected.fullScaleW, 6)} W（设备返回，软件增益前）` : "设备未提供"} · 软件增益 ×{formatTrimmedNumber(detected?.softwareGain ?? config.softwareGain, 6)} · 采样间隔 {detected?.intervalMs ?? config.powerMeterIntervalMs} ms（ARP 设置） · 滤波：设备未提供</p>
-      <p className="text-xs text-muted-foreground" aria-label="本底自动学习参数">步进：{Number(config.powerStabilityQuantizationW ?? 0) > 0 ? `${formatTrimmedNumber(config.powerStabilityQuantizationW!, 6)} W（手动覆盖，含软件增益）` : background?.model ? `${formatTrimmedNumber(background.model.quantization_w, 6)} W（本底${background.model.quantization_source === "observed-grid-v1" ? "观测估计" : "保存"}，含软件增益）` : "随本底学习自动估计"} · 噪声和漂移保护量自动学习。观测步进不等于仪器真实分辨率；估计失败时不会启用新控制。</p>
-      <p role="status" className="text-xs text-muted-foreground">{background?.state ?? "尚未学习本底"}{background?.model ? ` · 模型 ${background.model.model_id.slice(0, 8)}` : ""}</p>
-      {background?.model && <p className="text-xs text-muted-foreground">零点 {formatNumber(background.model.center_w, " W", 4)} · 均值差保护量 {formatNumber(background.model.shift_guard_w, " W", 4)} · 斜率保护量 {formatNumber(background.model.slope_guard_w_s, " W/s", 5)}</p>}
-      <label className="device-settings-checkbox"><input type="checkbox" disabled={disabled} checked={confirmedDark} onChange={(event) => setConfirmedDark(event.target.checked)} />已确认 0 A、无光输出且探头已冷却</label>
-      <ControlGrid>
-        <Button variant="outline" disabled={!active || !meter?.running || !confirmedDark || taskRunning} aria-disabled={commandBusy || undefined} onClick={() => void backgroundCommand("powerMeter.background.learn")}>学习本底 (180 s)</Button>
-        <Button variant="outline" disabled={!active || !meter?.running || !confirmedDark || !background?.model || taskRunning} aria-disabled={commandBusy || undefined} onClick={() => void backgroundCommand("powerMeter.background.verify")}>复核本底 (20 s)</Button>
-      </ControlGrid>
-      {taskRunning && <Button variant="outline" aria-disabled={commandBusy || undefined} onClick={() => void backgroundCommand("powerMeter.background.cancel")}>取消本底任务</Button>}
-      {selectedMode === "shadow" && background?.decision.metrics && <p className="text-xs text-muted-foreground">旁路：{background.decision.reason} · 短窗残差 σ {formatNumber(background.decision.metrics.residual_sigma_w, " W", 4)} · 长窗均值差 {formatNumber(background.decision.metrics.block_shift_w, " W", 4)}</p>}
-      <details className="space-y-3">
-        <summary className="cursor-pointer text-sm">设备响应 · {responseConfirmed ? "已确认，后续复用" : "一次确认"}</summary>
-        <p className="text-xs text-muted-foreground">这三项不能从无光本底推算。按设备规格或响应实测确认一次，绑定当前探头、量程和电源后保存；切换测试容差不必重填。</p>
-        <ControlGrid>{responseFields.map(([key, label, step]) => <NumberField key={key} disabled={settingsDisabled} label={label} min={0} step={String(step)} value={Number(config[key] ?? 0)} onChange={(value) => { update("powerStabilityParametersConfirmed", false); update(key, value) }} />)}</ControlGrid>
-        <label className="device-settings-checkbox"><input type="checkbox" disabled={settingsDisabled || !responseComplete} checked={responseConfirmed || responseConfirmationPending} onChange={(event) => {
-          update("powerStabilityParametersConfirmed", event.target.checked)
-          if (event.target.checked) update("powerStabilityResponseConfirmationRevision", (config.powerStabilityResponseConfirmationRevision ?? 0) + 1)
-        }} />已依据设备规格或实测确认响应参数</label>
-      </details>
-      <p role="status" className="text-xs text-muted-foreground" aria-label="设备响应状态">{responseConfirmed ? "设备响应已确认，保存的参数可复用。" : responseConfirmationPending ? "设备响应确认待保存。" : "设备响应尚未确认；可先学习本底和旁路验证，新控制暂不可用。"}</p>
-      <details className="space-y-3">
-        <summary className="cursor-pointer text-sm">维护选项（通常无需修改）</summary>
-        <NumberField disabled={settingsDisabled} label="手动覆盖步进 (W，0 为自动学习)" min={0} step="0.01" value={config.powerStabilityQuantizationW ?? 0} onChange={(value) => { update("powerStabilityParametersConfirmed", false); update("powerStabilityQuantizationW", value) }} />
-        <Field label="仪器设置备注（可选）">
-          <Input aria-label="仪器设置备注（可选）" disabled={settingsDisabled} value={config.powerStabilityInstrumentSettings ?? ""} placeholder="设备未提供的滤波等设置，可留空" onChange={(event) => { update("powerStabilityParametersConfirmed", false); update("powerStabilityInstrumentSettings", event.target.value) }} />
-        </Field>
-        <p className="text-xs text-muted-foreground">改变仪器面板滤波等设置后，请重新学习本底。同一探头、设置和连接未变时连续复用；重连或采样异常后在 0 A 复核 20 秒。</p>
-      </details>
-      {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
-    </>}
+  return <section className="space-y-3" aria-label="功率计跳动噪声">
+    <p className="text-sm font-medium">功率计跳动噪声</p>
+    <p className="text-xs text-muted-foreground">0 A 采集 20 秒，按探头 SN 记住反复跳动量。只需学习一次，后续自动识别为噪声。所有功率计统一使用标准差和斜率判稳。</p>
+    <p role="status" className="text-xs text-muted-foreground">{noise?.state ?? "尚未学习"}</p>
+    {noise?.model && <p className="text-xs text-muted-foreground">已记住跳动量 ±{formatNumber(noise.model.recurrent_jump_w ?? noise.model.quantization_w, " W", 4)}</p>}
+    <label className="device-settings-checkbox"><input type="checkbox" disabled={!active || pending || learning} checked={confirmedZero} onChange={event => setConfirmedZero(event.target.checked)} />已确认 0 A、无激光输出</label>
+    <Button variant="outline" disabled={!active || pending || !meter?.running || !confirmedZero || learning} aria-disabled={busy || undefined} onClick={() => void command()}>{noise?.model ? "重新学习 (20 s)" : "学习跳动量 (20 s)"}</Button>
+    {learning && <Button variant="outline" aria-disabled={busy || undefined} onClick={() => void command(true)}>取消学习</Button>}
+    {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
   </section>
 }
 
@@ -857,13 +790,7 @@ export function PowerMeterSettingsForm({ snapshot, config, update, active, pendi
         </ControlRow>
       </Field>
       <PowerMeterProfileEditor active={active} config={config} pending={pending} run={run} snapshot={snapshot} />
-      {mode === "auto" && <PowerBackgroundSettings snapshot={snapshot} config={config} update={update} active={active} pending={pending} run={run} />}
-      {config.powerMeterDriverKind === "laserpoint" && (
-        <div className="space-y-2">
-          <NumberField disabled={!active || pending || meter?.running} label="判稳绝对下限 (W)" min={0} step="0.01" value={config.powerStabilityAbsoluteFloorW ?? 0.2} onChange={(value) => update("powerStabilityAbsoluteFloorW", value)} />
-          <p className="text-xs text-muted-foreground">相对判稳时，2σ 限值取相对限值与此值中较大者；漂移仍受相对限值约束。0 表示关闭。2 A 及以下保留原峰峰值规则，原始数据不做平滑。</p>
-        </div>
-      )}
+      <PowerMeterNoiseSettings snapshot={snapshot} active={active} pending={pending} run={run} />
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
         <label className="device-settings-checkbox"><input checked={config.powerSmoothing ?? true} onChange={(e) => update("powerSmoothing", e.target.checked)} type="checkbox" />功率曲线平滑</label>
         <span className="text-xs text-muted-foreground">仅影响显示，不改变测量数据</span>

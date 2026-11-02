@@ -93,7 +93,6 @@ export const DEMO_SNAPSHOT: BackendSnapshot = {
     pibMinimumPercent: 95,
     stableWindowS: 3,
     stabilityLimitPercent: 0.2,
-    powerStabilityAbsoluteFloorW: 0.2,
     initialCurrentA: 2,
     targetCurrentA: 12,
     currentStepA: 2,

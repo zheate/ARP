@@ -177,20 +177,6 @@ export interface AppConfiguration {
   stableWindowS: number
   stabilityLimitPercent: number
   powerStabilityAbsoluteFloorW?: number
-  powerStabilityMode?: "legacy" | "shadow" | "dual"
-  powerStabilityTolerancePreset?: "standard" | "custom"
-  powerStabilityQuantizationW?: number
-  powerStabilityInstrumentSettings?: string
-  powerStabilityAbsoluteDriftW?: number
-  powerStabilityRelativeDriftPercent?: number
-  powerStabilityReferenceS?: number
-  powerStabilityExtraNoisePercent?: number
-  powerStabilityResponseS?: number
-  powerStabilitySettleS?: number
-  powerStabilityCurrentToleranceA?: number
-  powerStabilityParametersConfirmed?: boolean
-  powerStabilityResponseConfirmationRevision?: number
-  powerStabilityConfirmedSignature?: string
   initialCurrentA: number
   targetCurrentA: number
   currentStepA: number
@@ -403,7 +389,7 @@ export interface PowerBackgroundSnapshot {
   job: "learn" | "verify" | "saving" | null
   parametersConfirmed: boolean
   detectedSettings?: { fullScaleW: number | null; filter: "unavailable"; softwareGain: number; intervalMs: number }
-  model: { model_id: string; center_w: number; quantization_w: number; quantization_source?: "manual" | "observed-grid-v1"; noise_sigma_w: number; shift_guard_w: number; slope_guard_w_s: number; created_at: string } | null
+  model: { model_id: string; center_w: number; recurrent_jump_w?: number; quantization_w: number; quantization_source?: "manual" | "observed-grid-v1"; noise_sigma_w: number; shift_guard_w: number; slope_guard_w_s: number; created_at: string } | null
   decision: {
     code?: string
     stable: boolean

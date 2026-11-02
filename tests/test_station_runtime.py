@@ -89,24 +89,24 @@ class StationRuntimeTests(unittest.TestCase):
         station.power_meter_reader.reset_stability_window.return_value = 7
         station._begin_automatic_measurement_window(0.6)
         reading = PowerMeterReading(
-            elapsed_s=6.3, power_w=1.3, stable=False, stable_span_w=0.05,
-            stable_window_s=6.3, stable_median_w=1.3,
-            stability_generation=7, stable_duration_s=6.3,
+            elapsed_s=3.3, power_w=1.3, stable=False, stable_span_w=0.05,
+            stable_window_s=3.3, stable_median_w=1.3,
+            stability_generation=7, stable_duration_s=3.3,
         )
         station._on_power_reading(replace(reading, stability_generation=6))
         self.assertFalse(self.backend.snapshot()["automaticTest"]["stability"]["hasReading"])
         station._on_power_reading(reading)
         for view in ("automatic", "manual", "automatic"):
             progress = self.backend.snapshot({"view": view})["automaticTest"]["stability"]
-            self.assertEqual(progress["elapsedS"], 6.3)
-            self.assertEqual(progress["requiredS"], 10.0)
-            self.assertEqual(progress["spanLimitW"], 0.1)
+            self.assertEqual(progress["elapsedS"], 3.3)
+            self.assertEqual(progress["requiredS"], 5.0)
+            self.assertIsNone(progress["spanLimitW"])
             self.assertEqual(progress["quality"], "live")
             self.assertFalse(progress["powerStable"])
-        station._on_power_reading(replace(reading, stable_duration_s=9.96))
-        self.assertEqual(self.backend.snapshot()["automaticTest"]["stability"]["elapsedS"], 9.9)
-        station._on_power_reading(replace(reading, stable=True, stable_duration_s=10.0))
-        self.assertEqual(self.backend.snapshot()["automaticTest"]["stability"]["elapsedS"], 10.0)
+        station._on_power_reading(replace(reading, stable_duration_s=4.96))
+        self.assertEqual(self.backend.snapshot()["automaticTest"]["stability"]["elapsedS"], 4.9)
+        station._on_power_reading(replace(reading, stable=True, stable_duration_s=5.0))
+        self.assertEqual(self.backend.snapshot()["automaticTest"]["stability"]["elapsedS"], 5.0)
         station.automatic.current_index = 1
         station.automatic.state = AutomaticTestState.SETTING_CURRENT
         self.assertFalse(self.backend.snapshot()["automaticTest"]["stability"]["hasReading"])
@@ -117,7 +117,7 @@ class StationRuntimeTests(unittest.TestCase):
         progress = self.backend.snapshot()["automaticTest"]["stability"]
         self.assertEqual(progress["elapsedS"], 0.0)
         self.assertEqual(progress["requiredS"], 5.0)
-        self.assertEqual(progress["spanLimitW"], 0.2)
+        self.assertIsNone(progress["spanLimitW"])
 
     def test_stability_snapshot_rejects_stale_data_and_freezes_on_pause_or_completion(self) -> None:
         station = self.backend.runtime
@@ -128,23 +128,23 @@ class StationRuntimeTests(unittest.TestCase):
         station.power_meter_reader.reset_stability_window.return_value = 7
         station._begin_automatic_measurement_window(0.6)
         reading = PowerMeterReading(
-            elapsed_s=6.3, power_w=1.3, stable=False, stable_span_w=0.05,
-            stable_window_s=6.3, stable_median_w=1.3,
-            stability_generation=7, stable_duration_s=6.3,
+            elapsed_s=3.3, power_w=1.3, stable=False, stable_span_w=0.05,
+            stable_window_s=3.3, stable_median_w=1.3,
+            stability_generation=7, stable_duration_s=3.3,
         )
         station._on_power_reading(reading)
         station.latest_power_received_monotonic_s -= 60
         self.assertEqual(self.backend.snapshot()["automaticTest"]["stability"]["elapsedS"], 0.0)
         station.automatic.state = AutomaticTestState.PAUSED
         station._on_power_reading(replace(reading, stable_duration_s=0.0))
-        self.assertEqual(self.backend.snapshot()["automaticTest"]["stability"]["elapsedS"], 6.3)
+        self.assertEqual(self.backend.snapshot()["automaticTest"]["stability"]["elapsedS"], 3.3)
         station.automatic.state = AutomaticTestState.WAITING_STABLE
-        station._on_power_reading(replace(reading, stable=True, stable_duration_s=10.0))
+        station._on_power_reading(replace(reading, stable=True, stable_duration_s=5.0))
         station.automatic.state = AutomaticTestState.COMPLETED
         station._on_power_reading(replace(reading, stable_duration_s=0.0))
         progress = self.backend.snapshot()["automaticTest"]["stability"]
         self.assertTrue(progress["powerStable"])
-        self.assertEqual(progress["elapsedS"], 10.0)
+        self.assertEqual(progress["elapsedS"], 5.0)
 
     def _simulate_stable_hold(self, *, stable=lambda _t: True, samples=lambda _t: True, wave=lambda _t: True, spectral=False, dwell=0.0, pause=False, stop_at=None, full_point=False, point_count=2, index=0, power_supply_kind="ch341"):
         station = self.backend.runtime
@@ -398,29 +398,23 @@ class StationRuntimeTests(unittest.TestCase):
             automatic_stability_window_s("hold-points", 3.0),
             3.0,
         )
-        self.assertEqual(automatic_power_stability_span_limit_w(2.0), 0.2)
+        self.assertIsNone(automatic_power_stability_span_limit_w(2.0))
         self.assertIsNone(automatic_power_stability_span_limit_w(2.01))
 
-    def test_low_current_power_stability_accepts_one_tenth_watt_after_ten_seconds(self) -> None:
+    def test_low_current_uses_the_same_five_second_relative_and_slope_rule(self) -> None:
         station = self.backend.runtime
         reader = MagicMock()
         station.power_meter_reader = reader
         station._begin_automatic_measurement_window(0.6)
         detector = PowerStabilityDetector(*reader.update_stability_settings.call_args.args)
-
-        for elapsed_s in range(10):
-            power_w = 1.25 if elapsed_s % 2 == 0 else 1.35
-            self.assertFalse(detector.add_sample(float(elapsed_s), power_w).stable)
-
-        result = detector.add_sample(10.0, 1.35)
-        self.assertTrue(result.stable)
-        self.assertAlmostEqual(result.span_w, 0.1)
+        for i in range(51):
+            result = detector.add_sample(i / 10, 1.25 + (i % 2) * 0.1)
+        self.assertFalse(result.stable)
         self.assertGreater(result.stability_percent, 0.2)
-        self.assertEqual(result.window_s, 10.0)
-        self.assertFalse(detector.add_sample(11.0, 1.351).stable)
-        for elapsed_s in range(12, 22):
-            self.assertFalse(detector.add_sample(float(elapsed_s), 1.25).stable)
-        self.assertTrue(detector.add_sample(22.0, 1.25).stable)
+        self.assertEqual(result.window_s, 5)
+        for i in range(51, 102):
+            result = detector.add_sample(i / 10, 1.25)
+        self.assertTrue(result.stable)
 
     def test_point_specific_power_limits_are_reset_when_current_changes(self) -> None:
         station = self.backend.runtime
@@ -430,10 +424,10 @@ class StationRuntimeTests(unittest.TestCase):
         for script_id, normal_window_s in (("standard", 5.0), ("hold-points", 3.0)):
             station.configuration["selectedScriptId"] = script_id
             for current_a, expected_span_w, expected_window_s in (
-                (0.1, 0.1, 10.0), (0.6, 0.1, 10.0), (0.59, 0.1, 10.0),
-                (0.7, 0.1, 10.0), (1.0, 0.1, 10.0), (1.99, 0.1, 10.0),
-                (2.0, 0.2, normal_window_s), (2.01, None, normal_window_s),
-                (None, None, normal_window_s), (0.6, 0.1, 10.0),
+                (0.1, None, normal_window_s), (0.6, None, normal_window_s), (0.59, None, normal_window_s),
+                (0.7, None, normal_window_s), (1.0, None, normal_window_s), (1.99, None, normal_window_s),
+                (2.0, None, normal_window_s), (2.01, None, normal_window_s),
+                (None, None, normal_window_s), (0.6, None, normal_window_s),
             ):
                 with self.subTest(script_id=script_id, current_a=current_a):
                     reader.reset_mock()
@@ -443,30 +437,30 @@ class StationRuntimeTests(unittest.TestCase):
                     )
                     reader.reset_stability_window.assert_called_once_with()
 
-    def test_ophir_point_limits_and_snapshot_use_one_watt_with_existing_windows(self) -> None:
+    def test_all_meter_brands_share_limits_windows_and_snapshot(self) -> None:
         station = self.backend.runtime
         station.configuration["powerMeterDriverKind"] = "ophir"
         reader = MagicMock()
         station.power_meter_reader = reader
-        for current_a, window_s in ((0.6, 10.0), (2.0, 5.0), (20.0, 5.0)):
+        for current_a, window_s in ((0.6, 5.0), (2.0, 5.0), (20.0, 5.0)):
             with self.subTest(current_a=current_a):
                 station._begin_automatic_measurement_window(current_a)
-                reader.update_stability_settings.assert_called_with(window_s, 0.2, 1.0)
+                reader.update_stability_settings.assert_called_with(window_s, 0.2, None)
                 snapshot = self.backend.snapshot()["automaticTest"]["stability"]
-                self.assertEqual(snapshot["spanLimitW"], 1.0)
+                self.assertIsNone(snapshot["spanLimitW"])
         for driver in ("caihuang", "coherent", "laserpoint"):
             station.configuration["powerMeterDriverKind"] = driver
             station._begin_automatic_measurement_window(20.0)
             reader.update_stability_settings.assert_called_with(5.0, 0.2, None)
             self.assertIsNone(self.backend.snapshot()["automaticTest"]["stability"]["spanLimitW"])
 
-    def test_low_current_point_timeout_allows_ten_second_stability_window(self) -> None:
+    def test_low_current_point_timeout_uses_the_same_window_budget(self) -> None:
         station = self.backend.runtime
-        station.configuration.update({"initialCurrentA": 0.6, "pointTimeoutS": 19.9})
-        with self.assertRaisesRegex(ValueError, "单点超时不能小于 20.0 s"):
+        station.configuration.update({"initialCurrentA": 0.6, "pointTimeoutS": 14.9})
+        with self.assertRaisesRegex(ValueError, "单点超时不能小于 15.0 s"):
             station._automatic_settings()
-        station.configuration["pointTimeoutS"] = 20.0
-        self.assertEqual(station._automatic_settings().point_timeout_s, 20.0)
+        station.configuration["pointTimeoutS"] = 15.0
+        self.assertEqual(station._automatic_settings().point_timeout_s, 15.0)
 
         station.configuration.update({"initialCurrentA": 2.0, "pointTimeoutS": 15.0})
         self.assertEqual(station._automatic_settings().point_timeout_s, 15.0)
@@ -1532,7 +1526,7 @@ class StationRuntimeTests(unittest.TestCase):
 
         generation, spectrum_revision = station._begin_automatic_measurement_window(2.0)
 
-        reader.update_stability_settings.assert_called_once_with(5.0, 0.2, 0.2)
+        reader.update_stability_settings.assert_called_once_with(5.0, 0.2, None)
         reader.reset_stability_window.assert_called_once_with()
         self.assertEqual((generation, spectrum_revision), (7, 12))
         self.assertIsNone(

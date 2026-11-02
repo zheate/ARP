@@ -12,11 +12,7 @@ import "../../src/workbench-appearance.css"
 const learned = new URLSearchParams(window.location.search).has("learned")
 const initialConfig: AppConfiguration = {
   ...emptyConfig, ...DEMO_SNAPSHOT.configuration!, setCurrentA: 0,
-  powerStabilityAbsoluteDriftW: 0.35,
-  powerStabilityResponseS: learned ? 2 : 0,
-  powerStabilitySettleS: learned ? 1 : 0,
-  powerStabilityCurrentToleranceA: learned ? 0.01 : 0,
-  powerStabilityParametersConfirmed: learned,
+
 }
 
 function Fixture() {
@@ -27,7 +23,7 @@ function Fixture() {
     devices: { ...DEMO_SNAPSHOT.devices,
       powerSupply: { ...DEMO_SNAPSHOT.devices.powerSupply, connected: false, outputEnabled: false },
       powerMeter: { ...DEMO_SNAPSHOT.devices.powerMeter, running: false, powerBackground: {
-        mode: "shadow", algorithm: "background-dual-window-v1", state: learned ? "本底学习完成，当前连接可连续复用" : "尚未学习本底", job: null,
+        mode: "shadow", algorithm: "background-dual-window-v1", state: learned ? "SN DEMO-PROBE：已记住反复跳动量" : "尚未学习跳动量", job: null,
         parametersConfirmed: learned, responseParametersConfirmed: learned,
         model: learned ? { model_id: "example-background", quantization_w: 0.001, quantization_source: "observed-grid-v1",
           center_w: 0.0005, noise_sigma_w: 0.0005, shift_guard_w: 0.001, slope_guard_w_s: 0.00005, created_at: "2026-10-23" } : null,
@@ -53,7 +49,7 @@ function Fixture() {
     } else if (method.startsWith("powerMeter.background.")) {
       setSnapshot(s => ({ ...s, devices: { ...s.devices, powerMeter: { ...s.devices.powerMeter,
         powerBackground: { ...s.devices.powerMeter.powerBackground!,
-          state: method.endsWith("cancel") ? "本底任务已取消" : "学习本底 0.0 / 180 秒",
+          state: method.endsWith("cancel") ? "学习已取消" : "学习跳动量 0.0 / 20 秒",
           job: method.endsWith("cancel") ? null : "learn" },
       } } }))
     }
@@ -65,7 +61,7 @@ function Fixture() {
     </div>
     {kind && <DeviceSettingsDialog kind={kind} open onClose={() => setKind(null)} onSave={async () => {
       setSnapshot(s => ({ ...s, configuration: config, devices: { ...s.devices, powerMeter: { ...s.devices.powerMeter,
-        powerBackground: { ...s.devices.powerMeter.powerBackground!, responseParametersConfirmed: Boolean(config.powerStabilityParametersConfirmed) },
+        powerBackground: { ...s.devices.powerMeter.powerBackground!, responseParametersConfirmed: true },
       } } }))
     }} snapshot={snapshot} config={config}
       update={(key, value) => setConfig(c => ({ ...c, [key]: value }))} active pending={false} run={run} />}

@@ -24,7 +24,7 @@ from .concurrency import Signal, WorkerThread
 
 from tools.visa_session import visa_resource_manager
 
-from .core import OPHIR_POWER_STABILITY_SPAN_W, PowerStabilityDetector, decode_i2c_value
+from .core import PowerStabilityDetector, decode_i2c_value
 from .models import (
     PowerMeterOption,
     PowerMeterReading,
@@ -464,10 +464,10 @@ class PowerMeterReaderThread(WorkerThread):
         self._stability_generation = 0
         self._stable_window_s = float(settings.stable_window_s)
         self._stability_limit_percent = float(settings.stability_limit_percent)
-        self._absolute_floor_w = float(settings.absolute_floor_w)
-        self._absolute_span_limit_w: float | None = (
-            OPHIR_POWER_STABILITY_SPAN_W if settings.driver_kind == "ophir" else None
-        )
+        # Historical brand/current-specific limits are ignored in the product.
+        self._absolute_floor_w = 0.0
+        self._noise_jump_w = float(settings.noise_jump_w)
+        self._absolute_span_limit_w: float | None = None
         self.is_ready = False
 
     def stop(self) -> None:
@@ -504,17 +504,19 @@ class PowerMeterReaderThread(WorkerThread):
         ):
             raise ValueError("功率峰峰值限值必须大于或等于 0 W")
         with self._stability_state_lock:
-            if absolute_floor_w is not None and self._absolute_floor_w != float(absolute_floor_w):
-                self._absolute_floor_w = float(absolute_floor_w)
-                self._stability_generation += 1
-                self._stability_reset_requested.set()
             self._stable_window_s = float(window_s)
             self._stability_limit_percent = float(limit_percent)
-            self._absolute_span_limit_w = (
-                OPHIR_POWER_STABILITY_SPAN_W
-                if self.settings.driver_kind == "ophir"
-                else None if absolute_span_limit_w is None else float(absolute_span_limit_w)
-            )
+            self._absolute_floor_w = 0.0
+            self._absolute_span_limit_w = None
+
+    def update_noise_jump(self, jump_w: float) -> None:
+        if not math.isfinite(jump_w) or jump_w < 0:
+            raise ValueError("功率计跳动量必须是非负有限数值")
+        with self._stability_state_lock:
+            if self._noise_jump_w != float(jump_w):
+                self._noise_jump_w = float(jump_w)
+                self._stability_generation += 1
+                self._stability_reset_requested.set()
 
     def run(self) -> None:
         meter = None
@@ -605,11 +607,13 @@ class PowerMeterReaderThread(WorkerThread):
                 stability_limit_percent = self._stability_limit_percent
                 absolute_span_limit_w = self._absolute_span_limit_w
                 absolute_floor_w = self._absolute_floor_w
+                noise_jump_w = self._noise_jump_w
             detector = PowerStabilityDetector(
                 stable_window_s,
                 stability_limit_percent,
                 absolute_span_limit_w,
                 absolute_floor_w=absolute_floor_w,
+                noise_jump_w=noise_jump_w,
             )
             start = time.monotonic()
             connection_generation = 0
@@ -625,18 +629,21 @@ class PowerMeterReaderThread(WorkerThread):
                     stability_limit_percent = self._stability_limit_percent
                     absolute_span_limit_w = self._absolute_span_limit_w
                     absolute_floor_w = self._absolute_floor_w
+                    noise_jump_w = self._noise_jump_w
                 if reset_requested:
                     detector = PowerStabilityDetector(
                         stable_window_s,
                         stability_limit_percent,
                         absolute_span_limit_w,
                         absolute_floor_w=absolute_floor_w,
+                        noise_jump_w=noise_jump_w,
                     )
                 else:
                     detector.window_s = stable_window_s
                     detector.stability_limit_percent = stability_limit_percent
                     detector.absolute_span_limit_w = absolute_span_limit_w
                     detector.absolute_floor_w = absolute_floor_w
+                    detector.noise_jump_w = noise_jump_w
                 transaction_started = time.monotonic()
                 elapsed = transaction_started - start
                 try:
@@ -679,6 +686,7 @@ class PowerMeterReaderThread(WorkerThread):
                             stability_limit_percent,
                             absolute_span_limit_w,
                             absolute_floor_w=absolute_floor_w,
+                            noise_jump_w=noise_jump_w,
                         )
                         next_poll_at = time.monotonic()
                         break

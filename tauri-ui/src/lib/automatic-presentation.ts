@@ -114,12 +114,7 @@ export function powerStabilityPresentation(meter: DeviceSnapshot | undefined) {
 export function automaticStabilityPresentation(auto: Automatic | undefined, meter?: DeviceSnapshot) {
   const stability = auto?.stability
   const state = auto?.state ?? "idle"
-  const result = (label: string, tone = "normal", time = "—", detail = "功率连续满足波动条件的时间") => ({
-    label, tone, time,
-    detail: stability?.background?.mode === "shadow"
-      ? `${detail} 旁路诊断：${stability.background.decision.reason}；升流由原有策略控制。`
-      : detail,
-  })
+  const result = (label: string, tone = "normal", time = "—", detail = "功率连续满足波动条件的时间") => ({ label, tone, time, detail })
   if (state === "idle") return result("未开始")
   if (auto?.runContext?.selectedScriptId === "aging") return result("定时老化", "normal", "—", "老化测试按设定时长运行")
   if (!stability) {
@@ -137,31 +132,10 @@ export function automaticStabilityPresentation(auto: Automatic | undefined, mete
   const usable = stability.hasReading && (!sampling || stability.quality === "live") && !preparing
   const elapsed = usable && stability.powerStable ? Math.min(required, Math.max(0, holdElapsed)) : 0
   const time = required === 0 ? "—" : `${elapsed.toFixed(1)} / ${required.toFixed(1)} 秒`
-  const background = stability.background
-  if (background?.mode === "dual" && !preparing) {
-    if (sampling && !usable) return result("等待有效采样", "warning", time, "功率数据已过期或中断，必须重新判稳。")
-    const decision = background.decision
-    const metrics = decision.metrics
-    const evidence = metrics
-      ? `残差 σ ${metrics.residual_sigma_w.toFixed(4)} W；窗口均值差 ${metrics.block_shift_w.toFixed(4)} W；斜率 ${metrics.slope_w_s.toFixed(5)} W/s。`
-      : "短窗口 5 秒，长窗口 20 秒。"
-    const detail = `${decision.reason}。${evidence}限值含本底保护量；原始功率与 LIV 中位数不作本底扣减。`
-    if (state === "paused") return result("已暂停", "warning", time, detail)
-    if (["completed", "ramping_down"].includes(state)) return result("判稳已结束", "normal", time, detail)
-    if (!stability.powerStable) return result(decision.reason, "warning", time, detail)
-    if (stability.wavelengthRequired && !stability.wavelengthStable) return result("等待波长稳定", "warning", time, detail)
-    return result(elapsed < required ? "连续确认" : "保持完成", "success", time, detail)
-  }
-  const floor = stability.absoluteFloorW ?? 0
-  const floorActive = stability.spanLimitW === null && floor > 0
-  const criterion = stability.spanLimitW === null
-    ? floorActive
-      ? `2σ ≤ max(平均功率 × ${stability.limitPercent}%, ${floor} W)，线性漂移 ≤ 平均功率 × ${stability.limitPercent}%`
-      : `相对波动 ≤ ${stability.limitPercent}%`
-    : `峰峰值 ≤ ${stability.spanLimitW} W`
+  const criterion = `2σ / 平均功率 ≤ ${stability.limitPercent}%，窗口内线性漂移 / 平均功率 ≤ ${stability.limitPercent}%`
   const detail = required === 0
-    ? `功率${criterion}，满足稳定条件后直接读取最终电压。`
-    : `功率${criterion}，判稳后连续保持 ${required} 秒才继续；超限或采样中断后重新判稳、重新计时。`
+    ? `已学习的同幅往返跳动按噪声忽略；功率${criterion}，满足稳定条件后直接读取最终电压。`
+    : `已学习的同幅往返跳动按噪声忽略；功率${criterion}，判稳后连续保持 ${required} 秒才继续；超限或采样中断后重新判稳、重新计时。`
   if (preparing) return result("等待判稳", "normal", time, detail)
   if (state === "paused") return result("已暂停", "warning", usable ? time : "—", detail)
   if (["completed", "ramping_down"].includes(state)) {
@@ -173,12 +147,8 @@ export function automaticStabilityPresentation(auto: Automatic | undefined, mete
       ? result("等待波长稳定", "warning", time, `${detail}功率已稳定，等待波长满足条件。`)
       : result(required === 0 ? "已稳定" : elapsed < required ? "保持中" : "保持完成", "success", time, detail)
   }
-  if (floorActive && stability.driftExceeded) return result("功率漂移", "warning", time, detail)
-  const exceeds = stability.spanLimitW === null
-    ? floorActive
-      ? typeof stability.twoSigmaW === "number" && typeof stability.effectiveLimitW === "number" && stability.twoSigmaW > stability.effectiveLimitW + 1e-12
-      : stability.percent !== null && stability.percent > stability.limitPercent
-    : stability.spanW !== null && stability.spanW > stability.spanLimitW + 1e-12
+  if (stability.driftExceeded) return result("功率漂移", "warning", time, detail)
+  const exceeds = stability.percent !== null && stability.percent > stability.limitPercent
   return result(elapsed === 0 && exceeds ? "波动超限" : "判稳中", "warning", time, detail)
 }
 

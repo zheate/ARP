@@ -26,10 +26,10 @@ class DiagnosticExportTests(unittest.TestCase):
         self.root = Path(self.directory.name)
         self.backend = HeadlessBackend(JsonSettings(self.root / "settings.json"))
         self.station = self.backend.runtime
+        self.station.configuration["powerMeterSerialNumber"] = "EXPORT-PROBE"
         self.manager = self.station.power_stability
         self.samples = [(i * 0.1, (i % 2) * 0.15) for i in range(1801)]
         self.manager._finish_learning(self.manager.job_epoch, self.samples, self.manager.identity(), self.manager.policy())
-        self.manager.freeze()
         self.frozen = self.manager.model
         self.assertIsNotNone(self.frozen)
         store = self.station.record_store

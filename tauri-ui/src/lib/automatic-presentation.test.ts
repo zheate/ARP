@@ -31,28 +31,11 @@ test("run progress does not invent a point, a clock, or shutdown confirmation", 
 })
 
 const stability: NonNullable<Automatic["stability"]> = {
-  powerStable: false, elapsedS: 6.3, requiredS: 10, spanW: 0.05, spanLimitW: 0.1,
+  powerStable: false, elapsedS: 3.3, requiredS: 5, spanW: 0.05, spanLimitW: null,
   holdElapsedS: 0, holdRequiredS: 5,
-  percent: 2, limitPercent: 0.2, quality: "live", hasReading: true,
+  percent: 0.1, limitPercent: 0.2, quality: "live", hasReading: true,
   wavelengthRequired: false, wavelengthStable: false,
 }
-
-test("dual-window presentation preserves diagnostic reasons, hold, freshness and pause states", () => {
-  const background = {
-    mode: "dual" as const, algorithm: "background-dual-window-v1", state: "本底已复核", job: null,
-    parametersConfirmed: true, model: null,
-    decision: { stable: false, reason: "测量能力不足：本底保护量超过目标容差", metrics: null,
-      tolerance_w: 0.1, noise_limit_w: 0.075, guarded_shift_w: 0.15, guarded_drift_w: 0.15 },
-  }
-  const dual = { ...stability, background }
-  assert.match(automaticStabilityPresentation(auto({ state: "waiting_stable", stability: dual })).label, /测量能力不足/)
-  assert.equal(automaticStabilityPresentation(auto({ state: "waiting_stable", stability: { ...dual, quality: "stale" } })).label, "等待有效采样")
-  assert.equal(automaticStabilityPresentation(auto({ state: "paused", stability: dual })).label, "已暂停")
-  assert.equal(automaticStabilityPresentation(auto({ state: "completed", stability: dual })).label, "判稳已结束")
-  assert.equal(automaticStabilityPresentation(auto({ state: "waiting_voltage", stability: { ...dual, powerStable: true, holdElapsedS: 3.2 } })).time, "3.2 / 5.0 秒")
-  const shadow = { ...dual, background: { ...background, mode: "shadow" as const } }
-  assert.match(automaticStabilityPresentation(auto({ state: "waiting_stable", stability: shadow })).detail, /旁路诊断/)
-})
 
 test("confirmation starts only after stability and completes after five seconds", () => {
   const pending = automaticStabilityPresentation(auto({ state: "waiting_stable", stability }))
@@ -87,7 +70,7 @@ test("new points, lost stability and stale readings clear the confirmation clock
   const stale = automaticStabilityPresentation(auto({ state: "waiting_voltage", stability: { ...held, quality: "stale" } }))
   assert.equal(stale.time, "0.0 / 5.0 秒")
   assert.equal(stale.label, "等待采样")
-  const excursion = automaticStabilityPresentation(auto({ state: "waiting_stable", stability: { ...held, powerStable: false, spanW: 0.11 } }))
+  const excursion = automaticStabilityPresentation(auto({ state: "waiting_stable", stability: { ...held, powerStable: false, spanW: 0.11, percent: 0.3 } }))
   assert.equal(excursion.time, "0.0 / 5.0 秒")
   assert.equal(excursion.label, "波动超限")
   assert.equal(automaticStabilityPresentation(auto({ state: "idle", stability })).time, "—")
@@ -119,11 +102,11 @@ test("paused and finished runs retain their recorded confirmation interval", () 
   assert.equal(automaticStabilityPresentation(auto({ state: "waiting_voltage", stability, runContext: { selectedScriptId: "aging", sn: "", station: "", testTemperatureC: "" } })).label, "定时老化")
 })
 
-test("absolute floor uses backend acceptance and reports drift separately", () => {
-  const noisy = { ...stability, spanLimitW: null, percent: 0.4, absoluteFloorW: 0.2, effectiveLimitW: 0.2, driftW: 0.01, driftLimitW: 0.065, driftExceeded: false }
+test("all meters report relative deviation and drift with no absolute floor", () => {
+  const noisy = { ...stability, spanLimitW: null, percent: 0.1, absoluteFloorW: 0, effectiveLimitW: 0.065, driftW: 0.01, driftLimitW: 0.065, driftExceeded: false }
   const gathering = automaticStabilityPresentation(auto({ state: "waiting_stable", stability: noisy }))
   assert.equal(gathering.label, "判稳中")
-  assert.match(gathering.detail, /0.2 W/)
+  assert.match(gathering.detail, /2σ \/ 平均功率 ≤ 0.2%/)
   assert.match(gathering.detail, /漂移/)
   const drifting = automaticStabilityPresentation(auto({ state: "waiting_stable", stability: { ...noisy, driftW: 0.15, driftExceeded: true } }))
   assert.equal(drifting.label, "功率漂移")
@@ -132,8 +115,8 @@ test("absolute floor uses backend acceptance and reports drift separately", () =
   assert.equal(accepted.label, "保持中")
 })
 
-test("noise above the absolute floor still reports fluctuation", () => {
-  const noisy = { ...stability, spanLimitW: null, percent: 1, absoluteFloorW: 0.2, effectiveLimitW: 0.2, twoSigmaW: 0.325 }
+test("relative deviation above the common limit reports fluctuation", () => {
+  const noisy = { ...stability, spanLimitW: null, percent: 1, absoluteFloorW: 0, effectiveLimitW: 0.065, twoSigmaW: 0.325 }
   assert.equal(automaticStabilityPresentation(auto({ state: "waiting_stable", stability: noisy })).label, "波动超限")
 })
 

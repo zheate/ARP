@@ -72,6 +72,7 @@ class PowerMeterSettings:
     driver_kind: str = "caihuang"
     serial_number: str = ""
     absolute_floor_w: float = 0.0
+    noise_jump_w: float = 0.0
 
 
 @dataclass(frozen=True)

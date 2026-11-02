@@ -62,7 +62,6 @@ class BackendDispatcher:
             "powerMeter.stop": lambda _p: st.stop_power_meter(),
             "powerMeter.setRelativeZero": lambda p: st.set_relative_zero(p),
             "powerMeter.background.learn": lambda p: st.power_stability.start_background(p),
-            "powerMeter.background.verify": lambda p: st.power_stability.start_background(p, verify=True),
             "powerMeter.background.cancel": lambda _p: st.power_stability.cancel_background(),
             "manual.saveExcel": lambda _p: st.save_manual_records(),
             "spectrometer.start": lambda _p: st.start_spectrometer(),

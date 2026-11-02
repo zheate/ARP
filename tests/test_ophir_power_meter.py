@@ -80,7 +80,7 @@ class _AdjustableWavelengthController:
 
 
 class OphirPowerMeterReadTests(unittest.TestCase):
-    def test_ophir_one_watt_steps_require_full_window_and_reset_above_limit(self) -> None:
+    def test_ophir_uses_relative_limits_instead_of_the_historical_one_watt_rule(self) -> None:
         for update_settings in (False, True):
             with self.subTest(update_settings=update_settings):
                 clock = _SampleClock()
@@ -117,8 +117,8 @@ class OphirPowerMeterReadTests(unittest.TestCase):
                 self.assertEqual(errors, [])
                 self.assertEqual(len(readings), 13)
                 self.assertTrue(all(not reading.stable for reading in readings[:10]))
-                self.assertTrue(readings[10].stable)
-                self.assertTrue(readings[11].stable)
+                self.assertFalse(readings[10].stable)
+                self.assertFalse(readings[11].stable)
                 self.assertGreater(readings[11].stability_percent, 0.2)
                 self.assertEqual(readings[11].stable_span_w, 1.0)
                 self.assertFalse(readings[12].stable)

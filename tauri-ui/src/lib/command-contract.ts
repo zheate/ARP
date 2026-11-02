@@ -31,7 +31,6 @@ export interface CommandMap {
   "powerMeter.stop": Entry<{}>
   "powerMeter.setRelativeZero": Entry<{ enabled: boolean }>
   "powerMeter.background.learn": Entry<{ confirmedDark: boolean }>
-  "powerMeter.background.verify": Entry<{ confirmedDark: boolean }>
   "powerMeter.background.cancel": Entry<{}>
   "powerMeter.profile.create": Entry<Profile>
   "powerMeter.profile.save": Entry<Profile>

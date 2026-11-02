@@ -11,7 +11,6 @@ export const powerMeterDerivedConfigurationKeys = [
   "powerMeterProfileVersion",
   "powerMeterProfileNotes",
   "powerMeterProfileWavelengthPending",
-  "powerStabilityConfirmedSignature",
 ] as const satisfies ReadonlyArray<keyof AppConfiguration>
 
 export function mergeAuthoritativePowerMeterConfiguration(

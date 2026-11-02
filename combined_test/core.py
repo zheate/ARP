@@ -9,7 +9,6 @@ from statistics import median
 from typing import Deque, Iterable
 
 
-OPHIR_POWER_STABILITY_SPAN_W = 1.0
 
 
 CSV_HEADER = [
@@ -209,12 +208,10 @@ class WavelengthStabilityDetector(_AbsoluteWindowStabilityDetector):
 
 
 class PowerStabilityDetector:
-    """Time-window power detector using relative or absolute stability.
+    """One power criterion for every meter/current: relative 2-sigma AND drift.
 
-    Relative mode uses ``2σ / μ × 100%``. Absolute mode uses the peak-to-peak
-    span over the same complete, continuously sampled time window. An optional
-    absolute floor widens only relative-mode 2-sigma noise acceptance; fitted
-    linear drift must still satisfy the original relative allowance.
+    Completed SN-learned jump pairs are treated as measurement noise. Historical
+    span/floor arguments remain accepted for callers, but no longer set limits.
     """
 
     MIN_SAMPLE_COUNT = 5
@@ -226,6 +223,7 @@ class PowerStabilityDetector:
         stability_limit_percent: float,
         absolute_span_limit_w: float | None = None,
         absolute_floor_w: float = 0.0,
+        noise_jump_w: float = 0.0,
     ) -> None:
         if window_s <= 0:
             raise ValueError("稳定窗口必须大于 0 秒")
@@ -238,17 +236,36 @@ class PowerStabilityDetector:
             raise ValueError("功率峰峰值限值必须大于或等于 0 W")
         self.window_s = float(window_s)
         self.stability_limit_percent = float(stability_limit_percent)
-        self.absolute_span_limit_w = (
-            None if absolute_span_limit_w is None else float(absolute_span_limit_w)
-        )
+        self.absolute_span_limit_w = None
         if not math.isfinite(float(absolute_floor_w)) or absolute_floor_w < 0:
             raise ValueError("功率判稳绝对下限必须是大于或等于 0 W 的有限数值")
-        self.absolute_floor_w = float(absolute_floor_w)
+        self.absolute_floor_w = 0.0
+        if not math.isfinite(noise_jump_w) or noise_jump_w < 0:
+            raise ValueError("功率计跳动量必须是非负有限数值")
+        self.noise_jump_w = float(noise_jump_w)
         self._samples: Deque[tuple[float, float]] = deque()
+
+    def _is_repeated_noise(self, powers: list[float]) -> bool:
+        """Ignore repeated up/down jumps, allowing one window-boundary step."""
+        if self.noise_jump_w <= 0:
+            return False
+        epsilon = max(1e-12, self.noise_jump_w * 1e-6)
+        upward = downward = 0
+        for a, b in zip(powers, powers[1:]):
+            change = b - a
+            if abs(change) <= epsilon:
+                continue
+            if abs(abs(change) - self.noise_jump_w) > epsilon:
+                return False
+            upward += change > 0
+            downward += change < 0
+        # Odd/even sample counts can cut the final pair at the window edge.
+        # More than one accumulated step or a one-way trace is not exempt.
+        return min(upward, downward) > 0 and abs(upward - downward) <= 1
 
     def _relative_limits(self, mean_w: float) -> tuple[float, float]:
         relative_w = mean_w * self.stability_limit_percent / 100.0
-        return max(relative_w, self.absolute_floor_w), relative_w
+        return relative_w, relative_w
 
     @staticmethod
     def _within(value: float, limit: float) -> bool:
@@ -256,9 +273,8 @@ class PowerStabilityDetector:
 
     def _relative_stable(self, mean_w: float, two_sigma_w: float, drift_w: float) -> bool:
         limit_w, drift_limit_w = self._relative_limits(mean_w)
-        return mean_w > 0 and self._within(two_sigma_w, limit_w) and (
-            self.absolute_floor_w == 0 or self._within(drift_w, drift_limit_w)
-        )
+        return (mean_w > 0 and self._within(two_sigma_w, limit_w)
+                and self._within(drift_w, drift_limit_w))
 
     def reset(self) -> None:
         self._samples.clear()
@@ -269,8 +285,6 @@ class PowerStabilityDetector:
             return 0.0
         newest = self._samples[-1][0]
         previous = newest
-        minimum = math.inf
-        maximum = -math.inf
         mean = variance_sum = duration = 0.0
         mean_time = time_variance_sum = covariance_sum = 0.0
         count = 0
@@ -279,8 +293,6 @@ class PowerStabilityDetector:
                 break
             previous = elapsed
             count += 1
-            minimum = min(minimum, power)
-            maximum = max(maximum, power)
             delta = power - mean
             mean += delta / count
             variance_sum += delta * (power - mean)
@@ -291,18 +303,12 @@ class PowerStabilityDetector:
             mean_time += delta_time / count
             time_variance_sum += delta_time * (time_offset - mean_time)
             covariance_sum += delta_time * (power - mean)
-            if self.absolute_span_limit_w is not None:
-                limit = self.absolute_span_limit_w
-                if maximum - minimum > limit + max(1e-12, limit * 1e-12):
-                    break
-                qualifies = True
-            else:
-                two_sigma = (
-                    2.0 * math.sqrt(max(0.0, variance_sum) / (count - 1))
-                    if count > 1 else math.inf
-                )
-                drift = abs(covariance_sum / time_variance_sum) * (newest - elapsed) if time_variance_sum > 0 else 0.0
-                qualifies = self._relative_stable(mean, two_sigma, drift)
+            two_sigma = (
+                2.0 * math.sqrt(max(0.0, variance_sum) / (count - 1))
+                if count > 1 else math.inf
+            )
+            drift = abs(covariance_sum / time_variance_sum) * (newest - elapsed) if time_variance_sum > 0 else 0.0
+            qualifies = self._relative_stable(mean, two_sigma, drift)
             if qualifies:
                 duration = newest - elapsed
         return min(self.window_s, max(0.0, duration))
@@ -387,20 +393,18 @@ class PowerStabilityDetector:
             stability_percent = two_sigma_w / mean_w * 100.0
         effective_limit_w = drift_w = drift_limit_w = math.nan
         drift_exceeded = False
-        if self.absolute_span_limit_w is None:
-            effective_limit_w, relative_limit_w = self._relative_limits(mean_w)
-            if self.absolute_floor_w > 0:
-                offsets = [sample[0] - samples[0][0] for sample in samples]
-                mean_time = math.fsum(offsets) / len(offsets)
-                time_variance = math.fsum((offset - mean_time) ** 2 for offset in offsets)
-                covariance = math.fsum((offset - mean_time) * (power - mean_w) for offset, power in zip(offsets, powers))
-                drift_w = abs(covariance / time_variance) * covered_s if time_variance > 0 else math.inf
-                drift_limit_w = relative_limit_w
-                drift_exceeded = not self._within(drift_w, drift_limit_w)
-            stable = self._relative_stable(mean_w, two_sigma_w, drift_w)
-        else:
-            margin = max(1e-12, self.absolute_span_limit_w * 1e-12)
-            stable = span_w <= self.absolute_span_limit_w + margin
+        effective_limit_w, relative_limit_w = self._relative_limits(mean_w)
+        offsets = [sample[0] - samples[0][0] for sample in samples]
+        mean_time = math.fsum(offsets) / len(offsets)
+        time_variance = math.fsum((offset - mean_time) ** 2 for offset in offsets)
+        covariance = math.fsum((offset - mean_time) * (power - mean_w) for offset, power in zip(offsets, powers))
+        drift_w = abs(covariance / time_variance) * covered_s if time_variance > 0 else math.inf
+        drift_limit_w = relative_limit_w
+        drift_exceeded = not self._within(drift_w, drift_limit_w)
+        stable = self._relative_stable(mean_w, two_sigma_w, drift_w)
+        if self._is_repeated_noise(powers) and mean_w > 0:
+            stable = True
+            drift_exceeded = False
         return self._result(
             stable=stable,
             span_w=span_w,

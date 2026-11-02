@@ -585,6 +585,9 @@ class _HeadlessShippingReportRenderer:
             x_padding = max(0.25 * x_step, 0.04 * (x_data_max - x_data_min))
             x_min = x_data_min - x_padding
             x_max = x_data_max + x_padding
+        # Label density follows the visible range, not the smallest acquisition
+        # increment: one close pair must not crowd the entire report axis.
+        x_step = _reference_axis_step(x_max - x_min, target_intervals=8)
         power_min, power_max, power_step = _reference_axis_bounds(powers, singleton_span_fraction=1.2, minimum=0.0)
         efficiency_min, efficiency_max, efficiency_step = _reference_axis_bounds(efficiencies, singleton_span_fraction=0.5, minimum=0.0, snap_to_major_ticks=True)
 
