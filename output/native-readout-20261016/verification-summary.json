@@ -1,0 +1,53 @@
+{
+  "runtime": "macOS Tauri WKWebView",
+  "pid": 49404,
+  "windowId": 6436,
+  "title": "Power Test · 读数验证",
+  "data": "virtual demo; no instrument control or production database writes",
+  "format": "power: three decimal places; current: two integer places and two decimal places",
+  "automaticCurrents": [
+    "0.00",
+    "10.00",
+    "2.00",
+    "6.00"
+  ],
+  "manualCurrents": [
+    "9.00",
+    "10.00",
+    "99.00",
+    "14.00"
+  ],
+  "unitWShift": 0,
+  "unitAShift": 0,
+  "currentFrameXShift": 0,
+  "viewports": [
+    {
+      "width": 1440,
+      "height": 874
+    },
+    {
+      "width": 1180,
+      "height": 720
+    }
+  ],
+  "images": [
+    {
+      "name": "automatic-10_00.png",
+      "width": 2880,
+      "height": 1748,
+      "sha256": "2b1baaf2916154d3397be5470f33e63f0a86a18c346e6e34fc71caecbe218a37"
+    },
+    {
+      "name": "manual-final.png",
+      "width": 2880,
+      "height": 1746,
+      "sha256": "9131e055c892f8f8942d11df3b5c2fd487560f465ac4918346cc350b397264f3"
+    },
+    {
+      "name": "manual-1180.png",
+      "width": 2360,
+      "height": 1440,
+      "sha256": "d3682d8439e8186a2b7657504f3d7377211a9dfcad0fad03a8de4125b49f8233"
+    }
+  ]
+}

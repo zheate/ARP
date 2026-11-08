@@ -1,0 +1,12 @@
+{
+  "branch": "audit/arp-ui-final-20260914",
+  "base": "f47395c161639cd176a53ecf4c37dea38e7dd3a7",
+  "files": {
+    "tauri-ui/scripts/ui-dialog-qa.mjs": "733ba1533777980ea60ee648d2337b015b773ddf0dbdb75cd1c3633d5e78bd62",
+    "tauri-ui/scripts/ui-review.mjs": "c5128d7dbc7dd8da6410f7652189246e156628c32c138d2694eafea52268ff76",
+    "tauri-ui/src/features/devices/settings.tsx": "9c0fc4806e5daa463d8aca77ad0a633ad0b9fd52893d401c9c03241324a3632a",
+    "tauri-ui/src/features/manual/current-controls.css": "c6dc875dc5c6c96e91fd98027bda3ad72b217582dfe4f170d81d639bf16b2159"
+  },
+  "credentialScan": "no matches in four allowlisted files",
+  "excluded": "local output, qa-evidence, fixture drafts, unused candidate image"
+}

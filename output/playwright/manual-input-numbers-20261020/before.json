@@ -1,0 +1,426 @@
+{
+  "stage": "before",
+  "scenarios": [
+    {
+      "width": 1440,
+      "theme": "light",
+      "card": {
+        "x": 188.796875,
+        "y": 206,
+        "width": 403.734375,
+        "height": 320.421875
+      },
+      "inputs": [
+        {
+          "id": "manual-psu-voltage",
+          "value": "22",
+          "rect": {
+            "x": 203.796875,
+            "y": 305.421875,
+            "width": 182.859375,
+            "height": 36
+          },
+          "fontSize": "14px",
+          "lineHeight": "20px",
+          "textAlign": "start",
+          "paddingRight": "24px",
+          "paddingLeft": "10px",
+          "borderWidth": "1px",
+          "arrows": [
+            {
+              "x": 368.65625,
+              "y": 310.421875,
+              "width": 14,
+              "height": 12
+            },
+            {
+              "x": 368.65625,
+              "y": 324.421875,
+              "width": 14,
+              "height": 12
+            }
+          ]
+        },
+        {
+          "id": "manual-psu-current",
+          "value": "2",
+          "rect": {
+            "x": 394.65625,
+            "y": 305.421875,
+            "width": 182.875,
+            "height": 36
+          },
+          "fontSize": "14px",
+          "lineHeight": "20px",
+          "textAlign": "start",
+          "paddingRight": "24px",
+          "paddingLeft": "10px",
+          "borderWidth": "1px",
+          "arrows": [
+            {
+              "x": 559.53125,
+              "y": 310.421875,
+              "width": 14,
+              "height": 12
+            },
+            {
+              "x": 559.53125,
+              "y": 324.421875,
+              "width": 14,
+              "height": 12
+            }
+          ]
+        }
+      ],
+      "buttons": [
+        {
+          "x": 203.796875,
+          "y": 396.65625,
+          "width": 182.859375,
+          "height": 36
+        },
+        {
+          "x": 394.65625,
+          "y": 396.65625,
+          "width": 182.875,
+          "height": 36
+        },
+        {
+          "x": 203.796875,
+          "y": 440.65625,
+          "width": 182.859375,
+          "height": 36
+        },
+        {
+          "x": 394.65625,
+          "y": 440.65625,
+          "width": 182.875,
+          "height": 36
+        }
+      ],
+      "readouts": {
+        "x": 203.796875,
+        "y": 496.28125,
+        "width": 373.734375,
+        "height": 17.140625
+      },
+      "overflow": false
+    },
+    {
+      "width": 1180,
+      "theme": "light",
+      "card": {
+        "x": 176,
+        "y": 206,
+        "width": 321.328125,
+        "height": 334.421875
+      },
+      "inputs": [
+        {
+          "id": "manual-psu-voltage",
+          "value": "22",
+          "rect": {
+            "x": 191,
+            "y": 305.421875,
+            "width": 141.65625,
+            "height": 36
+          },
+          "fontSize": "14px",
+          "lineHeight": "20px",
+          "textAlign": "start",
+          "paddingRight": "24px",
+          "paddingLeft": "10px",
+          "borderWidth": "1px",
+          "arrows": [
+            {
+              "x": 314.65625,
+              "y": 310.421875,
+              "width": 14,
+              "height": 12
+            },
+            {
+              "x": 314.65625,
+              "y": 324.421875,
+              "width": 14,
+              "height": 12
+            }
+          ]
+        },
+        {
+          "id": "manual-psu-current",
+          "value": "2",
+          "rect": {
+            "x": 340.65625,
+            "y": 305.421875,
+            "width": 141.671875,
+            "height": 36
+          },
+          "fontSize": "14px",
+          "lineHeight": "20px",
+          "textAlign": "start",
+          "paddingRight": "24px",
+          "paddingLeft": "10px",
+          "borderWidth": "1px",
+          "arrows": [
+            {
+              "x": 464.328125,
+              "y": 310.421875,
+              "width": 14,
+              "height": 12
+            },
+            {
+              "x": 464.328125,
+              "y": 324.421875,
+              "width": 14,
+              "height": 12
+            }
+          ]
+        }
+      ],
+      "buttons": [
+        {
+          "x": 191,
+          "y": 406,
+          "width": 141.65625,
+          "height": 36
+        },
+        {
+          "x": 340.65625,
+          "y": 406,
+          "width": 141.671875,
+          "height": 36
+        },
+        {
+          "x": 191,
+          "y": 450,
+          "width": 141.65625,
+          "height": 36
+        },
+        {
+          "x": 340.65625,
+          "y": 450,
+          "width": 141.671875,
+          "height": 36
+        }
+      ],
+      "readouts": {
+        "x": 191,
+        "y": 510.28125,
+        "width": 291.328125,
+        "height": 17.140625
+      },
+      "overflow": false
+    },
+    {
+      "width": 1440,
+      "theme": "dark",
+      "card": {
+        "x": 188.796875,
+        "y": 206,
+        "width": 403.734375,
+        "height": 320.421875
+      },
+      "inputs": [
+        {
+          "id": "manual-psu-voltage",
+          "value": "22",
+          "rect": {
+            "x": 203.796875,
+            "y": 305.421875,
+            "width": 182.859375,
+            "height": 36
+          },
+          "fontSize": "14px",
+          "lineHeight": "20px",
+          "textAlign": "start",
+          "paddingRight": "24px",
+          "paddingLeft": "10px",
+          "borderWidth": "1px",
+          "arrows": [
+            {
+              "x": 368.65625,
+              "y": 310.421875,
+              "width": 14,
+              "height": 12
+            },
+            {
+              "x": 368.65625,
+              "y": 324.421875,
+              "width": 14,
+              "height": 12
+            }
+          ]
+        },
+        {
+          "id": "manual-psu-current",
+          "value": "2",
+          "rect": {
+            "x": 394.65625,
+            "y": 305.421875,
+            "width": 182.875,
+            "height": 36
+          },
+          "fontSize": "14px",
+          "lineHeight": "20px",
+          "textAlign": "start",
+          "paddingRight": "24px",
+          "paddingLeft": "10px",
+          "borderWidth": "1px",
+          "arrows": [
+            {
+              "x": 559.53125,
+              "y": 310.421875,
+              "width": 14,
+              "height": 12
+            },
+            {
+              "x": 559.53125,
+              "y": 324.421875,
+              "width": 14,
+              "height": 12
+            }
+          ]
+        }
+      ],
+      "buttons": [
+        {
+          "x": 203.796875,
+          "y": 396.65625,
+          "width": 182.859375,
+          "height": 36
+        },
+        {
+          "x": 394.65625,
+          "y": 396.65625,
+          "width": 182.875,
+          "height": 36
+        },
+        {
+          "x": 203.796875,
+          "y": 440.65625,
+          "width": 182.859375,
+          "height": 36
+        },
+        {
+          "x": 394.65625,
+          "y": 440.65625,
+          "width": 182.875,
+          "height": 36
+        }
+      ],
+      "readouts": {
+        "x": 203.796875,
+        "y": 496.28125,
+        "width": 373.734375,
+        "height": 17.140625
+      },
+      "overflow": false
+    },
+    {
+      "width": 1180,
+      "theme": "dark",
+      "card": {
+        "x": 176,
+        "y": 206,
+        "width": 321.328125,
+        "height": 334.421875
+      },
+      "inputs": [
+        {
+          "id": "manual-psu-voltage",
+          "value": "22",
+          "rect": {
+            "x": 191,
+            "y": 305.421875,
+            "width": 141.65625,
+            "height": 36
+          },
+          "fontSize": "14px",
+          "lineHeight": "20px",
+          "textAlign": "start",
+          "paddingRight": "24px",
+          "paddingLeft": "10px",
+          "borderWidth": "1px",
+          "arrows": [
+            {
+              "x": 314.65625,
+              "y": 310.421875,
+              "width": 14,
+              "height": 12
+            },
+            {
+              "x": 314.65625,
+              "y": 324.421875,
+              "width": 14,
+              "height": 12
+            }
+          ]
+        },
+        {
+          "id": "manual-psu-current",
+          "value": "2",
+          "rect": {
+            "x": 340.65625,
+            "y": 305.421875,
+            "width": 141.671875,
+            "height": 36
+          },
+          "fontSize": "14px",
+          "lineHeight": "20px",
+          "textAlign": "start",
+          "paddingRight": "24px",
+          "paddingLeft": "10px",
+          "borderWidth": "1px",
+          "arrows": [
+            {
+              "x": 464.328125,
+              "y": 310.421875,
+              "width": 14,
+              "height": 12
+            },
+            {
+              "x": 464.328125,
+              "y": 324.421875,
+              "width": 14,
+              "height": 12
+            }
+          ]
+        }
+      ],
+      "buttons": [
+        {
+          "x": 191,
+          "y": 406,
+          "width": 141.65625,
+          "height": 36
+        },
+        {
+          "x": 340.65625,
+          "y": 406,
+          "width": 141.671875,
+          "height": 36
+        },
+        {
+          "x": 191,
+          "y": 450,
+          "width": 141.65625,
+          "height": 36
+        },
+        {
+          "x": 340.65625,
+          "y": 450,
+          "width": 141.671875,
+          "height": 36
+        }
+      ],
+      "readouts": {
+        "x": 191,
+        "y": 510.28125,
+        "width": 291.328125,
+        "height": 17.140625
+      },
+      "overflow": false
+    }
+  ],
+  "errors": []
+}

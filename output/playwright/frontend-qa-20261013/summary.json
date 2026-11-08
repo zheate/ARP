@@ -1,0 +1,30 @@
+{
+  "suites": [
+    {
+      "path": "output/playwright/frontend-qa-20261013/final/results.json",
+      "captures": 63,
+      "checks": 152,
+      "failures": [],
+      "errors": [],
+      "overflow": []
+    },
+    {
+      "path": "output/playwright/frontend-qa-20261013/final/state-results.json",
+      "captures": 15,
+      "checks": 81,
+      "failures": [],
+      "errors": [],
+      "overflow": []
+    },
+    {
+      "path": "qa-evidence/dialogs/results.json",
+      "captures": 42,
+      "checks": 222,
+      "failures": [],
+      "errors": [],
+      "overflow": []
+    }
+  ],
+  "totalChecks": 455,
+  "totalCaptures": 120
+}

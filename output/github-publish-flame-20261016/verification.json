@@ -1,0 +1,9 @@
+{
+  "files": 3,
+  "focusedTests": 19,
+  "build": "passed",
+  "runtimeEvidence": "output/playwright/swaying-flame-dinosaur-20261016/verification.json",
+  "credentialScan": [],
+  "assetMatchesBuild": true,
+  "excluded": "local data, screenshots, QA output, intermediate red smooth skin asset"
+}

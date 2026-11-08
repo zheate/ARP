@@ -1,0 +1,15 @@
+{
+  "branch": "audit/arp-ui-final-20260914",
+  "localCommit": "05ca8c8b167a496fc2f44ec978e91b84826a63d3",
+  "remoteCommit": "05ca8c8b167a496fc2f44ec978e91b84826a63d3",
+  "aheadBehind": "0\t0",
+  "trackedWorktree": "clean",
+  "publishedFiles": [
+    "tauri-ui/scripts/ui-dialog-qa.mjs",
+    "tauri-ui/scripts/ui-review.mjs",
+    "tauri-ui/src/features/devices/settings.tsx",
+    "tauri-ui/src/features/manual/current-controls.css"
+  ],
+  "localArtifacts": "preserved; not staged or pushed",
+  "transport": "existing system PAC proxy, supplied per command only"
+}

@@ -5,6 +5,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+if ($env:OS -ne "Windows_NT" -or -not [Environment]::Is64BitOperatingSystem) {
+    throw "The complete offline installer must be built on 64-bit Windows."
+}
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $driverRoot = Join-Path $projectRoot "local_drivers\current_project"
@@ -34,6 +37,7 @@ if ([string]::IsNullOrWhiteSpace($OutputFile)) {
     $OutputFile = Join-Path $projectRoot $OutputFile
 }
 $installScript = Join-Path $PSScriptRoot "install_full_bundle.ps1"
+$helperScript = Join-Path $PSScriptRoot "full_bundle_helpers.ps1"
 $driverGuide = Join-Path $PSScriptRoot "driver_installation_guide.txt"
 $licenseFile = Join-Path $PSScriptRoot "full_installer_notice.txt"
 $encodedLicenseFile = Join-Path $buildRoot "full_installer_notice.utf16.txt"
@@ -59,6 +63,7 @@ $requiredPaths = @(
     $nipmInstaller,
     $webviewInstaller,
     $installScript,
+    $helperScript,
     $driverGuide,
     $licenseFile,
     $nsiScript,
@@ -119,7 +124,7 @@ if (-not $SkipApplicationBuild) {
     }
 }
 
-$appMsi = Get-ChildItem -LiteralPath (Join-Path $bundleRoot "msi") -File -Filter "*.msi" |
+$appMsi = Get-ChildItem -LiteralPath (Join-Path $bundleRoot "msi") -File -Filter "Power Test_${appVersion}_x64_*.msi" |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
 if (-not $appMsi) {
@@ -128,7 +133,9 @@ if (-not $appMsi) {
 
 $makensisCandidates = @(
     (Join-Path $env:LOCALAPPDATA "tauri\NSIS\Bin\makensis.exe"),
-    (Join-Path $env:LOCALAPPDATA "Tauri\NSIS\Bin\makensis.exe")
+    (Join-Path $env:LOCALAPPDATA "Tauri\NSIS\Bin\makensis.exe"),
+    (Join-Path ${env:ProgramFiles(x86)} "NSIS\makensis.exe"),
+    (Join-Path $env:ProgramFiles "NSIS\makensis.exe")
 )
 $makensis = $makensisCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 if (-not $makensis) {
@@ -138,7 +145,7 @@ if (-not $makensis) {
     }
 }
 if (-not $makensis) {
-    throw "makensis.exe was not found. Run a normal Tauri NSIS build first."
+    throw "makensis.exe was not found. Install NSIS on this Windows build machine, or run a normal Tauri NSIS build first."
 }
 
 New-Item -ItemType Directory -Force -Path $buildRoot, $outputRoot | Out-Null
@@ -158,7 +165,7 @@ Copy-Item -Path (Join-Path $driverRoot '*') -Destination $driverPayloadRoot -Rec
 Copy-Item -LiteralPath $driverGuide -Destination (Join-Path $driverPayloadRoot "DRIVER-INSTALLATION.txt") -Force
 
 # CH341PAR.EXE is a WinRAR SFX. Extract its signed driver files at build time
-# so users can install the INF manually without depending on the vendor GUI.
+# so setup can install the INF without depending on the vendor GUI.
 $ch341Sfx = Join-Path $driverRoot "01_ch341_i2c\CH341PAR.EXE"
 $ch341DriverPayloadRoot = Join-Path $driverPayloadRoot "01_ch341_i2c\driver"
 New-Item -ItemType Directory -Force -Path $ch341DriverPayloadRoot | Out-Null
@@ -186,6 +193,37 @@ New-Item -ItemType Directory -Force -Path $ophirPayloadRoot, $coherentPayloadRoo
 Copy-Item -LiteralPath $ophirInstaller -Destination (Join-Path $ophirPayloadRoot "StarLab_Setup.exe") -Force
 Copy-Item -LiteralPath $coherentArchive -Destination (Join-Path $coherentPayloadRoot "coherent-meter-connection-setup.zip") -Force
 
+# Expand vendor archives during the build, not on the customer's computer.
+$ftdiRoot = Join-Path $driverPayloadRoot "04_laserpoint_ftdi\driver"
+if (Test-Path -LiteralPath $ftdiRoot) { Remove-Item -LiteralPath $ftdiRoot -Recurse -Force }
+Expand-Archive -LiteralPath (Join-Path $driverRoot "04_laserpoint_ftdi\Win-10-11-Drivers-rev2026.zip") -DestinationPath $ftdiRoot -Force
+if (@(Get-ChildItem -LiteralPath $ftdiRoot -Recurse -File -Filter '*.inf').Count -eq 0) {
+    throw "LaserPoint FTDI archive contains no INF drivers."
+}
+$coherentExpanded = Join-Path $buildRoot 'coherent-expanded'
+if (Test-Path -LiteralPath $coherentExpanded) { Remove-Item -LiteralPath $coherentExpanded -Recurse -Force }
+Expand-Archive -LiteralPath $coherentArchive -DestinationPath $coherentExpanded -Force
+$coherentSetups = @(Get-ChildItem -LiteralPath $coherentExpanded -Recurse -File -Filter '*Release Setup.exe')
+if ($coherentSetups.Count -ne 1) { throw 'Expected exactly one Coherent Release Setup.exe in the verified archive.' }
+Copy-Item -LiteralPath $coherentSetups[0].FullName -Destination (Join-Path $coherentPayloadRoot 'Setup.exe') -Force
+
+. $helperScript
+$plan = @(Get-SetupPlan -PayloadRoot $driverPayloadRoot -Components @(Get-SetupComponents))
+Assert-SetupPayload -Plan $plan -PayloadRoot $driverPayloadRoot -MsiPath $appMsi.FullName -SkipHashCheck
+Assert-NiFeedFiles -FeedRoot (Join-Path $driverPayloadRoot "06_ni_runtime/feed")
+$stagedManifest = Join-Path $driverPayloadRoot 'payload-sha256.json'
+if (Test-Path -LiteralPath $stagedManifest) { Remove-Item -LiteralPath $stagedManifest -Force }
+# Hash the fully staged payload, including extracted INF/SYS/CAT and offline NI
+# packages. Customer setup rejects missing/corrupted files before changing Windows.
+$payloadPrefix = [IO.Path]::GetFullPath($driverPayloadRoot).TrimEnd('\') + '\'
+$payloadHashes = @(Get-ChildItem -LiteralPath $driverPayloadRoot -Recurse -File | Sort-Object FullName | ForEach-Object {
+    [pscustomobject]@{
+        Path = $_.FullName.Substring($payloadPrefix.Length).Replace('\', '/')
+        SHA256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
+    }
+})
+ConvertTo-Json -InputObject $payloadHashes -Depth 3 | Set-Content -LiteralPath (Join-Path $driverPayloadRoot 'payload-sha256.json') -Encoding UTF8
+
 # NSIS reads external LicenseData using a Windows text encoding. Generate an
 # explicit UTF-16 LE BOM copy so Chinese text cannot be decoded as ANSI.
 $strictUtf8 = New-Object System.Text.UTF8Encoding($false, $true)
@@ -201,6 +239,7 @@ $nsisArguments = @(
     "/DAPP_MSI=$($appMsi.FullName)",
     "/DDRIVER_ROOT=$driverPayloadRoot",
     "/DINSTALL_SCRIPT=$installScript",
+    "/DHELPER_SCRIPT=$helperScript",
     "/DLICENSE_FILE=$encodedLicenseFile",
     "/DOUTPUT_FILE=$OutputFile",
     "/DAPP_ICON=$appIcon",

@@ -1,0 +1,498 @@
+{
+  "cases": [
+    {
+      "first_changes": [
+        {
+          "absolute_error": 1.4210854715202004e-14,
+          "actual": 100.1048492791612,
+          "actual_bits": "405906b5d9c0406b",
+          "expected": 100.10484927916119,
+          "expected_bits": "405906b5d9c0406a",
+          "pointer": "/result/points/0/efficiencyPercent",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 914.9965972639144,
+          "actual_bits": "408c97f907fc7e5d",
+          "expected": 914.9965972639145,
+          "expected_bits": "408c97f907fc7e5e",
+          "pointer": "/result/points/0/peakWavelengthNm",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 914.9965972639144,
+          "actual_bits": "408c97f907fc7e5d",
+          "expected": 914.9965972639145,
+          "expected_bits": "408c97f907fc7e5e",
+          "pointer": "/result/points/1/peakWavelengthNm",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 914.9965972639144,
+          "actual_bits": "408c97f907fc7e5d",
+          "expected": 914.9965972639145,
+          "expected_bits": "408c97f907fc7e5e",
+          "pointer": "/result/points/2/peakWavelengthNm",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 914.9965972639144,
+          "actual_bits": "408c97f907fc7e5d",
+          "expected": 914.9965972639145,
+          "expected_bits": "408c97f907fc7e5e",
+          "pointer": "/result/points/3/peakWavelengthNm",
+          "ulp": 1
+        }
+      ],
+      "float_count": 36,
+      "max_absolute_error": 1.1368683772161603e-13,
+      "max_ulp": 1,
+      "mismatch_count": 5,
+      "name": "real-0-detail",
+      "parse_ms_single_sample": 0.022958,
+      "path_counts": {
+        "other": 5
+      }
+    },
+    {
+      "first_changes": [
+        {
+          "absolute_error": 1.4210854715202004e-14,
+          "actual": 100.1048492791612,
+          "actual_bits": "405906b5d9c0406b",
+          "expected": 100.10484927916119,
+          "expected_bits": "405906b5d9c0406a",
+          "pointer": "/result/points/0/efficiencyPercent",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 914.9965972639144,
+          "actual_bits": "408c97f907fc7e5d",
+          "expected": 914.9965972639145,
+          "expected_bits": "408c97f907fc7e5e",
+          "pointer": "/result/points/0/peakWavelengthNm",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 914.9965972639144,
+          "actual_bits": "408c97f907fc7e5d",
+          "expected": 914.9965972639145,
+          "expected_bits": "408c97f907fc7e5e",
+          "pointer": "/result/points/1/peakWavelengthNm",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 914.9965972639144,
+          "actual_bits": "408c97f907fc7e5d",
+          "expected": 914.9965972639145,
+          "expected_bits": "408c97f907fc7e5e",
+          "pointer": "/result/points/2/peakWavelengthNm",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 914.9965972639144,
+          "actual_bits": "408c97f907fc7e5d",
+          "expected": 914.9965972639145,
+          "expected_bits": "408c97f907fc7e5e",
+          "pointer": "/result/points/3/peakWavelengthNm",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 901.1893788129464,
+          "actual_bits": "408c2983d90a0148",
+          "expected": 901.1893788129465,
+          "expected_bits": "408c2983d90a0149",
+          "pointer": "/result/spectra/0/wavelengthNm/1636",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 901.309872850756,
+          "actual_bits": "408c2a7a9e9dff53",
+          "expected": 901.3098728507559,
+          "expected_bits": "408c2a7a9e9dff52",
+          "pointer": "/result/spectra/0/wavelengthNm/1637",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 901.6713235065153,
+          "actual_bits": "408c2d5ededbcc27",
+          "expected": 901.6713235065151,
+          "expected_bits": "408c2d5ededbcc26",
+          "pointer": "/result/spectra/0/wavelengthNm/1640",
+          "ulp": 1
+        }
+      ],
+      "float_count": 29232,
+      "max_absolute_error": 1.1368683772161603e-13,
+      "max_ulp": 1,
+      "mismatch_count": 1861,
+      "name": "real-0-full",
+      "parse_ms_single_sample": 0.631792,
+      "path_counts": {
+        "intensity": 296,
+        "other": 5,
+        "wavelength": 1560
+      }
+    },
+    {
+      "first_changes": [
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 973.1593463235332,
+          "actual_bits": "408e6946575d8281",
+          "expected": 973.1593463235331,
+          "expected_bits": "408e6946575d8280",
+          "pointer": "/result/points/0/centroidNm",
+          "ulp": 1
+        }
+      ],
+      "float_count": 12,
+      "max_absolute_error": 1.1368683772161603e-13,
+      "max_ulp": 1,
+      "mismatch_count": 1,
+      "name": "real-1-detail",
+      "parse_ms_single_sample": 0.01325,
+      "path_counts": {
+        "other": 1
+      }
+    },
+    {
+      "first_changes": [
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 973.1593463235332,
+          "actual_bits": "408e6946575d8281",
+          "expected": 973.1593463235331,
+          "expected_bits": "408e6946575d8280",
+          "pointer": "/result/points/0/centroidNm",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 901.1893788129464,
+          "actual_bits": "408c2983d90a0148",
+          "expected": 901.1893788129465,
+          "expected_bits": "408c2983d90a0149",
+          "pointer": "/result/spectra/0/wavelengthNm/1636",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 901.309872850756,
+          "actual_bits": "408c2a7a9e9dff53",
+          "expected": 901.3098728507559,
+          "expected_bits": "408c2a7a9e9dff52",
+          "pointer": "/result/spectra/0/wavelengthNm/1637",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 901.6713235065153,
+          "actual_bits": "408c2d5ededbcc27",
+          "expected": 901.6713235065151,
+          "expected_bits": "408c2d5ededbcc26",
+          "pointer": "/result/spectra/0/wavelengthNm/1640",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 902.1531842839312,
+          "actual_bits": "408c3139b8ae8df7",
+          "expected": 902.1531842839313,
+          "expected_bits": "408c3139b8ae8df8",
+          "pointer": "/result/spectra/0/wavelengthNm/1644",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 902.5145247670756,
+          "actual_bits": "408c341dbf293c93",
+          "expected": 902.5145247670757,
+          "expected_bits": "408c341dbf293c94",
+          "pointer": "/result/spectra/0/wavelengthNm/1647",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 902.6349610954204,
+          "actual_bits": "408c3514667b9881",
+          "expected": 902.6349610954203,
+          "expected_bits": "408c3514667b9880",
+          "pointer": "/result/spectra/0/wavelengthNm/1648",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 902.9962385714548,
+          "actual_bits": "408c37f84bed9b4c",
+          "expected": 902.9962385714547,
+          "expected_bits": "408c37f84bed9b4b",
+          "pointer": "/result/spectra/0/wavelengthNm/1651",
+          "ulp": 1
+        }
+      ],
+      "float_count": 7311,
+      "max_absolute_error": 1.1368683772161603e-13,
+      "max_ulp": 1,
+      "mismatch_count": 444,
+      "name": "real-1-full",
+      "parse_ms_single_sample": 0.165667,
+      "path_counts": {
+        "intensity": 51,
+        "other": 3,
+        "wavelength": 390
+      }
+    },
+    {
+      "first_changes": [
+        {
+          "absolute_error": 1.7763568394002505e-15,
+          "actual": 11.196121987951807,
+          "actual_bits": "4026646a19e88f1d",
+          "expected": 11.196121987951809,
+          "expected_bits": "4026646a19e88f1e",
+          "pointer": "/result/points/0/efficiencyPercent",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 973.1465812759972,
+          "actual_bits": "408e692c32cdd4e9",
+          "expected": 973.1465812759973,
+          "expected_bits": "408e692c32cdd4ea",
+          "pointer": "/result/points/0/peakWavelengthNm",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 973.1546061244468,
+          "actual_bits": "408e693ca222c215",
+          "expected": 973.1546061244469,
+          "expected_bits": "408e693ca222c216",
+          "pointer": "/result/points/0/centroidNm",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 973.1801146781668,
+          "actual_bits": "408e6970dff6e20c",
+          "expected": 973.1801146781669,
+          "expected_bits": "408e6970dff6e20d",
+          "pointer": "/result/points/1/centroidNm",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 973.195258294846,
+          "actual_bits": "408e698fe394b517",
+          "expected": 973.1952582948461,
+          "expected_bits": "408e698fe394b518",
+          "pointer": "/result/points/2/peakWavelengthNm",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.4210854715202004e-14,
+          "actual": 97.94301477073788,
+          "actual_bits": "40587c5a5a9ffdb4",
+          "expected": 97.94301477073789,
+          "expected_bits": "40587c5a5a9ffdb5",
+          "pointer": "/result/points/3/pibPercent",
+          "ulp": 1
+        }
+      ],
+      "float_count": 36,
+      "max_absolute_error": 1.1368683772161603e-13,
+      "max_ulp": 1,
+      "mismatch_count": 6,
+      "name": "real-2-detail",
+      "parse_ms_single_sample": 0.015375000000000002,
+      "path_counts": {
+        "other": 6
+      }
+    },
+    {
+      "first_changes": [
+        {
+          "absolute_error": 1.7763568394002505e-15,
+          "actual": 11.196121987951807,
+          "actual_bits": "4026646a19e88f1d",
+          "expected": 11.196121987951809,
+          "expected_bits": "4026646a19e88f1e",
+          "pointer": "/result/points/0/efficiencyPercent",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 973.1465812759972,
+          "actual_bits": "408e692c32cdd4e9",
+          "expected": 973.1465812759973,
+          "expected_bits": "408e692c32cdd4ea",
+          "pointer": "/result/points/0/peakWavelengthNm",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 973.1546061244468,
+          "actual_bits": "408e693ca222c215",
+          "expected": 973.1546061244469,
+          "expected_bits": "408e693ca222c216",
+          "pointer": "/result/points/0/centroidNm",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 973.1801146781668,
+          "actual_bits": "408e6970dff6e20c",
+          "expected": 973.1801146781669,
+          "expected_bits": "408e6970dff6e20d",
+          "pointer": "/result/points/1/centroidNm",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 973.195258294846,
+          "actual_bits": "408e698fe394b517",
+          "expected": 973.1952582948461,
+          "expected_bits": "408e698fe394b518",
+          "pointer": "/result/points/2/peakWavelengthNm",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.4210854715202004e-14,
+          "actual": 97.94301477073788,
+          "actual_bits": "40587c5a5a9ffdb4",
+          "expected": 97.94301477073789,
+          "expected_bits": "40587c5a5a9ffdb5",
+          "pointer": "/result/points/3/pibPercent",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 901.1893788129464,
+          "actual_bits": "408c2983d90a0148",
+          "expected": 901.1893788129465,
+          "expected_bits": "408c2983d90a0149",
+          "pointer": "/result/spectra/0/wavelengthNm/1636",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.1368683772161603e-13,
+          "actual": 901.309872850756,
+          "actual_bits": "408c2a7a9e9dff53",
+          "expected": 901.3098728507559,
+          "expected_bits": "408c2a7a9e9dff52",
+          "pointer": "/result/spectra/0/wavelengthNm/1637",
+          "ulp": 1
+        }
+      ],
+      "float_count": 29232,
+      "max_absolute_error": 1.1368683772161603e-13,
+      "max_ulp": 1,
+      "mismatch_count": 1825,
+      "name": "real-2-full",
+      "parse_ms_single_sample": 0.619375,
+      "path_counts": {
+        "intensity": 258,
+        "other": 7,
+        "wavelength": 1560
+      }
+    },
+    {
+      "first_changes": [
+        {
+          "absolute_error": 1.086461844974e-311,
+          "actual": 9.2966564506267e-296,
+          "actual_bits": "02ae66617b21822b",
+          "expected": 9.296656450626701e-296,
+          "expected_bits": "02ae66617b21822c",
+          "pointer": "/result/values/14",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.8092513943330656e+75,
+          "actual": -1.4041624895324282e+91,
+          "actual_bits": "d2db9299d1e8e1b9",
+          "expected": -1.4041624895324284e+91,
+          "expected_bits": "d2db9299d1e8e1ba",
+          "pointer": "/result/values/15",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.3134517764154804e-287,
+          "actual": 8.165063626368749e-272,
+          "actual_bits": "07a615de0a514e82",
+          "expected": 8.16506362636875e-272,
+          "expected_bits": "07a615de0a514e83",
+          "pointer": "/result/values/16",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 2.4545467326488633e-91,
+          "actual": -2.059384266947551e-75,
+          "actual_bits": "b06dcebba7113811",
+          "expected": -2.0593842669475513e-75,
+          "expected_bits": "b06dcebba7113812",
+          "pointer": "/result/values/21",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 6.80564733841877e+38,
+          "actual": -4.9779855933266557e+54,
+          "actual_bits": "cb49fc7dfaf5c15b",
+          "expected": -4.977985593326656e+54,
+          "expected_bits": "cb49fc7dfaf5c15c",
+          "pointer": "/result/values/22",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 2.3970182936024055e-94,
+          "actual": -1.5617808096179855e-78,
+          "actual_bits": "afc725d37f66a519",
+          "expected": -1.5617808096179857e-78,
+          "expected_bits": "afc725d37f66a51a",
+          "pointer": "/result/values/28",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 2.7250942976052165e-107,
+          "actual": 1.8759025264340608e-91,
+          "actual_bits": "2d1874c9640e77fb",
+          "expected": 1.875902526434061e-91,
+          "expected_bits": "2d1874c9640e77fc",
+          "pointer": "/result/values/38",
+          "ulp": 1
+        },
+        {
+          "absolute_error": 1.765008724192636e+218,
+          "actual": 1.2501527142832969e+234,
+          "actual_bits": "708929ef89a332db",
+          "expected": 1.2501527142832967e+234,
+          "expected_bits": "708929ef89a332da",
+          "pointer": "/result/values/44",
+          "ulp": 1
+        }
+      ],
+      "float_count": 100000,
+      "max_absolute_error": 1.99584030953472e+292,
+      "max_ulp": 2,
+      "mismatch_count": 29625,
+      "name": "finite-double-corpus",
+      "parse_ms_single_sample": 3.258625,
+      "path_counts": {
+        "other": 29625
+      }
+    }
+  ],
+  "total_mismatches": 33767
+}

@@ -1,0 +1,33 @@
+.power-coupling {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  gap: clamp(1rem, 3vh, 2.5rem);
+  padding: clamp(1rem, 3vw, 4rem);
+  overflow: hidden;
+  background: var(--background);
+  color: var(--foreground);
+  outline: none;
+}
+
+.power-coupling__reading {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: center;
+  align-self: center;
+  transform: translateY(4vh);
+  gap: 0.1em;
+  white-space: nowrap;
+  font-size: clamp(4rem, min(38vh, var(--power-font-width)), 30rem);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: -0.035em;
+}
+
+.power-coupling__value { font-weight: 650; }
+.power-coupling__unit { font-size: 0.22em; color: var(--muted-foreground); }
+.power-coupling__chart { min-height: 0; min-width: 0; }
+.power-coupling .power-coupling__chart [data-slot="card"] { padding: 0; border: 0; background: transparent; }

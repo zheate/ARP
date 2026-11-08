@@ -1,0 +1,34 @@
+### Result
+{"results":[{"mode":"paused","duration":6000,"counts":{"commits":71,"raf":30,"clears":{"功率实时曲线":29}},"scriptMs":86.23100000000001,"taskMs":192.681,"layoutMs":9.218,"styleMs":11.522999999999998},{"mode":"running","duration":6000,"counts":{"commits":71,"raf":30,"clears":{"功率实时曲线":29}},"scriptMs":115.03099999999999,"taskMs":300.94499999999994,"layoutMs":13.189,"styleMs":41.385999999999996},{"mode":"paused","duration":6000,"counts":{"commits":71,"raf":30,"clears":{"功率实时曲线":30}},"scriptMs":102.34400000000002,"taskMs":228.01399999999998,"layoutMs":11.285,"styleMs":12.866},{"mode":"running","duration":6000,"counts":{"commits":71,"raf":30,"clears":{"功率实时曲线":30}},"scriptMs":107.842,"taskMs":292.879,"layoutMs":13.522,"styleMs":42.479000000000006},{"mode":"paused","duration":6000,"counts":{"commits":74,"raf":35,"clears":{"功率实时曲线":30,"other":2,"功率 / 效率曲线":2}},"scriptMs":83.332,"taskMs":191.18200000000002,"layoutMs":10.894,"styleMs":13.169000000000004},{"mode":"running","duration":6000,"counts":{"commits":71,"raf":30,"clears":{"功率实时曲线":30}},"scriptMs":60.495000000000005,"taskMs":167.906,"layoutMs":7.731999999999999,"styleMs":22.337999999999997}],"means":{"paused":{"scriptMs":90.63566666666668,"taskMs":203.95899999999997,"layoutMs":10.465666666666666,"styleMs":12.519333333333334},"running":{"scriptMs":94.456,"taskMs":253.91,"layoutMs":11.481,"styleMs":35.401}}}
+### Ran Playwright code
+```js
+await (async (page) => {
+  if (!await page.evaluate(() => Boolean(window.__birdProfile))) throw new Error('Run flappy-bird-performance.cjs first to install counters');
+  const session = await page.context().newCDPSession(page);
+  await session.send('Performance.enable');
+  const metrics = async () => Object.fromEntries((await session.send('Performance.getMetrics')).metrics.map(({ name, value }) => [name, value]));
+  const results = [];
+  await page.bringToFront();
+  for (const mode of ['paused', 'running', 'paused', 'running', 'paused', 'running']) {
+    await page.goto('http://localhost:1420/?demo=1&run=1');
+    await page.bringToFront();
+    if (mode === 'paused') await page.addStyleTag({ content: '.chart-flappy-bird__frames { animation-play-state: paused !important; }' });
+    await page.getByRole('button', { name: '开始', exact: true }).click();
+    await page.waitForTimeout(1000);
+    if (await page.evaluate(() => document.hidden)) throw new Error('Benchmark page is hidden');
+    await page.evaluate(() => { window.__birdProfile = { commits: 0, raf: 0, clears: {} }; });
+    const before = await metrics();
+    await page.waitForTimeout(6000);
+    const after = await metrics();
+    const counts = await page.evaluate(() => window.__birdProfile);
+    results.push({ mode, duration: 6000, counts, scriptMs: (after.ScriptDuration - before.ScriptDuration) * 1000, taskMs: (after.TaskDuration - before.TaskDuration) * 1000, layoutMs: (after.LayoutDuration - before.LayoutDuration) * 1000, styleMs: (after.RecalcStyleDuration - before.RecalcStyleDuration) * 1000 });
+    await page.getByRole('button', { name: '停止', exact: true }).click();
+  }
+  await session.detach();
+  await page.goto('http://localhost:1420/?demo=1');
+  return { results, means: Object.fromEntries(['paused', 'running'].map((mode) => {
+    const group = results.filter((result) => result.mode === mode);
+    return [mode, Object.fromEntries(['scriptMs', 'taskMs', 'layoutMs', 'styleMs'].map((key) => [key, group.reduce((sum, result) => sum + result[key], 0) / group.length]))];
+  })) };
+})(page);
+```

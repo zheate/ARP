@@ -1,0 +1,407 @@
+[
+  {
+    "path": "AGENTS.md",
+    "bytes": 14594,
+    "sha256": "e5c837520b4c84653e48e9675af2c869420460831b9152b77a8e7270578e49c0"
+  },
+  {
+    "path": "combined_test/data_browser.py",
+    "bytes": 20294,
+    "sha256": "6beb06b7a2ffe31b8e058ed76a1f0f9c4fb4733e0508262fdb5f8536ba8e4072"
+  },
+  {
+    "path": "combined_test/devices.py",
+    "bytes": 52221,
+    "sha256": "ccd1830a3894a63c3f3104000919503e2e4baab13301403ffd666e56e12379c4"
+  },
+  {
+    "path": "combined_test/spectrum.py",
+    "bytes": 7973,
+    "sha256": "45ec7ff5f570cb82e6889670d81026f02b96b38f5331f515197afb0dc5f5e2d5"
+  },
+  {
+    "path": "combined_test/spectrum_math.py",
+    "bytes": 17044,
+    "sha256": "0befba88889bcd0fb51e8f24619b8c0bbcc331177423926f3a10cf9bffe3822e"
+  },
+  {
+    "path": "combined_test/xlsx_reader.py",
+    "bytes": 5629,
+    "sha256": "6bfcfbf79f0d9e443c3f14129204e6ba51cc1f05fa38ddc54eb74edb7abddbd9"
+  },
+  {
+    "path": "design-qa.md",
+    "bytes": 35109,
+    "sha256": "6c881d3c436bbf232ddb9697934ecda246b4735fdf4e207921c6f84ec2db7162"
+  },
+  {
+    "path": "docs/acquisition-timing-2026-10-15.md",
+    "bytes": 14534,
+    "sha256": "7b31e9a57261ff2809d496ac743e81bae60ba3544bb4e19ee73636923af2fc29"
+  },
+  {
+    "path": "docs/curve-endpoint-characters-2026-10-16.md",
+    "bytes": 2932,
+    "sha256": "71726588faa02bbe42f9ae501928bc2e648ab4ce397c41351401e2a76fc2553a"
+  },
+  {
+    "path": "docs/operation-motion-2026-10-15.md",
+    "bytes": 6975,
+    "sha256": "502bfe6dc54dbff29615461fc7d2347b2a9218505a8f0f2eeac543a6088a00c4"
+  },
+  {
+    "path": "docs/performance-optimization.md",
+    "bytes": 71476,
+    "sha256": "bf92a87dca7fdb80ab416a959a31e1ba53ec37cc9d3b1b23384ffc5967acf05d"
+  },
+  {
+    "path": "docs/spectrum-analysis-optimization-2026-10-15.md",
+    "bytes": 8527,
+    "sha256": "6112e52b21f90b63e4ab1daa017ad1626b3629b38f96410ca8e0157140d2d5d4"
+  },
+  {
+    "path": "tauri-ui/public/chart-markers/bee-flap-four-frames-97043142efa1.png",
+    "bytes": 958043,
+    "sha256": "97043142efa17131b99a02ec9137ad409b7a6872fc099aaaf11110605a29bd72"
+  },
+  {
+    "path": "tauri-ui/public/chart-markers/dino-walk-four-frames-9f95d27db3c1.png",
+    "bytes": 408717,
+    "sha256": "9f95d27db3c1b978cc2535de835cef7ee38035216b9d9b2c9afcf160eac3f59a"
+  },
+  {
+    "path": "tauri-ui/public/licenses/DSEG-LICENSE.txt",
+    "bytes": 4487,
+    "sha256": "c6ee0567859cb7cc8d992149bbd96ad359ef65fb7355f7feae0547555ffacd23"
+  },
+  {
+    "path": "tauri-ui/scripts/benchmark-sparse-spectrum.mjs",
+    "bytes": 3293,
+    "sha256": "6a12a9f410ecdc966c1943de65df3219970b2fed8fd0945152dcbc2513432e11"
+  },
+  {
+    "path": "tauri-ui/scripts/fixtures/character-markers.tsx",
+    "bytes": 3282,
+    "sha256": "0b06adde379af51a65f389cfa36ccb5f455e8abc4acad98e91b05adcad8d5f74"
+  },
+  {
+    "path": "tauri-ui/scripts/fixtures/flappy-bird-motion.tsx",
+    "bytes": 1823,
+    "sha256": "19dbf90de0ee63a3c78c6dd311a99462f44967a6f3889602d020a93e9f97fd37"
+  },
+  {
+    "path": "tauri-ui/scripts/fixtures/flappy-bird-sync.tsx",
+    "bytes": 1825,
+    "sha256": "31c863dd83ca95c02fcf55f6ff243f5637661d90440fc8ab4233c5e9757008d5"
+  },
+  {
+    "path": "tauri-ui/scripts/fixtures/operation-motion.tsx",
+    "bytes": 4306,
+    "sha256": "a7554533eeca769c5f8db3ab468481143aef28276b24cec6de0d85862bd71304"
+  },
+  {
+    "path": "tauri-ui/scripts/live-current.test.mjs",
+    "bytes": 6227,
+    "sha256": "d70657ac6b749d704d408012db3181d73b732f8b4b31f08bb3e00b73f21af472"
+  },
+  {
+    "path": "tauri-ui/scripts/manual-current.test.mjs",
+    "bytes": 4551,
+    "sha256": "88b5508559c24d69557b35fe9a971518141f658cbc9760b5a491fed7f3c2360f"
+  },
+  {
+    "path": "tauri-ui/scripts/operation-motion-qa.mjs",
+    "bytes": 11216,
+    "sha256": "908e8c9aab053567937de2156992ade516518086df2fe1f0abea3ac300d5bde2"
+  },
+  {
+    "path": "tauri-ui/scripts/profile-acquisition.cjs",
+    "bytes": 9482,
+    "sha256": "1fcd351b7d33d765f097f9ec55376e4f75b9c693c32106c5d174bead3bcc8a5a"
+  },
+  {
+    "path": "tauri-ui/scripts/profile-flappy-bird-motion.cjs",
+    "bytes": 3895,
+    "sha256": "5c21ec41c137f87bff2aeeb54dabcbe487f1f97c447af9c0786c4a92402e48e3"
+  },
+  {
+    "path": "tauri-ui/scripts/verify-flappy-bird-live.cjs",
+    "bytes": 3473,
+    "sha256": "eafe42b91d1f1092ea74b5bad68bbe3b209a38c8d4e66d7ea064168074f19876"
+  },
+  {
+    "path": "tauri-ui/scripts/verify-flappy-bird-motion.cjs",
+    "bytes": 11460,
+    "sha256": "36941eaeb58140709bf71d2326d95a6064e89e52cd2e3f09e12a0f9f5fbfac03"
+  },
+  {
+    "path": "tauri-ui/scripts/verify-flappy-bird-sync.cjs",
+    "bytes": 8576,
+    "sha256": "899fe9131cabf5170be89cba83cc4ef9090ffa8b050d87621b18bd87abe2c832"
+  },
+  {
+    "path": "tauri-ui/scripts/verify-sparse-spectrum.cjs",
+    "bytes": 3019,
+    "sha256": "e25af2c06df6f58a41a171b25ba1a724d44d423cde8be10af44596059929d8a5"
+  },
+  {
+    "path": "tauri-ui/src-tauri/src/lib.rs",
+    "bytes": 47643,
+    "sha256": "d91bf0e4cb06ee9a7a5a04b2148a7f4f46782c295fbba98505c8028a370e1538"
+  },
+  {
+    "path": "tauri-ui/src/App.tsx",
+    "bytes": 38978,
+    "sha256": "2915c2cbfd189d10f06ae8f53fd4b4400d98046822fa0a65bd865d5ee330f0b3"
+  },
+  {
+    "path": "tauri-ui/src/assets/fonts/dseg7/DSEG7Classic-Bold.woff2",
+    "bytes": 5132,
+    "sha256": "ec2e7499bc8ac8f8225e1fb6a5d45ff6083c6e2b0efbaf99d37fa7b42a5767ff"
+  },
+  {
+    "path": "tauri-ui/src/components/appearance-controls.tsx",
+    "bytes": 13319,
+    "sha256": "d9b19294d480e82dc578aa0c87740fde86f6f3ed7dc3feb799d4436e62da0ee1"
+  },
+  {
+    "path": "tauri-ui/src/components/canvas-line-chart.tsx",
+    "bytes": 54764,
+    "sha256": "340a54c82bc9185f447eeabd64ee9558fb77dcd531889c48d0a5b01fe334ae3b"
+  },
+  {
+    "path": "tauri-ui/src/components/character-sprite-marker.css",
+    "bytes": 873,
+    "sha256": "126717e09f8c216a5361068fedc8e96e6a8fc791366a5dfdc9e4bdb857cbb4b2"
+  },
+  {
+    "path": "tauri-ui/src/components/character-sprite-marker.tsx",
+    "bytes": 5140,
+    "sha256": "c0eb48e2385261af4da1938129f3d88ea37201e5468feda60acd10f684ac609f"
+  },
+  {
+    "path": "tauri-ui/src/components/flappy-bird-marker.tsx",
+    "bytes": 4507,
+    "sha256": "5035e865824358c0375e91333b5aa2d70381b3000aabeccc19fe710b4e2af47a"
+  },
+  {
+    "path": "tauri-ui/src/components/numeric-readout.tsx",
+    "bytes": 1206,
+    "sha256": "bbdfc017a5f86edb3b00cacf9758cd9e27ca2cd68a7a272e4766402b99bd8051"
+  },
+  {
+    "path": "tauri-ui/src/components/ui/input.tsx",
+    "bytes": 1334,
+    "sha256": "ff197e98ecdc9c157f08e2c1e16c44dd8752dd089c9b226e7b0ec55926c1dbce"
+  },
+  {
+    "path": "tauri-ui/src/features/automatic/page.tsx",
+    "bytes": 21181,
+    "sha256": "6aef6e2aea919fbf33e9c6fd3656984811af34e3f54046e65f8464e8d93d3df3"
+  },
+  {
+    "path": "tauri-ui/src/features/charts/realtime.tsx",
+    "bytes": 24332,
+    "sha256": "82f8aa22b2669591b3691f59ae67fafb3a195eeac622ef5c45887fbb14be0b79"
+  },
+  {
+    "path": "tauri-ui/src/features/manual/current-controls.css",
+    "bytes": 3177,
+    "sha256": "a98e06d6db5a81d10f822f1142b3a317e9296663b4acc353bbcb72a3bda0dd9b"
+  },
+  {
+    "path": "tauri-ui/src/features/manual/page.tsx",
+    "bytes": 33459,
+    "sha256": "0600631d3d71c50d07af304df4e6b07e61639d39930b29df5e87c38a9778bbdb"
+  },
+  {
+    "path": "tauri-ui/src/features/shared/controls.tsx",
+    "bytes": 19114,
+    "sha256": "f3fc96a8b86e0e483432e066546a9c5ecb855f3d6ce6bc0601d7e02570ff6f9b"
+  },
+  {
+    "path": "tauri-ui/src/hooks/use-backend-snapshot.ts",
+    "bytes": 24010,
+    "sha256": "e10d2e82f01022b0314f3b3921321d0ee6cf9a3ecd7c0085785759e97830bb8f"
+  },
+  {
+    "path": "tauri-ui/src/index.css",
+    "bytes": 54894,
+    "sha256": "bf47fd005ee03f550cb273eb543cafbda85182a45119584494d8299a16aed47a"
+  },
+  {
+    "path": "tauri-ui/src/lib/appearance.test.ts",
+    "bytes": 2547,
+    "sha256": "d86f2620224bfd848b0cdfb1309ed8ada73a6005f86cce6d7cdb3a56ae159e61"
+  },
+  {
+    "path": "tauri-ui/src/lib/appearance.ts",
+    "bytes": 4619,
+    "sha256": "f2ea92e5e2bd5cf0eeef12513960bd932eda1647f1645d264551b420b4814217"
+  },
+  {
+    "path": "tauri-ui/src/lib/automatic-presentation.test.ts",
+    "bytes": 15909,
+    "sha256": "d93b98999719f40562893ba30a2702b3ea86d6f8484ac9f7f73aae17cb5fed50"
+  },
+  {
+    "path": "tauri-ui/src/lib/automatic-presentation.ts",
+    "bytes": 10695,
+    "sha256": "28ec5aa9962eaf2a37825a717b6872dde6fdcd520dfe0d3943bf3906c7d41f09"
+  },
+  {
+    "path": "tauri-ui/src/lib/backend.ts",
+    "bytes": 21282,
+    "sha256": "1f00f242c3592d33f6196a4a26ea8c03ae8730dab3e4e8b5f9327ef54168f14a"
+  },
+  {
+    "path": "tauri-ui/src/lib/chart-curve-reveal.test.ts",
+    "bytes": 3005,
+    "sha256": "6d9bf946d901979bb5e620f4f106006bf224ad45e25f634a4e8bfe8f7d8ac641"
+  },
+  {
+    "path": "tauri-ui/src/lib/chart-curve-reveal.ts",
+    "bytes": 3202,
+    "sha256": "0f2e6eb46cc50646e9ad94d19e0c5663d5b678186c9ccf3aa8d7b26e2452a099"
+  },
+  {
+    "path": "tauri-ui/src/lib/command-contract.ts",
+    "bytes": 5070,
+    "sha256": "b8c526c9ef0c3d32602226e96dfe532140d0b9e51e38751d71fd06ee25ea2473"
+  },
+  {
+    "path": "tauri-ui/src/lib/data-browser.test.ts",
+    "bytes": 9884,
+    "sha256": "13d01bea2b2010c7593d5470d63cb9e491edddb954c909472fd32548e3e4630b"
+  },
+  {
+    "path": "tauri-ui/src/lib/data-browser.ts",
+    "bytes": 27352,
+    "sha256": "c6657f6bfe42745d49b54195ea42b0192551c6dcf72a5b264229f99f0699e354"
+  },
+  {
+    "path": "tauri-ui/src/lib/numeric-readout.test.ts",
+    "bytes": 1464,
+    "sha256": "29ed9b3a828fff971fcdf651d20266611ccf2af389ee394ba71a8fcd1f61ec56"
+  },
+  {
+    "path": "tauri-ui/src/lib/numeric-readout.ts",
+    "bytes": 940,
+    "sha256": "86eb2e8a35dfe6c497bffa57a7af6d166bcb1e60ff031f08ce7124a156a6aef8"
+  },
+  {
+    "path": "tauri-ui/src/lib/sparse-chart-index.test.ts",
+    "bytes": 2213,
+    "sha256": "b4bae2ae56c3d1f6588102b7b04d19ad1e79c4d88eef748a07c01f4a42c4786c"
+  },
+  {
+    "path": "tauri-ui/src/lib/sparse-chart-index.ts",
+    "bytes": 1350,
+    "sha256": "f2b50e6c3eda1883aa915eb0f4a69675e6c92cb604c238e6edee8fc0a7f15ce2"
+  },
+  {
+    "path": "tauri-ui/src/lib/spectrum-annotations.test.ts",
+    "bytes": 1102,
+    "sha256": "28171c7f66d9ed4adda6f1481d3fbb8efe80afe1faf45c1702721c15eab2735b"
+  },
+  {
+    "path": "tauri-ui/src/lib/spectrum-annotations.ts",
+    "bytes": 1570,
+    "sha256": "895b13f9322c29e794b1653e64e8075e9405f9b0e5dd546b3a03fda7c7706ea3"
+  },
+  {
+    "path": "tauri-ui/src/main.tsx",
+    "bytes": 338,
+    "sha256": "7e8404e50b98de34f4b606d8a783fa50b7f634504f8955bebbe7fc5d5aa1b992"
+  },
+  {
+    "path": "tauri-ui/src/operation-motion.css",
+    "bytes": 4629,
+    "sha256": "3fe26e8536c726ed302c4c5d832f51bf43122dd8d4904ebc5949112b612a1f9a"
+  },
+  {
+    "path": "tauri-ui/src/workbench-appearance.css",
+    "bytes": 54229,
+    "sha256": "6278ab912e757c92e234c1fbe40c2bbb5ecd8d75be7f0707a52b305d56a7801c"
+  },
+  {
+    "path": "tauri_bridge/backend_dispatch.py",
+    "bytes": 12404,
+    "sha256": "6368cc757af8968fc696cde650bec81b0e527d9f0e7df650f24ceb2db350e52b"
+  },
+  {
+    "path": "tauri_bridge/service.py",
+    "bytes": 9141,
+    "sha256": "d3726200cc7783bd28401106a710e62b784a81c093caed799e2aa95e52b2648b"
+  },
+  {
+    "path": "tauri_bridge/snapshot_builder.py",
+    "bytes": 25621,
+    "sha256": "aa8f57d2787bbb3d05bc08b9e25313e01ec841444d7964d96dbb3002bca37512"
+  },
+  {
+    "path": "tauri_bridge/station_automatic.py",
+    "bytes": 71763,
+    "sha256": "c80b00994c4ee581ac491bdf104374fd80c452fc953fcdaf292623493fe35f10"
+  },
+  {
+    "path": "tauri_bridge/station_runtime.py",
+    "bytes": 85697,
+    "sha256": "3f033f75924ba181e71d436896b078d3458cb0fcbc12a317150addf038d91768"
+  },
+  {
+    "path": "tauri_bridge/station_support.py",
+    "bytes": 7973,
+    "sha256": "bc72f3ba6d00cf6c6da5920a30f0a1c785fd2864c0a387a9f8c1d56d6a06a61a"
+  },
+  {
+    "path": "tests/test_manual_control_flow.py",
+    "bytes": 14552,
+    "sha256": "d23ec5ddb79cfeb7affc26c38108fa17c82c84c5162d4eabf5980d26622e0aaa"
+  },
+  {
+    "path": "tests/test_spectrum.py",
+    "bytes": 8189,
+    "sha256": "5ab7a658ae375f81944e9dc35b05ab23ff0a4ceac39010d86c0d27b4ba9e7ed7"
+  },
+  {
+    "path": "tests/test_spectrum_analysis_reuse.py",
+    "bytes": 2988,
+    "sha256": "54d8862409eff4d8130f554ab4c8f5496e01fe7a6c9e32cb773af551c838e68a"
+  },
+  {
+    "path": "tests/test_station_runtime.py",
+    "bytes": 101952,
+    "sha256": "cff5238e6bb9025e90a77abb73a1b9374141ba649abbc620bfe9cbccfc5f06ef"
+  },
+  {
+    "path": "tests/test_tauri_bridge.py",
+    "bytes": 21009,
+    "sha256": "dfa0d2dd6752cad88c2451eb18ea6b237088882a1b962dd0ac544d26b883e445"
+  },
+  {
+    "path": "tests/test_tdk_voltage_burst.py",
+    "bytes": 7732,
+    "sha256": "5694efb10a7fea2d79253a596548d3114fa0e0fbdcb6753f162ff617011a4f96"
+  },
+  {
+    "path": "tests/test_xlsx_reader.py",
+    "bytes": 17857,
+    "sha256": "3b22a98a9b59aa1fbc28d66158ce69cbb14accc25412397f91929fc2ae231c7a"
+  },
+  {
+    "path": "tools/benchmark_spectrum_analysis.py",
+    "bytes": 10881,
+    "sha256": "1fb92096ceeb2ca155a2532af1f0f6dc24ad00ac44f923ae86c3c725eef937fe"
+  },
+  {
+    "path": "tools/benchmark_xlsx_browser.py",
+    "bytes": 5919,
+    "sha256": "ed8430776258b27816939a24e33b132d4e4c6eac4f7eac9d14ab39fa77ba1f63"
+  },
+  {
+    "path": "tools/profile_acquisition.py",
+    "bytes": 22386,
+    "sha256": "c80fbb566b11cae83a80e54c0060c2ecc1a771019b2e34610f5c391a6c0accfb"
+  }
+]

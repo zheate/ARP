@@ -1,0 +1,42 @@
+.chart-character-marker {
+  position: absolute;
+  inset: 0 auto auto 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.chart-character-marker__fallback {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px;
+  border-radius: 50%;
+  background: var(--chart-1, currentColor);
+}
+
+.chart-character-marker__frames {
+  display: block;
+  max-width: none;
+  opacity: 0;
+  animation: chart-character-frames 400ms steps(4, end) infinite;
+}
+
+.chart-character-marker[data-sprite-ready="true"] .chart-character-marker__frames {
+  opacity: 1;
+}
+
+.chart-character-marker[data-sprite-ready="true"] .chart-character-marker__fallback {
+  display: none;
+}
+
+@keyframes chart-character-frames {
+  to { transform: translateX(-100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-character-marker__frames {
+    animation: none !important;
+  }
+}

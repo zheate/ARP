@@ -1,0 +1,321 @@
+{
+  "environment": {
+    "python": "3.11.15",
+    "platform": "macOS-27.2-arm64-arm-64bit",
+    "openpyxl": "3.1.5"
+  },
+  "cache_conditions": "application cache cleared; OS disk cache not cleared; alternating order",
+  "reads": [
+    {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_02.xlsx",
+      "includeSpectra": false,
+      "original": {
+        "median_ms": 50.45381249874481,
+        "samples_ms": [
+          51.904457999626175,
+          49.54662499949336,
+          50.436249999620486,
+          50.736749995849095,
+          50.471374997869134,
+          50.26762500347104
+        ]
+      },
+      "optimized": {
+        "median_ms": 51.803353999275714,
+        "samples_ms": [
+          53.18824999994831,
+          49.496499996166676,
+          53.63362500065705,
+          48.9024580019759,
+          50.41845799860312,
+          54.71633299748646
+        ]
+      },
+      "reduction_percent": -2.6748057950318094,
+      "identical_output_sha256_with_float_bits": "31fcc4a9376e4c91481a5f620ae97cec7dfd51ced270fdd25e30c7b3059bb559",
+      "points": 4,
+      "spectra": 0,
+      "samples": 0
+    },
+    {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_02.xlsx",
+      "includeSpectra": true,
+      "original": {
+        "median_ms": 56.362750503467396,
+        "samples_ms": [
+          55.58591699809767,
+          57.32641599752242,
+          56.53820900624851,
+          57.34949999896344,
+          56.187292000686284,
+          56.09112499951152
+        ]
+      },
+      "optimized": {
+        "median_ms": 60.629521001828834,
+        "samples_ms": [
+          60.52966700372053,
+          61.09708300209604,
+          65.66987499536481,
+          60.729374999937136,
+          59.4339589952142,
+          59.74341699766228
+        ]
+      },
+      "reduction_percent": -7.5701956704525175,
+      "identical_output_sha256_with_float_bits": "e88995f1c07d8765ef3006f0ae17ac347ae6ce4bcb427bb08a8e83fe0614f79b",
+      "points": 4,
+      "spectra": 4,
+      "samples": 14592
+    },
+    {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_37.xlsx",
+      "includeSpectra": false,
+      "original": {
+        "median_ms": 17.87041650095489,
+        "samples_ms": [
+          17.87766699999338,
+          17.91837500059046,
+          17.9247080013738,
+          17.863166001916397,
+          17.476207998697646,
+          17.776041000615805
+        ]
+      },
+      "optimized": {
+        "median_ms": 21.29779149981914,
+        "samples_ms": [
+          18.997416002093814,
+          23.598166997544467,
+          18.52974999928847,
+          24.220333994890098,
+          18.556499999249354,
+          23.735417002171744
+        ]
+      },
+      "reduction_percent": -19.17904374909849,
+      "identical_output_sha256_with_float_bits": "61eceb6ba2c72a209c6dc2f2cf2d04106a062dc6d29178ce3ce46650f156a311",
+      "points": 1,
+      "spectra": 0,
+      "samples": 0
+    },
+    {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_37.xlsx",
+      "includeSpectra": true,
+      "original": {
+        "median_ms": 19.313770997541724,
+        "samples_ms": [
+          19.32495799701428,
+          19.302583998069167,
+          19.290875003207475,
+          19.260041997767985,
+          24.20295799674932,
+          19.332832998770755
+        ]
+      },
+      "optimized": {
+        "median_ms": 20.253624497854616,
+        "samples_ms": [
+          20.103082999412436,
+          25.768957995751407,
+          26.512874996114988,
+          19.957791999331675,
+          20.404165996296797,
+          19.947583001339808
+        ]
+      },
+      "reduction_percent": -4.866235083933201,
+      "identical_output_sha256_with_float_bits": "57f0d0b0ece20f1672aab3821ee74dcf7224af68abe3662b40490b5d02dc110d",
+      "points": 1,
+      "spectra": 1,
+      "samples": 3648
+    },
+    {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_45.xlsx",
+      "includeSpectra": false,
+      "original": {
+        "median_ms": 49.899249999725726,
+        "samples_ms": [
+          47.08024999854388,
+          47.250832998543046,
+          52.17541699676076,
+          47.62308300269069,
+          52.852000000711996,
+          55.59416599862743
+        ]
+      },
+      "optimized": {
+        "median_ms": 56.30537500110222,
+        "samples_ms": [
+          55.20299999625422,
+          56.52508300408954,
+          56.63183300202945,
+          56.0856669981149,
+          59.397041994088795,
+          52.356000000145286
+        ]
+      },
+      "reduction_percent": -12.838118812230048,
+      "identical_output_sha256_with_float_bits": "caab02a07e8d7254ccfcbd684f8c460814631f2eeaee6511f2a87f57c11506b5",
+      "points": 4,
+      "spectra": 0,
+      "samples": 0
+    },
+    {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_45.xlsx",
+      "includeSpectra": true,
+      "original": {
+        "median_ms": 57.82143750184332,
+        "samples_ms": [
+          65.01545799983433,
+          58.40629099839134,
+          57.639416998426896,
+          57.25858399819117,
+          56.86625000089407,
+          58.003458005259745
+        ]
+      },
+      "optimized": {
+        "median_ms": 61.48527050027042,
+        "samples_ms": [
+          61.80333299562335,
+          61.3963750001858,
+          61.94337500346592,
+          61.07716700353194,
+          61.574166000355035,
+          61.37304100411711
+        ]
+      },
+      "reduction_percent": -6.336461279279493,
+      "identical_output_sha256_with_float_bits": "a1810a0bd03b2e34a1c7a5a58be9f76e56d0942f7f7e5453fbeca66774eb7216",
+      "points": 4,
+      "spectra": 4,
+      "samples": 14592
+    },
+    {
+      "path": "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-00.xlsx",
+      "includeSpectra": false,
+      "original": {
+        "median_ms": 559.9971875017218,
+        "samples_ms": [
+          561.0241250033141,
+          563.5631249970174,
+          558.1289999972796,
+          558.9702500001295,
+          558.7427080026828,
+          561.7495420010528
+        ]
+      },
+      "optimized": {
+        "median_ms": 516.942291502346,
+        "samples_ms": [
+          558.1732920036302,
+          643.6230420003994,
+          513.289333001012,
+          511.9288339992636,
+          517.8658750010072,
+          516.0187080036849
+        ]
+      },
+      "reduction_percent": 7.6884128992600225,
+      "identical_output_sha256_with_float_bits": "cd02377cbb1c55fbfce3325da67b27f19ab94971c30d4a38f00560f1d596bc61",
+      "points": 24,
+      "spectra": 0,
+      "samples": 0
+    },
+    {
+      "path": "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-00.xlsx",
+      "includeSpectra": true,
+      "original": {
+        "median_ms": 1194.9429374981264,
+        "samples_ms": [
+          1515.72212499741,
+          2665.8237079973333,
+          1464.975124996272,
+          786.5423330003978,
+          792.5484579973272,
+          924.9107499999809
+        ]
+      },
+      "optimized": {
+        "median_ms": 814.718833004008,
+        "samples_ms": [
+          664.5856670002104,
+          1472.849583995412,
+          1284.735458000796,
+          809.5862910049618,
+          819.8513750030543,
+          787.186917004874
+        ]
+      },
+      "reduction_percent": 31.81943610547634,
+      "identical_output_sha256_with_float_bits": "a02f5cf42beb83e2bf551f946020cef82d6a96ce3016a544768282bf9b08f626",
+      "points": 24,
+      "spectra": 24,
+      "samples": 196608
+    }
+  ],
+  "source_sha256": {
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-00.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-01.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-02.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-03.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-04.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-05.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-06.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-07.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-08.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-09.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-10.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-11.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-12.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-13.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-14.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-15.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-16.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-17.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-18.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-19.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-20.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-21.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-22.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-23.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-24.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-25.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-26.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-27.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-28.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-29.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-30.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-31.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-32.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-33.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-34.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-35.xlsx": "a39799ea29661c66fcd999114a32e97573130fde4b32564b62090ae0646820ad",
+    "test_records/H6B560569/熔接前/2026_08_17_18_02.xlsx": "42e6ba65fd7f30c17b00d822b5582282159fdb3a0ae48b8807ed1c6cf9817cfe",
+    "test_records/H6B560569/熔接前/2026_08_17_18_37.xlsx": "c64af2dba95e7e86d437c74dbac3e0ceceab87c7a5f0b66842baed7f90538ce3",
+    "test_records/H6B560569/熔接前/2026_08_17_18_45.xlsx": "a0b2dc1f8488f67ed73a945a58abd91085adf5bb2fcee3e80635212cd0b196bd"
+  },
+  "index": {
+    "original": {
+      "median_ms": 24991.219937503047,
+      "samples_ms": [
+        25650.544583004375,
+        24331.89529200172
+      ]
+    },
+    "optimized": {
+      "median_ms": 22656.072311998287,
+      "samples_ms": [
+        22664.73804099951,
+        22647.406582997064
+      ]
+    },
+    "reduction_percent": 9.343872093256733,
+    "identical_output_sha256_with_float_bits": "04307a1f73509b9a02281d7167a14b3c91d59538b6553e9d9bbac7ef67984701",
+    "fileCount": 36,
+    "errorCount": 0,
+    "unchanged_refresh_median_ms": 1.1975415000051726
+  },
+  "source_files_unchanged": true
+}

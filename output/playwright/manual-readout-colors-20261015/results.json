@@ -1,0 +1,350 @@
+[
+  {
+    "accent": "orange",
+    "current": {
+      "background": [
+        24,
+        26,
+        27
+      ],
+      "color": "rgb(255, 173, 50)",
+      "contrast": 9.377310311060272,
+      "font": "\"ARP Seven Segment\", monospace",
+      "shadow": "color(srgb 1 0.678431 0.196078 / 0.16) 0px 0px 4px",
+      "text": "2.5"
+    },
+    "overflow": false,
+    "theme": "dark",
+    "voltage": {
+      "background": [
+        24,
+        26,
+        27
+      ],
+      "color": "rgb(103, 200, 255)",
+      "contrast": 9.383080008704358,
+      "font": "\"ARP Seven Segment\", monospace",
+      "shadow": "color(srgb 0.403922 0.784314 1 / 0.16) 0px 0px 4px",
+      "text": "12.34"
+    }
+  },
+  {
+    "accent": "blue",
+    "current": {
+      "background": [
+        24,
+        26,
+        27
+      ],
+      "color": "rgb(255, 173, 50)",
+      "contrast": 9.377310311060272,
+      "font": "\"ARP Seven Segment\", monospace",
+      "shadow": "color(srgb 1 0.678431 0.196078 / 0.16) 0px 0px 4px",
+      "text": "2.5"
+    },
+    "overflow": false,
+    "theme": "dark",
+    "voltage": {
+      "background": [
+        24,
+        26,
+        27
+      ],
+      "color": "rgb(103, 200, 255)",
+      "contrast": 9.383080008704358,
+      "font": "\"ARP Seven Segment\", monospace",
+      "shadow": "color(srgb 0.403922 0.784314 1 / 0.16) 0px 0px 4px",
+      "text": "12.34"
+    }
+  },
+  {
+    "accent": "green",
+    "current": {
+      "background": [
+        24,
+        26,
+        27
+      ],
+      "color": "rgb(255, 173, 50)",
+      "contrast": 9.377310311060272,
+      "font": "\"ARP Seven Segment\", monospace",
+      "shadow": "color(srgb 1 0.678431 0.196078 / 0.16) 0px 0px 4px",
+      "text": "2.5"
+    },
+    "overflow": false,
+    "theme": "dark",
+    "voltage": {
+      "background": [
+        24,
+        26,
+        27
+      ],
+      "color": "rgb(103, 200, 255)",
+      "contrast": 9.383080008704358,
+      "font": "\"ARP Seven Segment\", monospace",
+      "shadow": "color(srgb 0.403922 0.784314 1 / 0.16) 0px 0px 4px",
+      "text": "12.34"
+    }
+  },
+  {
+    "accent": "purple",
+    "current": {
+      "background": [
+        24,
+        26,
+        27
+      ],
+      "color": "rgb(255, 173, 50)",
+      "contrast": 9.377310311060272,
+      "font": "\"ARP Seven Segment\", monospace",
+      "shadow": "color(srgb 1 0.678431 0.196078 / 0.16) 0px 0px 4px",
+      "text": "2.5"
+    },
+    "overflow": false,
+    "theme": "dark",
+    "voltage": {
+      "background": [
+        24,
+        26,
+        27
+      ],
+      "color": "rgb(103, 200, 255)",
+      "contrast": 9.383080008704358,
+      "font": "\"ARP Seven Segment\", monospace",
+      "shadow": "color(srgb 0.403922 0.784314 1 / 0.16) 0px 0px 4px",
+      "text": "12.34"
+    }
+  },
+  {
+    "accent": "rose",
+    "current": {
+      "background": [
+        24,
+        26,
+        27
+      ],
+      "color": "rgb(255, 173, 50)",
+      "contrast": 9.377310311060272,
+      "font": "\"ARP Seven Segment\", monospace",
+      "shadow": "color(srgb 1 0.678431 0.196078 / 0.16) 0px 0px 4px",
+      "text": "2.5"
+    },
+    "overflow": false,
+    "theme": "dark",
+    "voltage": {
+      "background": [
+        24,
+        26,
+        27
+      ],
+      "color": "rgb(103, 200, 255)",
+      "contrast": 9.383080008704358,
+      "font": "\"ARP Seven Segment\", monospace",
+      "shadow": "color(srgb 0.403922 0.784314 1 / 0.16) 0px 0px 4px",
+      "text": "12.34"
+    }
+  },
+  {
+    "accent": "graphite",
+    "current": {
+      "background": [
+        24,
+        26,
+        27
+      ],
+      "color": "rgb(255, 173, 50)",
+      "contrast": 9.377310311060272,
+      "font": "\"ARP Seven Segment\", monospace",
+      "shadow": "color(srgb 1 0.678431 0.196078 / 0.16) 0px 0px 4px",
+      "text": "2.5"
+    },
+    "overflow": false,
+    "theme": "dark",
+    "voltage": {
+      "background": [
+        24,
+        26,
+        27
+      ],
+      "color": "rgb(103, 200, 255)",
+      "contrast": 9.383080008704358,
+      "font": "\"ARP Seven Segment\", monospace",
+      "shadow": "color(srgb 0.403922 0.784314 1 / 0.16) 0px 0px 4px",
+      "text": "12.34"
+    }
+  },
+  {
+    "accent": "orange",
+    "current": {
+      "background": [
+        255,
+        255,
+        255
+      ],
+      "color": "rgb(168, 81, 8)",
+      "contrast": 5.461007369685398,
+      "font": "\"ARP Seven Segment\", monospace",
+      "shadow": "none",
+      "text": "2.5"
+    },
+    "overflow": false,
+    "theme": "light",
+    "voltage": {
+      "background": [
+        255,
+        255,
+        255
+      ],
+      "color": "rgb(3, 105, 161)",
+      "contrast": 5.933638668604332,
+      "font": "\"ARP Seven Segment\", monospace",
+      "shadow": "none",
+      "text": "12.34"
+    }
+  },
+  {
+    "accent": "blue",
+    "current": {
+      "background": [
+        255,
+        255,
+        255
+      ],
+      "color": "rgb(168, 81, 8)",
+      "contrast": 5.461007369685398,
+      "font": "\"ARP Seven Segment\", monospace",
+      "shadow": "none",
+      "text": "2.5"
+    },
+    "overflow": false,
+    "theme": "light",
+    "voltage": {
+      "background": [
+        255,
+        255,
+        255
+      ],
+      "color": "rgb(3, 105, 161)",
+      "contrast": 5.933638668604332,
+      "font": "\"ARP Seven Segment\", monospace",
+      "shadow": "none",
+      "text": "12.34"
+    }
+  },
+  {
+    "accent": "green",
+    "current": {
+      "background": [
+        255,
+        255,
+        255
+      ],
+      "color": "rgb(168, 81, 8)",
+      "contrast": 5.461007369685398,
+      "font": "\"ARP Seven Segment\", monospace",
+      "shadow": "none",
+      "text": "2.5"
+    },
+    "overflow": false,
+    "theme": "light",
+    "voltage": {
+      "background": [
+        255,
+        255,
+        255
+      ],
+      "color": "rgb(3, 105, 161)",
+      "contrast": 5.933638668604332,
+      "font": "\"ARP Seven Segment\", monospace",
+      "shadow": "none",
+      "text": "12.34"
+    }
+  },
+  {
+    "accent": "purple",
+    "current": {
+      "background": [
+        255,
+        255,
+        255
+      ],
+      "color": "rgb(168, 81, 8)",
+      "contrast": 5.461007369685398,
+      "font": "\"ARP Seven Segment\", monospace",
+      "shadow": "none",
+      "text": "2.5"
+    },
+    "overflow": false,
+    "theme": "light",
+    "voltage": {
+      "background": [
+        255,
+        255,
+        255
+      ],
+      "color": "rgb(3, 105, 161)",
+      "contrast": 5.933638668604332,
+      "font": "\"ARP Seven Segment\", monospace",
+      "shadow": "none",
+      "text": "12.34"
+    }
+  },
+  {
+    "accent": "rose",
+    "current": {
+      "background": [
+        255,
+        255,
+        255
+      ],
+      "color": "rgb(168, 81, 8)",
+      "contrast": 5.461007369685398,
+      "font": "\"ARP Seven Segment\", monospace",
+      "shadow": "none",
+      "text": "2.5"
+    },
+    "overflow": false,
+    "theme": "light",
+    "voltage": {
+      "background": [
+        255,
+        255,
+        255
+      ],
+      "color": "rgb(3, 105, 161)",
+      "contrast": 5.933638668604332,
+      "font": "\"ARP Seven Segment\", monospace",
+      "shadow": "none",
+      "text": "12.34"
+    }
+  },
+  {
+    "accent": "graphite",
+    "current": {
+      "background": [
+        255,
+        255,
+        255
+      ],
+      "color": "rgb(168, 81, 8)",
+      "contrast": 5.461007369685398,
+      "font": "\"ARP Seven Segment\", monospace",
+      "shadow": "none",
+      "text": "2.5"
+    },
+    "overflow": false,
+    "theme": "light",
+    "voltage": {
+      "background": [
+        255,
+        255,
+        255
+      ],
+      "color": "rgb(3, 105, 161)",
+      "contrast": 5.933638668604332,
+      "font": "\"ARP Seven Segment\", monospace",
+      "shadow": "none",
+      "text": "12.34"
+    }
+  }
+]

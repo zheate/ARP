@@ -1,0 +1,48 @@
+### Result
+[{"mode":"multiSpectrum","timings":[{"elapsed_ms":296,"top_self_ms":[["(program) @ :0",79.80300000000001],["valueAt @ canvas-line-chart.tsx:23",47.23400000000002],[" @ canvas-line-chart.tsx:690",43.91800000000003],[" @ canvas-line-chart.tsx:738",33.28600000000002],["(idle) @ :0",27.282000000000025],["buildLayout @ canvas-line-chart.tsx:143",23.78],["drawBaseChart @ canvas-line-chart.tsx:373",23.614000000000008],[" @ data-browser.ts:197",19.41700000000001],[" @ data-browser.ts:200",13.306],["spectrumChartRows @ data-browser.ts:196",12.576],["(garbage collector) @ :0",11.362999999999998],["finiteValue @ canvas-line-chart.tsx:16",6.091],[" @ data-browser-demo.ts:16",4.655000000000001],["paddedExtent @ canvas-line-chart.tsx:40",4.504000000000001]]},{"elapsed_ms":307,"top_self_ms":[[" @ canvas-line-chart.tsx:690",52.355000000000054],["valueAt @ canvas-line-chart.tsx:23",46.21200000000003],["(program) @ :0",42.41300000000001],[" @ canvas-line-chart.tsx:738",39.48300000000004],[" @ data-browser.ts:197",36.59299999999999],["buildLayout @ canvas-line-chart.tsx:143",29.524000000000015],["spectrumChartRows @ data-browser.ts:196",24.107000000000017],["drawBaseChart @ canvas-line-chart.tsx:373",21.217000000000006],["(idle) @ :0",18.484],["finiteValue @ canvas-line-chart.tsx:16",8.580000000000004],["(garbage collector) @ :0",7.050000000000001],["paddedExtent @ canvas-line-chart.tsx:40",5.23],[" @ data-browser.ts:200",3.7830000000000004],[" @ canvas-line-chart.tsx:708",1.5470000000000004]]},{"elapsed_ms":311,"top_self_ms":[["(program) @ :0",61.19600000000001],["drawBaseChart @ canvas-line-chart.tsx:373",57.3890000000001],[" @ canvas-line-chart.tsx:690",54.03000000000008],[" @ canvas-line-chart.tsx:738",42.37700000000004],["buildLayout @ canvas-line-chart.tsx:143",37.86599999999999],[" @ data-browser.ts:197",35.448000000000036],["spectrumChartRows @ data-browser.ts:196",23.65700000000001],["(garbage collector) @ :0",22.12],["(idle) @ :0",11.161999999999999],["paddedExtent @ canvas-line-chart.tsx:40",3.8390000000000004],[" @ data-browser.ts:200",3.7180000000000004],["valueAt @ canvas-line-chart.tsx:23",3.5980000000000008],["useMemo @ react-dom_client.js?v=1d3b3da4:4461",2.2200000000000006],["lineTo @ :0",1.024]]},{"elapsed_ms":282,"top_self_ms":[[" @ canvas-line-chart.tsx:690",48.26900000000005],["(program) @ :0",39.748000000000005],["buildLayout @ canvas-line-chart.tsx:143",37.905000000000044],[" @ canvas-line-chart.tsx:738",36.34200000000005],[" @ data-browser.ts:197",34.81000000000001],["valueAt @ canvas-line-chart.tsx:23",27.67900000000001],["(idle) @ :0",22.351000000000013],["spectrumChartRows @ data-browser.ts:196",22.28500000000001],["drawBaseChart @ canvas-line-chart.tsx:373",20.265000000000015],["finiteValue @ canvas-line-chart.tsx:16",5.8160000000000025],["(garbage collector) @ :0",4.910000000000001],[" @ data-browser.ts:200",4.388000000000002],["paddedExtent @ canvas-line-chart.tsx:40",3.8410000000000006],[" @ canvas-line-chart.tsx:708",2.175]]}]},{"mode":"evolution","timings":[{"elapsed_ms":106,"top_self_ms":[["(program) @ :0",62.95900000000001],[" @ spectral-waterfall-chart.tsx:194",29.375000000000025],["fillRect @ :0",19.837000000000014],["(idle) @ :0",19.787000000000013],["SpectralWaterfallChart2 @ spectral-waterfall-chart.tsx:54",12.156000000000006],["measureText @ :0",8.296],["getInfernoColor @ spectral-waterfall-chart.tsx:28",3.479],["getBoundingClientRect @ :0",2.536999999999999],[" @ data-browser.ts:197",1.3679999999999999],[" @ spectral-waterfall-chart.tsx:67",0.72],["useMemo @ react-dom_client.js?v=1d3b3da4:4461",0.7010000000000001],[" @ spectral-waterfall-chart.tsx:150",0.638],["(garbage collector) @ :0",0.397],["renderWithHooks @ react-dom_client.js?v=1d3b3da4:3508",0.383]]},{"elapsed_ms":128,"top_self_ms":[["(program) @ :0",73.00500000000002],["fillRect @ :0",55.960000000000086],["(idle) @ :0",32.09900000000003],[" @ spectral-waterfall-chart.tsx:150",30.808000000000032],["getInfernoColor @ spectral-waterfall-chart.tsx:28",1.404],[" @ data-browser.ts:197",1.3070000000000002],["(garbage collector) @ :0",0.8650000000000001],["getBoundingClientRect @ :0",0.639],["useMemo @ react-dom_client.js?v=1d3b3da4:4461",0.34299999999999997],["spectrumChartRows @ data-browser.ts:196",0.256],["recursivelyTraverseLayoutEffects @ react-dom_client.js?v=1d3b3da4:7463",0.134],["normalizeWhiteSpace @ :464",0.133],["getAttribute @ :0",0.13],["completeUnitOfWork @ react-dom_client.js?v=1d3b3da4:8641",0.13]]},{"elapsed_ms":106,"top_self_ms":[["(program) @ :0",60.793000000000006],["fillRect @ :0",42.138000000000005],[" @ spectral-waterfall-chart.tsx:150",30.45600000000003],["(idle) @ :0",25.635000000000012],[" @ data-browser.ts:197",1.4000000000000004],["getInfernoColor @ spectral-waterfall-chart.tsx:28",1.3030000000000002],["getBoundingClientRect @ :0",0.89],["(garbage collector) @ :0",0.399],["useMemo @ react-dom_client.js?v=1d3b3da4:4461",0.396],["getAriaRole @ :3537",0.257],["spectrumChartRows @ data-browser.ts:196",0.257],["DataBrowserPage2 @ data-browser-page.tsx:252",0.256],["isElementHiddenForAria @ :3562",0.137],["querySelectorAll @ :0",0.133]]},{"elapsed_ms":125,"top_self_ms":[["(program) @ :0",74.97200000000001],["fillRect @ :0",55.289000000000044],["(idle) @ :0",31.503000000000018],[" @ spectral-waterfall-chart.tsx:150",30.135000000000012],[" @ data-browser.ts:197",1.3330000000000002],["(garbage collector) @ :0",0.909],["getBoundingClientRect @ :0",0.883],["getInfernoColor @ spectral-waterfall-chart.tsx:28",0.775],["useMemo @ react-dom_client.js?v=1d3b3da4:4461",0.40800000000000003],[" @ :1",0.395],["spectrumChartRows @ data-browser.ts:196",0.378],["getAriaRole @ :3537",0.257],["markRootUpdated$1 @ react-dom_client.js?v=1d3b3da4:851",0.133],["fill @ :0",0.132]]}]}]
+### Ran Playwright code
+```js
+await (async (page) => {
+  await page.unrouteAll({behavior: 'wait'});
+  await page.route('**/src/lib/data-browser-demo.ts*', route => route.fulfill({contentType:'text/javascript',path:'tauri-ui/scripts/fixtures/spectrum-browser-data.js'}));
+  await page.route('**/remaining-spectrum-fixture?*', route => route.fulfill({contentType:'text/html',body:'<!doctype html><html><head><meta charset="UTF-8"><link rel="icon" href="data:,"></head><body><div id="root"></div><script type="module">await import("/scripts/fixtures/spectrum-browser.tsx");</script></body></html>'}));
+  await page.setViewportSize({width:1440,height:900});
+  await page.goto('http://localhost:1420/remaining-spectrum-fixture?demo=1&currents=24');
+  await page.locator('.db-record-button').first().waitFor();
+  await page.evaluate(()=>document.fonts.ready);
+  const session = await page.context().newCDPSession(page);
+  await session.send('Profiler.enable');
+  await session.send('Profiler.setSamplingInterval',{interval:100});
+  const samples = [];
+  for (const mode of ['multiSpectrum','evolution']) {
+    const timings = [];
+    for(let repeat=0;repeat<4;repeat++) {
+      await page.getByRole('combobox',{name:'曲线内容',exact:true}).selectOption('metrics');
+      await page.getByRole('img',{name:'单记录功率电流曲线',exact:true}).waitFor();
+      await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+      await session.send('Profiler.start');
+      const start = Date.now();
+      await page.getByRole('combobox',{name:'曲线内容',exact:true}).selectOption(mode);
+      const canvas = page.getByRole('img',{name:mode==='multiSpectrum'?'原始强度光谱叠加':'光谱演化热力图',exact:true});
+      await canvas.waitFor();
+      await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+      const elapsed = Date.now()-start;
+      const {profile}=await session.send('Profiler.stop');
+      const nodes = new Map(profile.nodes.map(n=>[n.id,n]));
+      const totals = new Map();
+      profile.samples.forEach((id,index)=>{const n=nodes.get(id);const key=`${n.callFrame.functionName} @ ${n.callFrame.url.split('/').at(-1)}:${n.callFrame.lineNumber+1}`;totals.set(key,(totals.get(key)||0)+(profile.timeDeltas[index]||0)/1000);});
+      timings.push({elapsed_ms:elapsed,top_self_ms:[...totals].sort((a,b)=>b[1]-a[1]).slice(0,14)});
+      if(repeat===3) await canvas.screenshot({path:`output/performance-remaining-20261015/before-${mode}.png`});
+    }
+    samples.push({mode,timings});
+  }
+  await session.detach();
+  return samples;
+}
+)(page);
+```
+### Page
+- Page URL: http://localhost:1420/remaining-spectrum-fixture?demo=1&currents=24
+- Console: 3 errors, 0 warnings
+### Events
+- New console entries: .playwright-cli/console-2026-10-15T03-18-23-092Z.log#L2-L8

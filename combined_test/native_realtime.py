@@ -16,13 +16,31 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
 
+from .runtime_logging import get_runtime_logger
+
 import numpy as np
 
 
 NATIVE_ABI_VERSION = 2
-NATIVE_DLL_NAME = "arp_realtime_core.dll" if sys.platform == "win32" else "libarp_realtime_core.so"
+NATIVE_DLL_NAME = {"win32": "arp_realtime_core.dll", "darwin": "libarp_realtime_core.dylib"}.get(sys.platform, "libarp_realtime_core.so")
 DISABLE_ENVIRONMENT_VARIABLE = "ARP_DISABLE_NATIVE_REALTIME"
 DLL_ENVIRONMENT_VARIABLE = "ARP_REALTIME_CORE_DLL"
+
+
+_LOGGER = get_runtime_logger("native_realtime")
+_reported_failures: set[tuple[str, str]] = set()
+_failure_lock = threading.Lock()
+_load_reason = "not_checked"
+
+
+def report_native_fallback(operation: str, reason: str) -> None:
+    """Log each failure category once, not once per acquired frame."""
+    key = (operation, reason)
+    with _failure_lock:
+        if key in _reported_failures:
+            return
+        _reported_failures.add(key)
+    _LOGGER.warning("原生计算回退到 Python | operation=%s | reason=%s", operation, reason)
 
 
 class NativeRealtimeUnavailable(RuntimeError):
@@ -143,6 +161,8 @@ class NativeRealtimeCore:
         array = np.ascontiguousarray(values, dtype=np.float64)
         if array.ndim != 1 or array.size == 0:
             raise ValueError("native realtime calculation requires a non-empty 1D array")
+        if not np.isfinite(array).all():
+            raise ValueError("native realtime input must contain finite values")
         return array
 
     @staticmethod
@@ -220,15 +240,23 @@ class NativeRealtimeCore:
 def get_native_realtime_core() -> NativeRealtimeCore | None:
     """Return the compatible native core, or ``None`` for safe Python fallback."""
 
+    global _load_reason
     if _truthy_environment_value(DISABLE_ENVIRONMENT_VARIABLE):
+        _load_reason = "disabled"
+        report_native_fallback("load", _load_reason)
         return None
+    _load_reason = "library_missing"
     for path in _candidate_paths():
         if not path.is_file():
             continue
         try:
-            return NativeRealtimeCore(ctypes.CDLL(str(path)), path)
+            core = NativeRealtimeCore(ctypes.CDLL(str(path)), path)
+            _load_reason = "available"
+            return core
         except (AttributeError, NativeRealtimeUnavailable, OSError):
+            _load_reason = "load_or_abi_failed"
             continue
+    report_native_fallback("load", _load_reason)
     return None
 
 
@@ -236,6 +264,7 @@ def native_realtime_status() -> dict[str, object]:
     core = get_native_realtime_core()
     return {
         "available": core is not None,
+        "reason": _load_reason,
         "abiVersion": NATIVE_ABI_VERSION,
         "library": core.path.name if core is not None else "",
         "disabled": _truthy_environment_value(DISABLE_ENVIRONMENT_VARIABLE),

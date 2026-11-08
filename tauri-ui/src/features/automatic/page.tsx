@@ -1,0 +1,385 @@
+import { AutomaticCompletionSummary } from "@/components/automatic-overview"
+import { NativeSelect } from "@/components/native-select"
+import { OutputDirectoryInput } from "@/components/output-directory-input"
+import { SaveScriptDialog } from "@/components/save-script-dialog"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { AgingPowerChart, PowerEfficiencyChart, PowerRealtimeChart, SpectrumRealtimeChart } from "@/features/charts/realtime"
+import { UpdateConfig, configurationsEqual } from "@/features/configuration/model"
+import { AutomaticSpecificationsDialog, DeviceCard, DeviceSettingsDialog, DeviceSettingsKind } from "@/features/devices/settings"
+import { AutomaticTestControlCard, RealtimeMetricCards, RealtimePowerReadout, RunCommand, formatTrimmedNumber, powerMeterResourceLabel } from "@/features/shared/controls"
+import { sameAutomaticTestState, sameDeviceSnapshot, sameMeasurements } from "@/features/shared/snapshot-equality"
+import { type CurveLineStyle, type LatestPointMarkerStyle } from "@/lib/appearance"
+import { automaticStartPresentation } from "@/lib/automatic-presentation"
+import { type AppConfiguration, type BackendSnapshot, type TestScript } from "@/lib/backend"
+import { powerMeterResourceValue } from "@/lib/power-meter-resource"
+import { scriptPresetCompatible } from "@/lib/test-script-presets"
+import { confirm, open as openDialog } from "@tauri-apps/plugin-dialog"
+import { FileText, FolderOpen, Gauge, LoaderCircle, Milestone, Pencil, Plus, Power, QrCode, Radio, Save, Thermometer, Trash2 } from "lucide-react"
+import { memo, useCallback, useEffect, useRef, useState } from "react"
+import { createPortal } from "react-dom"
+
+type AutomaticSetupProps = {
+  config: AppConfiguration
+  update: UpdateConfig
+  active: boolean
+  dirty: boolean
+  controlsLocked: boolean
+  pending: boolean
+  freezeReadiness: boolean
+  saveConfiguration: () => Promise<void>
+  testScripts: TestScript[]
+  onScriptSelect: (scriptId: string) => void
+  onNewScript: () => void
+  onEditScript: () => void
+  onDeleteScript: () => void
+  onNotify?: (notice: { level?: "error" | "info" | "warning"; title: string; message: string; durationMs?: number }) => void
+}
+
+const AutomaticSetup = memo(function AutomaticSetup({ config, update, active, dirty, controlsLocked, pending, freezeReadiness, saveConfiguration, testScripts, onScriptSelect, onNewScript, onEditScript, onDeleteScript, onNotify }: AutomaticSetupProps) {
+  const saveLock = useRef(false)
+  const [saving, setSaving] = useState(false)
+  const settledDirty = useRef(dirty)
+  if (!freezeReadiness && !pending && !saving) settledDirty.current = dirty
+  const displayedDirty = freezeReadiness || pending || saving ? settledDirty.current : dirty
+  const saveScript = async () => {
+    if (!active || !dirty || controlsLocked || pending || saveLock.current) return
+    saveLock.current = true
+    setSaving(true)
+    try {
+      await saveConfiguration()
+    } catch (reason) {
+      onNotify?.({ level: "error", title: "保存失败", message: reason instanceof Error ? reason.message : String(reason) })
+    } finally {
+      saveLock.current = false
+      setSaving(false)
+    }
+  }
+  const selectedPreset = config.testScriptPresets?.find((preset) => preset.id === config.selectedScriptPresetId)
+  const availableTestScripts = testScripts.filter((script) => (
+    !script.powerSupplyKinds || script.powerSupplyKinds.includes(config.powerSupplyKind)
+  ))
+  const chooseOutputDir = async () => {
+    if (!active || controlsLocked || pending || saveLock.current) return
+    try {
+      const selected = await openDialog({
+        multiple: false,
+        directory: true,
+        title: "选择测试数据输出目录",
+        defaultPath: config.outputDir.trim() || undefined,
+      })
+      if (typeof selected === "string" && selected) {
+        update("outputDir", selected)
+      }
+    } catch {
+      // dialog cancelled or failed
+    }
+  }
+
+  return (
+    <div className="automatic-setup-panel sample-nameplate" data-locked={controlsLocked}>
+
+        <div className="sample-nameplate__identity space-y-1.5 min-w-0">
+          <Label className="text-[13px] font-medium text-muted-foreground" htmlFor="automatic-sn">
+            <QrCode className="mr-1 inline size-3.5" />当前样品
+          </Label>
+          <Input
+            className="h-10 text-base font-mono font-semibold rounded-lg"
+            disabled={controlsLocked}
+            aria-label="产品 SN"
+            placeholder="输入产品 SN"
+            title={config.sn}
+            id="automatic-sn"
+            onChange={(event) => update("sn", event.target.value)}
+            value={config.sn}
+          />
+        </div>
+        <div className="space-y-1.5 min-w-0">
+          <Label className="text-[13px] font-medium text-muted-foreground" htmlFor="automatic-test-temperature">
+            <Thermometer className="mr-1 inline size-3.5" />测试温度
+          </Label>
+          <Input
+            className="h-10 text-[15px] rounded-lg"
+            disabled={controlsLocked}
+            id="automatic-test-temperature"
+            onChange={(event) => update("testTemperatureC", event.target.value)}
+            placeholder="例如：水冷25°C"
+            value={config.testTemperatureC}
+          />
+        </div>
+        <div className="space-y-1.5 min-w-0">
+          <Label className="text-[13px] font-medium text-muted-foreground" htmlFor="automatic-station">
+            <Milestone className="mr-1 inline size-3.5" />测试站别
+          </Label>
+          <Input
+            className="h-10 text-[15px] rounded-lg"
+            disabled={controlsLocked}
+            id="automatic-station"
+            onChange={(event) => update("station", event.target.value)}
+            placeholder="例如：老化 / FT"
+            value={config.station}
+          />
+        </div>
+        <div className="sample-nameplate__output space-y-1.5 min-w-0">
+          <Label className="text-[13px] font-medium text-muted-foreground" htmlFor="automatic-output-directory">
+            <FolderOpen className="mr-1 inline size-3.5" />输出目录
+          </Label>
+          <div className="flex items-center gap-1.5">
+            <OutputDirectoryInput
+              className="h-10 min-w-0 flex-1 text-[15px] rounded-lg"
+              disabled={controlsLocked}
+              id="automatic-output-directory"
+              onValueChange={(value) => update("outputDir", value)}
+              placeholder="测试数据保存目录"
+              title={config.outputDir}
+              value={config.outputDir}
+            />
+            <Button
+              className="size-10 shrink-0 px-0"
+              disabled={controlsLocked}
+              onClick={() => void chooseOutputDir()}
+              size="sm"
+              type="button"
+              variant="outline"
+              title="选择输出目录"
+            >
+              <FolderOpen className="size-4" />
+            </Button>
+          </div>
+        </div>
+        <div className="sample-nameplate__script automatic-setup-field--large-type space-y-1.5 min-w-0">
+          <Label className="text-[13px] font-medium text-muted-foreground">
+            <FileText className="mr-1 inline size-3.5" />脚本选择
+          </Label>
+          <div aria-busy={pending || saving} className="sample-nameplate__script-controls" onClickCapture={(event) => { if (pending || saveLock.current) { event.preventDefault(); event.stopPropagation() } }} onKeyDownCapture={(event) => { if ((pending || saveLock.current) && event.key !== "Tab" && event.key !== "Escape") { event.preventDefault(); event.stopPropagation() } }}>
+            <NativeSelect aria-label="脚本选择" disabled={controlsLocked} value={config.selectedScriptPresetId || config.selectedScriptId} onChange={(value) => { if (!pending && !saveLock.current) onScriptSelect(value) }}>
+              {availableTestScripts.map((script) => <option key={script.id} value={script.id}>{script.name}</option>)}
+              {(config.testScriptPresets ?? []).map((preset) => <option disabled={!scriptPresetCompatible(config, preset)} key={preset.id} value={preset.id}>{preset.name}</option>)}
+            </NativeSelect>
+            <Button aria-disabled={pending || saving} aria-label="添加脚本" aria-haspopup="dialog" disabled={!active || controlsLocked} onClick={onNewScript} size="icon" title="另存为新脚本" variant="outline"><Plus className="size-4" /></Button>
+            <Button aria-busy={saving} aria-disabled={pending || saving || !dirty} aria-label="保存脚本" disabled={!displayedDirty || !active || controlsLocked} onClick={() => void saveScript()} size="icon" title="保存脚本" variant="outline">{saving ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}</Button>
+            <Button aria-disabled={pending || saving} aria-label="编辑脚本" aria-haspopup="dialog" disabled={!active || controlsLocked} onClick={onEditScript} size="icon" title="编辑脚本" variant="outline"><Pencil className="size-4" /></Button>
+            <Button aria-disabled={pending || saving} aria-label="删除脚本" aria-haspopup="dialog" disabled={!selectedPreset || !active || controlsLocked} onClick={onDeleteScript} size="icon" title={selectedPreset ? "删除当前自定义脚本" : "内置脚本不能删除"} variant="outline"><Trash2 className="size-4" /></Button>
+          </div>
+        </div>
+      </div>
+  )
+})
+
+export const AutomaticPage = memo(function AutomaticPage({
+  toolbarHost,
+  snapshot,
+  config,
+  update,
+  active,
+  dirty,
+  controlsLocked,
+  curveLineStyle,
+  latestPointMarkerStyle,
+  pending,
+  run,
+  saveConfiguration,
+  testScripts,
+  onScriptSelect,
+  onCreateScript,
+  onDeleteScript,
+  onNextDevice,
+  onViewData,
+  onRetryExport,
+  onChooseExportDirectory,
+  onShowCompletion,
+  onNotify,
+}: {
+  toolbarHost: HTMLDivElement | null
+  snapshot: BackendSnapshot | null
+  config: AppConfiguration
+  update: UpdateConfig
+  active: boolean
+  dirty: boolean
+  controlsLocked: boolean
+  curveLineStyle: CurveLineStyle
+  latestPointMarkerStyle: LatestPointMarkerStyle
+  pending: boolean
+  run: RunCommand
+  saveConfiguration: () => Promise<void>
+  testScripts: TestScript[]
+  onScriptSelect: (scriptId: string) => void
+  onCreateScript: (name: string) => Promise<void>
+  onDeleteScript: (presetId: string) => Promise<void>
+  onNextDevice: () => void | Promise<unknown>
+  onViewData: () => void
+  onRetryExport: () => void | Promise<unknown>
+  onChooseExportDirectory: () => void | Promise<unknown>
+  onShowCompletion: () => void
+  onNotify?: (notice: { level?: "error" | "info" | "warning"; title: string; message: string; durationMs?: number }) => void
+}) {
+  const auto = snapshot?.automaticTest
+  const completed = auto?.state === "completed" && Boolean(auto.terminalOutcome)
+  const [openSettings, setOpenSettings] = useState<DeviceSettingsKind | null>(null)
+  const [specificationsOpen, setSpecificationsOpen] = useState(false)
+  const [testSettingsOpen, setTestSettingsOpen] = useState(false)
+  const [newScriptOpen, setNewScriptOpen] = useState(false)
+  const [deletingScript, setDeletingScript] = useState(false)
+  const testCommandLock = useRef(false)
+  const [testAction, setTestAction] = useState<"start" | "stop" | null>(null)
+  const deleteLock = useRef(false)
+  const deleteEligibility = useRef({ active, pending, controlsLocked, presetId: config.selectedScriptPresetId })
+  deleteEligibility.current = { active, pending, controlsLocked, presetId: config.selectedScriptPresetId }
+  const deleteSelectedScript = async () => {
+    const preset = config.testScriptPresets?.find((item) => item.id === config.selectedScriptPresetId)
+    if (!preset || !active || pending || controlsLocked || deleteLock.current) return
+    deleteLock.current = true
+    setDeletingScript(true)
+    try {
+      const accepted = await confirm(`确定删除脚本“${preset.name}”吗？删除后无法恢复，当前测试参数和历史数据会保留。`, { title: "删除脚本", kind: "warning", okLabel: "删除", cancelLabel: "取消" })
+      if (!accepted) return
+      const latest = deleteEligibility.current
+      if (!latest.active || latest.pending || latest.controlsLocked || latest.presetId !== preset.id) {
+        throw new Error("当前状态或所选脚本已改变，请重新确认删除")
+      }
+      await onDeleteScript(preset.id)
+    } catch (reason) {
+      onNotify?.({ level: "error", title: "删除失败", message: reason instanceof Error ? reason.message : String(reason) })
+    } finally {
+      deleteLock.current = false
+      setDeletingScript(false)
+    }
+  }
+  const closeSettings = () => setOpenSettings(null)
+  const openNewScript = useCallback(() => setNewScriptOpen(true), [])
+  const openTestSettings = useCallback(() => setTestSettingsOpen(true), [])
+  const openPowerSupply = useCallback(() => setOpenSettings("powerSupply"), [])
+  const openPowerMeter = useCallback(() => setOpenSettings("powerMeter"), [])
+  const openSpectrometer = useCallback(() => setOpenSettings("spectrometer"), [])
+  useEffect(() => {
+    if (controlsLocked) {
+      setOpenSettings(null)
+      setTestSettingsOpen(false)
+      setNewScriptOpen(false)
+    }
+  }, [controlsLocked])
+  const { canStart, messages: readinessMessages } = automaticStartPresentation(auto, config)
+  const runTestAction = async (action: "start" | "stop") => {
+    if (!active || pending || testCommandLock.current || (action === "start" && controlsLocked)) return
+    if (action === "start" && !canStart) {
+      onNotify?.({
+        title: "未就绪",
+        message: readinessMessages.length > 0 ? readinessMessages.join("；") : "当前状态无法开始测试",
+        level: "error",
+      })
+      return
+    }
+    testCommandLock.current = true
+    setTestAction(action)
+    try {
+      if (action === "start") await run("automatic.start", { ...config })
+      else await run("automatic.end")
+    } catch (reason) {
+      onNotify?.({ level: "error", title: action === "start" ? "启动失败" : "停止失败", message: reason instanceof Error ? reason.message : String(reason) })
+    } finally {
+      testCommandLock.current = false
+      setTestAction(null)
+    }
+  }
+  const serialLabel = config.powerSupplyKind === "ru" ? "VARIED RU" : "TDK"
+  const serialVoltage = config.powerSupplyKind === "ru" ? config.ruVoltageV : config.tdkVoltageV
+  const serialResource = config.powerSupplyKind === "ru" ? config.ruResource : config.tdkResource
+  const powerSupplySummary = config.powerSupplyKind === "ch341"
+    ? `CH341 · ${config.initialCurrentA}A → ${config.targetCurrentA}A (${config.currentStepA}A)`
+    : `${serialLabel} · ${config.initialCurrentA}A → ${config.targetCurrentA}A (${serialVoltage}V)`
+  const currentPlanSummary = config.currentPlanMode === "custom"
+    ? (config.customCurrentPoints.length
+      ? `${config.customCurrentPoints.map((point) => formatTrimmedNumber(point.currentA, 3)).join(" → ")} A`
+      : "未设置电流点")
+    : `${formatTrimmedNumber(config.initialCurrentA, 3)} → ${formatTrimmedNumber(config.targetCurrentA, 3)} A · 步进 ${formatTrimmedNumber(config.currentStepA, 3)} A`
+  const powerSupplyVisibleSummary = `${config.powerSupplyKind !== "ch341" ? `电压 ${formatTrimmedNumber(serialVoltage, 3)} V · ` : ""}电流 ${currentPlanSummary}`
+  const appliedPowerMeterConfig = snapshot?.configuration ?? config
+  const powerMeterProfileLabel = appliedPowerMeterConfig.powerMeterProfileName
+    ? `${appliedPowerMeterConfig.powerMeterProfileName}${appliedPowerMeterConfig.powerMeterProfileVersion ? ` · v${appliedPowerMeterConfig.powerMeterProfileVersion}` : ""}`
+    : "未绑定方案"
+  const powerMeterSummary = `${appliedPowerMeterConfig.powerMeterResource ? powerMeterResourceLabel(appliedPowerMeterConfig.powerMeterResource, snapshot?.devices.powerMeter?.resources) : "未选串口"} · ${powerMeterProfileLabel} · ${appliedPowerMeterConfig.powerMeterWavelengthNm} nm (×${appliedPowerMeterConfig.softwareGain})`
+  const powerMeterVisibleSummary = `${powerMeterProfileLabel} / 系数 ×${formatTrimmedNumber(appliedPowerMeterConfig.softwareGain, 6)} · ${formatTrimmedNumber(appliedPowerMeterConfig.powerMeterWavelengthNm, 3)} nm`
+  const powerMeter = snapshot?.devices.powerMeter
+  const powerSupply = snapshot?.devices.powerSupply
+  // The planned test point remains at the last point after shutdown.
+  // TDK reports measured current; CH341 follows successful current commands.
+  const liveCurrentA = powerSupply?.connected
+    ? (config.powerSupplyKind !== "ch341" ? powerSupply.outputCurrentA : powerSupply.activeCurrentA)
+    : null
+  const spectrometer = snapshot?.devices.spectrometer
+  const useSpectrometer = Boolean(spectrometer?.running || (completed && snapshot?.measurements?.spectrum.wavelengthNm.length))
+  const spectrometerSummary = useSpectrometer
+    ? `${config.integrationTimeUs} μs · PIB ${config.pibCenterWavelengthNm}±${config.pibHalfRangeNm}nm`
+    : "未开启光谱采集"
+  const spectrometerVisibleSummary = `中心波长 ${formatTrimmedNumber(config.centerWavelengthSpecNm, 3)} nm · FWHM ≤ ${formatTrimmedNumber(config.fwhmMaximumNm, 3)} nm`
+
+
+  return (
+    <>
+      {completed && snapshot ? <AutomaticCompletionSummary snapshot={snapshot} config={config} active={active} pending={pending} onNextDevice={onNextDevice} onViewData={onViewData} onRetryExport={onRetryExport} onChooseExportDirectory={onChooseExportDirectory} onShowDetails={onShowCompletion} /> : toolbarHost ? createPortal(
+        <AutomaticSetup config={config} update={update} active={active} dirty={dirty} controlsLocked={controlsLocked} pending={pending || deletingScript} freezeReadiness={Boolean(openSettings || specificationsOpen || testSettingsOpen || newScriptOpen)} saveConfiguration={saveConfiguration} testScripts={testScripts} onScriptSelect={onScriptSelect} onNewScript={openNewScript} onEditScript={openTestSettings} onDeleteScript={() => void deleteSelectedScript()} onNotify={onNotify} />,
+        toolbarHost,
+      ) : null}
+
+      <div className="automatic-test-workspace" data-spectrum={useSpectrometer}>
+        <section className="automatic-device-rail" aria-label="测试设备与控制">
+          <DeviceCard title="电源" icon={Power} device={snapshot?.devices.powerSupply} model={config.powerSupplyKind !== "ch341" ? serialLabel : "CH341"} details={[["接口", config.powerSupplyKind !== "ch341" ? serialResource : config.ch341SelectedLocationPath], ["电流计划", currentPlanSummary], ["目标电压", config.powerSupplyKind !== "ch341" ? `${serialVoltage} V` : "不适用"]]} disabled={controlsLocked} onOpenSettings={openPowerSupply} summary={powerSupplySummary} visibleSummary={powerSupplyVisibleSummary} />
+          <DeviceCard title="功率计" icon={Gauge} device={snapshot?.devices.powerMeter} model={appliedPowerMeterConfig.powerMeterResource ? powerMeterResourceLabel(appliedPowerMeterConfig.powerMeterResource, powerMeter?.resources).split("|")[0].trim().replace(/功率计$/, "") : "未选择"} details={[["接口", powerMeterResourceValue(appliedPowerMeterConfig.powerMeterResource)], ["设备", powerMeter?.detail || "未连接"], ["系数方案", powerMeterProfileLabel], ["校准波长", `${appliedPowerMeterConfig.powerMeterWavelengthNm} nm`], ["功率系数", `× ${appliedPowerMeterConfig.softwareGain}`]]} disabled={controlsLocked} onOpenSettings={openPowerMeter} summary={powerMeterSummary} visibleSummary={powerMeterVisibleSummary} />
+          <DeviceCard title="光谱仪" icon={Radio} device={snapshot?.devices.spectrometer} model="Ocean Insight" details={[["设备", config.spectrometerResource || spectrometer?.detail || "未选择"], ["积分时间", `${config.integrationTimeUs} μs`], ["PIB 范围", `${config.pibCenterWavelengthNm} ± ${config.pibHalfRangeNm} nm`], ["FWHM 上限", `${config.fwhmMaximumNm} nm`]]} disabled={controlsLocked} onOpenSettings={openSpectrometer} summary={spectrometerSummary} visibleSummary={spectrometerVisibleSummary} />
+          <AutomaticTestControlCard
+            active={active}
+            auto={auto}
+            config={config}
+            controlsLocked={controlsLocked}
+            onStart={() => void runTestAction("start")}
+            onStop={() => void runTestAction("stop")}
+            pending={pending}
+            actionPending={testAction}
+            shutdown={snapshot?.safety.shutdown}
+          />
+        </section>
+
+        <section className={`automatic-chart-grid ${useSpectrometer ? "" : "without-spectrum"}`}>
+          <div className="automatic-chart-grid__power-row">
+            <PowerRealtimeChart curveLineStyle={curveLineStyle} latestPointMarkerStyle={latestPointMarkerStyle} snapshot={snapshot} smoothing={config.powerSmoothing ?? true} stretch readout={
+              <RealtimePowerReadout automatic={snapshot?.automaticTest} currentA={liveCurrentA} meter={powerMeter} />
+            } />
+            {config.selectedScriptId === "aging"
+              ? <AgingPowerChart snapshot={snapshot} smoothing={config.powerSmoothing ?? true} stretch />
+              : <PowerEfficiencyChart snapshot={snapshot} smoothing={config.powerSmoothing ?? true} stretch />}
+          </div>
+          {useSpectrometer && <SpectrumRealtimeChart snapshot={snapshot} smoothing={config.spectrumSmoothing ?? true} stretch metrics={
+            <RealtimeMetricCards
+              spectrumOnly
+              config={config}
+              onOpenSpecifications={() => setSpecificationsOpen(true)}
+              spectrometer={spectrometer}
+            />
+          } />}
+        </section>
+      </div>
+      {openSettings && <DeviceSettingsDialog active={active} config={config} kind={openSettings} onClose={closeSettings} onSave={saveConfiguration} onScriptSelect={onScriptSelect} open pending={pending} run={run} snapshot={snapshot} update={update} />}
+      {specificationsOpen && <AutomaticSpecificationsDialog active={active} config={config} onClose={() => setSpecificationsOpen(false)} onSave={saveConfiguration} pending={pending} update={update} />}
+      {testSettingsOpen && <AutomaticSpecificationsDialog active={active && !controlsLocked} config={config} editScript onClose={() => setTestSettingsOpen(false)} onSave={saveConfiguration} pending={pending} snapshot={snapshot} update={update} />}
+      {newScriptOpen && <SaveScriptDialog onClose={() => setNewScriptOpen(false)} onSave={onCreateScript} />}
+    </>
+  )
+}, (previous, next) => (
+  previous.toolbarHost === next.toolbarHost
+  && previous.active === next.active
+  && previous.dirty === next.dirty
+  && previous.controlsLocked === next.controlsLocked
+  && previous.curveLineStyle === next.curveLineStyle
+  && previous.latestPointMarkerStyle === next.latestPointMarkerStyle
+  && previous.pending === next.pending
+  && previous.testScripts === next.testScripts
+  && configurationsEqual(previous.config, next.config)
+  && sameAutomaticTestState(previous.snapshot?.automaticTest, next.snapshot?.automaticTest)
+  && sameDeviceSnapshot(previous.snapshot?.devices.powerSupply, next.snapshot?.devices.powerSupply)
+  && sameDeviceSnapshot(previous.snapshot?.devices.powerMeter, next.snapshot?.devices.powerMeter)
+  && sameDeviceSnapshot(previous.snapshot?.devices.spectrometer, next.snapshot?.devices.spectrometer)
+  && previous.snapshot?.safety.shutdown.confirmed === next.snapshot?.safety.shutdown.confirmed
+  && previous.snapshot?.safety.shutdown.measuredCurrentA === next.snapshot?.safety.shutdown.measuredCurrentA
+  && sameMeasurements(previous.snapshot?.measurements, next.snapshot?.measurements)
+))

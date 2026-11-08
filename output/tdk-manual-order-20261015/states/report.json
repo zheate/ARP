@@ -1,0 +1,30 @@
+[
+  {
+    "file": "disconnected.png",
+    "state": "disconnected",
+    "size": "1440x900",
+    "zoom": 1,
+    "issues": []
+  },
+  {
+    "file": "connected.png",
+    "state": "connected",
+    "size": "1440x900",
+    "zoom": 1,
+    "issues": []
+  },
+  {
+    "file": "enabled.png",
+    "state": "enabled",
+    "size": "1440x900",
+    "zoom": 1,
+    "issues": []
+  },
+  {
+    "file": "powered.png",
+    "state": "powered",
+    "size": "1440x900",
+    "zoom": 1,
+    "issues": []
+  }
+]

@@ -1,0 +1,630 @@
+{
+  "baseline_commit": "9ca676a9fbe3c008e1b1feff54a06fb693c46d1a",
+  "scope": "DataBrowserPage and CanvasLineChart fixture; synthetic browser responses, no App entry, Python/Rust transport, workbook I/O or hardware in browser timings",
+  "findings": [
+    {
+      "priority": "P1",
+      "path": "multi-spectrum chart",
+      "status": "optimized; precise data and rendering equivalent"
+    },
+    {
+      "priority": "P1",
+      "path": "large XLSX first read and first directory index",
+      "status": "confirmed, retained for compatibility; selective parsing changes invalid-cell handling"
+    }
+  ],
+  "new_p0_confirmed": false,
+  "p0_limit": "Only measured offline paths; not a complete software, Windows or instrument assessment",
+  "browser": [
+    {
+      "currents": 4,
+      "pixels": 8192,
+      "rounds": 3,
+      "samples_per_round": 5,
+      "before_median_ms": 49.70000000298023,
+      "after_median_ms": 49.5,
+      "canvas_and_hover_exact": true,
+      "raw": [
+        {
+          "round": 1,
+          "version": "before",
+          "samples_ms": [
+            49.600000001490116,
+            49.899999998509884,
+            48.79999999701977,
+            49.5,
+            50
+          ],
+          "canvas_exact": true,
+          "hover_exact": true,
+          "selected": 4
+        },
+        {
+          "round": 1,
+          "version": "after",
+          "samples_ms": [
+            49.79999999701977,
+            49.899999998509884,
+            49.5,
+            49.600000001490116,
+            34.29999999701977
+          ],
+          "canvas_exact": true,
+          "hover_exact": true,
+          "selected": 4
+        },
+        {
+          "round": 2,
+          "version": "after",
+          "samples_ms": [
+            48.70000000298023,
+            50.600000001490116,
+            49.69999999552965,
+            34.20000000298023,
+            35.599999994039536
+          ],
+          "canvas_exact": true,
+          "hover_exact": true,
+          "selected": 4
+        },
+        {
+          "round": 2,
+          "version": "before",
+          "samples_ms": [
+            48.70000000298023,
+            50.69999999552965,
+            50.5,
+            51.29999999701977,
+            48.899999998509884
+          ],
+          "canvas_exact": true,
+          "hover_exact": true,
+          "selected": 4
+        },
+        {
+          "round": 3,
+          "version": "before",
+          "samples_ms": [
+            50.100000001490116,
+            49.399999998509884,
+            49.70000000298023,
+            49.899999998509884,
+            49.399999998509884
+          ],
+          "canvas_exact": true,
+          "hover_exact": true,
+          "selected": 4
+        },
+        {
+          "round": 3,
+          "version": "after",
+          "samples_ms": [
+            49.600000001490116,
+            49.5,
+            34.19999999552965,
+            34.30000000447035,
+            49.600000001490116
+          ],
+          "canvas_exact": true,
+          "hover_exact": true,
+          "selected": 4
+        }
+      ]
+    },
+    {
+      "currents": 12,
+      "pixels": 8192,
+      "rounds": 3,
+      "samples_per_round": 5,
+      "before_median_ms": 115.89999999850988,
+      "after_median_ms": 83,
+      "canvas_and_hover_exact": true,
+      "raw": [
+        {
+          "round": 1,
+          "version": "before",
+          "samples_ms": [
+            116.29999999701977,
+            112.69999999552965,
+            116.90000000596046,
+            115.40000000596046,
+            116.79999999701977
+          ],
+          "canvas_exact": true,
+          "hover_exact": true,
+          "selected": 12
+        },
+        {
+          "round": 1,
+          "version": "after",
+          "samples_ms": [
+            82.5,
+            83.09999999403954,
+            83.20000000298023,
+            83,
+            67.39999999850988
+          ],
+          "canvas_exact": true,
+          "hover_exact": true,
+          "selected": 12
+        },
+        {
+          "round": 2,
+          "version": "after",
+          "samples_ms": [
+            82.10000000149012,
+            83.39999999850988,
+            82.79999999701977,
+            82.5,
+            66.40000000596046
+          ],
+          "canvas_exact": true,
+          "hover_exact": true,
+          "selected": 12
+        },
+        {
+          "round": 2,
+          "version": "before",
+          "samples_ms": [
+            116.30000000447035,
+            116.19999999552965,
+            115.89999999850988,
+            103.79999999701977,
+            99.10000000149012
+          ],
+          "canvas_exact": true,
+          "hover_exact": true,
+          "selected": 12
+        },
+        {
+          "round": 3,
+          "version": "before",
+          "samples_ms": [
+            116.29999999701977,
+            99.30000000447035,
+            99.80000000447035,
+            99.79999999701977,
+            99.5
+          ],
+          "canvas_exact": true,
+          "hover_exact": true,
+          "selected": 12
+        },
+        {
+          "round": 3,
+          "version": "after",
+          "samples_ms": [
+            83,
+            65.39999999850988,
+            83.60000000149012,
+            83.80000000447035,
+            66.39999999850988
+          ],
+          "canvas_exact": true,
+          "hover_exact": true,
+          "selected": 12
+        }
+      ]
+    },
+    {
+      "currents": 24,
+      "pixels": 8192,
+      "rounds": 3,
+      "samples_per_round": 5,
+      "before_median_ms": 283.20000000298023,
+      "after_median_ms": 117.20000000298023,
+      "canvas_and_hover_exact": true,
+      "raw": [
+        {
+          "round": 1,
+          "version": "before",
+          "samples_ms": [
+            283.5,
+            299.80000000447035,
+            283.6000000014901,
+            283.69999999552965,
+            283.79999999701977
+          ],
+          "canvas_exact": true,
+          "hover_exact": true,
+          "selected": 24
+        },
+        {
+          "round": 1,
+          "version": "after",
+          "samples_ms": [
+            132.20000000298023,
+            116.60000000149012,
+            115.89999999850988,
+            132.5,
+            117
+          ],
+          "canvas_exact": true,
+          "hover_exact": true,
+          "selected": 24
+        },
+        {
+          "round": 2,
+          "version": "after",
+          "samples_ms": [
+            116.39999999850988,
+            132.90000000596046,
+            132.89999999850988,
+            115.5,
+            117.29999999701977
+          ],
+          "canvas_exact": true,
+          "hover_exact": true,
+          "selected": 24
+        },
+        {
+          "round": 2,
+          "version": "before",
+          "samples_ms": [
+            282,
+            283.40000000596046,
+            265.5,
+            265.3999999985099,
+            282.5
+          ],
+          "canvas_exact": true,
+          "hover_exact": true,
+          "selected": 24
+        },
+        {
+          "round": 3,
+          "version": "before",
+          "samples_ms": [
+            298.80000000447035,
+            282.3999999985099,
+            266.70000000298023,
+            284,
+            283.20000000298023
+          ],
+          "canvas_exact": true,
+          "hover_exact": true,
+          "selected": 24
+        },
+        {
+          "round": 3,
+          "version": "after",
+          "samples_ms": [
+            117.30000000447035,
+            133.20000000298023,
+            115.5,
+            117.20000000298023,
+            116.69999999552965
+          ],
+          "canvas_exact": true,
+          "hover_exact": true,
+          "selected": 24
+        }
+      ]
+    }
+  ],
+  "lookup_reads": {
+    "before": 20054016,
+    "after": 1966080,
+    "samples_retained": 196608,
+    "after_probe": {
+      "reads": 1966080,
+      "lines": 196599,
+      "errors": [],
+      "selected": 24
+    }
+  },
+  "render_memory_controls": [
+    {
+      "version": "before",
+      "heap": {
+        "usedSize": 23488500,
+        "totalSize": 24559616,
+        "embedderHeapUsedSize": 2638184,
+        "backingStorageSize": 3804774
+      },
+      "control_evolution_ms": [
+        96.70000000298023,
+        117,
+        118.60000000149012,
+        116.10000000149012
+      ],
+      "exact_canvas_and_layout_checks": 10
+    },
+    {
+      "version": "after",
+      "heap": {
+        "usedSize": 24459872,
+        "totalSize": 26656768,
+        "embedderHeapUsedSize": 2679144,
+        "backingStorageSize": 3812810
+      },
+      "control_evolution_ms": [
+        115.90000000596046,
+        100.20000000298023,
+        116.79999999701977,
+        116.79999999701977
+      ],
+      "exact_canvas_and_layout_checks": 10
+    }
+  ],
+  "compute": [
+    {
+      "currents": 1,
+      "pixels": 8192,
+      "rows": 8192,
+      "iterations_per_version": 12,
+      "before_median_ms": 1.132458000000014,
+      "after_median_ms": 0.822874999999982,
+      "original_value_bits_and_row_order_sha256": "31723b7006095d64126deb2c9df737c43d8c39e9cdc3a7acd20694d5e27a2f7d",
+      "bit_exact": true,
+      "index_build_ms_single_sample": 0.8273340000000076,
+      "retained_index_heap_bytes_single_probe": 86752
+    },
+    {
+      "currents": 12,
+      "pixels": 8192,
+      "rows": 98304,
+      "iterations_per_version": 12,
+      "before_median_ms": 17.957415999999967,
+      "after_median_ms": 13.225999999999999,
+      "original_value_bits_and_row_order_sha256": "9b6509f5a426b2d9acb0a0a194b2951c96e9888ebc0ee6d9b35c7df16ffb9a17",
+      "bit_exact": true,
+      "index_build_ms_single_sample": 5.693208000000141,
+      "retained_index_heap_bytes_single_probe": 962968
+    },
+    {
+      "currents": 24,
+      "pixels": 8192,
+      "rows": 196608,
+      "iterations_per_version": 12,
+      "before_median_ms": 38.70591699999977,
+      "after_median_ms": 28.12929099999974,
+      "original_value_bits_and_row_order_sha256": "ec19147f2824fb3f6bae82d643c767a53947f36969dc3587195be7685ffd65c9",
+      "bit_exact": true,
+      "index_build_ms_single_sample": 10.18362500000012,
+      "retained_index_heap_bytes_single_probe": 1925432
+    }
+  ],
+  "backend": {
+    "workbook_reads": [
+      {
+        "path": "test_records/H6B560569/熔接前/2026_08_17_18_02.xlsx",
+        "full_spectra": false,
+        "median_ms": 85.16508300090209,
+        "samples_ms": [
+          85.16508300090209,
+          86.96491600130685,
+          74.61116700142156
+        ],
+        "points": 4,
+        "spectra": 0
+      },
+      {
+        "path": "test_records/H6B560569/熔接前/2026_08_17_18_02.xlsx",
+        "full_spectra": true,
+        "median_ms": 85.61954100150615,
+        "samples_ms": [
+          85.61954100150615,
+          86.87662499869475,
+          81.4547079935437
+        ],
+        "points": 4,
+        "spectra": 4
+      },
+      {
+        "path": "test_records/H6B560569/熔接前/2026_08_17_18_37.xlsx",
+        "full_spectra": false,
+        "median_ms": 26.517292004427873,
+        "samples_ms": [
+          34.54341700125951,
+          25.98908299842151,
+          26.517292004427873
+        ],
+        "points": 1,
+        "spectra": 0
+      },
+      {
+        "path": "test_records/H6B560569/熔接前/2026_08_17_18_37.xlsx",
+        "full_spectra": true,
+        "median_ms": 27.574041996558663,
+        "samples_ms": [
+          27.574041996558663,
+          33.27354099747026,
+          27.389584000047762
+        ],
+        "points": 1,
+        "spectra": 1
+      },
+      {
+        "path": "test_records/H6B560569/熔接前/2026_08_17_18_45.xlsx",
+        "full_spectra": false,
+        "median_ms": 73.25316700007534,
+        "samples_ms": [
+          75.77999999921303,
+          67.67483400471974,
+          73.25316700007534
+        ],
+        "points": 4,
+        "spectra": 0
+      },
+      {
+        "path": "test_records/H6B560569/熔接前/2026_08_17_18_45.xlsx",
+        "full_spectra": true,
+        "median_ms": 78.87704200402368,
+        "samples_ms": [
+          78.87704200402368,
+          75.8620830019936,
+          84.26166699791793
+        ],
+        "points": 4,
+        "spectra": 4
+      },
+      {
+        "path": "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-00.xlsx",
+        "full_spectra": false,
+        "median_ms": 649.7830410007737,
+        "samples_ms": [
+          683.2144170039101,
+          649.7830410007737,
+          631.6523749992484
+        ],
+        "points": 24,
+        "spectra": 0
+      },
+      {
+        "path": "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-00.xlsx",
+        "full_spectra": true,
+        "median_ms": 770.0071669969475,
+        "samples_ms": [
+          758.8000830000965,
+          770.0071669969475,
+          823.9720419951482
+        ],
+        "points": 24,
+        "spectra": 24
+      }
+    ],
+    "directory": {
+      "files": 36,
+      "first_index_ms": 25030.437374996836,
+      "unchanged_refresh_ms": 2.4987500000861473
+    }
+  },
+  "excel_validation_boundary": [
+    {
+      "file": "valid-unused-cell.xlsx",
+      "readable": true,
+      "points": 1
+    },
+    {
+      "file": "invalid-unused-cell.xlsx",
+      "readable": false,
+      "error": "could not convert string to float: 'invalid-number'"
+    }
+  ],
+  "source_workbooks_unchanged": [
+    {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_02.xlsx",
+      "sha256": "42e6ba65fd7f30c17b00d822b5582282159fdb3a0ae48b8807ed1c6cf9817cfe"
+    },
+    {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_37.xlsx",
+      "sha256": "c64af2dba95e7e86d437c74dbac3e0ceceab87c7a5f0b66842baed7f90538ce3"
+    },
+    {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_45.xlsx",
+      "sha256": "a0b2dc1f8488f67ed73a945a58abd91085adf5bb2fcee3e80635212cd0b196bd"
+    }
+  ],
+  "control_source_unchanged": [
+    {
+      "path": "tauri_bridge/__main__.py",
+      "unchanged_from_9ca676a9": true,
+      "sha256": "6aaa46c673b929b5fb0f258dde50e5f492fe4f939abb0e92851f1b0fde646550"
+    },
+    {
+      "path": "tauri_bridge/json_codec.py",
+      "unchanged_from_9ca676a9": true,
+      "sha256": "5724f0c69aa4b1d25956599a846c06fe55c13abb88997e959c47c35747132091"
+    },
+    {
+      "path": "tauri_bridge/snapshot_builder.py",
+      "unchanged_from_9ca676a9": true,
+      "sha256": "f5b11387060d8aa875c5c8c9f7998b4e08911c29217b2fee2a85707444d0aea3"
+    },
+    {
+      "path": "tauri_bridge/headless_backend.py",
+      "unchanged_from_9ca676a9": true,
+      "sha256": "d12e9dc06f44a1560e97a2435f67f5937b7e05a30150889259d26fa67789f273"
+    },
+    {
+      "path": "tauri_bridge/station_runtime.py",
+      "unchanged_from_9ca676a9": true,
+      "sha256": "c41a6bb7774ebd59c9f1f6b0f71d89d72b0ada87407db72f2649876f779410ea"
+    },
+    {
+      "path": "tauri_bridge/station_automatic.py",
+      "unchanged_from_9ca676a9": true,
+      "sha256": "7b446e6a3ecc7319c8c60a38d5bd5c99b67107b85af0b374f7ba89cc1dd5d931"
+    },
+    {
+      "path": "combined_test/devices.py",
+      "unchanged_from_9ca676a9": true,
+      "sha256": "291db782a051142ac2dbde370068867922ca6f8587dd56981b9b244c56c3cf0f"
+    },
+    {
+      "path": "combined_test/device_interfaces.py",
+      "unchanged_from_9ca676a9": true,
+      "sha256": "c48af60d5e700101c226900b1abf23625ea9b2269691db3ef656dfa9c92c315a"
+    },
+    {
+      "path": "combined_test/persistence.py",
+      "unchanged_from_9ca676a9": true,
+      "sha256": "9f7ac09e9ee7886c09237cbcd0cdf9a41e6c0c220d8ffd79eea52fc451a67ed5"
+    },
+    {
+      "path": "combined_test/session_journal.py",
+      "unchanged_from_9ca676a9": true,
+      "sha256": "19a1533805df8495ef2d36ac8281a5c0d6e96e5cd953b16a526fb2073437f43d"
+    },
+    {
+      "path": "combined_test/spectrum_math.py",
+      "unchanged_from_9ca676a9": true,
+      "sha256": "0dfd3b601985113326527c65fb208e1359346c7c70ef545c5ce0cc189905bfe8"
+    },
+    {
+      "path": "tauri-ui/src-tauri/src/lib.rs",
+      "unchanged_from_9ca676a9": true,
+      "sha256": "c9ca08a518afd5beb7b416f1162547c1806c7e6b14c390a937aa3c059a2f643f"
+    },
+    {
+      "path": "tauri-ui/src-tauri/src/snapshot_stream.rs",
+      "unchanged_from_9ca676a9": true,
+      "sha256": "f71de8c7c43426296c53b6ae59180db71a5d6b7652af70ee2513c432354f3f32"
+    },
+    {
+      "path": "tauri-ui/src-tauri/Cargo.toml",
+      "unchanged_from_9ca676a9": true,
+      "sha256": "8f1eed124ac6aa01004630ec44aca7fb5be2e7202a243bdbcdd06352119de58d"
+    },
+    {
+      "path": "tauri-ui/src/hooks/use-backend-snapshot.ts",
+      "unchanged_from_9ca676a9": true,
+      "sha256": "f48d42eec3285f7f2b3b795e2ee86820b144d2f43491d58c1bbb5c9622caf1e2"
+    }
+  ],
+  "validation": {
+    "frontend_focused_tests": 72,
+    "typecheck": "passed",
+    "production_build": "passed again on final working tree; existing >500 kB chunk warning",
+    "realtime_chart": {
+      "mountRectReads": 0,
+      "hoverBaseDraws": 0,
+      "changedFrameDraws": 2,
+      "hiddenFrameDraws": 2,
+      "tooltipAndCrosshair": true,
+      "pointerLeaveClears": true,
+      "sizes": [
+        {
+          "ratio": 1,
+          "correct": true
+        },
+        {
+          "ratio": 1.5,
+          "correct": true
+        },
+        {
+          "ratio": 2,
+          "correct": true
+        }
+      ],
+      "themeRepaint": true
+    }
+  },
+  "limits": [
+    "No full suite or packaging",
+    "No native WebView2 or real devices",
+    "Browser heap is not process RSS or a long-term leak assessment",
+    "App-cache-miss reads do not flush operating system caches"
+  ]
+}

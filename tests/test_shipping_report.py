@@ -189,6 +189,37 @@ class ShippingReportTests(unittest.TestCase):
                                 figure.clear()
             self.assertEqual([point.current_a for point in inspection.points], currents)
 
+    def test_current_tick_labels_do_not_overlap_or_drop_measurements(self) -> None:
+        cases = (
+            (0.8, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 7.5),
+            (0.8, 0.81, 2.0, 4.0, 7.5),
+            (7.1, 7.2, 7.3, 7.4, 7.5),
+            (7.5,),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "ticks.xlsx"
+            for currents in cases:
+                save_test_records(source, [self._record(current) for current in currents], session=self._session())
+                inspection = inspect_shipping_workbook(source)
+                for report_type in (ShippingReportType.POLE, ShippingReportType.SPECTRUM):
+                    with self.subTest(currents=currents, report_type=report_type):
+                        request = replace(self._request(report_type), operating_current_a=currents[-1])
+                        figures = _HeadlessShippingReportRenderer(inspection, request).build()
+                        try:
+                            for figure in figures:
+                                figure.canvas.draw()
+                                renderer = figure.canvas.get_renderer()
+                                for axis in figure.axes:
+                                    if axis.get_xlabel() != "Drive current (A)":
+                                        continue
+                                    self.assertEqual(list(axis.lines[0].get_xdata()), list(currents))
+                                    boxes = [label.get_window_extent(renderer) for label in axis.get_xticklabels()]
+                                    for left, right in zip(boxes, boxes[1:]):
+                                        self.assertGreaterEqual(right.x0 - left.x1, 4.0)
+                        finally:
+                            for figure in figures:
+                                figure.clear()
+
     def test_approved_report_artwork_is_unchanged(self) -> None:
         assets = Path(__file__).resolve().parents[1] / "assets" / "report"
         expected_hashes = {

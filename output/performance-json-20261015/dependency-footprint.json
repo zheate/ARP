@@ -1,0 +1,11 @@
+{
+  "pinned_version": "3.13.0",
+  "windows_cp311_amd64_wheel_bytes": 121287,
+  "windows_binaries": [
+    {
+      "path": "orjson/orjson.cp311-win_amd64.pyd",
+      "bytes": 223744
+    }
+  ],
+  "note": "artifact availability and binary size only; not a Windows execution or installer-size measurement"
+}

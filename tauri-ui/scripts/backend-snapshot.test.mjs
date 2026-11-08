@@ -12,6 +12,56 @@ const bundled = await build({
 })
 const { mergeBackendSnapshot } = await import(`data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0].text).toString("base64")}`)
 
+test("workflow change drops old series merge caches even at the same revision", () => {
+  const previous = { ...snapshot(1, [1]), safety: { workflowOwner: "manual" } }
+  const patch = { ...snapshot(1, []), safety: { workflowOwner: "automatic" } }
+  delete patch.measurements
+  delete patch.pd.points
+  const result = mergeBackendSnapshot(previous, patch)
+  assert.equal(result.measurements, undefined)
+  assert.deepEqual(result.pd.points, previous.pd.points)
+})
+
+test("measurement updates retain equivalent configuration and script identities", () => {
+  const first = { ...snapshot(1, [0]), configuration: { sn: "A", customCurrentPoints: [{ currentA: 1, dwellS: 2 }] }, testScripts: [{ id: "standard", name: "标准", powerSupplyKinds: ["tdk"] }] }
+  const previous = mergeBackendSnapshot(null, first)
+  const patch = { ...structuredClone(first), ...snapshot(2, [0, 1]) }
+  const next = mergeBackendSnapshot(previous, patch)
+  assert.equal(next.configuration, previous.configuration)
+  assert.equal(next.testScripts, previous.testScripts)
+  assert.deepEqual(next.measurements.power, patch.measurements.power)
+  assert.deepEqual(next.measurements.spectrum.intensity, [2])
+})
+
+test("static-section sharing never hides edits, removals, or a backend restart", () => {
+  const previous = mergeBackendSnapshot(null, { ...snapshot(5, [0]), configuration: { sn: "A", customCurrentPoints: [{ currentA: 1, dwellS: 2 }] }, testScripts: [{ id: "standard", name: "标准" }] })
+  const edited = { ...snapshot(6, [1]), configuration: { sn: "A", customCurrentPoints: [{ currentA: 1, dwellS: 3 }] }, testScripts: [{ id: "standard", name: "新名称" }] }
+  const next = mergeBackendSnapshot(previous, edited)
+  assert.equal(next.configuration, edited.configuration)
+  assert.equal(next.testScripts, edited.testScripts)
+  const removed = mergeBackendSnapshot(previous, snapshot(7, []))
+  assert.equal(removed.configuration, undefined)
+  assert.equal(removed.testScripts, undefined)
+  const restarted = structuredClone(previous)
+  restarted.backend.runtimeId = "runtime-2"
+  const fresh = mergeBackendSnapshot(previous, restarted)
+  assert.equal(fresh.configuration, restarted.configuration)
+  assert.notEqual(fresh.configuration, previous.configuration)
+})
+
+test("every full-spectrum sample survives consecutive measurement snapshots", () => {
+  let previous = null
+  for (let frame = 1; frame <= 30; frame++) {
+    const patch = snapshot(frame, [frame / 10])
+    const wavelengthNm = Array.from({ length: 8192 }, (_, i) => 970 + i / 1024)
+    const intensity = wavelengthNm.map((_, i) => i + frame / 100)
+    patch.measurements.spectrum = { wavelengthNm, intensity }
+    previous = mergeBackendSnapshot(previous, patch)
+    assert.deepEqual(previous.measurements.spectrum.wavelengthNm, wavelengthNm)
+    assert.deepEqual(previous.measurements.spectrum.intensity, intensity)
+  }
+})
+
 function snapshot(revision, times) {
   return {
     capturedAt: "2026-09-08T00:00:00Z",

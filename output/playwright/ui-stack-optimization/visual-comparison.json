@@ -1,0 +1,362 @@
+[
+  {
+    "file": "before-meter-dark-1180.png",
+    "identical": false,
+    "changedBounds": [
+      218,
+      6,
+      1162,
+      719
+    ]
+  },
+  {
+    "file": "before-data-dark-1180.png",
+    "identical": false,
+    "changedBounds": [
+      489,
+      6,
+      1163,
+      683
+    ]
+  },
+  {
+    "file": "before-automatic-dark-1180.png",
+    "identical": false,
+    "changedBounds": [
+      218,
+      6,
+      1162,
+      228
+    ]
+  },
+  {
+    "file": "before-pd-dark-1180.png",
+    "identical": false,
+    "changedBounds": [
+      366,
+      6,
+      1180,
+      685
+    ]
+  },
+  {
+    "file": "before-pd-light-1440.png",
+    "identical": false,
+    "changedBounds": [
+      332,
+      18,
+      1440,
+      886
+    ]
+  },
+  {
+    "file": "before-power-light-1180.png",
+    "identical": false,
+    "changedBounds": [
+      39,
+      21,
+      1141,
+      683
+    ]
+  },
+  {
+    "file": "before-manual-light-1440.png",
+    "identical": false,
+    "changedBounds": [
+      189,
+      18,
+      1440,
+      854
+    ]
+  },
+  {
+    "file": "before-manual-dark-1180.png",
+    "identical": false,
+    "changedBounds": [
+      414,
+      6,
+      1180,
+      518
+    ]
+  },
+  {
+    "file": "before-shipping-dark-1180.png",
+    "identical": false,
+    "changedBounds": [
+      965,
+      6,
+      1162,
+      163
+    ]
+  },
+  {
+    "file": "before-manual-dark-1440.png",
+    "identical": false,
+    "changedBounds": [
+      494,
+      6,
+      1440,
+      900
+    ]
+  },
+  {
+    "file": "before-shipping-dark-1440.png",
+    "identical": false,
+    "changedBounds": [
+      1225,
+      6,
+      1422,
+      163
+    ]
+  },
+  {
+    "file": "before-power-light-1440.png",
+    "identical": false,
+    "changedBounds": [
+      169,
+      21,
+      1400,
+      773
+    ]
+  },
+  {
+    "file": "before-manual-light-1180.png",
+    "identical": false,
+    "changedBounds": [
+      431,
+      18,
+      1180,
+      518
+    ]
+  },
+  {
+    "file": "before-pd-dark-1440.png",
+    "identical": false,
+    "changedBounds": [
+      364,
+      6,
+      1440,
+      867
+    ]
+  },
+  {
+    "file": "before-pd-light-1180.png",
+    "identical": false,
+    "changedBounds": [
+      549,
+      18,
+      1180,
+      685
+    ]
+  },
+  {
+    "file": "before-automatic-dark-1440.png",
+    "identical": false,
+    "changedBounds": [
+      241,
+      6,
+      1432,
+      900
+    ]
+  },
+  {
+    "file": "before-data-dark-1440.png",
+    "identical": false,
+    "changedBounds": [
+      190,
+      6,
+      1423,
+      879
+    ]
+  },
+  {
+    "file": "before-meter-dark-1440.png",
+    "identical": false,
+    "changedBounds": [
+      241,
+      6,
+      1422,
+      858
+    ]
+  },
+  {
+    "file": "before-automatic-light-1440.png",
+    "identical": false,
+    "changedBounds": [
+      241,
+      18,
+      1402,
+      822
+    ]
+  },
+  {
+    "file": "before-data-light-1180.png",
+    "identical": false,
+    "changedBounds": [
+      24,
+      18,
+      1163,
+      596
+    ]
+  },
+  {
+    "file": "before-meter-light-1440.png",
+    "identical": false,
+    "changedBounds": [
+      241,
+      21,
+      1400,
+      882
+    ]
+  },
+  {
+    "file": "before-power-dark-1180.png",
+    "identical": false,
+    "changedBounds": [
+      39,
+      6,
+      1162,
+      683
+    ]
+  },
+  {
+    "file": "before-spectrum-dark-1180.png",
+    "identical": false,
+    "changedBounds": [
+      218,
+      6,
+      1162,
+      697
+    ]
+  },
+  {
+    "file": "before-settings-dark-1180.png",
+    "identical": false,
+    "changedBounds": [
+      651,
+      6,
+      1180,
+      702
+    ]
+  },
+  {
+    "file": "before-settings-light-1180.png",
+    "identical": false,
+    "changedBounds": [
+      23,
+      18,
+      1180,
+      702
+    ]
+  },
+  {
+    "file": "before-shipping-light-1440.png",
+    "identical": false,
+    "changedBounds": [
+      1223,
+      18,
+      1402,
+      165
+    ]
+  },
+  {
+    "file": "before-spectrum-light-1440.png",
+    "identical": false,
+    "changedBounds": [
+      241,
+      21,
+      1400,
+      805
+    ]
+  },
+  {
+    "file": "before-spectrum-light-1180.png",
+    "identical": false,
+    "changedBounds": [
+      219,
+      21,
+      1140,
+      707
+    ]
+  },
+  {
+    "file": "before-shipping-light-1180.png",
+    "identical": false,
+    "changedBounds": [
+      24,
+      18,
+      1142,
+      458
+    ]
+  },
+  {
+    "file": "before-settings-light-1440.png",
+    "identical": false,
+    "changedBounds": [
+      473,
+      18,
+      1440,
+      691
+    ]
+  },
+  {
+    "file": "before-settings-dark-1440.png",
+    "identical": false,
+    "changedBounds": [
+      468,
+      6,
+      1440,
+      690
+    ]
+  },
+  {
+    "file": "before-spectrum-dark-1440.png",
+    "identical": false,
+    "changedBounds": [
+      241,
+      6,
+      1422,
+      790
+    ]
+  },
+  {
+    "file": "before-power-dark-1440.png",
+    "identical": false,
+    "changedBounds": [
+      169,
+      6,
+      1422,
+      766
+    ]
+  },
+  {
+    "file": "before-meter-light-1180.png",
+    "identical": false,
+    "changedBounds": [
+      219,
+      21,
+      1140,
+      719
+    ]
+  },
+  {
+    "file": "before-data-light-1440.png",
+    "identical": false,
+    "changedBounds": [
+      502,
+      18,
+      1423,
+      751
+    ]
+  },
+  {
+    "file": "before-automatic-light-1180.png",
+    "identical": false,
+    "changedBounds": [
+      219,
+      18,
+      1142,
+      228
+    ]
+  }
+]

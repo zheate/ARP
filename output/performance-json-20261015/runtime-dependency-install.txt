@@ -1,0 +1,5 @@
+Collecting orjson==3.13.0
+  Using cached orjson-3.13.0-cp311-cp311-macosx_15_0_arm64.whl.metadata (42 kB)
+Using cached orjson-3.13.0-cp311-cp311-macosx_15_0_arm64.whl (123 kB)
+Installing collected packages: orjson
+Successfully installed orjson-3.13.0

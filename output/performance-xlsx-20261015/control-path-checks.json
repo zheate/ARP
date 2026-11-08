@@ -1,0 +1,90 @@
+{
+  "head": "9ca676a9fbe3c008e1b1feff54a06fb693c46d1a",
+  "files": [
+    {
+      "path": "tauri_bridge/__main__.py",
+      "unchanged_from_head": true,
+      "sha256": "6aaa46c673b929b5fb0f258dde50e5f492fe4f939abb0e92851f1b0fde646550"
+    },
+    {
+      "path": "tauri_bridge/json_codec.py",
+      "unchanged_from_head": true,
+      "sha256": "5724f0c69aa4b1d25956599a846c06fe55c13abb88997e959c47c35747132091"
+    },
+    {
+      "path": "tauri_bridge/snapshot_builder.py",
+      "unchanged_from_head": true,
+      "sha256": "f5b11387060d8aa875c5c8c9f7998b4e08911c29217b2fee2a85707444d0aea3"
+    },
+    {
+      "path": "tauri_bridge/headless_backend.py",
+      "unchanged_from_head": true,
+      "sha256": "d12e9dc06f44a1560e97a2435f67f5937b7e05a30150889259d26fa67789f273"
+    },
+    {
+      "path": "tauri_bridge/station_runtime.py",
+      "unchanged_from_head": true,
+      "sha256": "c41a6bb7774ebd59c9f1f6b0f71d89d72b0ada87407db72f2649876f779410ea"
+    },
+    {
+      "path": "tauri_bridge/station_automatic.py",
+      "unchanged_from_head": true,
+      "sha256": "7b446e6a3ecc7319c8c60a38d5bd5c99b67107b85af0b374f7ba89cc1dd5d931"
+    },
+    {
+      "path": "combined_test/device_interfaces.py",
+      "unchanged_from_head": true,
+      "sha256": "c48af60d5e700101c226900b1abf23625ea9b2269691db3ef656dfa9c92c315a"
+    },
+    {
+      "path": "combined_test/automation.py",
+      "unchanged_from_head": true,
+      "sha256": "f6b6bdb31b1c70e0203c15e448f0a75e0e06817ebe3a96182109e123f9973f04"
+    },
+    {
+      "path": "combined_test/persistence.py",
+      "unchanged_from_head": true,
+      "sha256": "9f7ac09e9ee7886c09237cbcd0cdf9a41e6c0c220d8ffd79eea52fc451a67ed5"
+    },
+    {
+      "path": "combined_test/session_journal.py",
+      "unchanged_from_head": true,
+      "sha256": "19a1533805df8495ef2d36ac8281a5c0d6e96e5cd953b16a526fb2073437f43d"
+    },
+    {
+      "path": "combined_test/excel_export.py",
+      "unchanged_from_head": true,
+      "sha256": "67dc46d2317dc6da33880d5e3c4adb42307f1c2de8e5dcf27ca6ef8d1ab708e3"
+    },
+    {
+      "path": "combined_test/shipping_report.py",
+      "unchanged_from_head": true,
+      "sha256": "47ef37a47a68b8ba009114a80db8daf11a3bde4934d89f963706ad01e6a05936"
+    },
+    {
+      "path": "tools/legacy_ch341_control.py",
+      "unchanged_from_head": true,
+      "sha256": "7ba913cf2d0fc8f8def0bb46cc7d387b9a8290f93f3ef21205d7c76e50b017aa"
+    },
+    {
+      "path": "tauri-ui/src-tauri/src/lib.rs",
+      "unchanged_from_head": true,
+      "sha256": "c9ca08a518afd5beb7b416f1162547c1806c7e6b14c390a937aa3c059a2f643f"
+    },
+    {
+      "path": "tauri-ui/src-tauri/src/snapshot_stream.rs",
+      "unchanged_from_head": true,
+      "sha256": "f71de8c7c43426296c53b6ae59180db71a5d6b7652af70ee2513c432354f3f32"
+    },
+    {
+      "path": "tauri-ui/src-tauri/Cargo.toml",
+      "unchanged_from_head": true,
+      "sha256": "8f1eed124ac6aa01004630ec44aca7fb5be2e7202a243bdbcdd06352119de58d"
+    },
+    {
+      "path": "tauri-ui/src/hooks/use-backend-snapshot.ts",
+      "unchanged_from_head": true,
+      "sha256": "f48d42eec3285f7f2b3b795e2ee86820b144d2f43491d58c1bbb5c9622caf1e2"
+    }
+  ]
+}

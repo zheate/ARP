@@ -1,0 +1,333 @@
+diff --git a/docs/performance-optimization.md b/docs/performance-optimization.md
+index b779c977..f81db5ee 100644
+--- a/docs/performance-optimization.md
++++ b/docs/performance-optimization.md
+@@ -215,3 +215,63 @@ Apple Silicon Mac、Chromium、生产 React 运行时、1440×900、4 倍 CPU 
+ - TypeScript、生产构建、`git diff --check` 通过。未执行完整测试套件、打包、原生 Tauri WebView、Windows 系统缩放或真实仪器验收。
+ 
+ 原始结果及驱动：[汇总](../output/playwright/ui-stack-optimization/summary.json)、[实时对照前](../output/playwright/ui-stack-optimization/profile-before.json)、[实时对照后](../output/playwright/ui-stack-optimization/profile-after.json)、[布局](../output/playwright/ui-stack-optimization/layout.json)、[交互](../output/playwright/ui-stack-optimization/interactions.json)、[页面状态与故障恢复](../output/playwright/ui-stack-optimization/page-regression.json)。同目录保存修改前后截图、构建输出及可由 Playwright CLI `run-code` 执行的驱动。
++
++## 2026-10-15：四个维度的保守优化
++
++本轮约束：功能、界面布局、操作流程、测量精度、完整光谱、刷新间隔、设备控制时序和可靠落盘规则保持不变。没有修改 Python/Rust 后端、设备命令、自动测试状态机、计算指标、导出格式或 CSS。优化范围限于前端的重复工作和资源加载。
++
++### 诊断与实现
++
++| 维度 | 发现 | 处理 | 成本与边界 |
++| --- | --- | --- | --- |
++| 渲染重绘 | 设置页跟随测量快照更新，四张静态外观预览反复绘制 | `SystemSettingsPage` 使用 React 默认 `memo` 比较全部属性 | 一个组件边界；外观上下文、本地状态、许可证和回调变化仍正常更新，不手写可能遗漏字段的比较器 |
++| 内存管理 | 每次单调曲线插值创建宽度、斜率、切线三个数组，并为每段建立闭包 | 根据相邻两段流式计算切线，保留原运算顺序和全部绘图指令 | 插值辅助存储由 O(N) 降为 O(1)；输入点、Canvas 和图表其余存储仍存在，不代表整个绘图过程只需常量内存 |
++| 计算复杂度 | `comparisonRows` / `metricComparisonRows` 对同一电流分组反复展开复制已有数组；大量重复电流时最坏 O(N²) | 只向函数内部新建的分组数组追加，不修改传入数组或测量点 | 分组部分最坏 O(N)；最终电流排序仍是 O(U log U)，U 为不同电流数；重复点的歧义标记和缺测规则不变 |
++| 资源体积 | 正常设备入口静态导入演示快照与回放时间轴 | 只有 `demo=1` 分支动态加载这两个模块；正常入口的演示引用保持为空 | 没有给正常页面增加延迟加载界面；演示模式仍加载原模块，安装包总量不会随首屏资源等比例下降 |
++
++缓存与生命周期的只读检查：数据浏览详情缓存已有 120 份普通详情、10 份完整光谱上限；图表的 ResizeObserver、MutationObserver 和动画帧已有清理。没有用删除历史数据、降低刷新频率或缩短可靠保存流程换取性能。本轮未建立长时间 Windows 运行的内存泄漏结论。
++
++### 对照方法
++
++- 插值：固定的 1024 / 3648 / 8192 点光谱。预热后测量 15 批、每批 100 次，报告每批平均耗时的中位数。路径接收器只记录调用次数，不包含真实 Canvas 栅格化。
++- 分组：每组 601 / 4000 个点，分别测试唯一电流和重复电流；每轮一起执行功率对比与指标对比。重复电流是压力场景，不能当作普通测试记录的普遍提速。
++- 内存：7 次独立 GC 后单次调用的 `heapUsed` 增量中位数。这是临时分配探针，不是进程常驻内存、峰值内存或内存泄漏证据。
++- 浏览器：实际应用组件、生产 React 运行时、Chromium、1440×900、4 倍 CPU 降速。固定 601 个功率点、8192 个完整光谱点，每 100 ms 一帧，前后各 3 组、每组 30 帧。旧代码放在临时目录，使用独立 Vite 缓存；没有重置工作区。
++- 等值检查：三种光谱长度的全部绘图指令哈希、四种分组输入的完整结果哈希；另外用固定种子 128 组不规则网格/断点测试锁定旧绘图指令。
++
++可复现计算基准：
++
++```sh
++node --expose-gc --experimental-strip-types tauri-ui/scripts/benchmark-render-data.mjs
++```
++
++可选第二参数是包含旧 `monotone-curve.ts` 和 `data-browser.ts` 的目录。必须串行比较，避免与构建或浏览器性能测试争用 CPU。`p95BatchMs` 表示 15 批中最高的批均值，不能解读为单次调用的 P95 尾延迟。
++
++### 实测结果与验证
++
++旧版本基线提交为 `0c152d67`。同机最终串行对照结果如下；计时取前述批均值的中位数。
++
++| 项目 | 修改前 | 修改后 |
++| --- | ---: | ---: |
++| 设置页每 30 帧的重复渲染，三组中位数 | 30 次 | 0 次 |
++| 设置页外观示例底图重绘，三组中位数 | 120 次 | 0 次 |
++| 设置页每组脚本累计耗时，三组中位数 | 76.48 ms | 13.35 ms |
++| 8192 点曲线插值计算 | 0.164 ms | 0.113 ms |
++| 8192 点插值单次调用堆增量探针 | 1,371,152 B | 648,096 B |
++| 4000 个重复电流点，两类对比一起执行 | 26.42 ms | 0.83 ms |
++| 601 个唯一电流点，两类对比一起执行 | 0.568 ms | 0.546 ms |
++| 主入口 JavaScript，压缩后、未 gzip | 692,798 B | 682,153 B |
++| 全部 JavaScript，压缩后、未 gzip | 819,792 B | 820,180 B |
++
++插值计算约减少 31%，堆增量探针约减少 53%。重复电流压力场景约快 32 倍；唯一电流场景多次运行有波动，不作明确提速结论。主入口减少约 1.5%；全部 JavaScript 增加 388 B，是分块的少量开销，不能宣称安装体积减少。生产构建仍提示主入口超过 500 kB。
++
++实时页面每 30 帧的脚本累计耗时中位数从 202.37 ms 变为 191.19 ms，主线程任务累计耗时从 397.55 ms 变为 393.94 ms；两者帧间隔 P95 都约 16.8 ms。因此只确认计算和重复工作的减少，不宣称实时帧率或硬件采集速度提高。功率/光谱每组各绘制 30 次，8192 个光谱点完整保留，最终光谱 Canvas 完全相同。
++
++验证结果：
++
++- 65 项聚焦测试通过，覆盖原曲线约束、128 组旧指令快照、4000 个重复点与冻结输入、数据分析、演示回放、外观、数值显示、历史合并、完整光谱、配置草稿和安全状态。三种光谱长度与四种对比数据的结果哈希全部一致。
++- 自动、手动、设置、数据列表四个页面，在明暗主题 × 1440×900 / 1180×720 下共 16 组前后截图和布局对照。40 张 Canvas 图像全部相同；有卡片页面的卡片位置和尺寸相同，所有页面无横向溢出。13 组整页截图完全相同，另 3 组分别有 49 / 5 / 40 个像素不同，不宣称全部整页截图逐像素一致。
++- 生产资源请求确认：正常浏览器入口只请求主入口和 Tauri 共享模块，不请求演示模块；`demo=1` 才请求演示快照和回放模块。演示开始/停止、设置页主题、线型、画布上下文更新、恢复默认值和许可证导入错误状态更新通过，页面无未捕获异常。浏览器不支持原生许可证导入，该项仅验证错误显示及按钮恢复，不代表完成原生导入。
++- TypeScript、生产构建和 `git diff --check` 通过。没有运行完整测试套件、Windows 打包、原生 Tauri WebView 或真实仪器。本轮也没有验证长时间运行的常驻内存趋势。
++
++原始证据与驱动位于 `output/playwright/performance-20261015/`：[汇总](../output/playwright/performance-20261015/summary.json)、[计算前](../output/playwright/performance-20261015/compute-before.json)、[计算后](../output/playwright/performance-20261015/compute-after.json)、[设置页前](../output/playwright/performance-20261015/settings-before.json)、[设置页后](../output/playwright/performance-20261015/settings-after.json)、[截图对照](../output/playwright/performance-20261015/visual-comparison.json)、[布局](../output/playwright/performance-20261015/layout-check.json)、[生产交互](../output/playwright/performance-20261015/production-check.json)。基准脚本为 `tauri-ui/scripts/benchmark-render-data.mjs`；浏览器驱动为同目录 `profile*.cjs`、`visual*.cjs`、`layout-check.cjs`、`production-check.cjs`，通过 Playwright CLI 的 `run-code --filename` 执行。
+diff --git a/tauri-ui/src/features/settings/page.tsx b/tauri-ui/src/features/settings/page.tsx
+index 2ccc0b00..4ad4f68d 100644
+--- a/tauri-ui/src/features/settings/page.tsx
++++ b/tauri-ui/src/features/settings/page.tsx
+@@ -4,10 +4,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
+ import { type AccentTheme, type CurveLineStyle, type LatestPointMarkerStyle, type Theme } from "@/lib/appearance"
+ import { formatLicenseDate, licenseReasonLabels, type LicenseStatus } from "@/lib/license"
+ import { KeyRound, ShieldCheck, Upload } from "lucide-react"
+-import { useState } from "react"
++import { memo, useState } from "react"
+ 
+ 
+-export function SystemSettingsPage({ theme, accentTheme, curveLineStyle, latestPointMarkerStyle, licenseStatus, onThemeChange, onAccentThemeChange, onCurveLineStyleChange, onLatestPointMarkerStyleChange, onImportLicense }: { theme: Theme; accentTheme: AccentTheme; curveLineStyle: CurveLineStyle; latestPointMarkerStyle: LatestPointMarkerStyle; licenseStatus: LicenseStatus; onThemeChange: (theme: Theme) => void; onAccentThemeChange: (theme: AccentTheme) => void; onCurveLineStyleChange: (style: CurveLineStyle) => void; onLatestPointMarkerStyleChange: (style: LatestPointMarkerStyle) => void; onImportLicense: () => Promise<void> }) {
++// Measurement snapshots do not affect this page. Local state and appearance
++// context still update normally, as do every prop and license-status change.
++export const SystemSettingsPage = memo(function SystemSettingsPage({ theme, accentTheme, curveLineStyle, latestPointMarkerStyle, licenseStatus, onThemeChange, onAccentThemeChange, onCurveLineStyleChange, onLatestPointMarkerStyleChange, onImportLicense }: { theme: Theme; accentTheme: AccentTheme; curveLineStyle: CurveLineStyle; latestPointMarkerStyle: LatestPointMarkerStyle; licenseStatus: LicenseStatus; onThemeChange: (theme: Theme) => void; onAccentThemeChange: (theme: AccentTheme) => void; onCurveLineStyleChange: (style: CurveLineStyle) => void; onLatestPointMarkerStyleChange: (style: LatestPointMarkerStyle) => void; onImportLicense: () => Promise<void> }) {
+   const [licenseBusy, setLicenseBusy] = useState(false)
+   const [licenseError, setLicenseError] = useState("")
+   const importLicenseFile = async () => {
+@@ -53,4 +55,4 @@ export function SystemSettingsPage({ theme, accentTheme, curveLineStyle, latestP
+       </Card>
+     </section>
+   )
+-}
++})
+diff --git a/tauri-ui/src/hooks/use-backend-snapshot.ts b/tauri-ui/src/hooks/use-backend-snapshot.ts
+index 46761aff..fcc1c2e7 100644
+--- a/tauri-ui/src/hooks/use-backend-snapshot.ts
++++ b/tauri-ui/src/hooks/use-backend-snapshot.ts
+@@ -13,8 +13,14 @@ const DEMO_PREVIEW_ENABLED = typeof window !== "undefined" && new URLSearchParam
+ // against. `run=1` replays the staged sequence instead, including the 停留 dwell.
+ const DEMO_RUN_ENABLED = DEMO_PREVIEW_ENABLED && typeof window !== "undefined" && new URLSearchParams(window.location.search).get("run") === "1"
+ 
+-import { DEMO_RUN_SNAPSHOT, DEMO_SNAPSHOT, resetDemoRun } from "@/lib/demo-snapshot"
+-import { demoRunSnapshot } from "@/lib/demo-run"
++// Device operation never needs the preview fixtures or replay timeline.
++async function loadDemoRuntime() {
++  const [snapshots, replay] = await Promise.all([
++    import("@/lib/demo-snapshot"),
++    import("@/lib/demo-run"),
++  ])
++  return { ...snapshots, ...replay }
++}
+ 
+ function selectedDemoRevision(library: PowerMeterCoefficientLibrary): PowerMeterCoefficientRevision | null {
+   const profile = library.profiles.find((item) => item.id === library.selectedProfileId)
+@@ -139,7 +145,7 @@ export function useBackendSnapshot(view: SnapshotView) {
+   const commandPendingRef = useRef(false)
+   const latestViewRef = useRef(view)
+   const snapshotRef = useRef<BackendSnapshot | null>(null)
+-  const demoSnapshotRef = useRef(DEMO_RUN_ENABLED ? DEMO_RUN_SNAPSHOT : DEMO_SNAPSHOT)
++  const demoSnapshotRef = useRef<BackendSnapshot | null>(null)
+   const demoGenerationRef = useRef(0)
+   const revisionsRef = useRef<SeriesRevisions | null>(null)
+   latestViewRef.current = view
+@@ -156,10 +162,13 @@ export function useBackendSnapshot(view: SnapshotView) {
+     }
+     try {
+       if (DEMO_PREVIEW_ENABLED) {
++        const { DEMO_RUN_SNAPSHOT, DEMO_SNAPSHOT } = await loadDemoRuntime()
++        const demo = demoSnapshotRef.current ?? (DEMO_RUN_ENABLED ? DEMO_RUN_SNAPSHOT : DEMO_SNAPSHOT)
++        demoSnapshotRef.current = demo
+         if (mountedRef.current && latestViewRef.current === requestedView) {
+-          snapshotRef.current = demoSnapshotRef.current
+-          revisionsRef.current = demoSnapshotRef.current.seriesRevisions ?? null
+-          setSnapshot(demoSnapshotRef.current)
++          snapshotRef.current = demo
++          revisionsRef.current = demo.seriesRevisions ?? null
++          setSnapshot(demo)
+           setError(null)
+         }
+         return
+@@ -226,7 +235,9 @@ export function useBackendSnapshot(view: SnapshotView) {
+     setPendingCommand(method)
+     try {
+       if (DEMO_PREVIEW_ENABLED) {
+-        const base = demoSnapshotRef.current
++        const { DEMO_RUN_SNAPSHOT, DEMO_SNAPSHOT, resetDemoRun, demoRunSnapshot } = await loadDemoRuntime()
++        const base = demoSnapshotRef.current ?? (DEMO_RUN_ENABLED ? DEMO_RUN_SNAPSHOT : DEMO_SNAPSHOT)
++        demoSnapshotRef.current = base
+         const publishDemo = (next: BackendSnapshot) => {
+           demoSnapshotRef.current = next
+           snapshotRef.current = next
+@@ -331,7 +342,7 @@ export function useBackendSnapshot(view: SnapshotView) {
+             if (next.automaticTest.state !== "completed") window.setTimeout(advance, 200)
+           }
+           advance()
+-          return demoSnapshotRef.current
++          return demoSnapshotRef.current ?? base
+         }
+ 
+         if (method === "automatic.end" || method === "app.stopAll") {
+diff --git a/tauri-ui/src/lib/data-browser.test.ts b/tauri-ui/src/lib/data-browser.test.ts
+index c1801963..8b82dd0a 100644
+--- a/tauri-ui/src/lib/data-browser.test.ts
++++ b/tauri-ui/src/lib/data-browser.test.ts
+@@ -5,6 +5,7 @@ import {
+   dateBounds,
+   extractComparisonSummary,
+   extractSummaryMetrics,
++  metricComparisonRows,
+   flowLabel,
+   numberText,
+   powerChartRows,
+@@ -43,6 +44,25 @@ test("duplicate normalized currents are explicit and invalid values are not pair
+   assert.deepEqual(comparisonRows([point(2, null)], [point(2, 0)]), [])
+   assert.deepEqual(comparisonRows([point(2, 10)], [point(3, 12)]), [])
+ })
++
++test("large duplicate-current groups preserve ambiguity and do not mutate input", () => {
++  const duplicates = Array.from({ length: 4000 }, (_, index) => Object.freeze(point(2, index)))
++  const base = Object.freeze([...duplicates, Object.freeze(point(4, null)), Object.freeze(point(6, 60))])
++  const other = Object.freeze([Object.freeze(point(2, 12)), Object.freeze(point(4, 40)), Object.freeze(point(6, 66))])
++  const rows = comparisonRows(base as DataPoint[], other as DataPoint[])
++  assert.deepEqual(rows, [
++    { currentA: 2, basePowerW: null, otherPowerW: null, deltaW: null, ambiguous: true, deltaPercent: null },
++    { currentA: 6, basePowerW: 60, otherPowerW: 66, deltaW: 6, ambiguous: false, deltaPercent: 10 },
++  ])
++  const metrics = metricComparisonRows([{ points: base }, { points: other }] as DataDetail[], "powerW")
++  assert.deepEqual(metrics, [
++    { currentA: 2, values: [null, 12], ambiguous: [true, false], deltas: [null, null] },
++    { currentA: 4, values: [null, 40], ambiguous: [false, false], deltas: [null, null] },
++    { currentA: 6, values: [60, 66], ambiguous: [false, false], deltas: [0, 6] },
++  ])
++  assert.equal(base.length, 4002)
++  assert.equal(base[0], duplicates[0])
++})
+ test("chart retains both original curves including duplicate currents", () => {
+   const records = [{ points: [point(4, 20), point(2, 10), point(2, 11)] }, { points: [point(3, 18), point(5, null)] }] as DataDetail[]
+   const rows = powerChartRows(records)
+diff --git a/tauri-ui/src/lib/data-browser.ts b/tauri-ui/src/lib/data-browser.ts
+index 887b6ed5..1dd43694 100644
+--- a/tauri-ui/src/lib/data-browser.ts
++++ b/tauri-ui/src/lib/data-browser.ts
+@@ -106,7 +106,9 @@ export function comparisonRows(base: DataPoint[], other: DataPoint[]) {
+     for (const point of points) {
+       if (!Number.isFinite(point.currentA) || point.powerW == null || !Number.isFinite(point.powerW)) continue
+       const key = point.currentA.toFixed(6)
+-      result.set(key, [...(result.get(key) ?? []), point])
++      const existing = result.get(key)
++      if (existing) existing.push(point)
++      else result.set(key, [point])
+     }
+     return result
+   }
+@@ -244,7 +246,9 @@ export function metricComparisonRows(details: DataDetail[], metric: DataMetricKe
+     for (const point of detail.points) {
+       if (!Number.isFinite(point.currentA)) continue
+       const key = point.currentA.toFixed(6)
+-      result.set(key, [...(result.get(key) ?? []), point])
++      const existing = result.get(key)
++      if (existing) existing.push(point)
++      else result.set(key, [point])
+     }
+     return result
+   })
+diff --git a/tauri-ui/src/lib/monotone-curve.test.ts b/tauri-ui/src/lib/monotone-curve.test.ts
+index 94a020f8..cd4f32e6 100644
+--- a/tauri-ui/src/lib/monotone-curve.test.ts
++++ b/tauri-ui/src/lib/monotone-curve.test.ts
+@@ -69,3 +69,32 @@ test("empty, singleton, and two-point spectra remain valid", () => {
+     { kind: "move", values: [1, 2] }, { kind: "line", values: [2, 4] },
+   ])
+ })
++
++test("curve commands retain the pre-optimization values across irregular grids and gaps", async () => {
++  const { createHash } = await import("node:crypto")
++  const hash = createHash("sha256")
++  let seed = 73129
++  const random = () => {
++    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0
++    return seed / 2 ** 32
++  }
++  const path = {
++    moveTo: (...args: number[]) => { hash.update(JSON.stringify(["moveTo", ...args])) },
++    lineTo: (...args: number[]) => { hash.update(JSON.stringify(["lineTo", ...args])) },
++    bezierCurveTo: (...args: number[]) => { hash.update(JSON.stringify(["bezierCurveTo", ...args])) },
++  }
++  for (let trial = 0; trial < 128; trial += 1) {
++    let x = 0
++    const points = Array.from({ length: trial + 3 }, () => {
++      x += random() * 2 + 0.01
++      const chance = random()
++      return chance < 0.03 ? null : {
++        x: chance < 0.06 ? x - 3 : x,
++        y: chance < 0.08 ? NaN : Math.round((random() - 0.5) * 1000) / 7,
++      }
++    })
++    traceMonotoneCurve(path, points)
++  }
++  // Captured from the original implementation, before changing its working storage.
++  assert.equal(hash.digest("hex"), "884ae3a2dc16a0ecd5fbc5de6a790c7f403b53bef09a2c9a0ba1fae014e214c9")
++})
+diff --git a/tauri-ui/src/lib/monotone-curve.ts b/tauri-ui/src/lib/monotone-curve.ts
+index 0d69ce17..bdcedad5 100644
+--- a/tauri-ui/src/lib/monotone-curve.ts
++++ b/tauri-ui/src/lib/monotone-curve.ts
+@@ -26,41 +26,41 @@ export function traceMonotoneCurve(path: CurvePath, points: readonly (CurvePoint
+       const last = points[start + 1]!
+       path.lineTo(last.x, last.y)
+     } else if (count > 2) {
+-      const widths: number[] = []
+-      const slopes: number[] = []
++      // Each segment needs only its two neighbouring slopes. Keep the original
++      // arithmetic order without allocating widths/slopes/tangents per frame.
++      let width = points[start + 1]!.x - first.x
++      let slope = (points[start + 1]!.y - first.y) / width
++      let leftTangent = slope
+       for (let index = start; index < end - 1; index += 1) {
+         const left = points[index]!
+         const right = points[index + 1]!
+-        const width = right.x - left.x
+-        widths.push(width)
+-        slopes.push((right.y - left.y) / width)
+-      }
+-      const tangents = [slopes[0]]
+-      for (let index = 1; index < count - 1; index += 1) {
+-        const left = slopes[index - 1]
+-        const right = slopes[index]
+-        if (left === 0 || right === 0 || Math.sign(left) !== Math.sign(right)) {
+-          tangents.push(0)
+-        } else {
+-          // Weighted harmonic mean also supports nonuniform wavelength grids.
+-          const leftWeight = 2 * widths[index] + widths[index - 1]
+-          const rightWeight = widths[index] + 2 * widths[index - 1]
+-          tangents.push((leftWeight + rightWeight) / (leftWeight / left + rightWeight / right))
++        let nextWidth = 0
++        let nextSlope = 0
++        let rightTangent = slope
++        if (index < end - 2) {
++          const next = points[index + 2]!
++          nextWidth = next.x - right.x
++          nextSlope = (next.y - right.y) / nextWidth
++          if (slope === 0 || nextSlope === 0 || Math.sign(slope) !== Math.sign(nextSlope)) {
++            rightTangent = 0
++          } else {
++            // Weighted harmonic mean also supports nonuniform wavelength grids.
++            const leftWeight = 2 * nextWidth + width
++            const rightWeight = nextWidth + 2 * width
++            rightTangent = (leftWeight + rightWeight) / (leftWeight / slope + rightWeight / nextSlope)
++          }
+         }
+-      }
+-      tangents.push(slopes[slopes.length - 1])
+-      for (let index = 0; index < count - 1; index += 1) {
+-        const left = points[start + index]!
+-        const right = points[start + index + 1]!
+-        const third = widths[index] / 3
++        const third = width / 3
+         const low = Math.min(left.y, right.y)
+         const high = Math.max(left.y, right.y)
+-        const clamp = (value: number) => Math.max(low, Math.min(high, value))
+         path.bezierCurveTo(
+-          left.x + third, clamp(left.y + tangents[index] * third),
+-          right.x - third, clamp(right.y - tangents[index + 1] * third),
++          left.x + third, Math.max(low, Math.min(high, left.y + leftTangent * third)),
++          right.x - third, Math.max(low, Math.min(high, right.y - rightTangent * third)),
+           right.x, right.y,
+         )
++        width = nextWidth
++        slope = nextSlope
++        leftTangent = rightTangent
+       }
+     }
+     start = end

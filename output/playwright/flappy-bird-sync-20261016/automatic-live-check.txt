@@ -1,0 +1,6 @@
+### Result
+{"before":"translate(40px, 246.4px)","after":{"transform":"translate(61.68px, 246.4px)","animation":"0.4s steps(4) infinite chart-flappy-bird-flap"}}
+### Ran Playwright code
+```js
+await (async (page) => { await page.getByRole("button", { name: "开始", exact: true }).click(); await page.waitForFunction(() => [...document.querySelectorAll(".chart-flappy-bird")].some(el => getComputedStyle(el).visibility === "visible")); const bird = page.locator(".chart-flappy-bird").first(); const before = await bird.evaluate(el => el.style.transform); await page.waitForFunction(before => document.querySelector(".chart-flappy-bird")?.style.transform !== before, before); await page.screenshot({path:"output/playwright/flappy-bird-sync-20261016/automatic-live.png"}); const after = await bird.evaluate(el => ({transform:el.style.transform, animation:getComputedStyle(el.firstElementChild).animation})); await page.getByRole("button", {name:"停止",exact:true}).click(); return {before,after}; })(page);
+```

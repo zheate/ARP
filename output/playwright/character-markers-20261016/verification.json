@@ -1,0 +1,71 @@
+{
+  "version": "ddce8df7 + current task and preserved pre-existing working changes",
+  "branch": "audit/arp-ui-final-20260914",
+  "product": "Tauri frontend",
+  "build": "npm --prefix tauri-ui run build: passed",
+  "focusedTests": {
+    "passed": 19,
+    "failed": 0
+  },
+  "browserRegressionRuns": [
+    {
+      "run": 1,
+      "checks": 30,
+      "passed": true
+    },
+    {
+      "run": 2,
+      "checks": 30,
+      "passed": true
+    },
+    {
+      "run": 3,
+      "checks": 30,
+      "passed": true
+    }
+  ],
+  "maximumObservedEndpointErrorCssPx": 5.4472009196615545e-05,
+  "additionalBrowserChecks": [
+    "both styles selected and restored after reload",
+    "all four character frames nonempty and distinct",
+    "linear and monotone curve tip synchronization",
+    "top/right boundary and right axis",
+    "empty data hides and pauses sprites",
+    "sample points and ordinary point style remove overlays",
+    "Flappy Bird regression",
+    "reduced motion removes active animations for both characters",
+    "offscreen pauses and visible resumes",
+    "failed image shows a dot and stays paused",
+    "unblocked image recovers after remount"
+  ],
+  "knownBaselineFailures": {
+    "file": "tauri-ui/scripts/live-current.test.mjs",
+    "passed": 3,
+    "failed": 4,
+    "reproducedWithTaskStartSources": true,
+    "evidence": "baseline-live-current.log"
+  },
+  "assets": [
+    {
+      "file": "tauri-ui/public/chart-markers/bee-flap-four-frames-97043142efa1.png",
+      "sha256": "97043142efa17131b99a02ec9137ad409b7a6872fc099aaaf11110605a29bd72",
+      "bytes": 958043,
+      "buildBytesMatch": true
+    },
+    {
+      "file": "tauri-ui/public/chart-markers/dino-walk-four-frames-9f95d27db3c1.png",
+      "sha256": "9f95d27db3c1b978cc2535de835cef7ee38035216b9d9b2c9afcf160eac3f59a",
+      "bytes": 408717,
+      "buildBytesMatch": true
+    }
+  ],
+  "verificationBoundary": {
+    "browserOnly": true,
+    "demoDataOnly": true,
+    "windowsWebViewVerified": false,
+    "devicesConnected": false,
+    "installerPackaged": false
+  },
+  "committed": false,
+  "pushed": false
+}

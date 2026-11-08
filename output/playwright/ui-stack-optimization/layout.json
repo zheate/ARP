@@ -1,0 +1,1374 @@
+{
+  "status": "PASS",
+  "cases": 54,
+  "results": [
+    {
+      "id": "automatic",
+      "theme": "dark",
+      "width": 1440,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": {
+        "input": {
+          "x": 1124.6953125,
+          "y": 126,
+          "w": 256.3046875,
+          "h": 32
+        },
+        "button": {
+          "x": 1387,
+          "y": 126,
+          "w": 32,
+          "h": 32
+        }
+      },
+      "documentOverflow": false
+    },
+    {
+      "id": "manual",
+      "theme": "dark",
+      "width": 1440,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [
+        {
+          "x": 188.796875,
+          "y": 197,
+          "w": 401.734375,
+          "h": 266.421875
+        },
+        {
+          "x": 602.53125,
+          "y": 197,
+          "w": 401.734375,
+          "h": 266.421875
+        },
+        {
+          "x": 1016.265625,
+          "y": 197,
+          "w": 401.734375,
+          "h": 266.421875
+        }
+      ],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "pd",
+      "theme": "dark",
+      "width": 1440,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "data",
+      "theme": "dark",
+      "width": 1440,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "shipping",
+      "theme": "dark",
+      "width": 1440,
+      "overflow": [],
+      "pairs": [],
+      "paths": [
+        {
+          "input": {
+            "x": 222.796875,
+            "y": 270,
+            "w": 1039.203125,
+            "h": 38
+          },
+          "button": {
+            "x": 1270,
+            "y": 270,
+            "w": 120,
+            "h": 38
+          }
+        },
+        {
+          "input": {
+            "x": 222.796875,
+            "y": 354,
+            "w": 1039.203125,
+            "h": 38
+          },
+          "button": {
+            "x": 1270,
+            "y": 354,
+            "w": 120,
+            "h": 38
+          }
+        }
+      ],
+      "cards": [],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "settings",
+      "theme": "dark",
+      "width": 1440,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "power",
+      "theme": "dark",
+      "width": 1440,
+      "overflow": [],
+      "pairs": [
+        {
+          "input": {
+            "x": 216,
+            "y": 571.5,
+            "w": 233.5,
+            "h": 36
+          },
+          "button": {
+            "x": 216,
+            "y": 617.5,
+            "w": 233.5,
+            "h": 36
+          }
+        },
+        {
+          "input": {
+            "x": 459.5,
+            "y": 571.5,
+            "w": 233.5,
+            "h": 36
+          },
+          "button": {
+            "x": 459.5,
+            "y": 617.5,
+            "w": 233.5,
+            "h": 36
+          }
+        }
+      ],
+      "paths": [],
+      "cards": [],
+      "folder": {
+        "input": {
+          "x": 1124.6953125,
+          "y": 126,
+          "w": 256.3046875,
+          "h": 32
+        },
+        "button": {
+          "x": 1387,
+          "y": 126,
+          "w": 32,
+          "h": 32
+        }
+      },
+      "documentOverflow": false
+    },
+    {
+      "id": "meter",
+      "theme": "dark",
+      "width": 1440,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": {
+        "input": {
+          "x": 1124.6953125,
+          "y": 126,
+          "w": 256.3046875,
+          "h": 32
+        },
+        "button": {
+          "x": 1387,
+          "y": 126,
+          "w": 32,
+          "h": 32
+        }
+      },
+      "documentOverflow": false
+    },
+    {
+      "id": "spectrum",
+      "theme": "dark",
+      "width": 1440,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": {
+        "input": {
+          "x": 1124.6953125,
+          "y": 126,
+          "w": 256.3046875,
+          "h": 32
+        },
+        "button": {
+          "x": 1387,
+          "y": 126,
+          "w": 32,
+          "h": 32
+        }
+      },
+      "documentOverflow": false
+    },
+    {
+      "id": "automatic",
+      "theme": "dark",
+      "width": 1180,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": {
+        "input": {
+          "x": 926.890625,
+          "y": 126,
+          "w": 194.1015625,
+          "h": 32
+        },
+        "button": {
+          "x": 1126.9921875,
+          "y": 126,
+          "w": 32,
+          "h": 32
+        }
+      },
+      "documentOverflow": false
+    },
+    {
+      "id": "manual",
+      "theme": "dark",
+      "width": 1180,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [
+        {
+          "x": 176,
+          "y": 265,
+          "w": 319.328125,
+          "h": 266.421875
+        },
+        {
+          "x": 507.328125,
+          "y": 265,
+          "w": 319.3359375,
+          "h": 266.421875
+        },
+        {
+          "x": 838.6640625,
+          "y": 265,
+          "w": 319.3359375,
+          "h": 266.421875
+        }
+      ],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "pd",
+      "theme": "dark",
+      "width": 1180,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "data",
+      "theme": "dark",
+      "width": 1180,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "shipping",
+      "theme": "dark",
+      "width": 1180,
+      "overflow": [],
+      "pairs": [],
+      "paths": [
+        {
+          "input": {
+            "x": 210,
+            "y": 270,
+            "w": 792,
+            "h": 38
+          },
+          "button": {
+            "x": 1010,
+            "y": 270,
+            "w": 120,
+            "h": 38
+          }
+        },
+        {
+          "input": {
+            "x": 210,
+            "y": 354,
+            "w": 792,
+            "h": 38
+          },
+          "button": {
+            "x": 1010,
+            "y": 354,
+            "w": 120,
+            "h": 38
+          }
+        }
+      ],
+      "cards": [],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "settings",
+      "theme": "dark",
+      "width": 1180,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "power",
+      "theme": "dark",
+      "width": 1180,
+      "overflow": [],
+      "pairs": [
+        {
+          "input": {
+            "x": 86,
+            "y": 481.5,
+            "w": 233.5,
+            "h": 36
+          },
+          "button": {
+            "x": 86,
+            "y": 527.5,
+            "w": 233.5,
+            "h": 36
+          }
+        },
+        {
+          "input": {
+            "x": 329.5,
+            "y": 481.5,
+            "w": 233.5,
+            "h": 36
+          },
+          "button": {
+            "x": 329.5,
+            "y": 527.5,
+            "w": 233.5,
+            "h": 36
+          }
+        }
+      ],
+      "paths": [],
+      "cards": [],
+      "folder": {
+        "input": {
+          "x": 926.890625,
+          "y": 126,
+          "w": 194.1015625,
+          "h": 32
+        },
+        "button": {
+          "x": 1126.9921875,
+          "y": 126,
+          "w": 32,
+          "h": 32
+        }
+      },
+      "documentOverflow": false
+    },
+    {
+      "id": "meter",
+      "theme": "dark",
+      "width": 1180,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": {
+        "input": {
+          "x": 926.890625,
+          "y": 126,
+          "w": 194.1015625,
+          "h": 32
+        },
+        "button": {
+          "x": 1126.9921875,
+          "y": 126,
+          "w": 32,
+          "h": 32
+        }
+      },
+      "documentOverflow": false
+    },
+    {
+      "id": "spectrum",
+      "theme": "dark",
+      "width": 1180,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": {
+        "input": {
+          "x": 926.890625,
+          "y": 126,
+          "w": 194.1015625,
+          "h": 32
+        },
+        "button": {
+          "x": 1126.9921875,
+          "y": 126,
+          "w": 32,
+          "h": 32
+        }
+      },
+      "documentOverflow": false
+    },
+    {
+      "id": "automatic",
+      "theme": "dark",
+      "width": 760,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": {
+        "input": {
+          "x": 177,
+          "y": 272.078125,
+          "w": 506,
+          "h": 32
+        },
+        "button": {
+          "x": 689,
+          "y": 272.078125,
+          "w": 32,
+          "h": 32
+        }
+      },
+      "documentOverflow": false
+    },
+    {
+      "id": "manual",
+      "theme": "dark",
+      "width": 760,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [
+        {
+          "x": 160,
+          "y": 381,
+          "w": 578,
+          "h": 266.421875
+        },
+        {
+          "x": 160,
+          "y": 659.421875,
+          "w": 578,
+          "h": 266.421875
+        },
+        {
+          "x": 160,
+          "y": 937.84375,
+          "w": 578,
+          "h": 266.421875
+        }
+      ],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "pd",
+      "theme": "dark",
+      "width": 760,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "data",
+      "theme": "dark",
+      "width": 760,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "shipping",
+      "theme": "dark",
+      "width": 760,
+      "overflow": [],
+      "pairs": [],
+      "paths": [
+        {
+          "input": {
+            "x": 194,
+            "y": 332,
+            "w": 388,
+            "h": 38
+          },
+          "button": {
+            "x": 590,
+            "y": 332,
+            "w": 120,
+            "h": 38
+          }
+        },
+        {
+          "input": {
+            "x": 194,
+            "y": 416,
+            "w": 388,
+            "h": 38
+          },
+          "button": {
+            "x": 590,
+            "y": 416,
+            "w": 120,
+            "h": 38
+          }
+        }
+      ],
+      "cards": [],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "settings",
+      "theme": "dark",
+      "width": 760,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "power",
+      "theme": "dark",
+      "width": 760,
+      "overflow": [],
+      "pairs": [
+        {
+          "input": {
+            "x": 56,
+            "y": 446,
+            "w": 316,
+            "h": 36
+          },
+          "button": {
+            "x": 56,
+            "y": 492,
+            "w": 316,
+            "h": 36
+          }
+        },
+        {
+          "input": {
+            "x": 382,
+            "y": 446,
+            "w": 316,
+            "h": 36
+          },
+          "button": {
+            "x": 382,
+            "y": 492,
+            "w": 316,
+            "h": 36
+          }
+        }
+      ],
+      "paths": [],
+      "cards": [],
+      "folder": {
+        "input": {
+          "x": 177,
+          "y": 272.078125,
+          "w": 506,
+          "h": 32
+        },
+        "button": {
+          "x": 689,
+          "y": 272.078125,
+          "w": 32,
+          "h": 32
+        }
+      },
+      "documentOverflow": false
+    },
+    {
+      "id": "meter",
+      "theme": "dark",
+      "width": 760,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": {
+        "input": {
+          "x": 177,
+          "y": 236.078125,
+          "w": 506,
+          "h": 32
+        },
+        "button": {
+          "x": 689,
+          "y": 236.078125,
+          "w": 32,
+          "h": 32
+        }
+      },
+      "documentOverflow": false
+    },
+    {
+      "id": "spectrum",
+      "theme": "dark",
+      "width": 760,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": {
+        "input": {
+          "x": 177,
+          "y": 236.078125,
+          "w": 506,
+          "h": 32
+        },
+        "button": {
+          "x": 689,
+          "y": 236.078125,
+          "w": 32,
+          "h": 32
+        }
+      },
+      "documentOverflow": false
+    },
+    {
+      "id": "automatic",
+      "theme": "light",
+      "width": 1440,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": {
+        "input": {
+          "x": 1124.6953125,
+          "y": 126,
+          "w": 256.3046875,
+          "h": 32
+        },
+        "button": {
+          "x": 1387,
+          "y": 126,
+          "w": 32,
+          "h": 32
+        }
+      },
+      "documentOverflow": false
+    },
+    {
+      "id": "manual",
+      "theme": "light",
+      "width": 1440,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [
+        {
+          "x": 188.796875,
+          "y": 197,
+          "w": 401.734375,
+          "h": 266.421875
+        },
+        {
+          "x": 602.53125,
+          "y": 197,
+          "w": 401.734375,
+          "h": 266.421875
+        },
+        {
+          "x": 1016.265625,
+          "y": 197,
+          "w": 401.734375,
+          "h": 266.421875
+        }
+      ],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "pd",
+      "theme": "light",
+      "width": 1440,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "data",
+      "theme": "light",
+      "width": 1440,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "shipping",
+      "theme": "light",
+      "width": 1440,
+      "overflow": [],
+      "pairs": [],
+      "paths": [
+        {
+          "input": {
+            "x": 222.796875,
+            "y": 270,
+            "w": 1039.203125,
+            "h": 38
+          },
+          "button": {
+            "x": 1270,
+            "y": 270,
+            "w": 120,
+            "h": 38
+          }
+        },
+        {
+          "input": {
+            "x": 222.796875,
+            "y": 354,
+            "w": 1039.203125,
+            "h": 38
+          },
+          "button": {
+            "x": 1270,
+            "y": 354,
+            "w": 120,
+            "h": 38
+          }
+        }
+      ],
+      "cards": [],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "settings",
+      "theme": "light",
+      "width": 1440,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "power",
+      "theme": "light",
+      "width": 1440,
+      "overflow": [],
+      "pairs": [
+        {
+          "input": {
+            "x": 216,
+            "y": 571.5,
+            "w": 233.5,
+            "h": 36
+          },
+          "button": {
+            "x": 216,
+            "y": 617.5,
+            "w": 233.5,
+            "h": 36
+          }
+        },
+        {
+          "input": {
+            "x": 459.5,
+            "y": 571.5,
+            "w": 233.5,
+            "h": 36
+          },
+          "button": {
+            "x": 459.5,
+            "y": 617.5,
+            "w": 233.5,
+            "h": 36
+          }
+        }
+      ],
+      "paths": [],
+      "cards": [],
+      "folder": {
+        "input": {
+          "x": 1124.6953125,
+          "y": 126,
+          "w": 256.3046875,
+          "h": 32
+        },
+        "button": {
+          "x": 1387,
+          "y": 126,
+          "w": 32,
+          "h": 32
+        }
+      },
+      "documentOverflow": false
+    },
+    {
+      "id": "meter",
+      "theme": "light",
+      "width": 1440,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": {
+        "input": {
+          "x": 1124.6953125,
+          "y": 126,
+          "w": 256.3046875,
+          "h": 32
+        },
+        "button": {
+          "x": 1387,
+          "y": 126,
+          "w": 32,
+          "h": 32
+        }
+      },
+      "documentOverflow": false
+    },
+    {
+      "id": "spectrum",
+      "theme": "light",
+      "width": 1440,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": {
+        "input": {
+          "x": 1124.6953125,
+          "y": 126,
+          "w": 256.3046875,
+          "h": 32
+        },
+        "button": {
+          "x": 1387,
+          "y": 126,
+          "w": 32,
+          "h": 32
+        }
+      },
+      "documentOverflow": false
+    },
+    {
+      "id": "automatic",
+      "theme": "light",
+      "width": 1180,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": {
+        "input": {
+          "x": 926.890625,
+          "y": 126,
+          "w": 194.1015625,
+          "h": 32
+        },
+        "button": {
+          "x": 1126.9921875,
+          "y": 126,
+          "w": 32,
+          "h": 32
+        }
+      },
+      "documentOverflow": false
+    },
+    {
+      "id": "manual",
+      "theme": "light",
+      "width": 1180,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [
+        {
+          "x": 176,
+          "y": 265,
+          "w": 319.328125,
+          "h": 266.421875
+        },
+        {
+          "x": 507.328125,
+          "y": 265,
+          "w": 319.3359375,
+          "h": 266.421875
+        },
+        {
+          "x": 838.6640625,
+          "y": 265,
+          "w": 319.3359375,
+          "h": 266.421875
+        }
+      ],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "pd",
+      "theme": "light",
+      "width": 1180,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "data",
+      "theme": "light",
+      "width": 1180,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "shipping",
+      "theme": "light",
+      "width": 1180,
+      "overflow": [],
+      "pairs": [],
+      "paths": [
+        {
+          "input": {
+            "x": 210,
+            "y": 270,
+            "w": 792,
+            "h": 38
+          },
+          "button": {
+            "x": 1010,
+            "y": 270,
+            "w": 120,
+            "h": 38
+          }
+        },
+        {
+          "input": {
+            "x": 210,
+            "y": 354,
+            "w": 792,
+            "h": 38
+          },
+          "button": {
+            "x": 1010,
+            "y": 354,
+            "w": 120,
+            "h": 38
+          }
+        }
+      ],
+      "cards": [],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "settings",
+      "theme": "light",
+      "width": 1180,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "power",
+      "theme": "light",
+      "width": 1180,
+      "overflow": [],
+      "pairs": [
+        {
+          "input": {
+            "x": 86,
+            "y": 481.5,
+            "w": 233.5,
+            "h": 36
+          },
+          "button": {
+            "x": 86,
+            "y": 527.5,
+            "w": 233.5,
+            "h": 36
+          }
+        },
+        {
+          "input": {
+            "x": 329.5,
+            "y": 481.5,
+            "w": 233.5,
+            "h": 36
+          },
+          "button": {
+            "x": 329.5,
+            "y": 527.5,
+            "w": 233.5,
+            "h": 36
+          }
+        }
+      ],
+      "paths": [],
+      "cards": [],
+      "folder": {
+        "input": {
+          "x": 926.890625,
+          "y": 126,
+          "w": 194.1015625,
+          "h": 32
+        },
+        "button": {
+          "x": 1126.9921875,
+          "y": 126,
+          "w": 32,
+          "h": 32
+        }
+      },
+      "documentOverflow": false
+    },
+    {
+      "id": "meter",
+      "theme": "light",
+      "width": 1180,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": {
+        "input": {
+          "x": 926.890625,
+          "y": 126,
+          "w": 194.1015625,
+          "h": 32
+        },
+        "button": {
+          "x": 1126.9921875,
+          "y": 126,
+          "w": 32,
+          "h": 32
+        }
+      },
+      "documentOverflow": false
+    },
+    {
+      "id": "spectrum",
+      "theme": "light",
+      "width": 1180,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": {
+        "input": {
+          "x": 926.890625,
+          "y": 126,
+          "w": 194.1015625,
+          "h": 32
+        },
+        "button": {
+          "x": 1126.9921875,
+          "y": 126,
+          "w": 32,
+          "h": 32
+        }
+      },
+      "documentOverflow": false
+    },
+    {
+      "id": "automatic",
+      "theme": "light",
+      "width": 760,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": {
+        "input": {
+          "x": 177,
+          "y": 272.078125,
+          "w": 506,
+          "h": 32
+        },
+        "button": {
+          "x": 689,
+          "y": 272.078125,
+          "w": 32,
+          "h": 32
+        }
+      },
+      "documentOverflow": false
+    },
+    {
+      "id": "manual",
+      "theme": "light",
+      "width": 760,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [
+        {
+          "x": 160,
+          "y": 381,
+          "w": 578,
+          "h": 266.421875
+        },
+        {
+          "x": 160,
+          "y": 659.421875,
+          "w": 578,
+          "h": 266.421875
+        },
+        {
+          "x": 160,
+          "y": 937.84375,
+          "w": 578,
+          "h": 266.421875
+        }
+      ],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "pd",
+      "theme": "light",
+      "width": 760,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "data",
+      "theme": "light",
+      "width": 760,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "shipping",
+      "theme": "light",
+      "width": 760,
+      "overflow": [],
+      "pairs": [],
+      "paths": [
+        {
+          "input": {
+            "x": 194,
+            "y": 332,
+            "w": 388,
+            "h": 38
+          },
+          "button": {
+            "x": 590,
+            "y": 332,
+            "w": 120,
+            "h": 38
+          }
+        },
+        {
+          "input": {
+            "x": 194,
+            "y": 416,
+            "w": 388,
+            "h": 38
+          },
+          "button": {
+            "x": 590,
+            "y": 416,
+            "w": 120,
+            "h": 38
+          }
+        }
+      ],
+      "cards": [],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "settings",
+      "theme": "light",
+      "width": 760,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": null,
+      "documentOverflow": false
+    },
+    {
+      "id": "power",
+      "theme": "light",
+      "width": 760,
+      "overflow": [],
+      "pairs": [
+        {
+          "input": {
+            "x": 56,
+            "y": 446,
+            "w": 316,
+            "h": 36
+          },
+          "button": {
+            "x": 56,
+            "y": 492,
+            "w": 316,
+            "h": 36
+          }
+        },
+        {
+          "input": {
+            "x": 382,
+            "y": 446,
+            "w": 316,
+            "h": 36
+          },
+          "button": {
+            "x": 382,
+            "y": 492,
+            "w": 316,
+            "h": 36
+          }
+        }
+      ],
+      "paths": [],
+      "cards": [],
+      "folder": {
+        "input": {
+          "x": 177,
+          "y": 272.078125,
+          "w": 506,
+          "h": 32
+        },
+        "button": {
+          "x": 689,
+          "y": 272.078125,
+          "w": 32,
+          "h": 32
+        }
+      },
+      "documentOverflow": false
+    },
+    {
+      "id": "meter",
+      "theme": "light",
+      "width": 760,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": {
+        "input": {
+          "x": 177,
+          "y": 236.078125,
+          "w": 506,
+          "h": 32
+        },
+        "button": {
+          "x": 689,
+          "y": 236.078125,
+          "w": 32,
+          "h": 32
+        }
+      },
+      "documentOverflow": false
+    },
+    {
+      "id": "spectrum",
+      "theme": "light",
+      "width": 760,
+      "overflow": [],
+      "pairs": [],
+      "paths": [],
+      "cards": [],
+      "folder": {
+        "input": {
+          "x": 177,
+          "y": 236.078125,
+          "w": 506,
+          "h": 32
+        },
+        "button": {
+          "x": 689,
+          "y": 236.078125,
+          "w": 32,
+          "h": 32
+        }
+      },
+      "documentOverflow": false
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "seed": 20261015,
+  "batches": 64,
+  "native_path_finite_doubles": 1048576,
+  "orjson": "3.13.0",
+  "json_bytes_equal": true,
+  "python_roundtrip_double_bits_equal": true,
+  "combined_sha256": "bd390336f4b5ceec46675ad67579b56728cbb5a61b029decf8489f04a3adf12a"
+}

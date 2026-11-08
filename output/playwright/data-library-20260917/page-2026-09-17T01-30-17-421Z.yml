@@ -1,0 +1,535 @@
+- generic [ref=f2e3]:
+  - banner [ref=f2e4]:
+    - generic [ref=f2e5]: Power Test
+    - generic [ref=f2e26]:
+      - button "显示" [ref=f2e27] [cursor=pointer]
+      - button "保存设置" [disabled]
+      - button "急停" [ref=f2e29] [cursor=pointer]
+  - generic [ref=f2e30]:
+    - complementary [ref=f2e31]:
+      - navigation [ref=f2e32]:
+        - button "自动测试" [ref=f2e33] [cursor=pointer]
+        - button "手动配置" [ref=f2e39] [cursor=pointer]
+        - button "PD 采集" [ref=f2e46] [cursor=pointer]
+        - button "数据浏览" [ref=f2e50] [cursor=pointer]
+        - button "出货报告" [ref=f2e55] [cursor=pointer]
+        - button "系统设置" [ref=f2e60] [cursor=pointer]
+      - generic "侧栏格言 Stay True" [ref=f2e65]:
+        - paragraph [ref=f2e67]: Stay True
+    - main [ref=f2e68]:
+      - region "数据浏览" [ref=f2e330]:
+        - generic [ref=f2e331]:
+          - generic [ref=f2e332]:
+            - tablist "数据来源" [ref=f2e333]:
+              - tab "测试数据库" [selected] [ref=f2e334] [cursor=pointer]
+              - tab "Excel 文件" [ref=f2e339] [cursor=pointer]
+            - generic [ref=f2e342]: 已完成测试自动存档 · Excel 同步保留
+            - button "刷新" [ref=f2e343] [cursor=pointer]
+          - generic [ref=f2e344]:
+            - textbox "搜索 SN" [ref=f2e349]:
+              - /placeholder: 搜索产品 SN…
+            - generic [ref=f2e350]:
+              - text: 时间
+              - combobox "日期范围" [ref=f2e351]:
+                - option "全部时间" [selected]
+                - option "今天"
+                - option "最近 7 天"
+                - option "自定义"
+            - generic [ref=f2e352]:
+              - text: 站别
+              - combobox "测试站别筛选" [ref=f2e353]:
+                - option "全部站别" [selected]
+                - option "封盖前"
+                - option "封盖后"
+        - generic [ref=f2e355]:
+          - complementary "测试记录列表" [ref=f2e356]:
+            - generic [ref=f2e357]:
+              - generic [ref=f2e358]:
+                - text: 测试记录
+                - generic [ref=f2e359]: "55"
+              - generic [ref=f2e360]: 勾选加入对比
+            - generic [ref=f2e361]:
+              - generic [ref=f2e396]:
+                - checkbox "选择对比 H6B560569 · 封盖前 · 2026-09-17 10:00:00" [ref=f2e397] [cursor=pointer]
+                - button "H6B560569 2026-09-17 10:00:00 封盖前 · 10 点 已完成" [ref=f2e398] [cursor=pointer]:
+                  - strong [ref=f2e399]: H6B560569
+                  - time [ref=f2e400]: 2026-09-17 10:00:00
+                  - generic [ref=f2e401]:
+                    - generic [ref=f2e402]: 封盖前 · 10 点
+                    - generic [ref=f2e403]: 已完成
+              - generic [ref=f2e407]:
+                - checkbox "选择对比 H6B560570 · 封盖后 · 2026-09-17 09:00:00" [ref=f2e408] [cursor=pointer]
+                - button "H6B560570 2026-09-17 09:00:00 封盖后 · 10 点 已完成" [ref=f2e409] [cursor=pointer]:
+                  - strong [ref=f2e410]: H6B560570
+                  - time [ref=f2e411]: 2026-09-17 09:00:00
+                  - generic [ref=f2e412]:
+                    - generic [ref=f2e413]: 封盖后 · 10 点
+                    - generic [ref=f2e414]: 已完成
+              - generic [ref=f2e418]:
+                - checkbox "选择对比 H6B560571 · 封盖前 · 2026-09-17 08:00:00" [ref=f2e419] [cursor=pointer]
+                - button "H6B560571 2026-09-17 08:00:00 封盖前 · 10 点 已完成" [ref=f2e420] [cursor=pointer]:
+                  - strong [ref=f2e421]: H6B560571
+                  - time [ref=f2e422]: 2026-09-17 08:00:00
+                  - generic [ref=f2e423]:
+                    - generic [ref=f2e424]: 封盖前 · 10 点
+                    - generic [ref=f2e425]: 已完成
+              - generic [ref=f2e429]:
+                - checkbox "选择对比 H6B560572 · 封盖后 · 2026-09-17 07:00:00" [ref=f2e430] [cursor=pointer]
+                - button "H6B560572 2026-09-17 07:00:00 封盖后 · 10 点 已完成" [ref=f2e431] [cursor=pointer]:
+                  - strong [ref=f2e432]: H6B560572
+                  - time [ref=f2e433]: 2026-09-17 07:00:00
+                  - generic [ref=f2e434]:
+                    - generic [ref=f2e435]: 封盖后 · 10 点
+                    - generic [ref=f2e436]: 已完成
+              - generic [ref=f2e440]:
+                - checkbox "选择对比 H6B560573 · 封盖前 · 2026-09-17 06:00:00" [ref=f2e441] [cursor=pointer]
+                - button "H6B560573 2026-09-17 06:00:00 封盖前 · 10 点 已完成" [ref=f2e442] [cursor=pointer]:
+                  - strong [ref=f2e443]: H6B560573
+                  - time [ref=f2e444]: 2026-09-17 06:00:00
+                  - generic [ref=f2e445]:
+                    - generic [ref=f2e446]: 封盖前 · 10 点
+                    - generic [ref=f2e447]: 已完成
+              - generic [ref=f2e451]:
+                - checkbox "选择对比 H6B560574 · 封盖后 · 2026-09-17 05:00:00" [ref=f2e452] [cursor=pointer]
+                - button "H6B560574 2026-09-17 05:00:00 封盖后 · 10 点 已完成" [ref=f2e453] [cursor=pointer]:
+                  - strong [ref=f2e454]: H6B560574
+                  - time [ref=f2e455]: 2026-09-17 05:00:00
+                  - generic [ref=f2e456]:
+                    - generic [ref=f2e457]: 封盖后 · 10 点
+                    - generic [ref=f2e458]: 已完成
+              - generic [ref=f2e462]:
+                - checkbox "选择对比 H6B560575 · 封盖前 · 2026-09-17 04:00:00" [ref=f2e463] [cursor=pointer]
+                - button "H6B560575 2026-09-17 04:00:00 封盖前 · 10 点 已完成" [ref=f2e464] [cursor=pointer]:
+                  - strong [ref=f2e465]: H6B560575
+                  - time [ref=f2e466]: 2026-09-17 04:00:00
+                  - generic [ref=f2e467]:
+                    - generic [ref=f2e468]: 封盖前 · 10 点
+                    - generic [ref=f2e469]: 已完成
+              - generic [ref=f2e473]:
+                - checkbox "选择对比 H6B560576 · 封盖后 · 2026-09-17 03:00:00" [ref=f2e474] [cursor=pointer]
+                - button "H6B560576 2026-09-17 03:00:00 封盖后 · 10 点 已完成" [ref=f2e475] [cursor=pointer]:
+                  - strong [ref=f2e476]: H6B560576
+                  - time [ref=f2e477]: 2026-09-17 03:00:00
+                  - generic [ref=f2e478]:
+                    - generic [ref=f2e479]: 封盖后 · 10 点
+                    - generic [ref=f2e480]: 已完成
+              - generic [ref=f2e484]:
+                - checkbox "选择对比 H6B560577 · 封盖前 · 2026-09-17 02:00:00" [ref=f2e485] [cursor=pointer]
+                - button "H6B560577 2026-09-17 02:00:00 封盖前 · 10 点 已完成" [ref=f2e486] [cursor=pointer]:
+                  - strong [ref=f2e487]: H6B560577
+                  - time [ref=f2e488]: 2026-09-17 02:00:00
+                  - generic [ref=f2e489]:
+                    - generic [ref=f2e490]: 封盖前 · 10 点
+                    - generic [ref=f2e491]: 已完成
+              - generic [ref=f2e495]:
+                - checkbox "选择对比 H6B560578 · 封盖后 · 2026-09-17 01:00:00" [ref=f2e496] [cursor=pointer]
+                - button "H6B560578 2026-09-17 01:00:00 封盖后 · 10 点 已完成" [ref=f2e497] [cursor=pointer]:
+                  - strong [ref=f2e498]: H6B560578
+                  - time [ref=f2e499]: 2026-09-17 01:00:00
+                  - generic [ref=f2e500]:
+                    - generic [ref=f2e501]: 封盖后 · 10 点
+                    - generic [ref=f2e502]: 已完成
+              - generic [ref=f2e506]:
+                - checkbox "选择对比 H6B560579 · 封盖前 · 2026-09-17 00:00:00" [ref=f2e507] [cursor=pointer]
+                - button "H6B560579 2026-09-17 00:00:00 封盖前 · 10 点 已完成" [ref=f2e508] [cursor=pointer]:
+                  - strong [ref=f2e509]: H6B560579
+                  - time [ref=f2e510]: 2026-09-17 00:00:00
+                  - generic [ref=f2e511]:
+                    - generic [ref=f2e512]: 封盖前 · 10 点
+                    - generic [ref=f2e513]: 已完成
+              - generic [ref=f2e517]:
+                - checkbox "选择对比 H6B560580 · 封盖后 · 2026-09-16 23:00:00" [ref=f2e518] [cursor=pointer]
+                - button "H6B560580 2026-09-16 23:00:00 封盖后 · 10 点 已完成" [ref=f2e519] [cursor=pointer]:
+                  - strong [ref=f2e520]: H6B560580
+                  - time [ref=f2e521]: 2026-09-16 23:00:00
+                  - generic [ref=f2e522]:
+                    - generic [ref=f2e523]: 封盖后 · 10 点
+                    - generic [ref=f2e524]: 已完成
+              - generic [ref=f2e528]:
+                - checkbox "选择对比 H6B560581 · 封盖前 · 2026-09-16 22:00:00" [ref=f2e529] [cursor=pointer]
+                - button "H6B560581 2026-09-16 22:00:00 封盖前 · 10 点 已完成" [ref=f2e530] [cursor=pointer]:
+                  - strong [ref=f2e531]: H6B560581
+                  - time [ref=f2e532]: 2026-09-16 22:00:00
+                  - generic [ref=f2e533]:
+                    - generic [ref=f2e534]: 封盖前 · 10 点
+                    - generic [ref=f2e535]: 已完成
+              - generic [ref=f2e539]:
+                - checkbox "选择对比 H6B560582 · 封盖后 · 2026-09-16 21:00:00" [ref=f2e540] [cursor=pointer]
+                - button "H6B560582 2026-09-16 21:00:00 封盖后 · 10 点 已完成" [ref=f2e541] [cursor=pointer]:
+                  - strong [ref=f2e542]: H6B560582
+                  - time [ref=f2e543]: 2026-09-16 21:00:00
+                  - generic [ref=f2e544]:
+                    - generic [ref=f2e545]: 封盖后 · 10 点
+                    - generic [ref=f2e546]: 已完成
+              - generic [ref=f2e550]:
+                - checkbox "选择对比 H6B560583 · 封盖前 · 2026-09-16 20:00:00" [ref=f2e551] [cursor=pointer]
+                - button "H6B560583 2026-09-16 20:00:00 封盖前 · 10 点 已完成" [ref=f2e552] [cursor=pointer]:
+                  - strong [ref=f2e553]: H6B560583
+                  - time [ref=f2e554]: 2026-09-16 20:00:00
+                  - generic [ref=f2e555]:
+                    - generic [ref=f2e556]: 封盖前 · 10 点
+                    - generic [ref=f2e557]: 已完成
+              - generic [ref=f2e561]:
+                - checkbox "选择对比 H6B560584 · 封盖后 · 2026-09-16 19:00:00" [ref=f2e562] [cursor=pointer]
+                - button "H6B560584 2026-09-16 19:00:00 封盖后 · 10 点 已完成" [ref=f2e563] [cursor=pointer]:
+                  - strong [ref=f2e564]: H6B560584
+                  - time [ref=f2e565]: 2026-09-16 19:00:00
+                  - generic [ref=f2e566]:
+                    - generic [ref=f2e567]: 封盖后 · 10 点
+                    - generic [ref=f2e568]: 已完成
+              - generic [ref=f2e572]:
+                - checkbox "选择对比 H6B560585 · 封盖前 · 2026-09-16 18:00:00" [ref=f2e573] [cursor=pointer]
+                - button "H6B560585 2026-09-16 18:00:00 封盖前 · 10 点 已完成" [ref=f2e574] [cursor=pointer]:
+                  - strong [ref=f2e575]: H6B560585
+                  - time [ref=f2e576]: 2026-09-16 18:00:00
+                  - generic [ref=f2e577]:
+                    - generic [ref=f2e578]: 封盖前 · 10 点
+                    - generic [ref=f2e579]: 已完成
+              - generic [ref=f2e583]:
+                - checkbox "选择对比 H6B560586 · 封盖后 · 2026-09-16 17:00:00" [ref=f2e584] [cursor=pointer]
+                - button "H6B560586 2026-09-16 17:00:00 封盖后 · 10 点 已完成" [ref=f2e585] [cursor=pointer]:
+                  - strong [ref=f2e586]: H6B560586
+                  - time [ref=f2e587]: 2026-09-16 17:00:00
+                  - generic [ref=f2e588]:
+                    - generic [ref=f2e589]: 封盖后 · 10 点
+                    - generic [ref=f2e590]: 已完成
+              - generic [ref=f2e594]:
+                - checkbox "选择对比 H6B560587 · 封盖前 · 2026-09-16 16:00:00" [ref=f2e595] [cursor=pointer]
+                - button "H6B560587 2026-09-16 16:00:00 封盖前 · 10 点 已完成" [ref=f2e596] [cursor=pointer]:
+                  - strong [ref=f2e597]: H6B560587
+                  - time [ref=f2e598]: 2026-09-16 16:00:00
+                  - generic [ref=f2e599]:
+                    - generic [ref=f2e600]: 封盖前 · 10 点
+                    - generic [ref=f2e601]: 已完成
+              - generic [ref=f2e605]:
+                - checkbox "选择对比 H6B560588 · 封盖后 · 2026-09-16 15:00:00" [ref=f2e606] [cursor=pointer]
+                - button "H6B560588 2026-09-16 15:00:00 封盖后 · 10 点 已完成" [ref=f2e607] [cursor=pointer]:
+                  - strong [ref=f2e608]: H6B560588
+                  - time [ref=f2e609]: 2026-09-16 15:00:00
+                  - generic [ref=f2e610]:
+                    - generic [ref=f2e611]: 封盖后 · 10 点
+                    - generic [ref=f2e612]: 已完成
+              - generic [ref=f2e616]:
+                - checkbox "选择对比 H6B560589 · 封盖前 · 2026-09-16 14:00:00" [ref=f2e617] [cursor=pointer]
+                - button "H6B560589 2026-09-16 14:00:00 封盖前 · 10 点 已完成" [ref=f2e618] [cursor=pointer]:
+                  - strong [ref=f2e619]: H6B560589
+                  - time [ref=f2e620]: 2026-09-16 14:00:00
+                  - generic [ref=f2e621]:
+                    - generic [ref=f2e622]: 封盖前 · 10 点
+                    - generic [ref=f2e623]: 已完成
+              - generic [ref=f2e627]:
+                - checkbox "选择对比 H6B560590 · 封盖后 · 2026-09-16 13:00:00" [ref=f2e628] [cursor=pointer]
+                - button "H6B560590 2026-09-16 13:00:00 封盖后 · 10 点 已完成" [ref=f2e629] [cursor=pointer]:
+                  - strong [ref=f2e630]: H6B560590
+                  - time [ref=f2e631]: 2026-09-16 13:00:00
+                  - generic [ref=f2e632]:
+                    - generic [ref=f2e633]: 封盖后 · 10 点
+                    - generic [ref=f2e634]: 已完成
+              - generic [ref=f2e638]:
+                - checkbox "选择对比 H6B560591 · 封盖前 · 2026-09-16 12:00:00" [ref=f2e639] [cursor=pointer]
+                - button "H6B560591 2026-09-16 12:00:00 封盖前 · 10 点 已完成" [ref=f2e640] [cursor=pointer]:
+                  - strong [ref=f2e641]: H6B560591
+                  - time [ref=f2e642]: 2026-09-16 12:00:00
+                  - generic [ref=f2e643]:
+                    - generic [ref=f2e644]: 封盖前 · 10 点
+                    - generic [ref=f2e645]: 已完成
+              - generic [ref=f2e649]:
+                - checkbox "选择对比 H6B560592 · 封盖后 · 2026-09-16 11:00:00" [ref=f2e650] [cursor=pointer]
+                - button "H6B560592 2026-09-16 11:00:00 封盖后 · 10 点 已完成" [ref=f2e651] [cursor=pointer]:
+                  - strong [ref=f2e652]: H6B560592
+                  - time [ref=f2e653]: 2026-09-16 11:00:00
+                  - generic [ref=f2e654]:
+                    - generic [ref=f2e655]: 封盖后 · 10 点
+                    - generic [ref=f2e656]: 已完成
+              - generic [ref=f2e660]:
+                - checkbox "选择对比 H6B560593 · 封盖前 · 2026-09-16 10:00:00" [ref=f2e661] [cursor=pointer]
+                - button "H6B560593 2026-09-16 10:00:00 封盖前 · 10 点 已完成" [ref=f2e662] [cursor=pointer]:
+                  - strong [ref=f2e663]: H6B560593
+                  - time [ref=f2e664]: 2026-09-16 10:00:00
+                  - generic [ref=f2e665]:
+                    - generic [ref=f2e666]: 封盖前 · 10 点
+                    - generic [ref=f2e667]: 已完成
+              - generic [ref=f2e671]:
+                - checkbox "选择对比 H6B560594 · 封盖后 · 2026-09-16 09:00:00" [ref=f2e672] [cursor=pointer]
+                - button "H6B560594 2026-09-16 09:00:00 封盖后 · 10 点 已完成" [ref=f2e673] [cursor=pointer]:
+                  - strong [ref=f2e674]: H6B560594
+                  - time [ref=f2e675]: 2026-09-16 09:00:00
+                  - generic [ref=f2e676]:
+                    - generic [ref=f2e677]: 封盖后 · 10 点
+                    - generic [ref=f2e678]: 已完成
+              - generic [ref=f2e682]:
+                - checkbox "选择对比 H6B560595 · 封盖前 · 2026-09-16 08:00:00" [ref=f2e683] [cursor=pointer]
+                - button "H6B560595 2026-09-16 08:00:00 封盖前 · 10 点 已完成" [ref=f2e684] [cursor=pointer]:
+                  - strong [ref=f2e685]: H6B560595
+                  - time [ref=f2e686]: 2026-09-16 08:00:00
+                  - generic [ref=f2e687]:
+                    - generic [ref=f2e688]: 封盖前 · 10 点
+                    - generic [ref=f2e689]: 已完成
+              - generic [ref=f2e693]:
+                - checkbox "选择对比 H6B560596 · 封盖后 · 2026-09-16 07:00:00" [ref=f2e694] [cursor=pointer]
+                - button "H6B560596 2026-09-16 07:00:00 封盖后 · 10 点 已完成" [ref=f2e695] [cursor=pointer]:
+                  - strong [ref=f2e696]: H6B560596
+                  - time [ref=f2e697]: 2026-09-16 07:00:00
+                  - generic [ref=f2e698]:
+                    - generic [ref=f2e699]: 封盖后 · 10 点
+                    - generic [ref=f2e700]: 已完成
+              - generic [ref=f2e704]:
+                - checkbox "选择对比 H6B560597 · 封盖前 · 2026-09-16 06:00:00" [ref=f2e705] [cursor=pointer]
+                - button "H6B560597 2026-09-16 06:00:00 封盖前 · 10 点 已完成" [ref=f2e706] [cursor=pointer]:
+                  - strong [ref=f2e707]: H6B560597
+                  - time [ref=f2e708]: 2026-09-16 06:00:00
+                  - generic [ref=f2e709]:
+                    - generic [ref=f2e710]: 封盖前 · 10 点
+                    - generic [ref=f2e711]: 已完成
+              - generic [ref=f2e715]:
+                - checkbox "选择对比 H6B560598 · 封盖后 · 2026-09-16 05:00:00" [ref=f2e716] [cursor=pointer]
+                - button "H6B560598 2026-09-16 05:00:00 封盖后 · 10 点 已完成" [ref=f2e717] [cursor=pointer]:
+                  - strong [ref=f2e718]: H6B560598
+                  - time [ref=f2e719]: 2026-09-16 05:00:00
+                  - generic [ref=f2e720]:
+                    - generic [ref=f2e721]: 封盖后 · 10 点
+                    - generic [ref=f2e722]: 已完成
+              - generic [ref=f2e726]:
+                - checkbox "选择对比 H6B560599 · 封盖前 · 2026-09-16 04:00:00" [ref=f2e727] [cursor=pointer]
+                - button "H6B560599 2026-09-16 04:00:00 封盖前 · 10 点 已完成" [ref=f2e728] [cursor=pointer]:
+                  - strong [ref=f2e729]: H6B560599
+                  - time [ref=f2e730]: 2026-09-16 04:00:00
+                  - generic [ref=f2e731]:
+                    - generic [ref=f2e732]: 封盖前 · 10 点
+                    - generic [ref=f2e733]: 已完成
+              - generic [ref=f2e737]:
+                - checkbox "选择对比 H6B560600 · 封盖后 · 2026-09-16 03:00:00" [ref=f2e738] [cursor=pointer]
+                - button "H6B560600 2026-09-16 03:00:00 封盖后 · 10 点 已完成" [ref=f2e739] [cursor=pointer]:
+                  - strong [ref=f2e740]: H6B560600
+                  - time [ref=f2e741]: 2026-09-16 03:00:00
+                  - generic [ref=f2e742]:
+                    - generic [ref=f2e743]: 封盖后 · 10 点
+                    - generic [ref=f2e744]: 已完成
+              - generic [ref=f2e748]:
+                - checkbox "选择对比 H6B560601 · 封盖前 · 2026-09-16 02:00:00" [ref=f2e749] [cursor=pointer]
+                - button "H6B560601 2026-09-16 02:00:00 封盖前 · 10 点 已完成" [ref=f2e750] [cursor=pointer]:
+                  - strong [ref=f2e751]: H6B560601
+                  - time [ref=f2e752]: 2026-09-16 02:00:00
+                  - generic [ref=f2e753]:
+                    - generic [ref=f2e754]: 封盖前 · 10 点
+                    - generic [ref=f2e755]: 已完成
+              - generic [ref=f2e759]:
+                - checkbox "选择对比 H6B560602 · 封盖后 · 2026-09-16 01:00:00" [ref=f2e760] [cursor=pointer]
+                - button "H6B560602 2026-09-16 01:00:00 封盖后 · 10 点 已完成" [ref=f2e761] [cursor=pointer]:
+                  - strong [ref=f2e762]: H6B560602
+                  - time [ref=f2e763]: 2026-09-16 01:00:00
+                  - generic [ref=f2e764]:
+                    - generic [ref=f2e765]: 封盖后 · 10 点
+                    - generic [ref=f2e766]: 已完成
+              - generic [ref=f2e770]:
+                - checkbox "选择对比 H6B560603 · 封盖前 · 2026-09-16 00:00:00" [ref=f2e771] [cursor=pointer]
+                - button "H6B560603 2026-09-16 00:00:00 封盖前 · 10 点 已完成" [ref=f2e772] [cursor=pointer]:
+                  - strong [ref=f2e773]: H6B560603
+                  - time [ref=f2e774]: 2026-09-16 00:00:00
+                  - generic [ref=f2e775]:
+                    - generic [ref=f2e776]: 封盖前 · 10 点
+                    - generic [ref=f2e777]: 已完成
+              - generic [ref=f2e781]:
+                - checkbox "选择对比 H6B560604 · 封盖后 · 2026-09-15 23:00:00" [ref=f2e782] [cursor=pointer]
+                - button "H6B560604 2026-09-15 23:00:00 封盖后 · 10 点 已完成" [ref=f2e783] [cursor=pointer]:
+                  - strong [ref=f2e784]: H6B560604
+                  - time [ref=f2e785]: 2026-09-15 23:00:00
+                  - generic [ref=f2e786]:
+                    - generic [ref=f2e787]: 封盖后 · 10 点
+                    - generic [ref=f2e788]: 已完成
+              - generic [ref=f2e792]:
+                - checkbox "选择对比 H6B560605 · 封盖前 · 2026-09-15 22:00:00" [ref=f2e793] [cursor=pointer]
+                - button "H6B560605 2026-09-15 22:00:00 封盖前 · 10 点 已完成" [ref=f2e794] [cursor=pointer]:
+                  - strong [ref=f2e795]: H6B560605
+                  - time [ref=f2e796]: 2026-09-15 22:00:00
+                  - generic [ref=f2e797]:
+                    - generic [ref=f2e798]: 封盖前 · 10 点
+                    - generic [ref=f2e799]: 已完成
+              - generic [ref=f2e803]:
+                - checkbox "选择对比 H6B560606 · 封盖后 · 2026-09-15 21:00:00" [ref=f2e804] [cursor=pointer]
+                - button "H6B560606 2026-09-15 21:00:00 封盖后 · 10 点 已完成" [ref=f2e805] [cursor=pointer]:
+                  - strong [ref=f2e806]: H6B560606
+                  - time [ref=f2e807]: 2026-09-15 21:00:00
+                  - generic [ref=f2e808]:
+                    - generic [ref=f2e809]: 封盖后 · 10 点
+                    - generic [ref=f2e810]: 已完成
+              - generic [ref=f2e814]:
+                - checkbox "选择对比 H6B560607 · 封盖前 · 2026-09-15 20:00:00" [ref=f2e815] [cursor=pointer]
+                - button "H6B560607 2026-09-15 20:00:00 封盖前 · 10 点 已完成" [ref=f2e816] [cursor=pointer]:
+                  - strong [ref=f2e817]: H6B560607
+                  - time [ref=f2e818]: 2026-09-15 20:00:00
+                  - generic [ref=f2e819]:
+                    - generic [ref=f2e820]: 封盖前 · 10 点
+                    - generic [ref=f2e821]: 已完成
+              - generic [ref=f2e825]:
+                - checkbox "选择对比 H6B560608 · 封盖后 · 2026-09-15 19:00:00" [ref=f2e826] [cursor=pointer]
+                - button "H6B560608 2026-09-15 19:00:00 封盖后 · 10 点 已完成" [ref=f2e827] [cursor=pointer]:
+                  - strong [ref=f2e828]: H6B560608
+                  - time [ref=f2e829]: 2026-09-15 19:00:00
+                  - generic [ref=f2e830]:
+                    - generic [ref=f2e831]: 封盖后 · 10 点
+                    - generic [ref=f2e832]: 已完成
+              - generic [ref=f2e836]:
+                - checkbox "选择对比 H6B560609 · 封盖前 · 2026-09-15 18:00:00" [ref=f2e837] [cursor=pointer]
+                - button "H6B560609 2026-09-15 18:00:00 封盖前 · 10 点 已完成" [ref=f2e838] [cursor=pointer]:
+                  - strong [ref=f2e839]: H6B560609
+                  - time [ref=f2e840]: 2026-09-15 18:00:00
+                  - generic [ref=f2e841]:
+                    - generic [ref=f2e842]: 封盖前 · 10 点
+                    - generic [ref=f2e843]: 已完成
+              - generic [ref=f2e847]:
+                - checkbox "选择对比 H6B560610 · 封盖后 · 2026-09-15 17:00:00" [ref=f2e848] [cursor=pointer]
+                - button "H6B560610 2026-09-15 17:00:00 封盖后 · 10 点 已完成" [ref=f2e849] [cursor=pointer]:
+                  - strong [ref=f2e850]: H6B560610
+                  - time [ref=f2e851]: 2026-09-15 17:00:00
+                  - generic [ref=f2e852]:
+                    - generic [ref=f2e853]: 封盖后 · 10 点
+                    - generic [ref=f2e854]: 已完成
+              - generic [ref=f2e858]:
+                - checkbox "选择对比 H6B560611 · 封盖前 · 2026-09-15 16:00:00" [ref=f2e859] [cursor=pointer]
+                - button "H6B560611 2026-09-15 16:00:00 封盖前 · 10 点 已完成" [ref=f2e860] [cursor=pointer]:
+                  - strong [ref=f2e861]: H6B560611
+                  - time [ref=f2e862]: 2026-09-15 16:00:00
+                  - generic [ref=f2e863]:
+                    - generic [ref=f2e864]: 封盖前 · 10 点
+                    - generic [ref=f2e865]: 已完成
+              - generic [ref=f2e869]:
+                - checkbox "选择对比 H6B560612 · 封盖后 · 2026-09-15 15:00:00" [ref=f2e870] [cursor=pointer]
+                - button "H6B560612 2026-09-15 15:00:00 封盖后 · 10 点 已完成" [ref=f2e871] [cursor=pointer]:
+                  - strong [ref=f2e872]: H6B560612
+                  - time [ref=f2e873]: 2026-09-15 15:00:00
+                  - generic [ref=f2e874]:
+                    - generic [ref=f2e875]: 封盖后 · 10 点
+                    - generic [ref=f2e876]: 已完成
+              - generic [ref=f2e880]:
+                - checkbox "选择对比 H6B560613 · 封盖前 · 2026-09-15 14:00:00" [ref=f2e881] [cursor=pointer]
+                - button "H6B560613 2026-09-15 14:00:00 封盖前 · 10 点 已完成" [ref=f2e882] [cursor=pointer]:
+                  - strong [ref=f2e883]: H6B560613
+                  - time [ref=f2e884]: 2026-09-15 14:00:00
+                  - generic [ref=f2e885]:
+                    - generic [ref=f2e886]: 封盖前 · 10 点
+                    - generic [ref=f2e887]: 已完成
+              - generic [ref=f2e891]:
+                - checkbox "选择对比 H6B560614 · 封盖后 · 2026-09-15 13:00:00" [ref=f2e892] [cursor=pointer]
+                - button "H6B560614 2026-09-15 13:00:00 封盖后 · 10 点 已完成" [ref=f2e893] [cursor=pointer]:
+                  - strong [ref=f2e894]: H6B560614
+                  - time [ref=f2e895]: 2026-09-15 13:00:00
+                  - generic [ref=f2e896]:
+                    - generic [ref=f2e897]: 封盖后 · 10 点
+                    - generic [ref=f2e898]: 已完成
+              - generic [ref=f2e902]:
+                - checkbox "选择对比 H6B560615 · 封盖前 · 2026-09-15 12:00:00" [ref=f2e903] [cursor=pointer]
+                - button "H6B560615 2026-09-15 12:00:00 封盖前 · 10 点 已完成" [ref=f2e904] [cursor=pointer]:
+                  - strong [ref=f2e905]: H6B560615
+                  - time [ref=f2e906]: 2026-09-15 12:00:00
+                  - generic [ref=f2e907]:
+                    - generic [ref=f2e908]: 封盖前 · 10 点
+                    - generic [ref=f2e909]: 已完成
+              - generic [ref=f2e913]:
+                - checkbox "选择对比 H6B560616 · 封盖后 · 2026-09-15 11:00:00" [ref=f2e914] [cursor=pointer]
+                - button "H6B560616 2026-09-15 11:00:00 封盖后 · 10 点 已完成" [ref=f2e915] [cursor=pointer]:
+                  - strong [ref=f2e916]: H6B560616
+                  - time [ref=f2e917]: 2026-09-15 11:00:00
+                  - generic [ref=f2e918]:
+                    - generic [ref=f2e919]: 封盖后 · 10 点
+                    - generic [ref=f2e920]: 已完成
+              - generic [ref=f2e924]:
+                - checkbox "选择对比 H6B560617 · 封盖前 · 2026-09-15 10:00:00" [ref=f2e925] [cursor=pointer]
+                - button "H6B560617 2026-09-15 10:00:00 封盖前 · 10 点 已完成" [ref=f2e926] [cursor=pointer]:
+                  - strong [ref=f2e927]: H6B560617
+                  - time [ref=f2e928]: 2026-09-15 10:00:00
+                  - generic [ref=f2e929]:
+                    - generic [ref=f2e930]: 封盖前 · 10 点
+                    - generic [ref=f2e931]: 已完成
+              - generic [ref=f2e935]:
+                - checkbox "选择对比 H6B560618 · 封盖后 · 2026-09-15 09:00:00" [ref=f2e936] [cursor=pointer]
+                - button "H6B560618 2026-09-15 09:00:00 封盖后 · 10 点 已完成" [ref=f2e937] [cursor=pointer]:
+                  - strong [ref=f2e938]: H6B560618
+                  - time [ref=f2e939]: 2026-09-15 09:00:00
+                  - generic [ref=f2e940]:
+                    - generic [ref=f2e941]: 封盖后 · 10 点
+                    - generic [ref=f2e942]: 已完成
+            - generic [ref=f2e369]:
+              - generic [ref=f2e370]: 第 1 / 2 页
+              - generic [ref=f2e371]:
+                - button "上一页" [disabled]
+                - button "下一页" [ref=f2e946] [cursor=pointer]
+          - article "测试详情" [ref=f2e372]:
+            - generic [ref=f2e373]:
+              - generic [ref=f2e374]: 记录详情
+              - tablist "详情视图" [ref=f2e375]:
+                - tab "曲线" [selected] [ref=f2e376] [cursor=pointer]
+                - tab "测试点" [ref=f2e379] [cursor=pointer]
+                - tab "光谱" [ref=f2e382] [cursor=pointer]
+                - tab "信息" [ref=f2e385] [cursor=pointer]
+              - generic [ref=f2e388]:
+                - button "打开 Excel" [ref=f2e947] [cursor=pointer]
+                - button "展开详情" [ref=f2e389] [cursor=pointer]
+            - generic [ref=f2e390]:
+              - generic [ref=f2e391]:
+                - generic [ref=f2e948]:
+                  - heading "H6B560569" [level=2] [ref=f2e949]
+                  - paragraph [ref=f2e950]: 封盖前 · 2026-09-17 10:00:00 · 25 °C
+                - generic [ref=f2e951]: 数据库存档
+              - tablist "对比参数" [ref=f2e952]:
+                - tab "功率 W" [selected] [ref=f2e953] [cursor=pointer]:
+                  - text: 功率
+                  - generic [ref=f2e954]: W
+                - tab "电压 V" [ref=f2e955] [cursor=pointer]:
+                  - text: 电压
+                  - generic [ref=f2e956]: V
+                - tab "电光效率 %" [ref=f2e957] [cursor=pointer]:
+                  - text: 电光效率
+                  - generic [ref=f2e958]: "%"
+                - tab "峰值波长 nm" [ref=f2e959] [cursor=pointer]:
+                  - text: 峰值波长
+                  - generic [ref=f2e960]: nm
+                - tab "质心波长 nm" [ref=f2e961] [cursor=pointer]:
+                  - text: 质心波长
+                  - generic [ref=f2e962]: nm
+                - tab "FWHM nm" [ref=f2e963] [cursor=pointer]:
+                  - text: FWHM
+                  - generic [ref=f2e964]: nm
+                - tab "PIB %" [ref=f2e965] [cursor=pointer]:
+                  - text: PIB
+                  - generic [ref=f2e966]: "%"
+                - tab "SMSR dB" [ref=f2e967] [cursor=pointer]:
+                  - text: SMSR
+                  - generic [ref=f2e968]: dB
+              - generic [ref=f2e969]:
+                - generic [ref=f2e970]:
+                  - generic [ref=f2e971]: 最大光功率
+                  - strong [ref=f2e972]: 38.22 W
+                - generic [ref=f2e973]:
+                  - generic [ref=f2e974]: 最高电光效率
+                  - strong [ref=f2e975]: 16.53 %
+                - generic [ref=f2e976]:
+                  - generic [ref=f2e977]: 峰值波长（最大功率处）
+                  - strong [ref=f2e978]: 976.10 nm
+                - generic [ref=f2e979]:
+                  - generic [ref=f2e980]: 有效测试点
+                  - strong [ref=f2e981]:
+                    - text: "10"
+                    - generic [ref=f2e982]: / 10
+              - generic [ref=f2e983]:
+                - generic [ref=f2e984]:
+                  - generic [ref=f2e985]:
+                    - strong [ref=f2e988]: 功率与电流曲线
+                    - generic [ref=f2e989]: W
+                  - generic [ref=f2e990]:
+                    - text: 标注
+                    - combobox "选择测试点" [ref=f2e991]:
+                      - option "2.00 A · 0.420 W" [selected]
+                      - option "4.00 A · 4.620 W"
+                      - option "6.00 A · 8.820 W"
+                      - option "8.00 A · 13.020 W"
+                      - option "10.00 A · 17.220 W"
+                      - option "12.00 A · 21.420 W"
+                      - option "14.00 A · 25.620 W"
+                      - option "16.00 A · 29.820 W"
+                      - option "18.00 A · 34.020 W"
+                      - option "20.00 A · 38.220 W"
+                - generic [ref=f2e993]:
+                  - img "历史功率电流曲线" [ref=f2e994]
+                  - generic [ref=f2e995]: 功率
+                - paragraph [ref=f2e996]: 每条曲线保留实际测量电流点。悬停查看数值，展开详情可放大图表。

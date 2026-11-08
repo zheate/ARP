@@ -5,6 +5,8 @@ import {
   dateBounds,
   extractComparisonSummary,
   extractSummaryMetrics,
+  metricComparisonRows,
+  spectrumChartRows,
   flowLabel,
   numberText,
   powerChartRows,
@@ -42,6 +44,48 @@ test("duplicate normalized currents are explicit and invalid values are not pair
   assert.equal(rows[0].deltaW, null)
   assert.deepEqual(comparisonRows([point(2, null)], [point(2, 0)]), [])
   assert.deepEqual(comparisonRows([point(2, 10)], [point(3, 12)]), [])
+})
+
+test("large duplicate-current groups preserve ambiguity and do not mutate input", () => {
+  const duplicates = Array.from({ length: 4000 }, (_, index) => Object.freeze(point(2, index)))
+  const base = Object.freeze([...duplicates, Object.freeze(point(4, null)), Object.freeze(point(6, 60))])
+  const other = Object.freeze([Object.freeze(point(2, 12)), Object.freeze(point(4, 40)), Object.freeze(point(6, 66))])
+  const rows = comparisonRows(base as DataPoint[], other as DataPoint[])
+  assert.deepEqual(rows, [
+    { currentA: 2, basePowerW: null, otherPowerW: null, deltaW: null, ambiguous: true, deltaPercent: null },
+    { currentA: 6, basePowerW: 60, otherPowerW: 66, deltaW: 6, ambiguous: false, deltaPercent: 10 },
+  ])
+  const metrics = metricComparisonRows([{ points: base }, { points: other }] as DataDetail[], "powerW")
+  assert.deepEqual(metrics, [
+    { currentA: 2, values: [null, 12], ambiguous: [true, false], deltas: [null, null] },
+    { currentA: 4, values: [null, 40], ambiguous: [false, false], deltas: [null, null] },
+    { currentA: 6, values: [60, 66], ambiguous: [false, false], deltas: [0, 6] },
+  ])
+  assert.equal(base.length, 4002)
+  assert.equal(base[0], duplicates[0])
+})
+
+test("spectrum rows retain native grids, stable equal-wavelength order and finite-value filtering", () => {
+  type Series = Parameters<typeof spectrumChartRows>[0][number]
+  let seed = 90210
+  const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 2 ** 32 }
+  for (let trial = 0; trial < 32; trial++) {
+    const spectra: Series[] = Array.from({ length: 8 }, (_, current) => {
+      if (current === 3) return null
+      const wavelengthNm = Array.from({ length: 128 }, (_, i) => i % 11 === 0 ? NaN : Math.round(random() * 5) + 973)
+      const intensity = wavelengthNm.map((_, i) => i % 13 === 0 ? Infinity : i % 17 === 0 ? -0 : random())
+      delete wavelengthNm[5] // Sparse imported arrays keep their prior semantics.
+      Object.freeze(wavelengthNm); Object.freeze(intensity)
+      return Object.freeze({ currentA: current, wavelengthNm, intensity, peakWavelengthNm: 976, maxIntensity: 1 })
+    })
+    Object.freeze(spectra)
+    const expected = spectra.flatMap((spectrum, index) => spectrum ? spectrum.wavelengthNm.flatMap((wavelength, sample) => {
+      const intensity = spectrum.intensity[sample]
+      return Number.isFinite(wavelength) && Number.isFinite(intensity)
+        ? [{ wavelengthNm: wavelength, [`series${index}`]: intensity }] : []
+    }) : []).sort((a, b) => a.wavelengthNm - b.wavelengthNm)
+    assert.deepEqual(spectrumChartRows(spectra), expected)
+  }
 })
 test("chart retains both original curves including duplicate currents", () => {
   const records = [{ points: [point(4, 20), point(2, 10), point(2, 11)] }, { points: [point(3, 18), point(5, null)] }] as DataDetail[]
@@ -123,4 +167,39 @@ test("extractComparisonSummary calculates delta Pmax, percentage, and shared poi
   assert.equal(summary.deltaMaxPowerW, 5)
   assert.equal(summary.deltaMaxPowerPercent, 25)
   assert.equal(summary.sharedPointCount, 2)
+})
+
+test("five curves preserve each selected parameter even when power is missing", async () => {
+  const { metricChartRows } = await import("./data-browser.ts")
+  const details = Array.from({ length: 5 }, (_, index) => ({ points: [point(index + 1, null, 1, { voltageV: 10 + index, efficiencyPercent: 0 })] })) as DataDetail[]
+  const rows = metricChartRows(details, "voltageV")
+  assert.equal(rows.length, 5)
+  rows.forEach((row, index) => assert.equal(row[`series${index}`], 10 + index))
+  assert.equal(metricChartRows(details, "powerW").length, 0)
+  assert.equal(metricChartRows(details, "efficiencyPercent")[0].series0, 0)
+})
+
+test("parameter deltas never interpolate, invent missing values or match duplicate currents", async () => {
+  const { metricComparisonRows } = await import("./data-browser.ts")
+  const details = [
+    { points: [point(2, 10, 1, { efficiencyPercent: 40 }), point(4, 12, 2, { efficiencyPercent: 50 })] },
+    { points: [point(2, 11, 1, { efficiencyPercent: 45 }), point(3, 13, 2, { efficiencyPercent: 47 }), point(4, 12, 3, { efficiencyPercent: 0 }), point(4, null)] },
+    { points: [point(2, null, 1, { efficiencyPercent: 0 })] },
+  ] as DataDetail[]
+  const rows = metricComparisonRows(details, "efficiencyPercent")
+  assert.deepEqual(rows[0].deltas, [0, 5, -40])
+  assert.deepEqual(rows[1].values, [null, 47, null])
+  assert.deepEqual(rows[1].deltas, [null, null, null])
+  assert.equal(rows[2].ambiguous[1], true)
+  assert.equal(rows[2].deltas[1], null)
+})
+
+test("wavelength and efficiency axes resolve measured differences without changing power zero reference", async () => {
+  const { metricYAxisDomain } = await import("./data-browser.ts")
+  const details = [{points:[point(2,10,1,{peakWavelengthNm:976.1}), point(4,20,2,{peakWavelengthNm:976.4})]}] as DataDetail[]
+  const domain = metricYAxisDomain(details, "peakWavelengthNm")!
+  assert.ok(domain[0] > 975 && domain[0] < 976.1)
+  assert.ok(domain[1] > 976.4 && domain[1] < 977)
+  assert.equal(metricYAxisDomain(details, "powerW"), undefined)
+  assert.equal(metricYAxisDomain(details, "efficiencyPercent"), undefined)
 })

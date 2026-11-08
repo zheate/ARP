@@ -1,0 +1,11 @@
+{
+  "pythonTests": 175,
+  "frontendTests": 70,
+  "rustSafetyTests": 1,
+  "build": "passed; existing chunk-size warning",
+  "credentialScan": "no matches",
+  "stagedFiles": 81,
+  "whitespace": "passed for source; verbatim third-party DSEG license retains CRLF and original trailing space at line 23",
+  "realHardware": false,
+  "packaged": false
+}

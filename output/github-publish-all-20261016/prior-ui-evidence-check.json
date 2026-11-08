@@ -1,0 +1,30 @@
+[
+  {
+    "path": "tauri-ui/src/components/native-select.tsx",
+    "matchesVerifiedSource": true
+  },
+  {
+    "path": "tauri-ui/src/components/appearance-controls.tsx",
+    "matchesVerifiedSource": true
+  },
+  {
+    "path": "tauri-ui/src/components/data-browser-page.tsx",
+    "matchesVerifiedSource": true
+  },
+  {
+    "path": "tauri-ui/src/components/data-browser-history.tsx",
+    "matchesVerifiedSource": true
+  },
+  {
+    "path": "tauri-ui/src/components/data-browser-characterization.tsx",
+    "matchesVerifiedSource": true
+  },
+  {
+    "path": "tauri-ui/src/components/data-browser.css",
+    "matchesVerifiedSource": true
+  },
+  {
+    "path": "tauri-ui/src/workbench-appearance.css",
+    "matchesVerifiedSource": true
+  }
+]

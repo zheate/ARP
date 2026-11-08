@@ -1,0 +1,65 @@
+{
+  "arrowsRoundTrip": 8,
+  "firstCommand": [
+    {
+      "method": "powerSupply.setCurrent",
+      "params": {
+        "currentA": 9.1
+      }
+    }
+  ],
+  "blocked": [
+    {
+      "state": "pending",
+      "count": 2,
+      "enabled": false
+    },
+    {
+      "state": "detecting",
+      "count": 2,
+      "enabled": false
+    },
+    {
+      "state": "automatic",
+      "count": 2,
+      "inputEnabled": false,
+      "buttonEnabled": false
+    },
+    {
+      "state": "disconnected",
+      "count": 2,
+      "inputEnabled": false,
+      "buttonEnabled": false
+    },
+    {
+      "state": "outputoff",
+      "count": 2,
+      "inputEnabled": false,
+      "buttonEnabled": false
+    },
+    {
+      "state": "stopping",
+      "count": 2,
+      "inputEnabled": false,
+      "buttonEnabled": false
+    },
+    {
+      "state": "inactive",
+      "count": 2,
+      "inputEnabled": false,
+      "buttonEnabled": false
+    }
+  ],
+  "typedCommand": {
+    "method": "powerSupply.setCurrent",
+    "params": {
+      "currentA": 3.5
+    }
+  },
+  "clampedCommand": {
+    "method": "powerSupply.setCurrent",
+    "params": {
+      "currentA": 0
+    }
+  }
+}

@@ -16,6 +16,7 @@ from combined_test.tdk_power_supply import (
     list_tdk_serial_resources,
     probe_tdk_serial_resource,
 )
+from combined_test.ru_power_supply import probe_ru_serial_resource
 
 from .station_runtime import StationRuntime
 from .station_support import (
@@ -259,16 +260,20 @@ class DeviceDiscoveryService:
 
     def _refresh_power_supply(self, station: StationRuntime) -> None:
         backend = self._backend
+        if station.power_supply_kind == "ru" and station.power_supply_controller is not None:
+            raise ValueError("请先安全断开 RU 电源，再执行识别")
         with backend._lock:
             if backend.power_supply_detect_thread is not None:
                 return
             controller_kind = station.power_supply_kind
+            ru_baud = station.configuration["ruBaudRate"]
+            ru_address = station.configuration["ruAddress"]
             backend.power_supply_detection_detail = "正在准备电源识别"
             backend.power_supply_detection_kind = controller_kind
 
         def discover(report: Callable[[str], None]) -> tuple[str, list[Any]]:
-            if controller_kind == "tdk":
-                report("正在枚举 TDK RS232 串口")
+            if controller_kind in {"tdk", "ru"}:
+                report(f"正在枚举 {controller_kind.upper()} RS232 串口")
                 candidates = list_tdk_serial_resources()
                 confirmed_power_meter_resources = {
                     extract_power_resource_name(option.resource).upper()
@@ -285,8 +290,10 @@ class DeviceDiscoveryService:
                 ]
                 verified: list[str] = []
                 for index, resource in enumerate(remaining, start=1):
-                    report(f"正在验证 TDK 串口 {index}/{len(remaining)}：{resource}")
-                    if probe_tdk_serial_resource(resource):
+                    report(f"正在验证 {controller_kind.upper()} 串口 {index}/{len(remaining)}：{resource}")
+                    matched = (probe_ru_serial_resource(resource, baud_rate=ru_baud, address=ru_address)
+                               if controller_kind == "ru" else probe_tdk_serial_resource(resource))
+                    if matched:
                         verified.append(str(resource))
                 return controller_kind, verified
             report("正在扫描 CH341 设备")
@@ -299,15 +306,24 @@ class DeviceDiscoveryService:
         def on_completed(result: tuple[str, list[Any]]) -> None:
             kind, devices = result
             with backend._lock:
-                if kind == "tdk":
+                if kind in {"tdk", "ru"}:
                     backend.power_supply_resources = [str(resource) for resource in devices]
-                    backend.power_supply_detection_detail = f"识别完成：发现 {len(devices)} 个 TDK 串口"
+                    backend.power_supply_detection_detail = f"识别完成：发现 {len(devices)} 个 {kind.upper()} 串口"
                 else:
                     backend.ch341_descriptors = list(devices)
                     backend.ch341_discovery_state = "ready" if devices else "empty"
                     backend.ch341_scan_error = ""
                     self._select_ch341_after_scan(station, devices)
                     backend.power_supply_detection_detail = f"识别完成：发现 {len(devices)} 个 CH341 设备"
+            if kind == "ru":
+                with station._lock:
+                    if (station.power_supply_kind == kind and station.power_supply_controller is None
+                            and station.configuration["ruBaudRate"] == ru_baud
+                            and station.configuration["ruAddress"] == ru_address):
+                        selected = station.configuration["ruResource"]
+                        if devices and selected not in devices:
+                            station.configuration["ruResource"] = str(devices[0])
+                            backend._persist_configuration()
             if kind == "ch341":
                 backend.notify(
                     "info",
@@ -327,7 +343,7 @@ class DeviceDiscoveryService:
                     backend.ch341_scan_error = str(message)
                     backend.ch341_descriptors = []
                 backend.power_supply_detection_detail = f"识别失败：{message}"
-            backend.notify("error", "CH341 扫描失败" if controller_kind == "ch341" else "TDK 串口识别", message)
+            backend.notify("error", "CH341 扫描失败" if controller_kind == "ch341" else f"{controller_kind.upper()} 串口识别", message)
 
         def on_finished() -> None:
             with backend._lock:

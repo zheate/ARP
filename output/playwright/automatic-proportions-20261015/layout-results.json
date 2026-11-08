@@ -1,0 +1,956 @@
+[
+  {
+    "allRowsFit": true,
+    "clipped": [],
+    "density": "compact",
+    "equalDeviceColumns": true,
+    "noOverflow": true,
+    "progress": "第 4 / 6 点\n等待波长稳定\n已记录 3 点\n用时 02:36",
+    "ratios": [
+      1.5000536883925697,
+      4.000214753570278,
+      1,
+      4.000214753570278
+    ],
+    "rows": [
+      {
+        "bottom": 213.140625,
+        "height": 109.140625,
+        "right": 1432,
+        "width": 1264,
+        "x": 168,
+        "y": 104
+      },
+      {
+        "bottom": 512.1875,
+        "height": 291.046875,
+        "right": 1432,
+        "width": 1264,
+        "x": 168,
+        "y": 221.140625
+      },
+      {
+        "bottom": 592.9453125,
+        "height": 72.7578125,
+        "right": 1432,
+        "width": 1264,
+        "x": 168,
+        "y": 520.1875
+      },
+      {
+        "bottom": 891.9921875,
+        "height": 291.046875,
+        "right": 1432,
+        "width": 1264,
+        "x": 168,
+        "y": 600.9453125
+      }
+    ],
+    "theme": "light",
+    "viewport": [
+      1440,
+      900
+    ]
+  },
+  {
+    "allRowsFit": true,
+    "clipped": [],
+    "density": "compact",
+    "equalDeviceColumns": true,
+    "noOverflow": true,
+    "progress": "第 4 / 6 点\n等待波长稳定\n已记录 3 点\n用时 02:36",
+    "ratios": [
+      1.5,
+      4.000155957579539,
+      1,
+      4.000155957579539
+    ],
+    "rows": [
+      {
+        "bottom": 237.140625,
+        "height": 75.140625,
+        "right": 1172,
+        "width": 1004,
+        "x": 168,
+        "y": 162
+      },
+      {
+        "bottom": 445.5234375,
+        "height": 200.3828125,
+        "right": 1172,
+        "width": 1004,
+        "x": 168,
+        "y": 245.140625
+      },
+      {
+        "bottom": 503.6171875,
+        "height": 50.09375,
+        "right": 1172,
+        "width": 1004,
+        "x": 168,
+        "y": 453.5234375
+      },
+      {
+        "bottom": 712,
+        "height": 200.3828125,
+        "right": 1172,
+        "width": 1004,
+        "x": 168,
+        "y": 511.6171875
+      }
+    ],
+    "theme": "light",
+    "viewport": [
+      1180,
+      720
+    ]
+  },
+  {
+    "allRowsFit": true,
+    "clipped": [],
+    "density": "compact",
+    "equalDeviceColumns": true,
+    "noOverflow": true,
+    "progress": "第 4 / 6 点\n等待波长稳定\n已记录 3 点\n用时 02:36",
+    "ratios": [
+      1.4999131039277025,
+      3.9999131039277023,
+      1,
+      4
+    ],
+    "rows": [
+      {
+        "bottom": 238.8515625,
+        "height": 134.8515625,
+        "right": 1912,
+        "width": 1744,
+        "x": 168,
+        "y": 104
+      },
+      {
+        "bottom": 606.46875,
+        "height": 359.6171875,
+        "right": 1912,
+        "width": 1744,
+        "x": 168,
+        "y": 246.8515625
+      },
+      {
+        "bottom": 704.375,
+        "height": 89.90625,
+        "right": 1912,
+        "width": 1744,
+        "x": 168,
+        "y": 614.46875
+      },
+      {
+        "bottom": 1072,
+        "height": 359.625,
+        "right": 1912,
+        "width": 1744,
+        "x": 168,
+        "y": 712.375
+      }
+    ],
+    "theme": "light",
+    "viewport": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "allRowsFit": true,
+    "clipped": [],
+    "density": "comfortable",
+    "equalDeviceColumns": true,
+    "noOverflow": true,
+    "progress": "第 4 / 6 点\n等待波长稳定\n已记录 3 点\n用时 02:36",
+    "ratios": [
+      1.5000536883925697,
+      4.000214753570278,
+      1,
+      4.000214753570278
+    ],
+    "rows": [
+      {
+        "bottom": 213.140625,
+        "height": 109.140625,
+        "right": 1432,
+        "width": 1251.203125,
+        "x": 180.796875,
+        "y": 104
+      },
+      {
+        "bottom": 512.1875,
+        "height": 291.046875,
+        "right": 1432,
+        "width": 1251.203125,
+        "x": 180.796875,
+        "y": 221.140625
+      },
+      {
+        "bottom": 592.9453125,
+        "height": 72.7578125,
+        "right": 1432,
+        "width": 1251.203125,
+        "x": 180.796875,
+        "y": 520.1875
+      },
+      {
+        "bottom": 891.9921875,
+        "height": 291.046875,
+        "right": 1432,
+        "width": 1251.203125,
+        "x": 180.796875,
+        "y": 600.9453125
+      }
+    ],
+    "theme": "light",
+    "viewport": [
+      1440,
+      900
+    ]
+  },
+  {
+    "allRowsFit": true,
+    "clipped": [],
+    "density": "comfortable",
+    "equalDeviceColumns": true,
+    "noOverflow": true,
+    "progress": "第 4 / 6 点\n等待波长稳定\n已记录 3 点\n用时 02:36",
+    "ratios": [
+      1.5,
+      4.000155957579539,
+      1,
+      4.000155957579539
+    ],
+    "rows": [
+      {
+        "bottom": 237.140625,
+        "height": 75.140625,
+        "right": 1172,
+        "width": 1004,
+        "x": 168,
+        "y": 162
+      },
+      {
+        "bottom": 445.5234375,
+        "height": 200.3828125,
+        "right": 1172,
+        "width": 1004,
+        "x": 168,
+        "y": 245.140625
+      },
+      {
+        "bottom": 503.6171875,
+        "height": 50.09375,
+        "right": 1172,
+        "width": 1004,
+        "x": 168,
+        "y": 453.5234375
+      },
+      {
+        "bottom": 712,
+        "height": 200.3828125,
+        "right": 1172,
+        "width": 1004,
+        "x": 168,
+        "y": 511.6171875
+      }
+    ],
+    "theme": "light",
+    "viewport": [
+      1180,
+      720
+    ]
+  },
+  {
+    "allRowsFit": true,
+    "clipped": [],
+    "density": "comfortable",
+    "equalDeviceColumns": true,
+    "noOverflow": true,
+    "progress": "第 4 / 6 点\n等待波长稳定\n已记录 3 点\n用时 02:36",
+    "ratios": [
+      1.5,
+      4,
+      1,
+      4
+    ],
+    "rows": [
+      {
+        "bottom": 240,
+        "height": 132,
+        "right": 1908,
+        "width": 1708,
+        "x": 200,
+        "y": 108
+      },
+      {
+        "bottom": 604,
+        "height": 352,
+        "right": 1908,
+        "width": 1708,
+        "x": 200,
+        "y": 252
+      },
+      {
+        "bottom": 704,
+        "height": 88,
+        "right": 1908,
+        "width": 1708,
+        "x": 200,
+        "y": 616
+      },
+      {
+        "bottom": 1068,
+        "height": 352,
+        "right": 1908,
+        "width": 1708,
+        "x": 200,
+        "y": 716
+      }
+    ],
+    "theme": "light",
+    "viewport": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "allRowsFit": true,
+    "clipped": [],
+    "density": "distant",
+    "equalDeviceColumns": true,
+    "noOverflow": true,
+    "progress": "第 4 / 6 点\n等待波长稳定\n已记录 3 点\n用时 02:36",
+    "ratios": [
+      1.4999437380443343,
+      3.9998874760886687,
+      1,
+      4
+    ],
+    "rows": [
+      {
+        "bottom": 219.140625,
+        "height": 104.140625,
+        "right": 1426,
+        "width": 1239.203125,
+        "x": 186.796875,
+        "y": 115
+      },
+      {
+        "bottom": 510.8515625,
+        "height": 277.7109375,
+        "right": 1426,
+        "width": 1239.203125,
+        "x": 186.796875,
+        "y": 233.140625
+      },
+      {
+        "bottom": 594.28125,
+        "height": 69.4296875,
+        "right": 1426,
+        "width": 1239.203125,
+        "x": 186.796875,
+        "y": 524.8515625
+      },
+      {
+        "bottom": 886,
+        "height": 277.71875,
+        "right": 1426,
+        "width": 1239.203125,
+        "x": 186.796875,
+        "y": 608.28125
+      }
+    ],
+    "theme": "light",
+    "viewport": [
+      1440,
+      900
+    ]
+  },
+  {
+    "allRowsFit": true,
+    "clipped": [],
+    "density": "distant",
+    "equalDeviceColumns": true,
+    "noOverflow": true,
+    "progress": "第 4 / 6 点\n等待波长稳定\n已记录 3 点\n用时 02:36",
+    "ratios": [
+      1.499751943112287,
+      3.9996692574830495,
+      1,
+      3.999503886224574
+    ],
+    "rows": [
+      {
+        "bottom": 238.8515625,
+        "height": 70.8515625,
+        "right": 1166,
+        "width": 992,
+        "x": 174,
+        "y": 168
+      },
+      {
+        "bottom": 441.8046875,
+        "height": 188.953125,
+        "right": 1166,
+        "width": 992,
+        "x": 174,
+        "y": 252.8515625
+      },
+      {
+        "bottom": 503.046875,
+        "height": 47.2421875,
+        "right": 1166,
+        "width": 992,
+        "x": 174,
+        "y": 455.8046875
+      },
+      {
+        "bottom": 705.9921875,
+        "height": 188.9453125,
+        "right": 1166,
+        "width": 992,
+        "x": 174,
+        "y": 517.046875
+      }
+    ],
+    "theme": "light",
+    "viewport": [
+      1180,
+      720
+    ]
+  },
+  {
+    "allRowsFit": true,
+    "clipped": [],
+    "density": "distant",
+    "equalDeviceColumns": true,
+    "noOverflow": true,
+    "progress": "第 4 / 6 点\n等待波长稳定\n已记录 3 点\n用时 02:36",
+    "ratios": [
+      1.4999548777186174,
+      4.000090244562765,
+      1,
+      4.000090244562765
+    ],
+    "rows": [
+      {
+        "bottom": 244.8515625,
+        "height": 129.8515625,
+        "right": 1906,
+        "width": 1704,
+        "x": 202,
+        "y": 115
+      },
+      {
+        "bottom": 605.140625,
+        "height": 346.2890625,
+        "right": 1906,
+        "width": 1704,
+        "x": 202,
+        "y": 258.8515625
+      },
+      {
+        "bottom": 705.7109375,
+        "height": 86.5703125,
+        "right": 1906,
+        "width": 1704,
+        "x": 202,
+        "y": 619.140625
+      },
+      {
+        "bottom": 1066,
+        "height": 346.2890625,
+        "right": 1906,
+        "width": 1704,
+        "x": 202,
+        "y": 719.7109375
+      }
+    ],
+    "theme": "light",
+    "viewport": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "allRowsFit": true,
+    "clipped": [],
+    "density": "compact",
+    "equalDeviceColumns": true,
+    "noOverflow": true,
+    "progress": "第 4 / 6 点\n等待波长稳定\n已记录 3 点\n用时 02:36",
+    "ratios": [
+      1.5000536883925697,
+      4.000214753570278,
+      1,
+      4.000214753570278
+    ],
+    "rows": [
+      {
+        "bottom": 213.140625,
+        "height": 109.140625,
+        "right": 1432,
+        "width": 1264,
+        "x": 168,
+        "y": 104
+      },
+      {
+        "bottom": 512.1875,
+        "height": 291.046875,
+        "right": 1432,
+        "width": 1264,
+        "x": 168,
+        "y": 221.140625
+      },
+      {
+        "bottom": 592.9453125,
+        "height": 72.7578125,
+        "right": 1432,
+        "width": 1264,
+        "x": 168,
+        "y": 520.1875
+      },
+      {
+        "bottom": 891.9921875,
+        "height": 291.046875,
+        "right": 1432,
+        "width": 1264,
+        "x": 168,
+        "y": 600.9453125
+      }
+    ],
+    "theme": "dark",
+    "viewport": [
+      1440,
+      900
+    ]
+  },
+  {
+    "allRowsFit": true,
+    "clipped": [],
+    "density": "compact",
+    "equalDeviceColumns": true,
+    "noOverflow": true,
+    "progress": "第 4 / 6 点\n等待波长稳定\n已记录 3 点\n用时 02:36",
+    "ratios": [
+      1.5,
+      4.000155957579539,
+      1,
+      4.000155957579539
+    ],
+    "rows": [
+      {
+        "bottom": 237.140625,
+        "height": 75.140625,
+        "right": 1172,
+        "width": 1004,
+        "x": 168,
+        "y": 162
+      },
+      {
+        "bottom": 445.5234375,
+        "height": 200.3828125,
+        "right": 1172,
+        "width": 1004,
+        "x": 168,
+        "y": 245.140625
+      },
+      {
+        "bottom": 503.6171875,
+        "height": 50.09375,
+        "right": 1172,
+        "width": 1004,
+        "x": 168,
+        "y": 453.5234375
+      },
+      {
+        "bottom": 712,
+        "height": 200.3828125,
+        "right": 1172,
+        "width": 1004,
+        "x": 168,
+        "y": 511.6171875
+      }
+    ],
+    "theme": "dark",
+    "viewport": [
+      1180,
+      720
+    ]
+  },
+  {
+    "allRowsFit": true,
+    "clipped": [],
+    "density": "compact",
+    "equalDeviceColumns": true,
+    "noOverflow": true,
+    "progress": "第 4 / 6 点\n等待波长稳定\n已记录 3 点\n用时 02:36",
+    "ratios": [
+      1.4999131039277025,
+      3.9999131039277023,
+      1,
+      4
+    ],
+    "rows": [
+      {
+        "bottom": 238.8515625,
+        "height": 134.8515625,
+        "right": 1912,
+        "width": 1744,
+        "x": 168,
+        "y": 104
+      },
+      {
+        "bottom": 606.46875,
+        "height": 359.6171875,
+        "right": 1912,
+        "width": 1744,
+        "x": 168,
+        "y": 246.8515625
+      },
+      {
+        "bottom": 704.375,
+        "height": 89.90625,
+        "right": 1912,
+        "width": 1744,
+        "x": 168,
+        "y": 614.46875
+      },
+      {
+        "bottom": 1072,
+        "height": 359.625,
+        "right": 1912,
+        "width": 1744,
+        "x": 168,
+        "y": 712.375
+      }
+    ],
+    "theme": "dark",
+    "viewport": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "allRowsFit": true,
+    "clipped": [],
+    "density": "comfortable",
+    "equalDeviceColumns": true,
+    "noOverflow": true,
+    "progress": "第 4 / 6 点\n等待波长稳定\n已记录 3 点\n用时 02:36",
+    "ratios": [
+      1.5000536883925697,
+      4.000214753570278,
+      1,
+      4.000214753570278
+    ],
+    "rows": [
+      {
+        "bottom": 213.140625,
+        "height": 109.140625,
+        "right": 1432,
+        "width": 1251.203125,
+        "x": 180.796875,
+        "y": 104
+      },
+      {
+        "bottom": 512.1875,
+        "height": 291.046875,
+        "right": 1432,
+        "width": 1251.203125,
+        "x": 180.796875,
+        "y": 221.140625
+      },
+      {
+        "bottom": 592.9453125,
+        "height": 72.7578125,
+        "right": 1432,
+        "width": 1251.203125,
+        "x": 180.796875,
+        "y": 520.1875
+      },
+      {
+        "bottom": 891.9921875,
+        "height": 291.046875,
+        "right": 1432,
+        "width": 1251.203125,
+        "x": 180.796875,
+        "y": 600.9453125
+      }
+    ],
+    "theme": "dark",
+    "viewport": [
+      1440,
+      900
+    ]
+  },
+  {
+    "allRowsFit": true,
+    "clipped": [],
+    "density": "comfortable",
+    "equalDeviceColumns": true,
+    "noOverflow": true,
+    "progress": "第 4 / 6 点\n等待波长稳定\n已记录 3 点\n用时 02:36",
+    "ratios": [
+      1.5,
+      4.000155957579539,
+      1,
+      4.000155957579539
+    ],
+    "rows": [
+      {
+        "bottom": 237.140625,
+        "height": 75.140625,
+        "right": 1172,
+        "width": 1004,
+        "x": 168,
+        "y": 162
+      },
+      {
+        "bottom": 445.5234375,
+        "height": 200.3828125,
+        "right": 1172,
+        "width": 1004,
+        "x": 168,
+        "y": 245.140625
+      },
+      {
+        "bottom": 503.6171875,
+        "height": 50.09375,
+        "right": 1172,
+        "width": 1004,
+        "x": 168,
+        "y": 453.5234375
+      },
+      {
+        "bottom": 712,
+        "height": 200.3828125,
+        "right": 1172,
+        "width": 1004,
+        "x": 168,
+        "y": 511.6171875
+      }
+    ],
+    "theme": "dark",
+    "viewport": [
+      1180,
+      720
+    ]
+  },
+  {
+    "allRowsFit": true,
+    "clipped": [],
+    "density": "comfortable",
+    "equalDeviceColumns": true,
+    "noOverflow": true,
+    "progress": "第 4 / 6 点\n等待波长稳定\n已记录 3 点\n用时 02:36",
+    "ratios": [
+      1.5,
+      4,
+      1,
+      4
+    ],
+    "rows": [
+      {
+        "bottom": 240,
+        "height": 132,
+        "right": 1908,
+        "width": 1708,
+        "x": 200,
+        "y": 108
+      },
+      {
+        "bottom": 604,
+        "height": 352,
+        "right": 1908,
+        "width": 1708,
+        "x": 200,
+        "y": 252
+      },
+      {
+        "bottom": 704,
+        "height": 88,
+        "right": 1908,
+        "width": 1708,
+        "x": 200,
+        "y": 616
+      },
+      {
+        "bottom": 1068,
+        "height": 352,
+        "right": 1908,
+        "width": 1708,
+        "x": 200,
+        "y": 716
+      }
+    ],
+    "theme": "dark",
+    "viewport": [
+      1920,
+      1080
+    ]
+  },
+  {
+    "allRowsFit": true,
+    "clipped": [],
+    "density": "distant",
+    "equalDeviceColumns": true,
+    "noOverflow": true,
+    "progress": "第 4 / 6 点\n等待波长稳定\n已记录 3 点\n用时 02:36",
+    "ratios": [
+      1.4999437380443343,
+      3.9998874760886687,
+      1,
+      4
+    ],
+    "rows": [
+      {
+        "bottom": 219.140625,
+        "height": 104.140625,
+        "right": 1426,
+        "width": 1239.203125,
+        "x": 186.796875,
+        "y": 115
+      },
+      {
+        "bottom": 510.8515625,
+        "height": 277.7109375,
+        "right": 1426,
+        "width": 1239.203125,
+        "x": 186.796875,
+        "y": 233.140625
+      },
+      {
+        "bottom": 594.28125,
+        "height": 69.4296875,
+        "right": 1426,
+        "width": 1239.203125,
+        "x": 186.796875,
+        "y": 524.8515625
+      },
+      {
+        "bottom": 886,
+        "height": 277.71875,
+        "right": 1426,
+        "width": 1239.203125,
+        "x": 186.796875,
+        "y": 608.28125
+      }
+    ],
+    "theme": "dark",
+    "viewport": [
+      1440,
+      900
+    ]
+  },
+  {
+    "allRowsFit": true,
+    "clipped": [],
+    "density": "distant",
+    "equalDeviceColumns": true,
+    "noOverflow": true,
+    "progress": "第 4 / 6 点\n等待波长稳定\n已记录 3 点\n用时 02:36",
+    "ratios": [
+      1.499751943112287,
+      3.9996692574830495,
+      1,
+      3.999503886224574
+    ],
+    "rows": [
+      {
+        "bottom": 238.8515625,
+        "height": 70.8515625,
+        "right": 1166,
+        "width": 992,
+        "x": 174,
+        "y": 168
+      },
+      {
+        "bottom": 441.8046875,
+        "height": 188.953125,
+        "right": 1166,
+        "width": 992,
+        "x": 174,
+        "y": 252.8515625
+      },
+      {
+        "bottom": 503.046875,
+        "height": 47.2421875,
+        "right": 1166,
+        "width": 992,
+        "x": 174,
+        "y": 455.8046875
+      },
+      {
+        "bottom": 705.9921875,
+        "height": 188.9453125,
+        "right": 1166,
+        "width": 992,
+        "x": 174,
+        "y": 517.046875
+      }
+    ],
+    "theme": "dark",
+    "viewport": [
+      1180,
+      720
+    ]
+  },
+  {
+    "allRowsFit": true,
+    "clipped": [],
+    "density": "distant",
+    "equalDeviceColumns": true,
+    "noOverflow": true,
+    "progress": "第 4 / 6 点\n等待波长稳定\n已记录 3 点\n用时 02:36",
+    "ratios": [
+      1.4999548777186174,
+      4.000090244562765,
+      1,
+      4.000090244562765
+    ],
+    "rows": [
+      {
+        "bottom": 244.8515625,
+        "height": 129.8515625,
+        "right": 1906,
+        "width": 1704,
+        "x": 202,
+        "y": 115
+      },
+      {
+        "bottom": 605.140625,
+        "height": 346.2890625,
+        "right": 1906,
+        "width": 1704,
+        "x": 202,
+        "y": 258.8515625
+      },
+      {
+        "bottom": 705.7109375,
+        "height": 86.5703125,
+        "right": 1906,
+        "width": 1704,
+        "x": 202,
+        "y": 619.140625
+      },
+      {
+        "bottom": 1066,
+        "height": 346.2890625,
+        "right": 1906,
+        "width": 1704,
+        "x": 202,
+        "y": 719.7109375
+      }
+    ],
+    "theme": "dark",
+    "viewport": [
+      1920,
+      1080
+    ]
+  }
+]

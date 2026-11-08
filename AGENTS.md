@@ -4,12 +4,27 @@
 
 - Tauri (`tauri-ui` and its Python sidecar) is the only product surface. Do not add an independent Qt operator application or fallback launcher.
 
+## Collaboration and Scope
+
+- Before editing, state the goal, completion criteria, change boundary, and relevant invariants. Carry forward established requirements for full data, numerical precision, operator workflows, acquisition cadence, stability rules, and hardware safety timing. Keep this brief for small tasks.
+- Complete authorized implementation and the checks below, including fixing failures caused by the change. Ask only about ambiguities that affect the result or operations beyond the authorized scope. Present broader improvements as recommendations until authorized.
+- Inspect existing changes before editing and preserve unrelated work and original data. Use backups, atomic replacement, or a recovery procedure where the risk warrants them.
+- Own implementation checks, version identification, and disclosure of gaps. Leave goal, experience, and risk tradeoffs to the user, along with necessary on-site device confirmation. Apply established requirements without repeated reminders; repeated omissions must become appropriate automated or manual checks.
+
 ## Verification Policy
 
 - Run focused local tests and builds when needed to verify the behavior changed by the task. Explanations, read-only reviews, and edits that do not affect behavior do not need tests by default.
-- When the task includes implementation, running, or verification, complete the relevant local checks and fix failures caused by the change without asking again at each step.
+- Check the affected operator workflow and relevant failure paths, including shared manual/automatic paths when applicable. Match verification effort to risk; add regression tests where they provide useful coverage rather than mirroring the implementation.
+- For UI changes, inspect the rendered/live interface at relevant window sizes, including card edges, control baselines, resizing, and affected interactions. Apply the specific card and dialog checks below.
+- For calculation changes, check formulas, assumptions, representative inputs, and boundary cases. For behavior-preserving optimizations, compare complete data and derived results at the required precision, rather than only displayed values.
+- For performance claims, freeze the baseline and compare old/new behavior under the same representative inputs and conditions. State what the measurement includes and excludes; a local calculation speedup does not establish an end-to-end speedup.
+- Tie evidence to the version and runtime actually checked. Source, build, browser/macOS simulation, Windows Tauri/WebView, and real-device evidence support different conclusions. Verify configuration effects through the relevant runtime behavior or actual request when that is the claim.
 - Full test suites, packaging, and connecting to or controlling real devices require authorization for that scope. Reuse authorization already given in the task; ask before adding an operation outside it. Task duration alone is not a reason to request approval again.
-- State what was verified and any remaining limits. A build or simulated check does not establish real-device acceptance.
+
+## Delivery
+
+- Distinguish modified, built, verified, effective in the running app, committed, and pushed states. Claim only the state supported by evidence. For an authorized push, confirm the target branch and local/remote commit identity.
+- Briefly report what changed and the relevant version, verification scenarios/results with locatable evidence, and blockers or unverified behavior with their impact. Include recovery steps and user decisions when applicable; omit irrelevant fields and raw log dumps.
 
 ## Power Test App
 
@@ -43,7 +58,6 @@
 - Card content must use consistent internal padding. Headings, labels, inputs, dropdowns, buttons, status rows, and chart areas must align to the same left and right content columns; do not use arbitrary offsets or one-off spacing to compensate for misalignment.
 - Keep equivalent controls in equivalent positions across device cards. When a card contains a selector and an action button, use the same order, alignment, and spacing everywhere.
 - Alignment must remain correct when cards resize, when text or status messages change, and at the supported window sizes and display scaling factors. No card may clip, overlap, or create unintended horizontal overflow.
-- Before considering a UI change complete, verify the rendered/live interface visually at the relevant window sizes and check the card edges and control baselines, not only the code or automated tests.
 
 ## Tauri Device Settings Dialog Interaction
 

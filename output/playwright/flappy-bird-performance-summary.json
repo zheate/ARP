@@ -1,0 +1,136 @@
+{
+  "environment": "Local Chromium browser, demo data, foreground page",
+  "durationSecondsPerTrial": 6,
+  "trialsPerMode": 3,
+  "powerChartRedraws": {
+    "paused": 89,
+    "running": 89
+  },
+  "averageMainThreadTaskMsPerSecond": {
+    "paused": 33.99316666666666,
+    "running": 42.318333333333335
+  },
+  "additionalMainThreadTaskMsPerSecond": 8.32516666666667,
+  "compositor": {
+    "reasons": [
+      {
+        "width": 192,
+        "height": 32,
+        "drawsContent": false,
+        "compositingReasons": [
+          "Has an active accelerated transform animation or transition.",
+          "Has a will-change: transform compositing hint."
+        ],
+        "compositingReasonIds": [
+          "ActiveTransformAnimation",
+          "WillChangeTransform"
+        ]
+      },
+      {
+        "width": 192,
+        "height": 32,
+        "drawsContent": true,
+        "compositingReasons": [
+          "Is an accelerated canvas, or is a display list backed canvas that was promoted to a layer based on a performance heuristic."
+        ],
+        "compositingReasonIds": [
+          "Canvas"
+        ]
+      }
+    ]
+  },
+  "visualChecks": {
+    "poses": {
+      "frameWidth": 24,
+      "height": 16,
+      "distinctWingPoses": 3
+    },
+    "transformChanged": true,
+    "reduced": {
+      "name": "none",
+      "transform": "none"
+    },
+    "offscreenPaused": true,
+    "restored": true,
+    "renders": [
+      {
+        "width": 1440,
+        "theme": "dark",
+        "box": {
+          "x": 769.796875,
+          "y": 322.9921875,
+          "width": 24,
+          "height": 16
+        },
+        "chart": {
+          "x": 187.796875,
+          "y": 309.9921875,
+          "width": 607.6015625,
+          "height": 178.7265625
+        },
+        "overflow": false
+      },
+      {
+        "width": 1440,
+        "theme": "light",
+        "box": {
+          "x": 769.796875,
+          "y": 322.9921875,
+          "width": 24,
+          "height": 16
+        },
+        "chart": {
+          "x": 187.796875,
+          "y": 309.9921875,
+          "width": 607.6015625,
+          "height": 178.7265625
+        },
+        "overflow": false
+      },
+      {
+        "width": 1180,
+        "theme": "dark",
+        "box": {
+          "x": 630,
+          "y": 336.9921875,
+          "width": 24,
+          "height": 16
+        },
+        "chart": {
+          "x": 175,
+          "y": 303.9921875,
+          "width": 481,
+          "height": 122
+        },
+        "overflow": false
+      },
+      {
+        "width": 1180,
+        "theme": "light",
+        "box": {
+          "x": 630,
+          "y": 336.9921875,
+          "width": 24,
+          "height": 16
+        },
+        "chart": {
+          "x": 175,
+          "y": 303.9921875,
+          "width": 481,
+          "height": 122
+        },
+        "overflow": false
+      }
+    ],
+    "failures": []
+  },
+  "visibilityHandlerCheck": {
+    "simulatedVisibilityChange": true,
+    "hidden": "paused",
+    "visible": "running"
+  },
+  "limits": [
+    "Browser demo only; native Tauri/WebView2 performance and real hardware not tested",
+    "Visibility handler tested with simulated document.hidden because test browser reports all pages visible"
+  ]
+}

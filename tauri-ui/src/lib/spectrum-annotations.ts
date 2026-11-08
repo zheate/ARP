@@ -20,6 +20,11 @@ function normalizedPeakLabel(label: string): string {
   return label.replace(/^PEAK\s*(\d+)$/i, "P$1").toUpperCase()
 }
 
+export function formatSpectrumNumber(value: number | null | undefined, digits = 3): string {
+  if (value == null || !Number.isFinite(value)) return "--"
+  return value.toFixed(digits).replace(/0+$/, "").replace(/\.$/, ".0")
+}
+
 export function spectrumPeakAnnotations(peaks: SpectrumPeak[]) {
   return peaks.map((peak) => {
     const style = PEAK_STYLES.find((item) => item.shortLabel === normalizedPeakLabel(peak.label))
@@ -40,7 +45,7 @@ export function spectrumPeakLegend(peaks: SpectrumPeak[]): SpectrumPeakLegendIte
     return [{
       label,
       color,
-      value: `${wavelengthNm.toFixed(3)} nm`,
+      value: `${formatSpectrumNumber(wavelengthNm)} nm`,
     }]
   })
 }

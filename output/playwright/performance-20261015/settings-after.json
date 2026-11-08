@@ -1,0 +1,56 @@
+{
+  "workload": "actual app; injected snapshots; 8192 full spectrum points; 100 ms; 3 x 30 frames; Chromium 4x CPU",
+  "results": [
+    {
+      "renders": {
+        "LicensedApp": 31,
+        "AppTitlebar": 31,
+        "AnimatedToastStack": 25,
+        "AnimatePresence": 25,
+        "PresenceChild": 25,
+        "PopChild": 25,
+        "PopChildMeasure": 25,
+        "MeasureLayout": 25,
+        "MeasureLayoutWithContext": 25,
+        "Info": 25,
+        "X": 25
+      },
+      "clears": {},
+      "frameP95": 16.799999999999727,
+      "longFrames": 0,
+      "scriptMs": 43.942,
+      "taskMs": 137.549,
+      "layoutMs": 0.719
+    },
+    {
+      "renders": {
+        "LicensedApp": 30,
+        "AppTitlebar": 30
+      },
+      "clears": {},
+      "frameP95": 16.800000000000182,
+      "longFrames": 0,
+      "scriptMs": 13.347999999999999,
+      "taskMs": 105.545,
+      "layoutMs": 0
+    },
+    {
+      "renders": {
+        "LicensedApp": 30,
+        "AppTitlebar": 30
+      },
+      "clears": {},
+      "frameP95": 16.700000000000728,
+      "longFrames": 0,
+      "scriptMs": 12.601,
+      "taskMs": 95.27700000000003,
+      "layoutMs": 0
+    }
+  ],
+  "state": {
+    "frame": 90,
+    "points": 8192,
+    "power": 20.9
+  },
+  "spectrum": null
+}

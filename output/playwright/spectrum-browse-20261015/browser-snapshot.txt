@@ -1,0 +1,317 @@
+### Page
+- Page URL: http://localhost:1420/spectrum-browser-fixture?demo=1&currents=12
+- Console: 3 errors, 0 warnings
+### Snapshot
+```yaml
+- region "数据浏览" [ref=f1e4]:
+  - generic [ref=f1e5]:
+    - generic [ref=f1e6]:
+      - textbox "搜索 SN" [ref=f1e11]:
+        - /placeholder: 搜索产品 SN…
+      - generic [ref=f1e12]:
+        - text: 时间
+        - combobox "日期范围" [ref=f1e13]:
+          - option "全部时间" [selected]
+          - option "今天"
+          - option "最近 7 天"
+          - option "自定义"
+      - generic [ref=f1e14]:
+        - text: 测试类型
+        - combobox "测试类型筛选" [ref=f1e15]:
+          - option "全部类型" [selected]
+          - option "自动测试"
+          - option "手动测试"
+          - option "未记录"
+      - button "刷新" [ref=f1e16] [cursor=pointer]
+      - button "数据源与更多筛选" [ref=f1e17] [cursor=pointer]
+    - generic [ref=f1e18]:
+      - generic "合成性能夹具" [ref=f1e19]: 测试数据库 · 已完成流程自动存档
+      - generic [ref=f1e20]: 已读取 · 16 条记录
+  - generic [ref=f1e21]:
+    - complementary "测试记录列表" [ref=f1e22]:
+      - generic [ref=f1e23]:
+        - generic [ref=f1e24]:
+          - text: 测试记录
+          - generic [ref=f1e25]: "16"
+          - generic [ref=f1e26]: 按时间倒序
+        - paragraph [ref=f1e27]: 最多选择 5 条记录进行比较 · 右侧数值为最大功率
+      - generic [ref=f1e28]:
+        - generic [ref=f1e29]:
+          - generic "加入对比" [ref=f1e30]:
+            - checkbox "加入对比 PERF-00 · 性能夹具 · 2026-10-15 09:00:00" [ref=f1e31] [cursor=pointer]
+          - button "PERF-00 18.0 W @ 12.0 A 2026-10-15 09:00:00 自动测试 · 12 点" [active] [ref=f1e32] [cursor=pointer]:
+            - generic [ref=f1e33]:
+              - strong [ref=f1e34]: PERF-00
+              - generic "最大功率及对应实测电流" [ref=f1e35]: 18.0 W @ 12.0 A
+            - generic [ref=f1e36]:
+              - time [ref=f1e37]: 2026-10-15 09:00:00
+              - generic [ref=f1e38]: 自动测试 · 12 点
+        - generic [ref=f1e39]:
+          - generic "加入对比" [ref=f1e40]:
+            - checkbox "加入对比 PERF-01 · 性能夹具 · 2026-10-15 08:59:00" [ref=f1e41] [cursor=pointer]
+          - button "PERF-01 18.0 W @ 12.0 A 2026-10-15 08:59:00 自动测试 · 12 点" [ref=f1e42] [cursor=pointer]:
+            - generic [ref=f1e43]:
+              - strong [ref=f1e44]: PERF-01
+              - generic "最大功率及对应实测电流" [ref=f1e45]: 18.0 W @ 12.0 A
+            - generic [ref=f1e46]:
+              - time [ref=f1e47]: 2026-10-15 08:59:00
+              - generic [ref=f1e48]: 自动测试 · 12 点
+        - generic [ref=f1e49]:
+          - generic "加入对比" [ref=f1e50]:
+            - checkbox "加入对比 PERF-02 · 性能夹具 · 2026-10-15 08:58:00" [ref=f1e51] [cursor=pointer]
+          - button "PERF-02 18.0 W @ 12.0 A 2026-10-15 08:58:00 自动测试 · 12 点" [ref=f1e52] [cursor=pointer]:
+            - generic [ref=f1e53]:
+              - strong [ref=f1e54]: PERF-02
+              - generic "最大功率及对应实测电流" [ref=f1e55]: 18.0 W @ 12.0 A
+            - generic [ref=f1e56]:
+              - time [ref=f1e57]: 2026-10-15 08:58:00
+              - generic [ref=f1e58]: 自动测试 · 12 点
+        - generic [ref=f1e59]:
+          - generic "加入对比" [ref=f1e60]:
+            - checkbox "加入对比 PERF-03 · 性能夹具 · 2026-10-15 08:57:00" [ref=f1e61] [cursor=pointer]
+          - button "PERF-03 18.0 W @ 12.0 A 2026-10-15 08:57:00 自动测试 · 12 点" [ref=f1e62] [cursor=pointer]:
+            - generic [ref=f1e63]:
+              - strong [ref=f1e64]: PERF-03
+              - generic "最大功率及对应实测电流" [ref=f1e65]: 18.0 W @ 12.0 A
+            - generic [ref=f1e66]:
+              - time [ref=f1e67]: 2026-10-15 08:57:00
+              - generic [ref=f1e68]: 自动测试 · 12 点
+        - generic [ref=f1e69]:
+          - generic "加入对比" [ref=f1e70]:
+            - checkbox "加入对比 PERF-04 · 性能夹具 · 2026-10-15 08:56:00" [ref=f1e71] [cursor=pointer]
+          - button "PERF-04 18.0 W @ 12.0 A 2026-10-15 08:56:00 自动测试 · 12 点" [ref=f1e72] [cursor=pointer]:
+            - generic [ref=f1e73]:
+              - strong [ref=f1e74]: PERF-04
+              - generic "最大功率及对应实测电流" [ref=f1e75]: 18.0 W @ 12.0 A
+            - generic [ref=f1e76]:
+              - time [ref=f1e77]: 2026-10-15 08:56:00
+              - generic [ref=f1e78]: 自动测试 · 12 点
+        - generic [ref=f1e79]:
+          - generic "加入对比" [ref=f1e80]:
+            - checkbox "加入对比 PERF-05 · 性能夹具 · 2026-10-15 08:55:00" [ref=f1e81] [cursor=pointer]
+          - button "PERF-05 18.0 W @ 12.0 A 2026-10-15 08:55:00 自动测试 · 12 点" [ref=f1e82] [cursor=pointer]:
+            - generic [ref=f1e83]:
+              - strong [ref=f1e84]: PERF-05
+              - generic "最大功率及对应实测电流" [ref=f1e85]: 18.0 W @ 12.0 A
+            - generic [ref=f1e86]:
+              - time [ref=f1e87]: 2026-10-15 08:55:00
+              - generic [ref=f1e88]: 自动测试 · 12 点
+        - generic [ref=f1e89]:
+          - generic "加入对比" [ref=f1e90]:
+            - checkbox "加入对比 PERF-06 · 性能夹具 · 2026-10-15 08:54:00" [ref=f1e91] [cursor=pointer]
+          - button "PERF-06 18.0 W @ 12.0 A 2026-10-15 08:54:00 自动测试 · 12 点" [ref=f1e92] [cursor=pointer]:
+            - generic [ref=f1e93]:
+              - strong [ref=f1e94]: PERF-06
+              - generic "最大功率及对应实测电流" [ref=f1e95]: 18.0 W @ 12.0 A
+            - generic [ref=f1e96]:
+              - time [ref=f1e97]: 2026-10-15 08:54:00
+              - generic [ref=f1e98]: 自动测试 · 12 点
+        - generic [ref=f1e99]:
+          - generic "加入对比" [ref=f1e100]:
+            - checkbox "加入对比 PERF-07 · 性能夹具 · 2026-10-15 08:53:00" [ref=f1e101] [cursor=pointer]
+          - button "PERF-07 18.0 W @ 12.0 A 2026-10-15 08:53:00 自动测试 · 12 点" [ref=f1e102] [cursor=pointer]:
+            - generic [ref=f1e103]:
+              - strong [ref=f1e104]: PERF-07
+              - generic "最大功率及对应实测电流" [ref=f1e105]: 18.0 W @ 12.0 A
+            - generic [ref=f1e106]:
+              - time [ref=f1e107]: 2026-10-15 08:53:00
+              - generic [ref=f1e108]: 自动测试 · 12 点
+        - generic [ref=f1e109]:
+          - generic "加入对比" [ref=f1e110]:
+            - checkbox "加入对比 PERF-08 · 性能夹具 · 2026-10-15 08:52:00" [ref=f1e111] [cursor=pointer]
+          - button "PERF-08 18.0 W @ 12.0 A 2026-10-15 08:52:00 自动测试 · 12 点" [ref=f1e112] [cursor=pointer]:
+            - generic [ref=f1e113]:
+              - strong [ref=f1e114]: PERF-08
+              - generic "最大功率及对应实测电流" [ref=f1e115]: 18.0 W @ 12.0 A
+            - generic [ref=f1e116]:
+              - time [ref=f1e117]: 2026-10-15 08:52:00
+              - generic [ref=f1e118]: 自动测试 · 12 点
+        - generic [ref=f1e119]:
+          - generic "加入对比" [ref=f1e120]:
+            - checkbox "加入对比 PERF-09 · 性能夹具 · 2026-10-15 08:51:00" [ref=f1e121] [cursor=pointer]
+          - button "PERF-09 18.0 W @ 12.0 A 2026-10-15 08:51:00 自动测试 · 12 点" [ref=f1e122] [cursor=pointer]:
+            - generic [ref=f1e123]:
+              - strong [ref=f1e124]: PERF-09
+              - generic "最大功率及对应实测电流" [ref=f1e125]: 18.0 W @ 12.0 A
+            - generic [ref=f1e126]:
+              - time [ref=f1e127]: 2026-10-15 08:51:00
+              - generic [ref=f1e128]: 自动测试 · 12 点
+        - generic [ref=f1e129]:
+          - generic "加入对比" [ref=f1e130]:
+            - checkbox "加入对比 PERF-10 · 性能夹具 · 2026-10-15 08:50:00" [ref=f1e131] [cursor=pointer]
+          - button "PERF-10 18.0 W @ 12.0 A 2026-10-15 08:50:00 自动测试 · 12 点" [ref=f1e132] [cursor=pointer]:
+            - generic [ref=f1e133]:
+              - strong [ref=f1e134]: PERF-10
+              - generic "最大功率及对应实测电流" [ref=f1e135]: 18.0 W @ 12.0 A
+            - generic [ref=f1e136]:
+              - time [ref=f1e137]: 2026-10-15 08:50:00
+              - generic [ref=f1e138]: 自动测试 · 12 点
+        - generic [ref=f1e139]:
+          - generic "加入对比" [ref=f1e140]:
+            - checkbox "加入对比 PERF-11 · 性能夹具 · 2026-10-15 08:49:00" [ref=f1e141] [cursor=pointer]
+          - button "PERF-11 18.0 W @ 12.0 A 2026-10-15 08:49:00 自动测试 · 12 点" [ref=f1e142] [cursor=pointer]:
+            - generic [ref=f1e143]:
+              - strong [ref=f1e144]: PERF-11
+              - generic "最大功率及对应实测电流" [ref=f1e145]: 18.0 W @ 12.0 A
+            - generic [ref=f1e146]:
+              - time [ref=f1e147]: 2026-10-15 08:49:00
+              - generic [ref=f1e148]: 自动测试 · 12 点
+        - generic [ref=f1e149]:
+          - generic "加入对比" [ref=f1e150]:
+            - checkbox "加入对比 PERF-12 · 性能夹具 · 2026-10-15 08:48:00" [ref=f1e151] [cursor=pointer]
+          - button "PERF-12 摘要读取中… 2026-10-15 08:48:00 自动测试 · 12 点" [ref=f1e152] [cursor=pointer]:
+            - generic [ref=f1e153]:
+              - strong [ref=f1e154]: PERF-12
+              - generic "最大功率及对应实测电流" [ref=f1e155]: 摘要读取中…
+            - generic [ref=f1e156]:
+              - time [ref=f1e157]: 2026-10-15 08:48:00
+              - generic [ref=f1e158]: 自动测试 · 12 点
+        - generic [ref=f1e159]:
+          - generic "加入对比" [ref=f1e160]:
+            - checkbox "加入对比 PERF-13 · 性能夹具 · 2026-10-15 08:47:00" [ref=f1e161] [cursor=pointer]
+          - button "PERF-13 摘要读取中… 2026-10-15 08:47:00 自动测试 · 12 点" [ref=f1e162] [cursor=pointer]:
+            - generic [ref=f1e163]:
+              - strong [ref=f1e164]: PERF-13
+              - generic "最大功率及对应实测电流" [ref=f1e165]: 摘要读取中…
+            - generic [ref=f1e166]:
+              - time [ref=f1e167]: 2026-10-15 08:47:00
+              - generic [ref=f1e168]: 自动测试 · 12 点
+        - generic [ref=f1e169]:
+          - generic "加入对比" [ref=f1e170]:
+            - checkbox "加入对比 PERF-14 · 性能夹具 · 2026-10-15 08:46:00" [ref=f1e171] [cursor=pointer]
+          - button "PERF-14 摘要读取中… 2026-10-15 08:46:00 自动测试 · 12 点" [ref=f1e172] [cursor=pointer]:
+            - generic [ref=f1e173]:
+              - strong [ref=f1e174]: PERF-14
+              - generic "最大功率及对应实测电流" [ref=f1e175]: 摘要读取中…
+            - generic [ref=f1e176]:
+              - time [ref=f1e177]: 2026-10-15 08:46:00
+              - generic [ref=f1e178]: 自动测试 · 12 点
+        - generic [ref=f1e179]:
+          - generic "加入对比" [ref=f1e180]:
+            - checkbox "加入对比 PERF-15 · 性能夹具 · 2026-10-15 08:45:00" [ref=f1e181] [cursor=pointer]
+          - button "PERF-15 摘要读取中… 2026-10-15 08:45:00 自动测试 · 12 点" [ref=f1e182] [cursor=pointer]:
+            - generic [ref=f1e183]:
+              - strong [ref=f1e184]: PERF-15
+              - generic "最大功率及对应实测电流" [ref=f1e185]: 摘要读取中…
+            - generic [ref=f1e186]:
+              - time [ref=f1e187]: 2026-10-15 08:45:00
+              - generic [ref=f1e188]: 自动测试 · 12 点
+      - generic [ref=f1e189]:
+        - generic [ref=f1e190]: 第 1 / 1 页
+        - generic [ref=f1e191]:
+          - button "上一页" [disabled]
+          - button "下一页" [disabled]
+    - article "测试详情" [ref=f1e192]:
+      - generic [ref=f1e193]:
+        - tablist "详情视图" [ref=f1e194]:
+          - tab "曲线分析" [selected] [ref=f1e195] [cursor=pointer]
+          - tab "测试点" [ref=f1e196] [cursor=pointer]
+          - tab "记录信息" [ref=f1e197] [cursor=pointer]
+        - generic [ref=f1e198]:
+          - button "加入对比" [ref=f1e199] [cursor=pointer]
+          - group [ref=f1e200]:
+            - generic "更多" [ref=f1e201] [cursor=pointer]
+          - button "展开详情" [ref=f1e202] [cursor=pointer]
+      - tabpanel "曲线分析" [ref=f1e203]:
+        - generic [ref=f1e204]:
+          - heading "PERF-00" [level=2] [ref=f1e205]
+          - generic [ref=f1e206]:
+            - generic [ref=f1e207]: 时间 2026-10-15 09:00:00
+            - generic [ref=f1e208]: 测试站 性能夹具
+            - generic [ref=f1e209]: 温度 25°C
+            - generic [ref=f1e210]: 自动测试
+            - generic [ref=f1e211]: 电流 1.00–12.00 A
+            - generic [ref=f1e212]: 12 点
+        - generic [ref=f1e213]:
+          - generic [ref=f1e214]:
+            - text: 曲线内容
+            - combobox "曲线内容" [ref=f1e215]:
+              - option "指标曲线" [selected]
+              - option "单电流光谱"
+              - option "多电流光谱"
+              - option "光谱随电流变化"
+          - generic [ref=f1e216]:
+            - text: 指标
+            - combobox "分析指标" [ref=f1e217]:
+              - option "功率 (W)" [selected]
+              - option "电压 (V)"
+              - option "电光效率 (%)"
+              - option "峰值波长 (nm)"
+              - option "质心波长 (nm)"
+              - option "FWHM (nm)"
+              - option "PIB (%)"
+              - option "SMSR (dB)"
+        - generic [ref=f1e218]:
+          - generic [ref=f1e219]:
+            - strong [ref=f1e220]: 功率—电流曲线
+            - generic [ref=f1e221]: 实测点 · W
+          - generic [ref=f1e222]:
+            - generic [ref=f1e223]:
+              - img "单记录功率电流曲线" [ref=f1e224]
+              - generic [ref=f1e225]: 功率
+            - generic [ref=f1e226]: 电流 (A)
+        - generic "定位实测点" [ref=f1e227]:
+          - button "上一个实测点" [disabled]
+          - slider "实测点位置" [ref=f1e229] [cursor=pointer]: "0"
+          - button "下一个实测点" [ref=f1e230] [cursor=pointer]
+          - combobox "当前测试点" [ref=f1e231]:
+            - option "#1 · 1.000 A" [selected]
+            - option "#2 · 2.000 A"
+            - option "#3 · 3.000 A"
+            - option "#4 · 4.000 A"
+            - option "#5 · 5.000 A"
+            - option "#6 · 6.000 A"
+            - option "#7 · 7.000 A"
+            - option "#8 · 8.000 A"
+            - option "#9 · 9.000 A"
+            - option "#10 · 10.000 A"
+            - option "#11 · 11.000 A"
+            - option "#12 · 12.000 A"
+          - generic [ref=f1e232]: 1 / 12
+        - generic "当前测试点读数" [ref=f1e233]:
+          - generic [ref=f1e234]:
+            - strong [ref=f1e235]: 当前测试点
+            - generic [ref=f1e236]: "#1 · 1.000 A"
+            - button "在测试点表中查看" [ref=f1e237] [cursor=pointer]
+          - generic [ref=f1e238]:
+            - generic [ref=f1e239]:
+              - term [ref=f1e240]: 功率
+              - definition [ref=f1e241]: 1.500 W
+            - generic [ref=f1e242]:
+              - term [ref=f1e243]: 电压
+              - definition [ref=f1e244]: 2.020 V
+            - generic [ref=f1e245]:
+              - term [ref=f1e246]: 电光效率
+              - definition [ref=f1e247]: 40.000 %
+            - generic [ref=f1e248]:
+              - term [ref=f1e249]: 峰值波长
+              - definition [ref=f1e250]: 976.200 nm
+            - generic [ref=f1e251]:
+              - term [ref=f1e252]: 质心波长
+              - definition [ref=f1e253]: 976.150 nm
+            - generic [ref=f1e254]:
+              - term [ref=f1e255]: FWHM
+              - definition [ref=f1e256]: 0.500 nm
+            - generic [ref=f1e257]:
+              - term [ref=f1e258]: PIB
+              - definition [ref=f1e259]: 96.000 %
+            - generic [ref=f1e260]:
+              - term [ref=f1e261]: SMSR
+              - definition [ref=f1e262]: 35.000 dB
+        - region "特征分析" [ref=f1e263]:
+          - generic [ref=f1e264]:
+            - button "特征分析 ▾" [expanded] [ref=f1e265] [cursor=pointer]
+            - generic [ref=f1e266]: 基于原始实测点 · 派生结果标记为计算值
+          - generic [ref=f1e267]:
+            - generic [ref=f1e268]:
+              - term [ref=f1e269]: 最大实测功率 Pmax
+              - definition [ref=f1e270]: 18.000 W @ 12.000 A
+            - generic [ref=f1e271]:
+              - term [ref=f1e272]: 局部 dP/dI 最小 / 最大（计算）
+              - definition [ref=f1e273]: 1.50000 / 1.50000 W/A
+          - generic [ref=f1e275]:
+            - checkbox "双游标" [ref=f1e276] [cursor=pointer]
+            - text: 双游标
+```
+### Events
+- New console entries: .playwright-cli/console-2026-10-15T01-31-37-499Z.log#L19-L25

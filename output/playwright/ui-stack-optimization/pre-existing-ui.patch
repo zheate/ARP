@@ -1,0 +1,315 @@
+diff --git a/tauri-ui/src/components/canvas-line-chart.tsx b/tauri-ui/src/components/canvas-line-chart.tsx
+index 9121f213..4faec05a 100644
+--- a/tauri-ui/src/components/canvas-line-chart.tsx
++++ b/tauri-ui/src/components/canvas-line-chart.tsx
+@@ -91,6 +91,9 @@ type ChartLayout = {
+ 
+ const EMPTY_SIZE: ChartSize = { width: 0, height: 0 }
+ const EMPTY_ROWS: NumericRow[] = []
++// Hover state only changes the overlay, not the base chart's effect inputs.
++const EMPTY_ANNOTATIONS: CanvasChartAnnotation[] = []
++const EMPTY_ANNOTATION_LEGEND: CanvasChartAnnotationLegendItem[] = []
+ const NUMERIC_ZERO_EPSILON = 1e-12
+ const ECG_MARKER_COLOR = "#ff375f"
+ const TOOLTIP_ESTIMATED_WIDTH = 208
+@@ -873,7 +876,7 @@ function tooltipNumber(value: number): string {
+   return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
+ }
+ 
+-export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, annotations = [], annotationLegend = [], ariaLabel, preserveAllPoints = false, tightInsets = false, xLabel, xTickSuffix, yLabel, appearance: appearanceOverride, onPointSelect, selectedPoints, xValueFormatter }: CanvasLineChartProps) {
++export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, annotations = EMPTY_ANNOTATIONS, annotationLegend = EMPTY_ANNOTATION_LEGEND, ariaLabel, preserveAllPoints = false, tightInsets = false, xLabel, xTickSuffix, yLabel, appearance: appearanceOverride, onPointSelect, selectedPoints, xValueFormatter }: CanvasLineChartProps) {
+   const { appearance } = useAppearance()
+   const chartAppearance = useMemo(() => appearanceOverride ? { ...appearance, ...appearanceOverride } : appearance, [appearance, appearanceOverride])
+   const containerRef = useRef<HTMLDivElement>(null)
+@@ -932,15 +935,17 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
+   useLayoutEffect(() => {
+     const container = containerRef.current
+     if (!container) return
+-    const update = () => {
+-      const rectangle = container.getBoundingClientRect()
++    // ResizeObserver delivers the initial size as well as later changes before
++    // paint. Reading the rect here used to force layout for each newly mounted
++    // chart during navigation, then repeat that read in the observer callback.
++    const observer = new ResizeObserver(([entry]) => {
++      if (!entry) return
++      const rectangle = entry.contentRect
+       setSize((current) => {
+         const next = { width: Math.round(rectangle.width), height: Math.round(rectangle.height) }
+         return current.width === next.width && current.height === next.height ? current : next
+       })
+-    }
+-    update()
+-    const observer = new ResizeObserver(update)
++    })
+     observer.observe(container)
+     return () => observer.disconnect()
+   }, [])
+diff --git a/tauri-ui/src/components/shipping-report.css b/tauri-ui/src/components/shipping-report.css
+index c455ede0..3f4f74c1 100644
+--- a/tauri-ui/src/components/shipping-report.css
++++ b/tauri-ui/src/components/shipping-report.css
+@@ -22,6 +22,18 @@
+   min-height: 2.375rem;
+ }
+ 
++.shipping-report-path-row {
++  display: grid;
++  min-width: 0;
++  grid-template-columns: minmax(0, 1fr) 7.5rem;
++  gap: 0.5rem;
++  align-items: center;
++}
++
++.shipping-report-path-row > [data-slot="button"] {
++  width: 100%;
++}
++
+ /* Choose columns from the actual editor width, including desktop zoom. */
+ .shipping-report-parameters {
+   display: grid;
+diff --git a/tauri-ui/src/features/automatic/page.tsx b/tauri-ui/src/features/automatic/page.tsx
+index 43e634aa..eca0690a 100644
+--- a/tauri-ui/src/features/automatic/page.tsx
++++ b/tauri-ui/src/features/automatic/page.tsx
+@@ -197,7 +197,7 @@ export const AutomaticPage = memo(function AutomaticPage({
+             <Button aria-haspopup="dialog" disabled={!active || pending || controlsLocked} onClick={() => setTestSettingsOpen(true)} variant="outline"><Pencil className="size-4" />编辑</Button>
+           </div>
+         </div>
+-        <div className="space-y-1.5 min-w-0">
++        <div className="sample-nameplate__output space-y-1.5 min-w-0">
+           <Label className="text-[13px] font-medium text-muted-foreground" htmlFor="automatic-output-directory">
+             <FolderOpen className="mr-1 inline size-3.5" />输出目录
+           </Label>
+diff --git a/tauri-ui/src/features/devices/settings.tsx b/tauri-ui/src/features/devices/settings.tsx
+index 4ddf0988..03416ea0 100644
+--- a/tauri-ui/src/features/devices/settings.tsx
++++ b/tauri-ui/src/features/devices/settings.tsx
+@@ -237,7 +237,7 @@ export function PowerSupplySettingsForm({ snapshot, config, update, active, pend
+   const selectedResource = config.tdkResource.trim()
+   const agingMode = config.selectedScriptId === "aging"
+   return (
+-    <div className="power-settings-layout">
++    <div className="power-settings-layout" data-mode={mode}>
+       <section className="power-settings-section">
+         <div className="power-settings-section-heading">
+           <p className="power-settings-section-title">{mode === "manual" ? "硬件配置与读取" : "手动控制"}</p>
+@@ -285,16 +285,23 @@ export function PowerSupplySettingsForm({ snapshot, config, update, active, pend
+             </>
+           ) : (
+             <>
+-              <div className="power-settings-value-grid">
+-                {config.powerSupplyKind === "tdk" && <NumberField label="输出电压 (V)" value={config.tdkVoltageV} onChange={(v) => update("tdkVoltageV", v)} step="0.1" />}
+-                <NumberField label="设定电流 (A)" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
+-              </div>
+-              {config.powerSupplyKind === "tdk" ? <div className="power-settings-action-grid">
+-                <Button aria-disabled={psu?.detecting || undefined} disabled={!active || pending} onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接 TDK"}</Button>
+-                <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setVoltage", { voltageV: config.tdkVoltageV }, true)} variant="outline">设置电压</Button>
+-                <Button className={psu?.outputEnabled ? "btn-power-active" : ""} disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled ? <><span className="size-2 rounded-full bg-white animate-pulse shrink-0 mr-1.5 inline-block" />关闭输出</> : "开启输出"}</Button>
+-                <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
+-              </div> : <div className="power-settings-action-grid">
++              {config.powerSupplyKind === "tdk" ? <>
++                <div className="power-settings-action-grid">
++                  <Button aria-disabled={psu?.detecting || undefined} disabled={!active || pending} onClick={() => void run(psu?.connected ? "powerSupply.disconnect" : "powerSupply.connect", {}, true)} variant={psu?.connected ? "outline" : "default"}>{psu?.connected ? "安全断开" : "连接 TDK"}</Button>
++                  <Button className={psu?.outputEnabled ? "btn-power-active" : ""} disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setOutput", { enabled: !psu?.outputEnabled })} variant={psu?.outputEnabled ? "destructive" : "outline"}>{psu?.outputEnabled ? <><span className="size-2 rounded-full bg-white animate-pulse shrink-0 mr-1.5 inline-block" />关闭输出</> : "开启输出"}</Button>
++                </div>
++                <div className="power-settings-value-grid">
++                  <div className="power-settings-parameter-control">
++                    <NumberField label="输出电压 (V)" value={config.tdkVoltageV} onChange={(v) => update("tdkVoltageV", v)} step="0.1" />
++                    <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setVoltage", { voltageV: config.tdkVoltageV }, true)} variant="outline">设置电压</Button>
++                  </div>
++                  <div className="power-settings-parameter-control">
++                    <NumberField label="设定电流 (A)" value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
++                    <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)} variant="outline">设置电流</Button>
++                  </div>
++                </div>
++              </> : <>
++                <div className="power-settings-connection">
+                 {(() => {
+                   const selectedLoc = config.ch341SelectedLocationPath
+                   const port = snapshot?.devices?.powerSupply?.ch341?.ports?.find((p) => p.locationPath === selectedLoc)
+@@ -317,7 +324,14 @@ export function PowerSupplySettingsForm({ snapshot, config, update, active, pend
+                     </Button>
+                   )
+                 })()}
+-                <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
++                </div>
++                <Field label="设定电流 (A)">
++                  <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2.5">
++                    <NumberInput value={config.setCurrentA} onChange={(v) => update("setCurrentA", v)} max={currentInputMaximum(config, snapshot)} step="0.1" />
++                    <Button disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.setCurrent", { currentA: config.setCurrentA }, true)}>设置电流</Button>
++                  </div>
++                </Field>
++                <div className="power-settings-action-grid">
+                 <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputVoltage" })} size="sm" variant="outline">读取输出电压</Button>
+                 <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "outputCurrent" })} size="sm" variant="outline">读取输出电流</Button>
+                 <Button className="active:bg-primary/20 transition-colors" disabled={!active || pending || !psu?.connected} onClick={() => void run("powerSupply.read", { value: "inputVoltage" })} size="sm" variant="outline">读取输入电压</Button>
+@@ -325,7 +339,8 @@ export function PowerSupplySettingsForm({ snapshot, config, update, active, pend
+                 <p className="col-span-full text-xs text-muted-foreground">
+                   回读：输入 {formatNumber(psu?.inputVoltageV, " V", 2)} · 输出 {formatNumber(psu?.outputVoltageV, " V", 2)} · 电流 {formatNumber(psu?.outputCurrentA, " A", 2)} · 温度 {formatNumber(psu?.temperatureC, " °C", 2)}
+                 </p>
+-              </div>}
++                </div>
++              </>}
+             </>
+           )}
+         </div>
+@@ -723,7 +738,7 @@ export function DeviceSettingsDialog({ kind, open, onClose, onSave, onScriptSele
+ 
+   if (!open) return null
+   const details = {
+-    powerSupply: { title: "电源设置", description: "配置电源控制器、输出参数并执行安全控制", icon: <Power className="size-5" /> },
++    powerSupply: { title: "电源设置", description: mode === "manual" ? "选择电源设备并读取状态；加电操作位于主页面的电源控制卡片" : "配置电源控制器、输出参数并执行安全控制", icon: <Power className="size-5" /> },
+     powerMeter: { title: "功率计设置", description: "选择功率计资源并管理探头系数方案", icon: <Gauge className="size-5" /> },
+     spectrometer: { title: "光谱仪设置", description: "配置光谱仪硬件资源与光谱采集参数", icon: <Radio className="size-5" /> },
+   }[kind]
+@@ -753,7 +768,7 @@ export function DeviceSettingsDialog({ kind, open, onClose, onSave, onScriptSele
+   return (
+     <DialogPortal>
+       <div className="dialog-overlay motion-overlay-enter" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+-        <div aria-labelledby={`${kind}-settings-title`} aria-modal="true" className="device-settings-dialog motion-dialog-enter" data-kind={kind} role="dialog">
++        <div aria-labelledby={`${kind}-settings-title`} aria-modal="true" className="device-settings-dialog motion-dialog-enter" data-kind={kind} data-mode={mode} role="dialog">
+           <div className="device-settings-dialog__header">
+             <div className="device-settings-dialog__identity">
+               <div className="device-settings-dialog__icon">{details.icon}</div>
+diff --git a/tauri-ui/src/features/manual/page.tsx b/tauri-ui/src/features/manual/page.tsx
+index af3876e5..14e2b239 100644
+--- a/tauri-ui/src/features/manual/page.tsx
++++ b/tauri-ui/src/features/manual/page.tsx
+@@ -174,7 +174,7 @@ export const ManualPage = memo(function ManualPage({
+             </Button>
+           </div>
+         </div>
+-        <div className="flex items-end justify-center self-end">
++        <div className="flex items-end justify-end self-end">
+           <Button
+             className="h-9 w-full max-w-[220px]"
+             disabled={!manualSaveReady}
+diff --git a/tauri-ui/src/features/shipping/report.tsx b/tauri-ui/src/features/shipping/report.tsx
+index 0fabb192..3058b607 100644
+--- a/tauri-ui/src/features/shipping/report.tsx
++++ b/tauri-ui/src/features/shipping/report.tsx
+@@ -443,13 +443,13 @@ export function ShippingReportWorkflow({ disabled }: { disabled: boolean }) {
+         </div>
+         <div className="grid gap-4">
+           <Field label="Excel 测试数据路径">
+-            <div className="flex min-w-0 gap-2">
++            <div className="shipping-report-path-row">
+               <Input aria-label="Excel 测试数据路径" disabled={disabled || busy} onChange={(event) => { setSourcePath(event.target.value); setError("") }} placeholder="选择自动或手动测试生成的 .xlsx 文件" value={sourcePath} />
+               <Button className="shrink-0" disabled={disabled || busy} onClick={() => void chooseSourcePath()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />浏览</Button>
+             </div>
+           </Field>
+           <Field label="本地 PDF 保存文件夹">
+-            <div className="flex min-w-0 gap-2">
++            <div className="shipping-report-path-row">
+               <Input aria-label="本地 PDF 保存文件夹" disabled={disabled || busy} onChange={(event) => { setOutputDirectory(event.target.value); setError("") }} placeholder="选择 PDF 保存文件夹，文件名将自动生成" value={outputDirectory} />
+               <Button className="shrink-0" disabled={disabled || busy} onClick={() => void chooseOutputDirectory()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />选择文件夹</Button>
+             </div>
+@@ -970,8 +970,8 @@ export function BatchShippingReportWorkflow({ disabled }: { disabled: boolean })
+ 
+   return <>
+     <div className="grid gap-4">
+-      <Field label="Excel 批量根目录"><div className="flex min-w-0 gap-2"><Input aria-label="Excel 批量根目录" disabled={disabled || busy} onChange={(event) => { setRootPath(event.target.value); setBatch(null); setError("") }} placeholder="递归扫描目录中的 .xlsx 文件" value={rootPath} /><Button className="shrink-0" disabled={disabled || busy} onClick={() => void chooseRootPath()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />浏览</Button></div></Field>
+-      <Field label="本地 PDF 保存文件夹"><div className="flex min-w-0 gap-2"><Input aria-label="批量 PDF 保存文件夹" disabled={disabled || busy} onChange={(event) => { setOutputDirectory(event.target.value); setError("") }} placeholder="已有同名文件时自动添加序号" value={outputDirectory} /><Button className="shrink-0" disabled={disabled || busy} onClick={() => void chooseOutputDirectory()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />选择文件夹</Button></div></Field>
++      <Field label="Excel 批量根目录"><div className="shipping-report-path-row"><Input aria-label="Excel 批量根目录" disabled={disabled || busy} onChange={(event) => { setRootPath(event.target.value); setBatch(null); setError("") }} placeholder="递归扫描目录中的 .xlsx 文件" value={rootPath} /><Button className="shrink-0" disabled={disabled || busy} onClick={() => void chooseRootPath()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />浏览</Button></div></Field>
++      <Field label="本地 PDF 保存文件夹"><div className="shipping-report-path-row"><Input aria-label="批量 PDF 保存文件夹" disabled={disabled || busy} onChange={(event) => { setOutputDirectory(event.target.value); setError("") }} placeholder="已有同名文件时自动添加序号" value={outputDirectory} /><Button className="shrink-0" disabled={disabled || busy} onClick={() => void chooseOutputDirectory()} size="sm" type="button" variant="outline"><FolderOpen className="size-3.5" />选择文件夹</Button></div></Field>
+     </div>
+     <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4"><div className="text-xs text-muted-foreground">{error || "扫描后将按 Excel 内 SN 去重，并选择修改时间最新的测试文件。"}</div><Button disabled={disabled || busy} onClick={() => void scan()}><RefreshCw className={`size-4 ${busy && !batch ? "animate-spin" : ""}`} />{busy && !batch ? "正在扫描…" : "扫描并预检"}</Button></div>
+     {batch && <>
+diff --git a/tauri-ui/src/index.css b/tauri-ui/src/index.css
+index 602a0d59..421356e1 100644
+--- a/tauri-ui/src/index.css
++++ b/tauri-ui/src/index.css
+@@ -1054,7 +1054,7 @@ body {
+   box-shadow: 0 8px 24px rgb(0 0 0 / 0.24);
+ }
+ 
+-.device-settings-dialog[data-kind="powerSupply"] {
++.device-settings-dialog[data-kind="powerSupply"]:where([data-mode="auto"]) {
+   width: min(68rem, calc(100vw - 2rem));
+ }
+ 
+@@ -1436,7 +1436,7 @@ body {
+ .power-settings-action-grid {
+   display: grid;
+   grid-template-columns: repeat(2, minmax(0, 1fr));
+-  gap: 0.5rem;
++  gap: 0.625rem;
+ }
+ 
+ .device-settings-checkbox {
+@@ -1460,6 +1460,7 @@ body {
+ }
+ 
+ .power-settings-section {
++  container: power-section / inline-size;
+   min-width: 0;
+   border: 1px solid var(--border);
+   border-radius: 0.875rem;
+@@ -1498,6 +1499,24 @@ body {
+   gap: 0.625rem;
+ }
+ 
++.power-settings-parameter-control {
++  display: grid;
++  min-width: 0;
++  gap: 0.625rem;
++}
++
++.power-settings-connection > [data-slot="button"] {
++  width: 100%;
++}
++
++/* A wrapped label must not lift its control above the adjacent column. */
++:is(.device-settings-field-grid, .power-settings-parameter-grid) > div {
++  display: flex;
++  min-width: 0;
++  flex-direction: column;
++  justify-content: space-between;
++}
++
+ .power-settings-parameter-grid {
+   display: grid;
+   grid-template-columns: repeat(2, minmax(0, 1fr));
+@@ -1633,12 +1652,12 @@ body {
+   }
+ }
+ 
+-@container (min-width: 40rem) {
++@container (min-width: 48rem) {
+   .test-configuration-layout {
+     grid-template-columns: repeat(2, minmax(0, 1fr));
+   }
+ 
+-  .power-settings-layout {
++  .power-settings-layout[data-mode="auto"] {
+     grid-template-columns: repeat(2, minmax(0, 1fr));
+     gap: 1rem;
+   }
+@@ -1655,13 +1674,13 @@ body {
+   }
+ }
+ 
+-@container (min-width: 56rem) {
++@container power-section (min-width: 28rem) {
+   .power-settings-parameter-grid {
+     grid-template-columns: repeat(3, minmax(0, 1fr));
+   }
+ }
+ 
+-@container (max-width: 28rem) {
++@container (max-width: 22rem) {
+   .power-settings-value-grid,
+   .power-settings-parameter-grid,
+   .power-settings-action-grid,
+diff --git a/tauri-ui/src/workbench-appearance.css b/tauri-ui/src/workbench-appearance.css
+index f041df08..cea9a5c9 100644
+--- a/tauri-ui/src/workbench-appearance.css
++++ b/tauri-ui/src/workbench-appearance.css
+@@ -75,6 +75,7 @@
+ .sample-nameplate input,
+ .sample-nameplate button[role="combobox"] { min-width: 0; height: var(--control-height); font-size: 0.875rem; padding-inline: 0.75rem; }
+ .sample-nameplate input::placeholder { font-size: 0.9rem; opacity: 0.8; }
++.sample-nameplate__output [data-slot="button"] { height: var(--control-height); width: var(--control-height); }
+ .sample-nameplate .sample-nameplate__identity input { font-size: 1.05rem; font-family: var(--font-mono); font-weight: 600; letter-spacing: 0.02em; }
+ .sample-nameplate[data-locked="true"] :is(input, button[role="combobox"]) { opacity: 1; border-color: transparent; box-shadow: none; background: transparent; cursor: default; }
+ .sample-nameplate[data-locked="true"] input { padding-left: 0; }

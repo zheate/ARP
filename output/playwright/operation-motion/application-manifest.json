@@ -1,0 +1,15 @@
+{
+  "branch": "audit/arp-ui-final-20260914",
+  "head": "ddce8df750f3e3919b043b9e36849cb3a7880a02",
+  "changedExistingProductFiles": [
+    "tauri-ui/src/main.tsx"
+  ],
+  "addedFiles": [
+    "tauri-ui/src/operation-motion.css",
+    "tauri-ui/scripts/operation-motion-qa.mjs",
+    "tauri-ui/scripts/fixtures/operation-motion.tsx",
+    "docs/operation-motion-2026-10-15.md"
+  ],
+  "evidence": "output/playwright/operation-motion",
+  "otherExistingProductSourceUnchanged": true
+}

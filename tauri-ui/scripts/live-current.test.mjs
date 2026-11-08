@@ -1,5 +1,4 @@
 import assert from "node:assert/strict"
-import { readFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import test from "node:test"
 import { fileURLToPath } from "node:url"
@@ -12,21 +11,13 @@ import { build } from "esbuild"
 const root = fileURLToPath(new URL("..", import.meta.url))
 const bundled = await build({
   stdin: {
-    contents: 'export { AutomaticPage } from "./src/App.tsx"; export { DEMO_SNAPSHOT } from "./src/hooks/use-backend-snapshot.ts";',
+    contents: 'export { AutomaticPage } from "./src/features/automatic/page"; export { DEMO_SNAPSHOT } from "./src/lib/demo-snapshot";',
     resolveDir: root,
   },
   tsconfig: `${root}/tsconfig.json`,
   bundle: true, write: false, format: "cjs", platform: "node",
+  loader: { ".css": "empty" },
   external: ["react", "react-dom", "react-dom/*"],
-  plugins: [{
-    name: "expose-page-fixtures",
-    setup(builder) {
-      builder.onLoad({ filter: /(?:App\.tsx|use-backend-snapshot\.ts)$/ }, async ({ path }) => ({
-        contents: `${await readFile(path, "utf8")}\nexport { ${path.endsWith("App.tsx") ? "AutomaticPage" : "DEMO_SNAPSHOT"} };`,
-        loader: "tsx",
-      }))
-    },
-  }],
 })
 const module = { exports: {} }
 new Function("require", "module", "exports", bundled.outputFiles[0].text)(createRequire(import.meta.url), module, module.exports)
@@ -49,15 +40,15 @@ function pageProps({ measured = 0, active = 0, spectrum = false, kind = "tdk", c
 
 function currentText(props) {
   const html = renderToStaticMarkup(createElement(AutomaticPage, props))
-  const match = html.match(/class="automatic-metric-card__current">(.*?)<\/span>/)
+  const match = html.match(/class="automatic-metric-card__current">\s*<span class="numeric-readout" aria-label="([^"]+)"/)
   assert.ok(match, "Live Power current must be rendered")
-  return match[1].replace(/<!--.*?-->/g, "")
+  return `${match[1]} A`
 }
 
 for (const spectrum of [false, true]) {
   test(`Live Power ${spectrum ? "spectrum" : "power-only"} layout follows measured ramp and completed zero`, () => {
     for (const measured of [3.98, 2.98, 1.98, 0]) {
-      assert.equal(currentText(pageProps({ spectrum, measured, active: 5, state: measured ? "ramping_down" : "completed" })), `${measured} A`)
+      assert.equal(currentText(pageProps({ spectrum, measured, active: 5, state: measured ? "ramping_down" : "completed" })), `${measured.toFixed(2)} A`)
     }
   })
 }
@@ -70,7 +61,7 @@ test("missing or disconnected TDK readback never substitutes the last test point
 
 test("CH341 display follows each successful command, including zero, without stale readback", () => {
   for (const active of [4, 3, 2, 1, 0]) {
-    assert.equal(currentText(pageProps({ kind: "ch341", active, measured: 5 })), `${active} A`)
+    assert.equal(currentText(pageProps({ kind: "ch341", active, measured: 5 })), `${active.toFixed(2)} A`)
   }
 })
 
@@ -98,21 +89,21 @@ test("both automatic layouts show five seconds of confirmation after acceptance"
     props.snapshot.automaticTest.stability = { ...stability }
     Object.assign(props.snapshot.devices.powerMeter, { stable: false, stableElapsedS: null, quality: "live" })
     let html = renderToStaticMarkup(createElement(AutomaticPage, props))
-    assert.match(html, /功率稳定状态：判稳中，0.0 \/ 5 秒/)
+    assert.match(html, /功率稳定状态：判稳中，0.0 \/ 5\.0 秒/)
     props.snapshot.automaticTest.state = "waiting_voltage"
     Object.assign(props.snapshot.automaticTest.stability, { powerStable: true, elapsedS: 10, holdElapsedS: 2.3 })
     Object.assign(props.snapshot.devices.powerMeter, { stable: true, stableElapsedS: 97 })
     html = renderToStaticMarkup(createElement(AutomaticPage, props))
-    assert.match(html, /功率稳定状态：保持中，2.3 \/ 5 秒/)
+    assert.match(html, /功率稳定状态：保持中，2.3 \/ 5\.0 秒/)
     assert.doesNotMatch(html, /持续 97 s/)
     props.snapshot.automaticTest.stability.quality = "stale"
     props.snapshot.devices.powerMeter.quality = "stale"
     html = renderToStaticMarkup(createElement(AutomaticPage, props))
-    assert.match(html, /功率稳定状态：等待采样，0.0 \/ 5 秒/)
+    assert.match(html, /功率稳定状态：等待采样，0.0 \/ 5\.0 秒/)
     props.snapshot.automaticTest.state = "setting_current"
     props.snapshot.automaticTest.stability = { ...stability }
     html = renderToStaticMarkup(createElement(AutomaticPage, props))
-    assert.match(html, /功率稳定状态：等待判稳，0.0 \/ 5 秒/)
+    assert.match(html, /功率稳定状态：等待判稳，0.0 \/ 5\.0 秒/)
   }
 })
 

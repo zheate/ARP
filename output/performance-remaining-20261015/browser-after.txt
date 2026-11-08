@@ -1,0 +1,48 @@
+### Result
+[{"mode":"multiSpectrum","timings":[{"elapsed_ms":174,"top_self_ms":[["(program) @ :0",49.43399999999998],["spectrumChartRows @ data-browser.ts?t=1792034649374:196",16.694999999999997],["(idle) @ :0",16.674999999999997],["(garbage collector) @ :0",16.031],["CanvasRenderingContext2D.lineTo @ :5",15.649000000000006],[" @ data-browser.ts?t=1792034649374:208",12.655000000000003],["buildLayout @ canvas-line-chart.tsx?t=1792034649371:144",12.086999999999998],[" @ data-browser.ts?t=1792034649374:201",11.823],["valueAt @ canvas-line-chart.tsx?t=1792034649371:24",11.188000000000002],["sparseChartIndex @ sparse-chart-index.ts:1",10.191],["paddedExtent @ canvas-line-chart.tsx?t=1792034649371:41",7.179000000000002],["drawBaseChart @ canvas-line-chart.tsx?t=1792034649371:385",5.398000000000001],[" @ data-browser-demo.ts:16",5.2780000000000005],["getAttribute @ :0",3.558]]},{"elapsed_ms":191,"top_self_ms":[["(idle) @ :0",37.70900000000003],["(program) @ :0",37.46099999999999],[" @ data-browser.ts?t=1792034649374:201",30.296999999999993],["spectrumChartRows @ data-browser.ts?t=1792034649374:196",23.357000000000003],[" @ canvas-line-chart.tsx?t=1792034649371:702",19.19600000000001],["CanvasRenderingContext2D.lineTo @ :5",9.891],["buildLayout @ canvas-line-chart.tsx?t=1792034649371:144",9.739],[" @ data-browser.ts?t=1792034649374:208",7.707],[" @ canvas-line-chart.tsx?t=1792034649371:712",6.042000000000001],[" @ canvas-line-chart.tsx?t=1792034649371:760",5.805999999999999],["valueAt @ canvas-line-chart.tsx?t=1792034649371:24",5.373],["getAttribute @ :0",5.15],["(garbage collector) @ :0",5.06],["paddedExtent @ canvas-line-chart.tsx?t=1792034649371:41",4.744000000000001]]},{"elapsed_ms":194,"top_self_ms":[["(program) @ :0",91.846],["spectrumChartRows @ data-browser.ts?t=1792034649374:196",36.01500000000002],[" @ data-browser.ts?t=1792034649374:201",29.601000000000003],[" @ canvas-line-chart.tsx?t=1792034649371:702",22.778000000000002],["(idle) @ :0",22.039000000000012],[" @ canvas-line-chart.tsx?t=1792034649371:760",15.687999999999997],["(garbage collector) @ :0",8.895999999999999],["buildLayout @ canvas-line-chart.tsx?t=1792034649371:144",7.667],["paddedExtent @ canvas-line-chart.tsx?t=1792034649371:41",7.1370000000000005],["getAttribute @ :0",6.154],[" @ data-browser.ts?t=1792034649374:208",5.087999999999999],[" @ canvas-line-chart.tsx?t=1792034649371:712",4.760000000000001],["CanvasRenderingContext2D.lineTo @ :5",4.5840000000000005],["valueAt @ canvas-line-chart.tsx?t=1792034649371:24",4.347]]},{"elapsed_ms":228,"top_self_ms":[["(program) @ :0",127.475],["(idle) @ :0",58.80800000000003],[" @ data-browser.ts?t=1792034649374:201",39.177000000000014],["spectrumChartRows @ data-browser.ts?t=1792034649374:196",32.17700000000002],[" @ canvas-line-chart.tsx?t=1792034649371:702",22.980000000000018],["(garbage collector) @ :0",15.136999999999997],["getAttribute @ :0",14.836000000000002],[" @ canvas-line-chart.tsx?t=1792034649371:760",13.479],["buildLayout @ canvas-line-chart.tsx?t=1792034649371:144",7.482],["paddedExtent @ canvas-line-chart.tsx?t=1792034649371:41",6.378000000000003],[" @ data-browser.ts?t=1792034649374:208",6.245],[" @ canvas-line-chart.tsx?t=1792034649371:712",5.035],["valueAt @ canvas-line-chart.tsx?t=1792034649371:24",3.4240000000000004],[" @ canvas-line-chart.tsx?t=1792034649371:730",2.9610000000000003]]}]},{"mode":"evolution","timings":[{"elapsed_ms":260,"top_self_ms":[["fillRect @ :0",121.90200000000002],["(program) @ :0",98.02199999999998],["(idle) @ :0",56.55],[" @ spectral-waterfall-chart.tsx:194",48.54700000000001],["getInfernoColor @ spectral-waterfall-chart.tsx:28",8.446],["getBoundingClientRect @ :0",4.213],["parseEvaluationResultValue @ :120",4.022],["(garbage collector) @ :0",1.834],[" @ spectral-waterfall-chart.tsx:67",1.7469999999999999],["useMemo @ react-dom_client.js?v=1d3b3da4:4461",0.925],["Button @ button.tsx:34",0.788],["renderWithHooks @ react-dom_client.js?v=1d3b3da4:3508",0.666],["getContext @ :0",0.426],[" @ data-browser.ts?t=1792034649374:201",0.41000000000000003]]},{"elapsed_ms":389,"top_self_ms":[["(idle) @ :0",178.25200000000007],["fillRect @ :0",136.09300000000007],["(program) @ :0",105.97999999999999],[" @ spectral-waterfall-chart.tsx:150",55.06699999999999],[" @ spectral-waterfall-chart.tsx:194",4.69],["getInfernoColor @ spectral-waterfall-chart.tsx:28",3.806],["getBoundingClientRect @ :0",1.9469999999999998],[" @ data-browser-characterization.tsx?t=1792034649374:23",1.58],["useMemo @ react-dom_client.js?v=1d3b3da4:4461",1.5350000000000001],["renderWithHooks @ react-dom_client.js?v=1d3b3da4:3508",1.377],["(garbage collector) @ :0",1.3090000000000002],[" @ data-browser.ts?t=1792034649374:201",1.288],["createWorkInProgress @ react-dom_client.js?v=1d3b3da4:2140",0.904],["lineTo @ :0",0.46]]},{"elapsed_ms":261,"top_self_ms":[["fillRect @ :0",114.80400000000002],["(idle) @ :0",105.37699999999998],["(program) @ :0",86.31600000000002],[" @ spectral-waterfall-chart.tsx:150",54.33500000000001],["getInfernoColor @ spectral-waterfall-chart.tsx:28",6.526],["getBoundingClientRect @ :0",3.2669999999999995],[" @ data-browser.ts?t=1792034649374:201",2.8440000000000003],["checkVisibility @ :0",1.527],["getElementComputedStyle @ :3139",1.251],["save @ :0",0.994],["useMemo @ react-dom_client.js?v=1d3b3da4:4461",0.8400000000000001],["updateElement @ react-dom_client.js?v=1d3b3da4:2847",0.832],["(garbage collector) @ :0",0.652],["spectrumChartRows @ data-browser.ts?t=1792034649374:196",0.266]]},{"elapsed_ms":294,"top_self_ms":[["fillRect @ :0",115.42900000000013],["(idle) @ :0",109.50300000000013],["(program) @ :0",100.85700000000001],[" @ spectral-waterfall-chart.tsx:150",58.857000000000006],["getInfernoColor @ spectral-waterfall-chart.tsx:28",2.083],["useMemo @ react-dom_client.js?v=1d3b3da4:4461",2.066],["(garbage collector) @ :0",2.035],[" @ data-browser.ts?t=1792034649374:201",1.504],["parseEvaluationResultValue @ :120",1.457],["getBoundingClientRect @ :0",0.949],["getComputedStyle @ :0",0.181],["setAttribute @ :0",0.15],["updateProperties @ react-dom_client.js?v=1d3b3da4:10248",0.14],["innerSerialize @ :214",0.139]]}]}]
+### Ran Playwright code
+```js
+await (async (page) => {
+  await page.unrouteAll({behavior: 'wait'});
+  await page.route('**/src/lib/data-browser-demo.ts*', route => route.fulfill({contentType:'text/javascript',path:'tauri-ui/scripts/fixtures/spectrum-browser-data.js'}));
+  await page.route('**/remaining-spectrum-fixture?*', route => route.fulfill({contentType:'text/html',body:'<!doctype html><html><head><meta charset="UTF-8"><link rel="icon" href="data:,"></head><body><div id="root"></div><script type="module">await import("/scripts/fixtures/spectrum-browser.tsx");</script></body></html>'}));
+  await page.setViewportSize({width:1440,height:900});
+  await page.goto('http://localhost:1420/remaining-spectrum-fixture?demo=1&currents=24');
+  await page.locator('.db-record-button').first().waitFor();
+  await page.evaluate(()=>document.fonts.ready);
+  const session = await page.context().newCDPSession(page);
+  await session.send('Profiler.enable');
+  await session.send('Profiler.setSamplingInterval',{interval:100});
+  const samples = [];
+  for (const mode of ['multiSpectrum','evolution']) {
+    const timings = [];
+    for(let repeat=0;repeat<4;repeat++) {
+      await page.getByRole('combobox',{name:'曲线内容',exact:true}).selectOption('metrics');
+      await page.getByRole('img',{name:'单记录功率电流曲线',exact:true}).waitFor();
+      await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+      await session.send('Profiler.start');
+      const start = Date.now();
+      await page.getByRole('combobox',{name:'曲线内容',exact:true}).selectOption(mode);
+      const canvas = page.getByRole('img',{name:mode==='multiSpectrum'?'原始强度光谱叠加':'光谱演化热力图',exact:true});
+      await canvas.waitFor();
+      await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+      const elapsed = Date.now()-start;
+      const {profile}=await session.send('Profiler.stop');
+      const nodes = new Map(profile.nodes.map(n=>[n.id,n]));
+      const totals = new Map();
+      profile.samples.forEach((id,index)=>{const n=nodes.get(id);const key=`${n.callFrame.functionName} @ ${n.callFrame.url.split('/').at(-1)}:${n.callFrame.lineNumber+1}`;totals.set(key,(totals.get(key)||0)+(profile.timeDeltas[index]||0)/1000);});
+      timings.push({elapsed_ms:elapsed,top_self_ms:[...totals].sort((a,b)=>b[1]-a[1]).slice(0,14)});
+      if(repeat===3) await canvas.screenshot({path:`output/performance-remaining-20261015/before-${mode}.png`});
+    }
+    samples.push({mode,timings});
+  }
+  await session.detach();
+  return samples;
+}
+)(page);
+```
+### Page
+- Page URL: http://localhost:1420/remaining-spectrum-fixture?demo=1&currents=24
+- Console: 3 errors, 0 warnings
+### Events
+- New console entries: .playwright-cli/console-2026-10-15T03-18-23-092Z.log#L23-L29

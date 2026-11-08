@@ -1,0 +1,34 @@
+async (page) => {
+ await page.unrouteAll({behavior:'wait'});
+ const errors=[];page.on('pageerror',error=>errors.push(error.message));
+ await page.goto('http://localhost:1424/');
+ await page.waitForLoadState('networkidle');
+ const normal=await page.evaluate(()=>performance.getEntriesByType('resource').map(r=>r.name).filter(n=>n.endsWith('.js')));
+ if(normal.some(n=>/demo-(snapshot|run)-/.test(n)))throw new Error('Normal startup loaded preview fixtures');
+ await page.goto('http://localhost:1424/?demo=1&page=settings');
+ await page.getByRole('heading',{name:'系统设置 / 外观'}).waitFor();
+ const demo=await page.evaluate(()=>performance.getEntriesByType('resource').map(r=>r.name).filter(n=>n.endsWith('.js')));
+ if(!demo.some(n=>/demo-snapshot-/.test(n))||!demo.some(n=>/demo-run-/.test(n)))throw new Error('Preview fixtures not loaded');
+ await page.getByRole('button',{name:'浅色',exact:true}).click();
+ if(await page.evaluate(()=>document.documentElement.dataset.theme)!=='light')throw new Error('Theme update lost');
+ await page.getByRole('combobox',{name:'自动测试功率实时曲线线型',exact:true}).selectOption('dashed');
+ if(await page.getByRole('combobox',{name:'自动测试功率实时曲线线型',exact:true}).inputValue()!=='dashed')throw new Error('Line style lost');
+ const canvasChoices=page.locator('input[name="chart-canvas"]');
+ const canvasChoice=canvasChoices.nth(1);await canvasChoice.check({force:true});
+ if(!await canvasChoice.isChecked())throw new Error('Context update lost');
+ await page.getByRole('button',{name:'恢复外观默认值',exact:true}).click();
+ if(await page.evaluate(()=>document.documentElement.dataset.theme)!=='dark')throw new Error('Reset lost');
+ if(await page.getByRole('combobox',{name:'自动测试功率实时曲线线型',exact:true}).inputValue()!=='solid')throw new Error('Reset line style lost');
+ await page.getByRole('button',{name:'重新导入许可证',exact:true}).click();
+ await page.getByRole('button',{name:'重新导入许可证',exact:true}).waitFor();
+ const licenseError=await page.locator('.license-activation-error').textContent();
+ if(!licenseError)throw new Error('Local error state did not update');
+ await page.goto('http://localhost:1424/?demo=1&run=1');
+ const start=page.getByRole('button',{name:'开始',exact:true});
+ await start.waitFor();await start.click();
+ await page.getByRole('button',{name:'停止',exact:true}).waitFor();
+ await page.getByRole('img',{name:'功率实时曲线',exact:true}).waitFor();
+ await page.getByRole('button',{name:'停止',exact:true}).click();
+ await page.getByRole('button',{name:'开始',exact:true}).waitFor();
+ return {normal,demo,demoStartStop:true,settings:{theme:true,lineStyle:true,context:true,reset:true,localError:licenseError},buttons:await page.getByRole('button').allTextContents(),errors};
+}

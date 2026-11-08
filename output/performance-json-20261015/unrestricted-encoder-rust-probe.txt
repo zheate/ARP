@@ -1,0 +1,10 @@
+   Compiling tauri-ui v0.1.2 (/Users/zh/Documents/test/ARP/tauri-ui/src-tauri)
+    Finished `release` profile [optimized] target(s) in 3.39s
+     Running unittests src/lib.rs (tauri-ui/src-tauri/target/release/deps/tauri_ui_lib-b45f485fb370f0c3)
+
+running 1 test
+{"changed_rust_values":0,"existing_reference_vs_original_mismatches":29625,"finite_double_count":100000,"first_changes":[]}
+test realtime_transport_benchmark::json_encoder_precision_probe ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 25 filtered out; finished in 0.01s
+

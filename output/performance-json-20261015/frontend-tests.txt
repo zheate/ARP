@@ -1,0 +1,25 @@
+✔ measurement updates retain equivalent configuration and script identities (0.785833ms)
+✔ static-section sharing never hides edits, removals, or a backend restart (0.123209ms)
+✔ every full-spectrum sample survives consecutive measurement snapshots (8.869583ms)
+✔ actual snapshot merge handles full command histories followed by overlapping stream deltas (0.199ms)
+✔ actual snapshot merge retains reset histories and revisions against delayed messages (0.09225ms)
+✔ actual snapshot merge replaces histories after a Python runtime restart with lower revisions (0.073916ms)
+✔ shared protocol samples validate handshake, shutdown and snapshot (0.801667ms)
+✔ structured failures preserve identity and legacy text stays readable (0.125666ms)
+✔ old command replies cannot overwrite a restarted backend (0.060959ms)
+✔ a stream delta after a full command snapshot does not duplicate power samples (1.329334ms)
+✔ PD overlaps replace matching samples, trim the rolling window, and stay ordered (0.103333ms)
+✔ a full reset clears history and a delayed pre-reset delta cannot restore it (0.0745ms)
+✔ a delayed full command response cannot overwrite newer stream history (0.065666ms)
+✔ an unchanged series keeps its reference and an empty delta can trim history (0.053208ms)
+✔ ordered power updates trim to 1200 points without mutating snapshots (0.26775ms)
+✔ unordered histories and duplicate appended timestamps retain last-write-wins ordering (0.067125ms)
+✔ an empty ordered patch preserves identity when nothing expired (0.281458ms)
+ℹ tests 17
+ℹ suites 0
+ℹ pass 17
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 98.909

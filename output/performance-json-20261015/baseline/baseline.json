@@ -1,0 +1,191 @@
+{
+  "environment": {
+    "platform": "macOS-27.2-arm64-arm-64bit",
+    "python": "3.11.15"
+  },
+  "workload": "fixed synthetic responses; actual production writer; os.pipe with a draining/hash-checking thread; no devices",
+  "results": [
+    {
+      "scenario": "8192-live_full",
+      "iterations": 40,
+      "bytes": 254880,
+      "sha256": "c2db4c6cc377a3d71a6d13f9d6f1c88d1d1165a389d37f91c798e8c4d1474bbd",
+      "json_dumps": {
+        "median_ms": 2.938792,
+        "p95_ms": 5.0955
+      },
+      "newline_text_copy": {
+        "median_ms": 0.006125,
+        "p95_ms": 0.007667
+      },
+      "utf8_encode": {
+        "median_ms": 0.071,
+        "p95_ms": 0.082708
+      },
+      "production_writer_to_sink": {
+        "median_ms": 3.000458,
+        "p95_ms": 3.073875
+      },
+      "preencoded_pipe_write_flush": {
+        "median_ms": 0.108792,
+        "p95_ms": 0.114542
+      }
+    },
+    {
+      "scenario": "8192-live_delta",
+      "iterations": 40,
+      "bytes": 60026,
+      "sha256": "3d4aa15c1c42305faad9137808574face04e7cdb30b43ee4d07a59dc6bbcc80d",
+      "json_dumps": {
+        "median_ms": 0.571125,
+        "p95_ms": 0.58875
+      },
+      "newline_text_copy": {
+        "median_ms": 0.001167,
+        "p95_ms": 0.001333
+      },
+      "utf8_encode": {
+        "median_ms": 0.023583,
+        "p95_ms": 0.028291
+      },
+      "production_writer_to_sink": {
+        "median_ms": 0.589625,
+        "p95_ms": 0.627833
+      },
+      "preencoded_pipe_write_flush": {
+        "median_ms": 0.027459,
+        "p95_ms": 0.029
+      }
+    },
+    {
+      "scenario": "8192-live_unchanged",
+      "iterations": 40,
+      "bytes": 4963,
+      "sha256": "c653cced7ad7404163b9d2f39feab332032315a032f68ee6c8a12d37b1da6352",
+      "json_dumps": {
+        "median_ms": 0.024292,
+        "p95_ms": 0.029416
+      },
+      "newline_text_copy": {
+        "median_ms": 0.00025,
+        "p95_ms": 0.00025
+      },
+      "utf8_encode": {
+        "median_ms": 0.001625,
+        "p95_ms": 0.001667
+      },
+      "production_writer_to_sink": {
+        "median_ms": 0.026417,
+        "p95_ms": 0.031417
+      },
+      "preencoded_pipe_write_flush": {
+        "median_ms": 0.000708,
+        "p95_ms": 0.012083
+      }
+    },
+    {
+      "scenario": "8192-pd_full",
+      "iterations": 40,
+      "bytes": 481439,
+      "sha256": "c2f4169507251b2db01521825bfe64595c5f7d33a18c585ba685955e18adbba1",
+      "json_dumps": {
+        "median_ms": 5.808583,
+        "p95_ms": 6.132208
+      },
+      "newline_text_copy": {
+        "median_ms": 0.013292,
+        "p95_ms": 0.018708
+      },
+      "utf8_encode": {
+        "median_ms": 0.1245,
+        "p95_ms": 0.13875
+      },
+      "production_writer_to_sink": {
+        "median_ms": 6.033916,
+        "p95_ms": 6.422875
+      },
+      "preencoded_pipe_write_flush": {
+        "median_ms": 0.197167,
+        "p95_ms": 0.221833
+      }
+    },
+    {
+      "scenario": "8192-pd_delta",
+      "iterations": 40,
+      "bytes": 5363,
+      "sha256": "9e928b2ca5806f6ebd9b7900dd42a832b0fab60c377681470a444f64b1381ee1",
+      "json_dumps": {
+        "median_ms": 0.028917,
+        "p95_ms": 0.036125
+      },
+      "newline_text_copy": {
+        "median_ms": 0.00025,
+        "p95_ms": 0.000292
+      },
+      "utf8_encode": {
+        "median_ms": 0.001667,
+        "p95_ms": 0.001792
+      },
+      "production_writer_to_sink": {
+        "median_ms": 0.031125,
+        "p95_ms": 0.036625
+      },
+      "preencoded_pipe_write_flush": {
+        "median_ms": 0.000708,
+        "p95_ms": 0.016792
+      }
+    },
+    {
+      "scenario": "8192-dense-live-delta",
+      "iterations": 40,
+      "bytes": 155391,
+      "sha256": "f357810a01e383e8444f576dcee09d1674847156062ff254a7bef55f7a64e64b",
+      "json_dumps": {
+        "median_ms": 1.961041,
+        "p95_ms": 2.132333
+      },
+      "newline_text_copy": {
+        "median_ms": 0.003792,
+        "p95_ms": 0.005625
+      },
+      "utf8_encode": {
+        "median_ms": 0.052375,
+        "p95_ms": 0.063916
+      },
+      "production_writer_to_sink": {
+        "median_ms": 1.98275,
+        "p95_ms": 2.097292
+      },
+      "preencoded_pipe_write_flush": {
+        "median_ms": 0.05675,
+        "p95_ms": 0.084083
+      }
+    },
+    {
+      "scenario": "24x8192-full-spectra",
+      "iterations": 8,
+      "bytes": 7155936,
+      "sha256": "e813bf30585b34a56b2ec3e82ac6e0ee28b8fbef649c2c20b766575eed6650ec",
+      "json_dumps": {
+        "median_ms": 93.392042,
+        "p95_ms": 95.675125
+      },
+      "newline_text_copy": {
+        "median_ms": 0.274667,
+        "p95_ms": 0.28575
+      },
+      "utf8_encode": {
+        "median_ms": 2.50375,
+        "p95_ms": 2.561917
+      },
+      "production_writer_to_sink": {
+        "median_ms": 97.714,
+        "p95_ms": 99.400542
+      },
+      "preencoded_pipe_write_flush": {
+        "median_ms": 3.057083,
+        "p95_ms": 3.428667
+      }
+    }
+  ]
+}

@@ -13,6 +13,7 @@ type DeviceDetectButtonProps = Omit<ComponentProps<typeof Button>, "children" | 
 export function DeviceDetectButton({ detecting = false, disabled, className, onClick, ...props }: DeviceDetectButtonProps) {
   const requestLock = useRef(false)
   const [requestPending, setRequestPending] = useState(false)
+  const [requestError, setRequestError] = useState("")
   const busy = detecting || requestPending
 
   const handleClick = async () => {
@@ -22,6 +23,11 @@ export function DeviceDetectButton({ detecting = false, disabled, className, onC
     try {
       // Cover configuration sync as well as the backend's discovery state.
       await onClick()
+      setRequestError("")
+    } catch (reason) {
+      // The command owner reports the failure; consume the rejected click
+      // promise and retain a local description without shifting the controls.
+      setRequestError(reason instanceof Error ? reason.message : String(reason))
     } finally {
       requestLock.current = false
       setRequestPending(false)
@@ -31,11 +37,13 @@ export function DeviceDetectButton({ detecting = false, disabled, className, onC
   return (
     <Button
       {...props}
+      aria-description={requestError || props["aria-description"]}
       aria-busy={busy}
       className={cn("device-detect-button", className)}
       disabled={disabled || busy}
       onClick={handleClick}
       type="button"
+      title={requestError || props.title}
       variant="outline"
     >
       <span aria-hidden="true" className="device-detect-button__icon">

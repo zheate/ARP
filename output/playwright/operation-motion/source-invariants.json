@@ -1,0 +1,58 @@
+{
+  "tauri-ui/src/App.tsx": {
+    "sha256": "ed2d877f7b43e7c158c0d84517429cbb5a545b00eae60bc645aee8f87309e150",
+    "matchesSharedRepository": true
+  },
+  "tauri-ui/src/hooks/use-backend-snapshot.ts": {
+    "sha256": "e10d2e82f01022b0314f3b3921321d0ee6cf9a3ecd7c0085785759e97830bb8f",
+    "matchesSharedRepository": true
+  },
+  "tauri-ui/src/components/canvas-line-chart.tsx": {
+    "sha256": "6c471923738b660a68af2a010549eee8af35ca0d4a28bb12907240266b526076",
+    "matchesSharedRepository": true
+  },
+  "tauri-ui/src/components/numeric-readout.tsx": {
+    "sha256": "3c41c427a869427d53f305ed60b4f1b66138ed26c1ca3888d62e1e4bb0a7d777",
+    "matchesSharedRepository": true
+  },
+  "tauri-ui/src/lib/backend.ts": {
+    "sha256": "1f00f242c3592d33f6196a4a26ea8c03ae8730dab3e4e8b5f9327ef54168f14a",
+    "matchesSharedRepository": true
+  },
+  "tauri-ui/src/lib/demo-run.ts": {
+    "sha256": "518c5b442e12c302cc8dcb9ebebbe50a7874f7ef88a53a2b5b68a32fec6e6f30",
+    "matchesSharedRepository": true
+  },
+  "tauri-ui/src/components/dialog-portal.tsx": {
+    "sha256": "8b9e551d7e0b08ccc127500c8e33d8d2e049cd64a6da0ae406c94a13141a65c6",
+    "matchesSharedRepository": true
+  },
+  "tauri-ui/src/components/native-select.tsx": {
+    "sha256": "eca27c8b9d9b79392f57c8ea61ace325c266fd768ecdab3b9394019b2f74dfbf",
+    "matchesSharedRepository": true
+  },
+  "tauri-ui/src/components/ui/select.tsx": {
+    "sha256": "c1295c1404b67895549b89225885eba08198a5d6224c733fbb8964eaaa2edff4",
+    "matchesSharedRepository": true
+  },
+  "tauri-ui/src/components/ui/button.tsx": {
+    "sha256": "f387b0a2e454f6de54ab181d18b4586c44ca9400cb6c6dcfa46f99a7c693a2bb",
+    "matchesSharedRepository": true
+  },
+  "tauri-ui/src/features/automatic/lifecycle-dialogs.tsx": {
+    "sha256": "c07531a7bc2077ced55906baf51fa104ebdcc97f513fcb0daaf06c129d982a52",
+    "matchesSharedRepository": true
+  },
+  "tauri-ui/src/features/devices/settings.tsx": {
+    "sha256": "2107a46d0e3463676d30ab251b6f9fab1c747d604cb89c9810dfa1c47af75347",
+    "matchesSharedRepository": true
+  },
+  "tauri-ui/package.json": {
+    "sha256": "c0615e3c58c006aa580681abe9a5b54885e6903280e9acc81e0f90d938314a9a",
+    "matchesSharedRepository": true
+  },
+  "tauri-ui/package-lock.json": {
+    "sha256": "91b3bc45860c0004ccd0b64f785be2bcf322a247573795b6594670644c5e76c9",
+    "matchesSharedRepository": true
+  }
+}

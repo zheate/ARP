@@ -1,0 +1,50 @@
+[
+  {
+    "recordIndex": 0,
+    "includeSpectra": false,
+    "samePublicJson": true,
+    "points": 4,
+    "spectra": 0,
+    "samples": 0
+  },
+  {
+    "recordIndex": 0,
+    "includeSpectra": true,
+    "samePublicJson": true,
+    "points": 4,
+    "spectra": 4,
+    "samples": 14592
+  },
+  {
+    "recordIndex": 1,
+    "includeSpectra": false,
+    "samePublicJson": true,
+    "points": 1,
+    "spectra": 0,
+    "samples": 0
+  },
+  {
+    "recordIndex": 1,
+    "includeSpectra": true,
+    "samePublicJson": true,
+    "points": 1,
+    "spectra": 1,
+    "samples": 3648
+  },
+  {
+    "recordIndex": 2,
+    "includeSpectra": false,
+    "samePublicJson": true,
+    "points": 4,
+    "spectra": 0,
+    "samples": 0
+  },
+  {
+    "recordIndex": 2,
+    "includeSpectra": true,
+    "samePublicJson": true,
+    "points": 4,
+    "spectra": 4,
+    "samples": 14592
+  }
+]

@@ -1,0 +1,873 @@
+{
+  "browserOnly": true,
+  "fixturesAreSynthetic": true,
+  "errors": [],
+  "checks": [
+    {
+      "name": "1920x1080-dpr1-protection-dialog-bounded",
+      "passed": true,
+      "details": {
+        "x": 736,
+        "y": 16,
+        "width": 448,
+        "height": 1048
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-protection-footer-visible",
+      "passed": true,
+      "details": {
+        "x": 737,
+        "y": 1002,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-protection-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-protection-reverse-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-protection-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-protection-ack-required",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-dialog-bounded",
+      "passed": true,
+      "details": {
+        "x": 736,
+        "y": 16,
+        "width": 448,
+        "height": 1048
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-footer-visible",
+      "passed": true,
+      "details": {
+        "x": 737,
+        "y": 1002,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-reverse-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-unsafe-exit-disabled",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-pause-dialog-bounded",
+      "passed": true,
+      "details": {
+        "x": 736,
+        "y": 16,
+        "width": 448,
+        "height": 1048
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-pause-footer-visible",
+      "passed": true,
+      "details": {
+        "x": 737,
+        "y": 1002,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-pause-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-pause-reverse-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-pause-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-pause-ack-required",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-pd-running-stop-enabled",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-pd-running-stop-visible",
+      "passed": true,
+      "details": {
+        "x": 33,
+        "y": 149,
+        "width": 346,
+        "height": 32
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-pd-running-parameters-disabled",
+      "passed": true,
+      "details": {
+        "enabledFields": 0
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-readout-geometry-10.000",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 92.453125,
+          "y": 72.171875,
+          "width": 80.078125,
+          "height": 40
+        },
+        "rect": {
+          "x": 83.5625,
+          "y": 72.171875,
+          "width": 97.875,
+          "height": 40
+        },
+        "unitBefore": {
+          "x": 178.921875,
+          "y": 91.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 187.828125,
+          "y": 91.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-readout-geometry-999.999",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 92.453125,
+          "y": 72.171875,
+          "width": 80.078125,
+          "height": 40
+        },
+        "rect": {
+          "x": 74.65625,
+          "y": 72.171875,
+          "width": 115.671875,
+          "height": 40
+        },
+        "unitBefore": {
+          "x": 178.921875,
+          "y": 91.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 196.71875,
+          "y": 91.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-readout-geometry-1000.000",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 92.453125,
+          "y": 72.171875,
+          "width": 80.078125,
+          "height": 40
+        },
+        "rect": {
+          "x": 65.765625,
+          "y": 72.171875,
+          "width": 133.46875,
+          "height": 40
+        },
+        "unitBefore": {
+          "x": 178.921875,
+          "y": 91.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 205.625,
+          "y": 91.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-readout-geometry---",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 92.453125,
+          "y": 72.171875,
+          "width": 80.078125,
+          "height": 40
+        },
+        "rect": {
+          "x": 121.84375,
+          "y": 72.171875,
+          "width": 21.3125,
+          "height": 40
+        },
+        "unitBefore": {
+          "x": 178.921875,
+          "y": 91.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 149.546875,
+          "y": 91.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-readout-geometry--12.345",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 92.453125,
+          "y": 72.171875,
+          "width": 80.078125,
+          "height": 40
+        },
+        "rect": {
+          "x": 78.234375,
+          "y": 72.171875,
+          "width": 108.53125,
+          "height": 40
+        },
+        "unitBefore": {
+          "x": 178.921875,
+          "y": 91.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 193.15625,
+          "y": 91.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-readout-reduced-motion-no-animation",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-protection-dialog-bounded",
+      "passed": true,
+      "details": {
+        "x": 459,
+        "y": 16,
+        "width": 448,
+        "height": 736
+      }
+    },
+    {
+      "name": "1366x768-dpr1-protection-footer-visible",
+      "passed": true,
+      "details": {
+        "x": 460,
+        "y": 690,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "1366x768-dpr1-protection-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-protection-reverse-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-protection-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-protection-ack-required",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-dialog-bounded",
+      "passed": true,
+      "details": {
+        "x": 459,
+        "y": 16,
+        "width": 448,
+        "height": 736
+      }
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-footer-visible",
+      "passed": true,
+      "details": {
+        "x": 460,
+        "y": 690,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-reverse-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-unsafe-exit-disabled",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-pause-dialog-bounded",
+      "passed": true,
+      "details": {
+        "x": 459,
+        "y": 16,
+        "width": 448,
+        "height": 736
+      }
+    },
+    {
+      "name": "1366x768-dpr1-pause-footer-visible",
+      "passed": true,
+      "details": {
+        "x": 460,
+        "y": 690,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "1366x768-dpr1-pause-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-pause-reverse-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-pause-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-pause-ack-required",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-pd-running-stop-enabled",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-pd-running-stop-visible",
+      "passed": true,
+      "details": {
+        "x": 33,
+        "y": 149,
+        "width": 346,
+        "height": 32
+      }
+    },
+    {
+      "name": "1366x768-dpr1-pd-running-parameters-disabled",
+      "passed": true,
+      "details": {
+        "enabledFields": 0
+      }
+    },
+    {
+      "name": "1366x768-dpr1-readout-geometry-10.000",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 98.984375,
+          "y": 69.78125,
+          "width": 70.03125,
+          "height": 35
+        },
+        "rect": {
+          "x": 91.203125,
+          "y": 69.78125,
+          "width": 85.59375,
+          "height": 35
+        },
+        "unitBefore": {
+          "x": 175.40625,
+          "y": 84.78125,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 183.1875,
+          "y": 84.78125,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "1366x768-dpr1-readout-geometry-999.999",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 98.984375,
+          "y": 69.78125,
+          "width": 70.03125,
+          "height": 35
+        },
+        "rect": {
+          "x": 83.421875,
+          "y": 69.78125,
+          "width": 101.15625,
+          "height": 35
+        },
+        "unitBefore": {
+          "x": 175.40625,
+          "y": 84.78125,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 190.96875,
+          "y": 84.78125,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "1366x768-dpr1-readout-geometry-1000.000",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 98.984375,
+          "y": 69.78125,
+          "width": 70.03125,
+          "height": 35
+        },
+        "rect": {
+          "x": 75.640625,
+          "y": 69.78125,
+          "width": 116.71875,
+          "height": 35
+        },
+        "unitBefore": {
+          "x": 175.40625,
+          "y": 84.78125,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 198.75,
+          "y": 84.78125,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "1366x768-dpr1-readout-geometry---",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 98.984375,
+          "y": 69.78125,
+          "width": 70.03125,
+          "height": 35
+        },
+        "rect": {
+          "x": 124.671875,
+          "y": 69.78125,
+          "width": 18.65625,
+          "height": 35
+        },
+        "unitBefore": {
+          "x": 175.40625,
+          "y": 84.78125,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 149.71875,
+          "y": 84.78125,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "1366x768-dpr1-readout-geometry--12.345",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 98.984375,
+          "y": 69.78125,
+          "width": 70.03125,
+          "height": 35
+        },
+        "rect": {
+          "x": 86.53125,
+          "y": 69.78125,
+          "width": 94.921875,
+          "height": 35
+        },
+        "unitBefore": {
+          "x": 175.40625,
+          "y": 84.78125,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 187.84375,
+          "y": 84.78125,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "1366x768-dpr1-readout-reduced-motion-no-animation",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-protection-dialog-bounded",
+      "passed": true,
+      "details": {
+        "x": 256,
+        "y": 16,
+        "width": 448,
+        "height": 508
+      }
+    },
+    {
+      "name": "960x540-dpr2-protection-footer-visible",
+      "passed": true,
+      "details": {
+        "x": 257,
+        "y": 462,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "960x540-dpr2-protection-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-protection-reverse-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-protection-background-inert",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-protection-ack-required",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-shutdown-dialog-bounded",
+      "passed": true,
+      "details": {
+        "x": 256,
+        "y": 16,
+        "width": 448,
+        "height": 508
+      }
+    },
+    {
+      "name": "960x540-dpr2-shutdown-footer-visible",
+      "passed": true,
+      "details": {
+        "x": 257,
+        "y": 462,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "960x540-dpr2-shutdown-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-shutdown-reverse-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-shutdown-background-inert",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-shutdown-unsafe-exit-disabled",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-pause-dialog-bounded",
+      "passed": true,
+      "details": {
+        "x": 256,
+        "y": 16,
+        "width": 448,
+        "height": 508
+      }
+    },
+    {
+      "name": "960x540-dpr2-pause-footer-visible",
+      "passed": true,
+      "details": {
+        "x": 257,
+        "y": 462,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "960x540-dpr2-pause-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-pause-reverse-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-pause-background-inert",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-pause-ack-required",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-pd-running-stop-enabled",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-pd-running-stop-visible",
+      "passed": true,
+      "details": {
+        "x": 33,
+        "y": 149,
+        "width": 270,
+        "height": 32
+      }
+    },
+    {
+      "name": "960x540-dpr2-pd-running-parameters-disabled",
+      "passed": true,
+      "details": {
+        "enabledFields": 0
+      }
+    },
+    {
+      "name": "960x540-dpr2-readout-geometry-10.000",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 214.96875,
+          "y": 72.171875,
+          "width": 60.046875,
+          "height": 30
+        },
+        "rect": {
+          "x": 208.296875,
+          "y": 72.171875,
+          "width": 73.390625,
+          "height": 30
+        },
+        "unitBefore": {
+          "x": 281.40625,
+          "y": 82.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 288.078125,
+          "y": 82.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "960x540-dpr2-readout-geometry-999.999",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 214.96875,
+          "y": 72.171875,
+          "width": 60.046875,
+          "height": 30
+        },
+        "rect": {
+          "x": 201.625,
+          "y": 72.171875,
+          "width": 86.734375,
+          "height": 30
+        },
+        "unitBefore": {
+          "x": 281.40625,
+          "y": 82.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 294.75,
+          "y": 82.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "960x540-dpr2-readout-geometry-1000.000",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 214.96875,
+          "y": 72.171875,
+          "width": 60.046875,
+          "height": 30
+        },
+        "rect": {
+          "x": 194.953125,
+          "y": 72.171875,
+          "width": 100.078125,
+          "height": 30
+        },
+        "unitBefore": {
+          "x": 281.40625,
+          "y": 82.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 301.421875,
+          "y": 82.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "960x540-dpr2-readout-geometry---",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 214.96875,
+          "y": 72.171875,
+          "width": 60.046875,
+          "height": 30
+        },
+        "rect": {
+          "x": 237,
+          "y": 72.171875,
+          "width": 15.984375,
+          "height": 30
+        },
+        "unitBefore": {
+          "x": 281.40625,
+          "y": 82.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 259.375,
+          "y": 82.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "960x540-dpr2-readout-geometry--12.345",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 214.96875,
+          "y": 72.171875,
+          "width": 60.046875,
+          "height": 30
+        },
+        "rect": {
+          "x": 204.296875,
+          "y": 72.171875,
+          "width": 81.390625,
+          "height": 30
+        },
+        "unitBefore": {
+          "x": 281.40625,
+          "y": 82.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 292.078125,
+          "y": 82.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "960x540-dpr2-readout-reduced-motion-no-animation",
+      "passed": true
+    }
+  ],
+  "captures": [
+    "1920x1080-dpr1-protection.png",
+    "1920x1080-dpr1-shutdown.png",
+    "1920x1080-dpr1-pause.png",
+    "1920x1080-dpr1-pd-running.png",
+    "1920x1080-dpr1-readout.png",
+    "1366x768-dpr1-protection.png",
+    "1366x768-dpr1-shutdown.png",
+    "1366x768-dpr1-pause.png",
+    "1366x768-dpr1-pd-running.png",
+    "1366x768-dpr1-readout.png",
+    "960x540-dpr2-protection.png",
+    "960x540-dpr2-shutdown.png",
+    "960x540-dpr2-pause.png",
+    "960x540-dpr2-pd-running.png",
+    "960x540-dpr2-readout.png"
+  ]
+}

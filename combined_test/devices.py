@@ -24,7 +24,7 @@ from .concurrency import Signal, WorkerThread
 
 from tools.visa_session import visa_resource_manager
 
-from .core import OPHIR_POWER_STABILITY_SPAN_W, PowerStabilityDetector, decode_i2c_value
+from .core import PowerStabilityDetector, decode_i2c_value
 from .models import (
     PowerMeterOption,
     PowerMeterReading,
@@ -40,7 +40,7 @@ from .spectrum import (
     detect_spectrum_saturation,
     find_spectrum_peak_annotations,
 )
-from .spectrum_math import calculate_pib, calculate_smsr
+from .spectrum_math import calculate_pib_and_smsr, calculate_smsr
 
 
 POWER_METER_RECONNECT_ATTEMPTS = 3
@@ -464,9 +464,10 @@ class PowerMeterReaderThread(WorkerThread):
         self._stability_generation = 0
         self._stable_window_s = float(settings.stable_window_s)
         self._stability_limit_percent = float(settings.stability_limit_percent)
-        self._absolute_span_limit_w: float | None = (
-            OPHIR_POWER_STABILITY_SPAN_W if settings.driver_kind == "ophir" else None
-        )
+        # Historical brand/current-specific limits are ignored in the product.
+        self._absolute_floor_w = 0.0
+        self._noise_jump_w = float(settings.noise_jump_w)
+        self._absolute_span_limit_w: float | None = None
         self.is_ready = False
 
     def stop(self) -> None:
@@ -485,8 +486,14 @@ class PowerMeterReaderThread(WorkerThread):
         window_s: float,
         limit_percent: float,
         absolute_span_limit_w: float | None = None,
+        *,
+        absolute_floor_w: float | None = None,
     ) -> None:
         """Apply stability settings to the active acquisition loop."""
+        if absolute_floor_w is not None and (
+            not math.isfinite(float(absolute_floor_w)) or absolute_floor_w < 0
+        ):
+            raise ValueError("功率判稳绝对下限必须是大于或等于 0 W 的有限数值")
         if window_s <= 0:
             raise ValueError("稳定窗口必须大于 0 秒")
         if limit_percent < 0:
@@ -499,11 +506,17 @@ class PowerMeterReaderThread(WorkerThread):
         with self._stability_state_lock:
             self._stable_window_s = float(window_s)
             self._stability_limit_percent = float(limit_percent)
-            self._absolute_span_limit_w = (
-                OPHIR_POWER_STABILITY_SPAN_W
-                if self.settings.driver_kind == "ophir"
-                else None if absolute_span_limit_w is None else float(absolute_span_limit_w)
-            )
+            self._absolute_floor_w = 0.0
+            self._absolute_span_limit_w = None
+
+    def update_noise_jump(self, jump_w: float) -> None:
+        if not math.isfinite(jump_w) or jump_w < 0:
+            raise ValueError("功率计跳动量必须是非负有限数值")
+        with self._stability_state_lock:
+            if self._noise_jump_w != float(jump_w):
+                self._noise_jump_w = float(jump_w)
+                self._stability_generation += 1
+                self._stability_reset_requested.set()
 
     def run(self) -> None:
         meter = None
@@ -593,12 +606,17 @@ class PowerMeterReaderThread(WorkerThread):
                 stable_window_s = self._stable_window_s
                 stability_limit_percent = self._stability_limit_percent
                 absolute_span_limit_w = self._absolute_span_limit_w
+                absolute_floor_w = self._absolute_floor_w
+                noise_jump_w = self._noise_jump_w
             detector = PowerStabilityDetector(
                 stable_window_s,
                 stability_limit_percent,
                 absolute_span_limit_w,
+                absolute_floor_w=absolute_floor_w,
+                noise_jump_w=noise_jump_w,
             )
             start = time.monotonic()
+            connection_generation = 0
             poll_interval_s = self.settings.interval_ms / 1000.0
             next_poll_at = start
             while not self._stop_requested.is_set():
@@ -610,17 +628,24 @@ class PowerMeterReaderThread(WorkerThread):
                     stable_window_s = self._stable_window_s
                     stability_limit_percent = self._stability_limit_percent
                     absolute_span_limit_w = self._absolute_span_limit_w
+                    absolute_floor_w = self._absolute_floor_w
+                    noise_jump_w = self._noise_jump_w
                 if reset_requested:
                     detector = PowerStabilityDetector(
                         stable_window_s,
                         stability_limit_percent,
                         absolute_span_limit_w,
+                        absolute_floor_w=absolute_floor_w,
+                        noise_jump_w=noise_jump_w,
                     )
                 else:
                     detector.window_s = stable_window_s
                     detector.stability_limit_percent = stability_limit_percent
                     detector.absolute_span_limit_w = absolute_span_limit_w
-                elapsed = time.monotonic() - start
+                    detector.absolute_floor_w = absolute_floor_w
+                    detector.noise_jump_w = noise_jump_w
+                transaction_started = time.monotonic()
+                elapsed = transaction_started - start
                 try:
                     power_w = meter.read_power_w() * self.settings.software_gain
                 except Exception as exc:
@@ -654,10 +679,14 @@ class PowerMeterReaderThread(WorkerThread):
                             last_error = reconnect_exc
                             continue
                         self.status.emit("功率计自动重连成功，继续采集")
+                        connection_generation += 1
+                        self.reset_stability_window()
                         detector = PowerStabilityDetector(
                             stable_window_s,
                             stability_limit_percent,
                             absolute_span_limit_w,
+                            absolute_floor_w=absolute_floor_w,
+                            noise_jump_w=noise_jump_w,
                         )
                         next_poll_at = time.monotonic()
                         break
@@ -670,6 +699,9 @@ class PowerMeterReaderThread(WorkerThread):
                 if self._stop_requested.is_set():
                     break
                 stability = detector.add_sample(elapsed, power_w)
+                instrument_token = getattr(meter, "measurement_configuration_token", "")
+                if not isinstance(instrument_token, str):
+                    instrument_token = ""
                 self.reading.emit(
                     PowerMeterReading(
                         elapsed_s=elapsed,
@@ -682,6 +714,14 @@ class PowerMeterReaderThread(WorkerThread):
                         stability_percent=stability.stability_percent,
                         stability_limit_percent=stability_limit_percent,
                         stable_duration_s=stability.stable_duration_s,
+                        stability_limit_w=stability.effective_limit_w,
+                        stability_drift_w=stability.drift_w,
+                        stability_drift_limit_w=stability.drift_limit_w,
+                        stability_drift_exceeded=stability.drift_exceeded,
+                        stability_two_sigma_w=stability.two_sigma_w,
+                        connection_generation=connection_generation,
+                        transaction_started_monotonic_s=transaction_started,
+                        instrument_configuration_token=instrument_token,
                     )
                 )
                 next_poll_at += poll_interval_s
@@ -957,17 +997,17 @@ class SpectrometerReaderThread(WorkerThread):
             has_enough_pib_samples = len(intensity) >= 3
         except TypeError:
             has_enough_pib_samples = True
-        pib = (
-            calculate_pib(
-                wavelength,
-                intensity,
-                center_nm=self.settings.pib_center_wavelength_nm,
-                half_range_nm=self.settings.pib_half_range_nm,
-            )
-            if not saturation.saturated and has_enough_pib_samples
-            else math.nan
-        )
-        smsr = calculate_smsr(wavelength, intensity) if not saturation.saturated else None
+        pib = math.nan
+        smsr = None
+        if not saturation.saturated:
+            if has_enough_pib_samples:
+                pib, smsr = calculate_pib_and_smsr(
+                    wavelength, intensity,
+                    center_nm=self.settings.pib_center_wavelength_nm,
+                    half_range_nm=self.settings.pib_half_range_nm,
+                )
+            else:
+                smsr = calculate_smsr(wavelength, intensity)
         annotations = (
             find_spectrum_peak_annotations(
                 zip(wavelength, intensity),

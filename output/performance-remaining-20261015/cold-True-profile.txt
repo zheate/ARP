@@ -1,0 +1,33 @@
+         8025297 function calls (8023122 primitive calls) in 1.793 seconds
+
+   Ordered by: cumulative time
+   List reduced from 401 to 25 due to restriction <25>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    1.793    1.793 data_browser.py:335(inspect_data_record)
+        1    0.000    0.000    1.790    1.790 data_browser.py:301(_read_detail)
+        1    0.140    0.140    1.782    1.782 data_browser.py:137(_read_workbook)
+     8202    0.006    0.000    1.484    0.000 _read_only.py:60(_cells_by_row)
+     8203    0.127    0.000    1.435    0.000 _reader.py:125(parse)
+     8200    0.009    0.000    0.738    0.000 _reader.py:282(parse_row)
+     8200    0.042    0.000    0.726    0.000 _reader.py:303(<listcomp>)
+   393510    0.314    0.000    0.685    0.000 _reader.py:189(parse_cell)
+795323/795320    0.071    0.000    0.557    0.000 ElementTree.py:1248(iterator)
+      908    0.000    0.000    0.250    0.000 ElementTree.py:1293(feed)
+      913    0.250    0.000    0.250    0.000 {method 'feed' of 'xml.etree.ElementTree.XMLParser' objects}
+   393510    0.214    0.000    0.214    0.000 cell.py:206(coordinate_to_tuple)
+   796233    0.154    0.000    0.210    0.000 ElementTree.py:1317(read_events)
+   401624    0.087    0.000    0.115    0.000 data_browser.py:108(_number)
+   393432    0.071    0.000    0.071    0.000 _reader.py:80(_cast_number)
+  1180538    0.049    0.000    0.049    0.000 {method 'get' of 'xml.etree.ElementTree.Element' objects}
+  1192515    0.045    0.000    0.045    0.000 {built-in method builtins.isinstance}
+     8199    0.043    0.000    0.043    0.000 _read_only.py:105(_get_row)
+   393432    0.036    0.000    0.036    0.000 {method 'findtext' of 'xml.etree.ElementTree.Element' objects}
+      916    0.001    0.000    0.026    0.000 zipfile.py:957(read)
+   795318    0.025    0.000    0.025    0.000 {method 'popleft' of 'collections.deque' objects}
+      914    0.003    0.000    0.025    0.000 zipfile.py:1039(_read1)
+     8208    0.019    0.000    0.019    0.000 {method 'clear' of 'xml.etree.ElementTree.Element' objects}
+      914    0.016    0.000    0.016    0.000 {method 'decompress' of 'zlib.Decompress' objects}
+   394126    0.015    0.000    0.015    0.000 {method 'append' of 'list' objects}
+
+

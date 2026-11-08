@@ -1,0 +1,3429 @@
+{
+  "captures": 63,
+  "errors": [],
+  "interactions": [
+    {
+      "name": "1920x1080-dpr1-pd-action-visible",
+      "passed": true,
+      "details": {
+        "x": 221,
+        "y": 184,
+        "width": 346,
+        "height": 60
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-pd-fields-fit-without-overlap",
+      "passed": true,
+      "details": [
+        {
+          "label": "采集卡：",
+          "x": 221,
+          "y": 324,
+          "right": 561,
+          "bottom": 356,
+          "width": 340,
+          "labelRight": 337
+        },
+        {
+          "label": "输入通道：",
+          "x": 221,
+          "y": 368,
+          "right": 561,
+          "bottom": 400,
+          "width": 340,
+          "labelRight": 337
+        },
+        {
+          "label": "接线方式：",
+          "x": 221,
+          "y": 412,
+          "right": 561,
+          "bottom": 444,
+          "width": 340,
+          "labelRight": 337
+        },
+        {
+          "label": "输入量程：",
+          "x": 221,
+          "y": 456,
+          "right": 561,
+          "bottom": 488,
+          "width": 340,
+          "labelRight": 337
+        },
+        {
+          "label": "采样率 (S/s)：",
+          "x": 221,
+          "y": 500,
+          "right": 561,
+          "bottom": 532,
+          "width": 340,
+          "labelRight": 337
+        },
+        {
+          "label": "每批点数：",
+          "x": 221,
+          "y": 593,
+          "right": 561,
+          "bottom": 625,
+          "width": 340,
+          "labelRight": 337
+        },
+        {
+          "label": "标定比例：",
+          "x": 221,
+          "y": 637,
+          "right": 561,
+          "bottom": 669,
+          "width": 340,
+          "labelRight": 337
+        },
+        {
+          "label": "标定偏置：",
+          "x": 221,
+          "y": 681,
+          "right": 561,
+          "bottom": 713,
+          "width": 340,
+          "labelRight": 337
+        },
+        {
+          "label": "显示单位：",
+          "x": 221,
+          "y": 725,
+          "right": 561,
+          "bottom": 757,
+          "width": 340,
+          "labelRight": 337
+        },
+        {
+          "label": "保存目录：",
+          "x": 234,
+          "y": 853,
+          "right": 548,
+          "bottom": 889,
+          "width": 314,
+          "labelRight": 350
+        }
+      ]
+    },
+    {
+      "name": "1920x1080-dpr1-running-lock",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-readouts-no-overflow",
+      "passed": true,
+      "details": [
+        {
+          "text": "W @ 8 A",
+          "rect": {
+            "x": 217,
+            "y": 644.671875,
+            "width": 384,
+            "height": 40,
+            "right": 601,
+            "bottom": 684.671875
+          },
+          "overflow": false
+        },
+        {
+          "text": "nm",
+          "rect": {
+            "x": 647,
+            "y": 644.671875,
+            "width": 384,
+            "height": 40,
+            "right": 1031,
+            "bottom": 684.671875
+          },
+          "overflow": false
+        },
+        {
+          "text": "nm",
+          "rect": {
+            "x": 1077,
+            "y": 644.671875,
+            "width": 384,
+            "height": 40,
+            "right": 1461,
+            "bottom": 684.671875
+          },
+          "overflow": false
+        },
+        {
+          "text": "%",
+          "rect": {
+            "x": 1507,
+            "y": 644.671875,
+            "width": 384,
+            "height": 40,
+            "right": 1891,
+            "bottom": 684.671875
+          },
+          "overflow": false
+        }
+      ]
+    },
+    {
+      "name": "1920x1080-dpr1-spectrum-visible",
+      "passed": true,
+      "details": {
+        "x": 207,
+        "y": 723.0625,
+        "width": 1694,
+        "height": 325.9375,
+        "right": 1901,
+        "bottom": 1049
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-synthetic-numeric-layout",
+      "passed": true,
+      "details": [
+        {
+          "passed": true,
+          "samples": [
+            {
+              "value": "9.999",
+              "passed": true
+            },
+            {
+              "value": "10.000",
+              "passed": true
+            },
+            {
+              "value": "999.999",
+              "passed": true
+            },
+            {
+              "value": "1000.000",
+              "passed": true
+            },
+            {
+              "value": "--",
+              "passed": true
+            },
+            {
+              "value": "-12.345",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "passed": true,
+          "samples": [
+            {
+              "value": "9.999",
+              "passed": true
+            },
+            {
+              "value": "10.000",
+              "passed": true
+            },
+            {
+              "value": "999.999",
+              "passed": true
+            },
+            {
+              "value": "1000.000",
+              "passed": true
+            },
+            {
+              "value": "--",
+              "passed": true
+            },
+            {
+              "value": "-12.345",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "passed": true,
+          "samples": [
+            {
+              "value": "9.999",
+              "passed": true
+            },
+            {
+              "value": "10.000",
+              "passed": true
+            },
+            {
+              "value": "999.999",
+              "passed": true
+            },
+            {
+              "value": "1000.000",
+              "passed": true
+            },
+            {
+              "value": "--",
+              "passed": true
+            },
+            {
+              "value": "-12.345",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "passed": true,
+          "samples": [
+            {
+              "value": "9.999",
+              "passed": true
+            },
+            {
+              "value": "10.000",
+              "passed": true
+            },
+            {
+              "value": "999.999",
+              "passed": true
+            },
+            {
+              "value": "1000.000",
+              "passed": true
+            },
+            {
+              "value": "--",
+              "passed": true
+            },
+            {
+              "value": "-12.345",
+              "passed": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1920x1080-dpr1-device-dialog-0-dialog-in-viewport",
+      "passed": true,
+      "details": {
+        "x": 416,
+        "y": 231.5,
+        "width": 1088,
+        "height": 617,
+        "right": 1504,
+        "bottom": 848.5
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-0-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-0-shift-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-0-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-0-visible-focus",
+      "passed": true,
+      "details": {
+        "visible": true,
+        "outlineWidth": "2px",
+        "outlineStyle": "solid",
+        "boxShadow": "oklab(0.723637 0.122806 0.140739 / 0.0561945) 0px 0px 0px 0.526823px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px"
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-0-select-2-viewport",
+      "passed": true,
+      "details": {
+        "x": 987,
+        "y": 497.5,
+        "width": 477,
+        "height": 90
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-0-escape-select-2",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-0-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-device-dialog-1-dialog-in-viewport",
+      "passed": true,
+      "details": {
+        "x": 608,
+        "y": 139.40625,
+        "width": 704,
+        "height": 801.1875,
+        "right": 1312,
+        "bottom": 940.59375
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-1-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-1-shift-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-1-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-1-visible-focus",
+      "passed": true,
+      "details": {
+        "visible": true,
+        "outlineWidth": "2px",
+        "outlineStyle": "solid",
+        "boxShadow": "oklab(0 0 0 / 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px"
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-device-dialog-1-select-dialog-in-viewport",
+      "passed": true,
+      "details": {
+        "x": 608,
+        "y": 139.40625,
+        "width": 704,
+        "height": 801.1875,
+        "right": 1312,
+        "bottom": 940.59375
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-1-select-0-viewport",
+      "passed": true,
+      "details": {
+        "x": 648,
+        "y": 334.40625,
+        "width": 516,
+        "height": 130
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-1-escape-select-0",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-1-select-1-viewport",
+      "passed": true,
+      "details": {
+        "x": 663,
+        "y": 481,
+        "width": 594,
+        "height": 90
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-1-escape-select-1",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-1-detect-stability",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-1-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-device-dialog-2-dialog-in-viewport",
+      "passed": true,
+      "details": {
+        "x": 608,
+        "y": 208,
+        "width": 704,
+        "height": 664,
+        "right": 1312,
+        "bottom": 872
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-2-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-2-shift-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-2-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-2-visible-focus",
+      "passed": true,
+      "details": {
+        "visible": true,
+        "outlineWidth": "2px",
+        "outlineStyle": "solid",
+        "boxShadow": "oklab(0.723637 0.122806 0.140739 / 0.0104953) 0px 0px 0px 0.0983932px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px"
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-device-dialog-2-select-dialog-in-viewport",
+      "passed": true,
+      "details": {
+        "x": 608,
+        "y": 208,
+        "width": 704,
+        "height": 664,
+        "right": 1312,
+        "bottom": 872
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-2-select-0-viewport",
+      "passed": true,
+      "details": {
+        "x": 648,
+        "y": 403,
+        "width": 516,
+        "height": 90
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-2-escape-select-0",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-2-detect-stability",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-dialog-2-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-specifications-dialog-in-viewport",
+      "passed": true,
+      "details": {
+        "x": 416,
+        "y": 266,
+        "width": 1088,
+        "height": 548,
+        "right": 1504,
+        "bottom": 814
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-specifications-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-specifications-shift-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-specifications-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-specifications-visible-focus",
+      "passed": true,
+      "details": {
+        "visible": true,
+        "outlineWidth": "2px",
+        "outlineStyle": "solid",
+        "boxShadow": "oklab(0 0 0 / 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px"
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-specifications-escape-close",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-save-script-dialog-in-viewport",
+      "passed": true,
+      "details": {
+        "x": 608,
+        "y": 410,
+        "width": 704,
+        "height": 260,
+        "right": 1312,
+        "bottom": 670
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-save-script-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-save-script-shift-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-save-script-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-save-script-visible-focus",
+      "passed": true,
+      "details": {
+        "visible": true,
+        "outlineWidth": "2px",
+        "outlineStyle": "solid",
+        "boxShadow": "oklab(0.723637 0.122806 0.140739 / 0.0104953) 0px 0px 0px 0.0983932px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px"
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-save-script-escape-close",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-pd-action-visible",
+      "passed": true,
+      "details": {
+        "x": 196.90625,
+        "y": 184,
+        "width": 346,
+        "height": 60
+      }
+    },
+    {
+      "name": "1366x768-dpr1-pd-fields-fit-without-overlap",
+      "passed": true,
+      "details": [
+        {
+          "label": "采集卡：",
+          "x": 196.90625,
+          "y": 324,
+          "right": 536.90625,
+          "bottom": 356,
+          "width": 340,
+          "labelRight": 312.90625
+        },
+        {
+          "label": "输入通道：",
+          "x": 196.90625,
+          "y": 368,
+          "right": 536.90625,
+          "bottom": 400,
+          "width": 340,
+          "labelRight": 312.90625
+        },
+        {
+          "label": "接线方式：",
+          "x": 196.90625,
+          "y": 412,
+          "right": 536.90625,
+          "bottom": 444,
+          "width": 340,
+          "labelRight": 312.90625
+        },
+        {
+          "label": "输入量程：",
+          "x": 196.90625,
+          "y": 456,
+          "right": 536.90625,
+          "bottom": 488,
+          "width": 340,
+          "labelRight": 312.90625
+        },
+        {
+          "label": "采样率 (S/s)：",
+          "x": 196.90625,
+          "y": 500,
+          "right": 536.90625,
+          "bottom": 532,
+          "width": 340,
+          "labelRight": 312.90625
+        },
+        {
+          "label": "每批点数：",
+          "x": 196.90625,
+          "y": 593,
+          "right": 536.90625,
+          "bottom": 625,
+          "width": 340,
+          "labelRight": 312.90625
+        },
+        {
+          "label": "标定比例：",
+          "x": 196.90625,
+          "y": 637,
+          "right": 536.90625,
+          "bottom": 669,
+          "width": 340,
+          "labelRight": 312.90625
+        },
+        {
+          "label": "标定偏置：",
+          "x": 196.90625,
+          "y": 681,
+          "right": 536.90625,
+          "bottom": 713,
+          "width": 340,
+          "labelRight": 312.90625
+        },
+        {
+          "label": "显示单位：",
+          "x": 196.90625,
+          "y": 725,
+          "right": 536.90625,
+          "bottom": 757,
+          "width": 340,
+          "labelRight": 312.90625
+        },
+        {
+          "label": "保存目录：",
+          "x": 209.90625,
+          "y": 853,
+          "right": 523.90625,
+          "bottom": 889,
+          "width": 314,
+          "labelRight": 325.90625
+        }
+      ]
+    },
+    {
+      "name": "1366x768-dpr1-running-lock",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-readouts-no-overflow",
+      "passed": true,
+      "details": [
+        {
+          "text": "W @ 8 A",
+          "rect": {
+            "x": 184.90625,
+            "y": 441.03125,
+            "width": 264.515625,
+            "height": 35,
+            "right": 449.421875,
+            "bottom": 476.03125
+          },
+          "overflow": false
+        },
+        {
+          "text": "nm",
+          "rect": {
+            "x": 483.421875,
+            "y": 441.03125,
+            "width": 264.53125,
+            "height": 35,
+            "right": 747.953125,
+            "bottom": 476.03125
+          },
+          "overflow": false
+        },
+        {
+          "text": "nm",
+          "rect": {
+            "x": 781.953125,
+            "y": 441.03125,
+            "width": 264.515625,
+            "height": 35,
+            "right": 1046.46875,
+            "bottom": 476.03125
+          },
+          "overflow": false
+        },
+        {
+          "text": "%",
+          "rect": {
+            "x": 1080.46875,
+            "y": 441.03125,
+            "width": 264.53125,
+            "height": 35,
+            "right": 1345,
+            "bottom": 476.03125
+          },
+          "overflow": false
+        }
+      ]
+    },
+    {
+      "name": "1366x768-dpr1-spectrum-visible",
+      "passed": true,
+      "details": {
+        "x": 178.90625,
+        "y": 510.4375,
+        "width": 1172.09375,
+        "height": 230.5625,
+        "right": 1351,
+        "bottom": 741
+      }
+    },
+    {
+      "name": "1366x768-dpr1-synthetic-numeric-layout",
+      "passed": true,
+      "details": [
+        {
+          "passed": true,
+          "samples": [
+            {
+              "value": "9.999",
+              "passed": true
+            },
+            {
+              "value": "10.000",
+              "passed": true
+            },
+            {
+              "value": "999.999",
+              "passed": true
+            },
+            {
+              "value": "1000.000",
+              "passed": true
+            },
+            {
+              "value": "--",
+              "passed": true
+            },
+            {
+              "value": "-12.345",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "passed": true,
+          "samples": [
+            {
+              "value": "9.999",
+              "passed": true
+            },
+            {
+              "value": "10.000",
+              "passed": true
+            },
+            {
+              "value": "999.999",
+              "passed": true
+            },
+            {
+              "value": "1000.000",
+              "passed": true
+            },
+            {
+              "value": "--",
+              "passed": true
+            },
+            {
+              "value": "-12.345",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "passed": true,
+          "samples": [
+            {
+              "value": "9.999",
+              "passed": true
+            },
+            {
+              "value": "10.000",
+              "passed": true
+            },
+            {
+              "value": "999.999",
+              "passed": true
+            },
+            {
+              "value": "1000.000",
+              "passed": true
+            },
+            {
+              "value": "--",
+              "passed": true
+            },
+            {
+              "value": "-12.345",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "passed": true,
+          "samples": [
+            {
+              "value": "9.999",
+              "passed": true
+            },
+            {
+              "value": "10.000",
+              "passed": true
+            },
+            {
+              "value": "999.999",
+              "passed": true
+            },
+            {
+              "value": "1000.000",
+              "passed": true
+            },
+            {
+              "value": "--",
+              "passed": true
+            },
+            {
+              "value": "-12.345",
+              "passed": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1366x768-dpr1-device-dialog-0-dialog-in-viewport",
+      "passed": true,
+      "details": {
+        "x": 139,
+        "y": 75.5,
+        "width": 1088,
+        "height": 617,
+        "right": 1227,
+        "bottom": 692.5
+      }
+    },
+    {
+      "name": "1366x768-dpr1-dialog-0-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-dialog-0-shift-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-dialog-0-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-dialog-0-visible-focus",
+      "passed": true,
+      "details": {
+        "visible": true,
+        "outlineWidth": "2px",
+        "outlineStyle": "solid",
+        "boxShadow": "oklab(0.723637 0.122806 0.140739 / 0.0104953) 0px 0px 0px 0.0983932px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px"
+      }
+    },
+    {
+      "name": "1366x768-dpr1-dialog-0-select-2-viewport",
+      "passed": true,
+      "details": {
+        "x": 710,
+        "y": 341.5,
+        "width": 477,
+        "height": 90
+      }
+    },
+    {
+      "name": "1366x768-dpr1-dialog-0-escape-select-2",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-dialog-0-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-device-dialog-1-dialog-in-viewport",
+      "passed": true,
+      "details": {
+        "x": 331,
+        "y": 16,
+        "width": 704,
+        "height": 736,
+        "right": 1035,
+        "bottom": 752
+      }
+    },
+    {
+      "name": "1366x768-dpr1-dialog-1-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-dialog-1-shift-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-dialog-1-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-dialog-1-visible-focus",
+      "passed": true,
+      "details": {
+        "visible": true,
+        "outlineWidth": "2px",
+        "outlineStyle": "solid",
+        "boxShadow": "oklab(0 0 0 / 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px"
+      }
+    },
+    {
+      "name": "1366x768-dpr1-device-dialog-1-select-dialog-in-viewport",
+      "passed": true,
+      "details": {
+        "x": 331,
+        "y": 16,
+        "width": 704,
+        "height": 736,
+        "right": 1035,
+        "bottom": 752
+      }
+    },
+    {
+      "name": "1366x768-dpr1-dialog-1-select-0-viewport",
+      "passed": true,
+      "details": {
+        "x": 371,
+        "y": 211,
+        "width": 516,
+        "height": 130
+      }
+    },
+    {
+      "name": "1366x768-dpr1-dialog-1-escape-select-0",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-dialog-1-select-1-viewport",
+      "passed": true,
+      "details": {
+        "x": 386,
+        "y": 357.59375,
+        "width": 594,
+        "height": 90
+      }
+    },
+    {
+      "name": "1366x768-dpr1-dialog-1-escape-select-1",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-dialog-1-detect-stability",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-dialog-1-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-device-dialog-2-dialog-in-viewport",
+      "passed": true,
+      "details": {
+        "x": 331,
+        "y": 52,
+        "width": 704,
+        "height": 664,
+        "right": 1035,
+        "bottom": 716
+      }
+    },
+    {
+      "name": "1366x768-dpr1-dialog-2-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-dialog-2-shift-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-dialog-2-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-dialog-2-visible-focus",
+      "passed": true,
+      "details": {
+        "visible": true,
+        "outlineWidth": "2px",
+        "outlineStyle": "solid",
+        "boxShadow": "oklab(0 0 0 / 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px"
+      }
+    },
+    {
+      "name": "1366x768-dpr1-device-dialog-2-select-dialog-in-viewport",
+      "passed": true,
+      "details": {
+        "x": 331,
+        "y": 52,
+        "width": 704,
+        "height": 664,
+        "right": 1035,
+        "bottom": 716
+      }
+    },
+    {
+      "name": "1366x768-dpr1-dialog-2-select-0-viewport",
+      "passed": true,
+      "details": {
+        "x": 371,
+        "y": 247,
+        "width": 516,
+        "height": 90
+      }
+    },
+    {
+      "name": "1366x768-dpr1-dialog-2-escape-select-0",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-dialog-2-detect-stability",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-dialog-2-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-specifications-dialog-in-viewport",
+      "passed": true,
+      "details": {
+        "x": 139,
+        "y": 110,
+        "width": 1088,
+        "height": 548,
+        "right": 1227,
+        "bottom": 658
+      }
+    },
+    {
+      "name": "1366x768-dpr1-specifications-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-specifications-shift-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-specifications-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-specifications-visible-focus",
+      "passed": true,
+      "details": {
+        "visible": true,
+        "outlineWidth": "2px",
+        "outlineStyle": "solid",
+        "boxShadow": "oklab(0 0 0 / 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px"
+      }
+    },
+    {
+      "name": "1366x768-dpr1-specifications-escape-close",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-save-script-dialog-in-viewport",
+      "passed": true,
+      "details": {
+        "x": 331,
+        "y": 254,
+        "width": 704,
+        "height": 260,
+        "right": 1035,
+        "bottom": 514
+      }
+    },
+    {
+      "name": "1366x768-dpr1-save-script-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-save-script-shift-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-save-script-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-save-script-visible-focus",
+      "passed": true,
+      "details": {
+        "visible": true,
+        "outlineWidth": "2px",
+        "outlineStyle": "solid",
+        "boxShadow": "oklab(0 0 0 / 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px"
+      }
+    },
+    {
+      "name": "1366x768-dpr1-save-script-escape-close",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-light-dialog-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-light-dialog-shift-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-light-dialog-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-light-dialog-visible-focus",
+      "passed": true,
+      "details": {
+        "visible": true,
+        "outlineWidth": "2px",
+        "outlineStyle": "solid",
+        "boxShadow": "oklab(0.558572 0.0986444 0.108186 / 0.00787146) 0px 0px 0px 0.0983932px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px"
+      }
+    },
+    {
+      "name": "1366x768-dpr1-dialog-light-focus-dialog-in-viewport",
+      "passed": true,
+      "details": {
+        "x": 139,
+        "y": 75.5,
+        "width": 1088,
+        "height": 617,
+        "right": 1227,
+        "bottom": 692.5
+      }
+    },
+    {
+      "name": "2560x1440-dpr1-pd-action-visible",
+      "passed": true,
+      "details": {
+        "x": 221,
+        "y": 184,
+        "width": 346,
+        "height": 60
+      }
+    },
+    {
+      "name": "2560x1440-dpr1-pd-fields-fit-without-overlap",
+      "passed": true,
+      "details": [
+        {
+          "label": "采集卡：",
+          "x": 221,
+          "y": 324,
+          "right": 561,
+          "bottom": 356,
+          "width": 340,
+          "labelRight": 337
+        },
+        {
+          "label": "输入通道：",
+          "x": 221,
+          "y": 368,
+          "right": 561,
+          "bottom": 400,
+          "width": 340,
+          "labelRight": 337
+        },
+        {
+          "label": "接线方式：",
+          "x": 221,
+          "y": 412,
+          "right": 561,
+          "bottom": 444,
+          "width": 340,
+          "labelRight": 337
+        },
+        {
+          "label": "输入量程：",
+          "x": 221,
+          "y": 456,
+          "right": 561,
+          "bottom": 488,
+          "width": 340,
+          "labelRight": 337
+        },
+        {
+          "label": "采样率 (S/s)：",
+          "x": 221,
+          "y": 500,
+          "right": 561,
+          "bottom": 532,
+          "width": 340,
+          "labelRight": 337
+        },
+        {
+          "label": "每批点数：",
+          "x": 221,
+          "y": 593,
+          "right": 561,
+          "bottom": 625,
+          "width": 340,
+          "labelRight": 337
+        },
+        {
+          "label": "标定比例：",
+          "x": 221,
+          "y": 637,
+          "right": 561,
+          "bottom": 669,
+          "width": 340,
+          "labelRight": 337
+        },
+        {
+          "label": "标定偏置：",
+          "x": 221,
+          "y": 681,
+          "right": 561,
+          "bottom": 713,
+          "width": 340,
+          "labelRight": 337
+        },
+        {
+          "label": "显示单位：",
+          "x": 221,
+          "y": 725,
+          "right": 561,
+          "bottom": 757,
+          "width": 340,
+          "labelRight": 337
+        },
+        {
+          "label": "保存目录：",
+          "x": 234,
+          "y": 853,
+          "right": 548,
+          "bottom": 889,
+          "width": 314,
+          "labelRight": 350
+        }
+      ]
+    },
+    {
+      "name": "2560x1440-dpr1-running-lock",
+      "passed": true
+    },
+    {
+      "name": "2560x1440-dpr1-readouts-no-overflow",
+      "passed": true,
+      "details": [
+        {
+          "text": "W @ 8 A",
+          "rect": {
+            "x": 217,
+            "y": 829.0625,
+            "width": 544,
+            "height": 40,
+            "right": 761,
+            "bottom": 869.0625
+          },
+          "overflow": false
+        },
+        {
+          "text": "nm",
+          "rect": {
+            "x": 807,
+            "y": 829.0625,
+            "width": 544,
+            "height": 40,
+            "right": 1351,
+            "bottom": 869.0625
+          },
+          "overflow": false
+        },
+        {
+          "text": "nm",
+          "rect": {
+            "x": 1397,
+            "y": 829.0625,
+            "width": 544,
+            "height": 40,
+            "right": 1941,
+            "bottom": 869.0625
+          },
+          "overflow": false
+        },
+        {
+          "text": "%",
+          "rect": {
+            "x": 1987,
+            "y": 829.0625,
+            "width": 544,
+            "height": 40,
+            "right": 2531,
+            "bottom": 869.0625
+          },
+          "overflow": false
+        }
+      ]
+    },
+    {
+      "name": "2560x1440-dpr1-spectrum-visible",
+      "passed": true,
+      "details": {
+        "x": 207,
+        "y": 907.453125,
+        "width": 2334,
+        "height": 501.546875,
+        "right": 2541,
+        "bottom": 1409
+      }
+    },
+    {
+      "name": "2560x1440-dpr1-synthetic-numeric-layout",
+      "passed": true,
+      "details": [
+        {
+          "passed": true,
+          "samples": [
+            {
+              "value": "9.999",
+              "passed": true
+            },
+            {
+              "value": "10.000",
+              "passed": true
+            },
+            {
+              "value": "999.999",
+              "passed": true
+            },
+            {
+              "value": "1000.000",
+              "passed": true
+            },
+            {
+              "value": "--",
+              "passed": true
+            },
+            {
+              "value": "-12.345",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "passed": true,
+          "samples": [
+            {
+              "value": "9.999",
+              "passed": true
+            },
+            {
+              "value": "10.000",
+              "passed": true
+            },
+            {
+              "value": "999.999",
+              "passed": true
+            },
+            {
+              "value": "1000.000",
+              "passed": true
+            },
+            {
+              "value": "--",
+              "passed": true
+            },
+            {
+              "value": "-12.345",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "passed": true,
+          "samples": [
+            {
+              "value": "9.999",
+              "passed": true
+            },
+            {
+              "value": "10.000",
+              "passed": true
+            },
+            {
+              "value": "999.999",
+              "passed": true
+            },
+            {
+              "value": "1000.000",
+              "passed": true
+            },
+            {
+              "value": "--",
+              "passed": true
+            },
+            {
+              "value": "-12.345",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "passed": true,
+          "samples": [
+            {
+              "value": "9.999",
+              "passed": true
+            },
+            {
+              "value": "10.000",
+              "passed": true
+            },
+            {
+              "value": "999.999",
+              "passed": true
+            },
+            {
+              "value": "1000.000",
+              "passed": true
+            },
+            {
+              "value": "--",
+              "passed": true
+            },
+            {
+              "value": "-12.345",
+              "passed": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1536x864-dpr1.25-pd-action-visible",
+      "passed": true,
+      "details": {
+        "x": 217.3125,
+        "y": 184,
+        "width": 346,
+        "height": 60
+      }
+    },
+    {
+      "name": "1536x864-dpr1.25-pd-fields-fit-without-overlap",
+      "passed": true,
+      "details": [
+        {
+          "label": "采集卡：",
+          "x": 217.3125,
+          "y": 324,
+          "right": 557.3125,
+          "bottom": 356,
+          "width": 340,
+          "labelRight": 333.3125
+        },
+        {
+          "label": "输入通道：",
+          "x": 217.3125,
+          "y": 368,
+          "right": 557.3125,
+          "bottom": 400,
+          "width": 340,
+          "labelRight": 333.3125
+        },
+        {
+          "label": "接线方式：",
+          "x": 217.3125,
+          "y": 412,
+          "right": 557.3125,
+          "bottom": 444,
+          "width": 340,
+          "labelRight": 333.3125
+        },
+        {
+          "label": "输入量程：",
+          "x": 217.3125,
+          "y": 456,
+          "right": 557.3125,
+          "bottom": 488,
+          "width": 340,
+          "labelRight": 333.3125
+        },
+        {
+          "label": "采样率 (S/s)：",
+          "x": 217.3125,
+          "y": 500,
+          "right": 557.3125,
+          "bottom": 532,
+          "width": 340,
+          "labelRight": 333.3125
+        },
+        {
+          "label": "每批点数：",
+          "x": 217.3125,
+          "y": 593,
+          "right": 557.3125,
+          "bottom": 625,
+          "width": 340,
+          "labelRight": 333.3125
+        },
+        {
+          "label": "标定比例：",
+          "x": 217.3125,
+          "y": 637,
+          "right": 557.3125,
+          "bottom": 669,
+          "width": 340,
+          "labelRight": 333.3125
+        },
+        {
+          "label": "标定偏置：",
+          "x": 217.3125,
+          "y": 681,
+          "right": 557.3125,
+          "bottom": 713,
+          "width": 340,
+          "labelRight": 333.3125
+        },
+        {
+          "label": "显示单位：",
+          "x": 217.3125,
+          "y": 725,
+          "right": 557.3125,
+          "bottom": 757,
+          "width": 340,
+          "labelRight": 333.3125
+        },
+        {
+          "label": "保存目录：",
+          "x": 230.3125,
+          "y": 853,
+          "right": 544.3125,
+          "bottom": 889,
+          "width": 314,
+          "labelRight": 346.3125
+        }
+      ]
+    },
+    {
+      "name": "1536x864-dpr1.25-running-lock",
+      "passed": true
+    },
+    {
+      "name": "1536x864-dpr1.25-readouts-no-overflow",
+      "passed": true,
+      "details": [
+        {
+          "text": "W @ 8 A",
+          "rect": {
+            "x": 205.3125,
+            "y": 481.359375,
+            "width": 301.921875,
+            "height": 35,
+            "right": 507.234375,
+            "bottom": 516.359375
+          },
+          "overflow": false
+        },
+        {
+          "text": "nm",
+          "rect": {
+            "x": 541.234375,
+            "y": 481.359375,
+            "width": 301.921875,
+            "height": 35,
+            "right": 843.15625,
+            "bottom": 516.359375
+          },
+          "overflow": false
+        },
+        {
+          "text": "nm",
+          "rect": {
+            "x": 877.15625,
+            "y": 481.359375,
+            "width": 301.921875,
+            "height": 35,
+            "right": 1179.078125,
+            "bottom": 516.359375
+          },
+          "overflow": false
+        },
+        {
+          "text": "%",
+          "rect": {
+            "x": 1213.078125,
+            "y": 481.359375,
+            "width": 301.921875,
+            "height": 35,
+            "right": 1515,
+            "bottom": 516.359375
+          },
+          "overflow": false
+        }
+      ]
+    },
+    {
+      "name": "1536x864-dpr1.25-synthetic-numeric-layout",
+      "passed": true,
+      "details": [
+        {
+          "passed": true,
+          "samples": [
+            {
+              "value": "9.999",
+              "passed": true
+            },
+            {
+              "value": "10.000",
+              "passed": true
+            },
+            {
+              "value": "999.999",
+              "passed": true
+            },
+            {
+              "value": "1000.000",
+              "passed": true
+            },
+            {
+              "value": "--",
+              "passed": true
+            },
+            {
+              "value": "-12.345",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "passed": true,
+          "samples": [
+            {
+              "value": "9.999",
+              "passed": true
+            },
+            {
+              "value": "10.000",
+              "passed": true
+            },
+            {
+              "value": "999.999",
+              "passed": true
+            },
+            {
+              "value": "1000.000",
+              "passed": true
+            },
+            {
+              "value": "--",
+              "passed": true
+            },
+            {
+              "value": "-12.345",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "passed": true,
+          "samples": [
+            {
+              "value": "9.999",
+              "passed": true
+            },
+            {
+              "value": "10.000",
+              "passed": true
+            },
+            {
+              "value": "999.999",
+              "passed": true
+            },
+            {
+              "value": "1000.000",
+              "passed": true
+            },
+            {
+              "value": "--",
+              "passed": true
+            },
+            {
+              "value": "-12.345",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "passed": true,
+          "samples": [
+            {
+              "value": "9.999",
+              "passed": true
+            },
+            {
+              "value": "10.000",
+              "passed": true
+            },
+            {
+              "value": "999.999",
+              "passed": true
+            },
+            {
+              "value": "1000.000",
+              "passed": true
+            },
+            {
+              "value": "--",
+              "passed": true
+            },
+            {
+              "value": "-12.345",
+              "passed": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1280x720-dpr1.5-pd-action-visible",
+      "passed": true,
+      "details": {
+        "x": 193,
+        "y": 184,
+        "width": 346,
+        "height": 60
+      }
+    },
+    {
+      "name": "1280x720-dpr1.5-pd-fields-fit-without-overlap",
+      "passed": true,
+      "details": [
+        {
+          "label": "采集卡：",
+          "x": 193,
+          "y": 324,
+          "right": 533,
+          "bottom": 356,
+          "width": 340,
+          "labelRight": 309
+        },
+        {
+          "label": "输入通道：",
+          "x": 193,
+          "y": 368,
+          "right": 533,
+          "bottom": 400,
+          "width": 340,
+          "labelRight": 309
+        },
+        {
+          "label": "接线方式：",
+          "x": 193,
+          "y": 412,
+          "right": 533,
+          "bottom": 444,
+          "width": 340,
+          "labelRight": 309
+        },
+        {
+          "label": "输入量程：",
+          "x": 193,
+          "y": 456,
+          "right": 533,
+          "bottom": 488,
+          "width": 340,
+          "labelRight": 309
+        },
+        {
+          "label": "采样率 (S/s)：",
+          "x": 193,
+          "y": 500,
+          "right": 533,
+          "bottom": 532,
+          "width": 340,
+          "labelRight": 309
+        },
+        {
+          "label": "每批点数：",
+          "x": 193,
+          "y": 593,
+          "right": 533,
+          "bottom": 625,
+          "width": 340,
+          "labelRight": 309
+        },
+        {
+          "label": "标定比例：",
+          "x": 193,
+          "y": 637,
+          "right": 533,
+          "bottom": 669,
+          "width": 340,
+          "labelRight": 309
+        },
+        {
+          "label": "标定偏置：",
+          "x": 193,
+          "y": 681,
+          "right": 533,
+          "bottom": 713,
+          "width": 340,
+          "labelRight": 309
+        },
+        {
+          "label": "显示单位：",
+          "x": 193,
+          "y": 725,
+          "right": 533,
+          "bottom": 757,
+          "width": 340,
+          "labelRight": 309
+        },
+        {
+          "label": "保存目录：",
+          "x": 206,
+          "y": 853,
+          "right": 520,
+          "bottom": 889,
+          "width": 314,
+          "labelRight": 322
+        }
+      ]
+    },
+    {
+      "name": "1280x720-dpr1.5-running-lock",
+      "passed": true
+    },
+    {
+      "name": "1280x720-dpr1.5-readouts-no-overflow",
+      "passed": true,
+      "details": [
+        {
+          "text": "W @ 8 A",
+          "rect": {
+            "x": 181,
+            "y": 417.390625,
+            "width": 244,
+            "height": 35,
+            "right": 425,
+            "bottom": 452.390625
+          },
+          "overflow": false
+        },
+        {
+          "text": "nm",
+          "rect": {
+            "x": 459,
+            "y": 417.390625,
+            "width": 244,
+            "height": 35,
+            "right": 703,
+            "bottom": 452.390625
+          },
+          "overflow": false
+        },
+        {
+          "text": "nm",
+          "rect": {
+            "x": 737,
+            "y": 417.390625,
+            "width": 244,
+            "height": 35,
+            "right": 981,
+            "bottom": 452.390625
+          },
+          "overflow": false
+        },
+        {
+          "text": "%",
+          "rect": {
+            "x": 1015,
+            "y": 417.390625,
+            "width": 244,
+            "height": 35,
+            "right": 1259,
+            "bottom": 452.390625
+          },
+          "overflow": false
+        }
+      ]
+    },
+    {
+      "name": "1280x720-dpr1.5-synthetic-numeric-layout",
+      "passed": false,
+      "details": [
+        {
+          "passed": false,
+          "samples": [
+            {
+              "value": "9.999",
+              "passed": true
+            },
+            {
+              "value": "10.000",
+              "passed": true
+            },
+            {
+              "value": "999.999",
+              "passed": true
+            },
+            {
+              "value": "1000.000",
+              "passed": false
+            },
+            {
+              "value": "--",
+              "passed": true
+            },
+            {
+              "value": "-12.345",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "passed": true,
+          "samples": [
+            {
+              "value": "9.999",
+              "passed": true
+            },
+            {
+              "value": "10.000",
+              "passed": true
+            },
+            {
+              "value": "999.999",
+              "passed": true
+            },
+            {
+              "value": "1000.000",
+              "passed": true
+            },
+            {
+              "value": "--",
+              "passed": true
+            },
+            {
+              "value": "-12.345",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "passed": true,
+          "samples": [
+            {
+              "value": "9.999",
+              "passed": true
+            },
+            {
+              "value": "10.000",
+              "passed": true
+            },
+            {
+              "value": "999.999",
+              "passed": true
+            },
+            {
+              "value": "1000.000",
+              "passed": true
+            },
+            {
+              "value": "--",
+              "passed": true
+            },
+            {
+              "value": "-12.345",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "passed": true,
+          "samples": [
+            {
+              "value": "9.999",
+              "passed": true
+            },
+            {
+              "value": "10.000",
+              "passed": true
+            },
+            {
+              "value": "999.999",
+              "passed": true
+            },
+            {
+              "value": "1000.000",
+              "passed": true
+            },
+            {
+              "value": "--",
+              "passed": true
+            },
+            {
+              "value": "-12.345",
+              "passed": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "960x540-dpr2-pd-action-visible",
+      "passed": true,
+      "details": {
+        "x": 193,
+        "y": 184,
+        "width": 270,
+        "height": 60
+      }
+    },
+    {
+      "name": "960x540-dpr2-pd-fields-fit-without-overlap",
+      "passed": true,
+      "details": [
+        {
+          "label": "采集卡：",
+          "x": 193,
+          "y": 324,
+          "right": 457,
+          "bottom": 356,
+          "width": 264,
+          "labelRight": 309
+        },
+        {
+          "label": "输入通道：",
+          "x": 193,
+          "y": 368,
+          "right": 457,
+          "bottom": 400,
+          "width": 264,
+          "labelRight": 309
+        },
+        {
+          "label": "接线方式：",
+          "x": 193,
+          "y": 412,
+          "right": 457,
+          "bottom": 444,
+          "width": 264,
+          "labelRight": 309
+        },
+        {
+          "label": "输入量程：",
+          "x": 193,
+          "y": 456,
+          "right": 457,
+          "bottom": 488,
+          "width": 264,
+          "labelRight": 309
+        },
+        {
+          "label": "采样率 (S/s)：",
+          "x": 193,
+          "y": 500,
+          "right": 457,
+          "bottom": 532,
+          "width": 264,
+          "labelRight": 309
+        },
+        {
+          "label": "每批点数：",
+          "x": 193,
+          "y": 593,
+          "right": 457,
+          "bottom": 625,
+          "width": 264,
+          "labelRight": 309
+        },
+        {
+          "label": "标定比例：",
+          "x": 193,
+          "y": 637,
+          "right": 457,
+          "bottom": 669,
+          "width": 264,
+          "labelRight": 309
+        },
+        {
+          "label": "标定偏置：",
+          "x": 193,
+          "y": 681,
+          "right": 457,
+          "bottom": 713,
+          "width": 264,
+          "labelRight": 309
+        },
+        {
+          "label": "显示单位：",
+          "x": 193,
+          "y": 725,
+          "right": 457,
+          "bottom": 757,
+          "width": 264,
+          "labelRight": 309
+        },
+        {
+          "label": "保存目录：",
+          "x": 206,
+          "y": 869,
+          "right": 444,
+          "bottom": 905,
+          "width": 238,
+          "labelRight": 322
+        }
+      ]
+    },
+    {
+      "name": "960x540-dpr2-running-lock",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-readouts-no-overflow",
+      "passed": true,
+      "details": [
+        {
+          "text": "W @ 8 A",
+          "rect": {
+            "x": 183.390625,
+            "y": 307.359375,
+            "width": 359.21875,
+            "height": 30,
+            "right": 542.609375,
+            "bottom": 337.359375
+          },
+          "overflow": false
+        },
+        {
+          "text": "nm",
+          "rect": {
+            "x": 577.390625,
+            "y": 307.359375,
+            "width": 359.21875,
+            "height": 30,
+            "right": 936.609375,
+            "bottom": 337.359375
+          },
+          "overflow": false
+        },
+        {
+          "text": "nm",
+          "rect": {
+            "x": 183.390625,
+            "y": 383.328125,
+            "width": 359.21875,
+            "height": 30,
+            "right": 542.609375,
+            "bottom": 413.328125
+          },
+          "overflow": false
+        },
+        {
+          "text": "%",
+          "rect": {
+            "x": 577.390625,
+            "y": 383.328125,
+            "width": 359.21875,
+            "height": 30,
+            "right": 936.609375,
+            "bottom": 413.328125
+          },
+          "overflow": false
+        }
+      ]
+    },
+    {
+      "name": "960x540-dpr2-synthetic-numeric-layout",
+      "passed": true,
+      "details": [
+        {
+          "passed": true,
+          "samples": [
+            {
+              "value": "9.999",
+              "passed": true
+            },
+            {
+              "value": "10.000",
+              "passed": true
+            },
+            {
+              "value": "999.999",
+              "passed": true
+            },
+            {
+              "value": "1000.000",
+              "passed": true
+            },
+            {
+              "value": "--",
+              "passed": true
+            },
+            {
+              "value": "-12.345",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "passed": true,
+          "samples": [
+            {
+              "value": "9.999",
+              "passed": true
+            },
+            {
+              "value": "10.000",
+              "passed": true
+            },
+            {
+              "value": "999.999",
+              "passed": true
+            },
+            {
+              "value": "1000.000",
+              "passed": true
+            },
+            {
+              "value": "--",
+              "passed": true
+            },
+            {
+              "value": "-12.345",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "passed": true,
+          "samples": [
+            {
+              "value": "9.999",
+              "passed": true
+            },
+            {
+              "value": "10.000",
+              "passed": true
+            },
+            {
+              "value": "999.999",
+              "passed": true
+            },
+            {
+              "value": "1000.000",
+              "passed": true
+            },
+            {
+              "value": "--",
+              "passed": true
+            },
+            {
+              "value": "-12.345",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "passed": true,
+          "samples": [
+            {
+              "value": "9.999",
+              "passed": true
+            },
+            {
+              "value": "10.000",
+              "passed": true
+            },
+            {
+              "value": "999.999",
+              "passed": true
+            },
+            {
+              "value": "1000.000",
+              "passed": true
+            },
+            {
+              "value": "--",
+              "passed": true
+            },
+            {
+              "value": "-12.345",
+              "passed": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "960x540-dpr2-device-dialog-0-dialog-in-viewport",
+      "passed": true,
+      "details": {
+        "x": 16,
+        "y": 16,
+        "width": 928,
+        "height": 508,
+        "right": 944,
+        "bottom": 524
+      }
+    },
+    {
+      "name": "960x540-dpr2-dialog-0-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-dialog-0-shift-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-dialog-0-background-inert",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-dialog-0-visible-focus",
+      "passed": true,
+      "details": {
+        "visible": true,
+        "outlineWidth": "2px",
+        "outlineStyle": "solid",
+        "boxShadow": "oklab(0 0 0 / 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px"
+      }
+    },
+    {
+      "name": "960x540-dpr2-dialog-0-select-2-viewport",
+      "passed": true,
+      "details": {
+        "x": 507,
+        "y": 262,
+        "width": 403,
+        "height": 90
+      }
+    },
+    {
+      "name": "960x540-dpr2-dialog-0-escape-select-2",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-dialog-0-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-device-dialog-1-dialog-in-viewport",
+      "passed": true,
+      "details": {
+        "x": 128,
+        "y": 16,
+        "width": 704,
+        "height": 508,
+        "right": 832,
+        "bottom": 524
+      }
+    },
+    {
+      "name": "960x540-dpr2-dialog-1-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-dialog-1-shift-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-dialog-1-background-inert",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-dialog-1-visible-focus",
+      "passed": true,
+      "details": {
+        "visible": true,
+        "outlineWidth": "2px",
+        "outlineStyle": "solid",
+        "boxShadow": "oklab(0.723637 0.122806 0.140739 / 0.0104068) 0px 0px 0px 0.0975638px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px"
+      }
+    },
+    {
+      "name": "960x540-dpr2-device-dialog-1-select-dialog-in-viewport",
+      "passed": true,
+      "details": {
+        "x": 128,
+        "y": 16,
+        "width": 704,
+        "height": 508,
+        "right": 832,
+        "bottom": 524
+      }
+    },
+    {
+      "name": "960x540-dpr2-dialog-1-select-0-viewport",
+      "passed": true,
+      "details": {
+        "x": 162,
+        "y": 191,
+        "width": 528,
+        "height": 130
+      }
+    },
+    {
+      "name": "960x540-dpr2-dialog-1-escape-select-0",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-dialog-1-select-1-viewport",
+      "passed": true,
+      "details": {
+        "x": 177,
+        "y": 203.59375,
+        "width": 606,
+        "height": 90
+      }
+    },
+    {
+      "name": "960x540-dpr2-dialog-1-escape-select-1",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-dialog-1-detect-stability",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-dialog-1-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-device-dialog-2-dialog-in-viewport",
+      "passed": true,
+      "details": {
+        "x": 128,
+        "y": 16,
+        "width": 704,
+        "height": 508,
+        "right": 832,
+        "bottom": 524
+      }
+    },
+    {
+      "name": "960x540-dpr2-dialog-2-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-dialog-2-shift-tab-contained",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-dialog-2-background-inert",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-dialog-2-visible-focus",
+      "passed": true,
+      "details": {
+        "visible": true,
+        "outlineWidth": "2px",
+        "outlineStyle": "solid",
+        "boxShadow": "oklab(0 0 0 / 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px, rgba(0, 0, 0, 0) 0px 0px 0px 0px"
+      }
+    },
+    {
+      "name": "960x540-dpr2-device-dialog-2-select-dialog-in-viewport",
+      "passed": true,
+      "details": {
+        "x": 128,
+        "y": 16,
+        "width": 704,
+        "height": 508,
+        "right": 832,
+        "bottom": 524
+      }
+    },
+    {
+      "name": "960x540-dpr2-dialog-2-select-0-viewport",
+      "passed": true,
+      "details": {
+        "x": 162,
+        "y": 191,
+        "width": 528,
+        "height": 90
+      }
+    },
+    {
+      "name": "960x540-dpr2-dialog-2-escape-select-0",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-dialog-2-detect-stability",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-dialog-2-focus-restored",
+      "passed": true
+    }
+  ]
+}
+{
+  "browserOnly": true,
+  "fixturesAreSynthetic": true,
+  "errors": [],
+  "checks": [
+    {
+      "name": "1920x1080-dpr1-protection-dialog-bounded",
+      "passed": true,
+      "details": {
+        "x": 736,
+        "y": 16,
+        "width": 448,
+        "height": 1048
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-protection-footer-visible",
+      "passed": true,
+      "details": {
+        "x": 737,
+        "y": 1002,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-protection-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-protection-reverse-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-protection-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-protection-ack-required",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-dialog-bounded",
+      "passed": true,
+      "details": {
+        "x": 736,
+        "y": 16,
+        "width": 448,
+        "height": 1048
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-footer-visible",
+      "passed": true,
+      "details": {
+        "x": 737,
+        "y": 1002,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-reverse-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-unsafe-exit-disabled",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-pause-dialog-bounded",
+      "passed": true,
+      "details": {
+        "x": 736,
+        "y": 16,
+        "width": 448,
+        "height": 1048
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-pause-footer-visible",
+      "passed": true,
+      "details": {
+        "x": 737,
+        "y": 1002,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-pause-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-pause-reverse-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-pause-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-pause-ack-required",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-pd-running-stop-enabled",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-pd-running-stop-visible",
+      "passed": true,
+      "details": {
+        "x": 33,
+        "y": 149,
+        "width": 346,
+        "height": 32
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-pd-running-parameters-disabled",
+      "passed": true,
+      "details": {
+        "enabledFields": 0
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-readout-geometry-10.000",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 92.453125,
+          "y": 72.171875,
+          "width": 80.078125,
+          "height": 40
+        },
+        "rect": {
+          "x": 83.5625,
+          "y": 72.171875,
+          "width": 97.875,
+          "height": 40
+        },
+        "unitBefore": {
+          "x": 178.921875,
+          "y": 91.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 187.828125,
+          "y": 91.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-readout-geometry-999.999",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 92.453125,
+          "y": 72.171875,
+          "width": 80.078125,
+          "height": 40
+        },
+        "rect": {
+          "x": 74.65625,
+          "y": 72.171875,
+          "width": 115.671875,
+          "height": 40
+        },
+        "unitBefore": {
+          "x": 178.921875,
+          "y": 91.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 196.71875,
+          "y": 91.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-readout-geometry-1000.000",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 92.453125,
+          "y": 72.171875,
+          "width": 80.078125,
+          "height": 40
+        },
+        "rect": {
+          "x": 65.765625,
+          "y": 72.171875,
+          "width": 133.46875,
+          "height": 40
+        },
+        "unitBefore": {
+          "x": 178.921875,
+          "y": 91.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 205.625,
+          "y": 91.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-readout-geometry---",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 92.453125,
+          "y": 72.171875,
+          "width": 80.078125,
+          "height": 40
+        },
+        "rect": {
+          "x": 121.84375,
+          "y": 72.171875,
+          "width": 21.3125,
+          "height": 40
+        },
+        "unitBefore": {
+          "x": 178.921875,
+          "y": 91.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 149.546875,
+          "y": 91.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-readout-geometry--12.345",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 92.453125,
+          "y": 72.171875,
+          "width": 80.078125,
+          "height": 40
+        },
+        "rect": {
+          "x": 78.234375,
+          "y": 72.171875,
+          "width": 108.53125,
+          "height": 40
+        },
+        "unitBefore": {
+          "x": 178.921875,
+          "y": 91.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 193.15625,
+          "y": 91.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-readout-reduced-motion-no-animation",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-protection-dialog-bounded",
+      "passed": true,
+      "details": {
+        "x": 459,
+        "y": 16,
+        "width": 448,
+        "height": 736
+      }
+    },
+    {
+      "name": "1366x768-dpr1-protection-footer-visible",
+      "passed": true,
+      "details": {
+        "x": 460,
+        "y": 690,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "1366x768-dpr1-protection-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-protection-reverse-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-protection-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-protection-ack-required",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-dialog-bounded",
+      "passed": true,
+      "details": {
+        "x": 459,
+        "y": 16,
+        "width": 448,
+        "height": 736
+      }
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-footer-visible",
+      "passed": true,
+      "details": {
+        "x": 460,
+        "y": 690,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-reverse-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-unsafe-exit-disabled",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-pause-dialog-bounded",
+      "passed": true,
+      "details": {
+        "x": 459,
+        "y": 16,
+        "width": 448,
+        "height": 736
+      }
+    },
+    {
+      "name": "1366x768-dpr1-pause-footer-visible",
+      "passed": true,
+      "details": {
+        "x": 460,
+        "y": 690,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "1366x768-dpr1-pause-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-pause-reverse-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-pause-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-pause-ack-required",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-pd-running-stop-enabled",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-pd-running-stop-visible",
+      "passed": true,
+      "details": {
+        "x": 33,
+        "y": 149,
+        "width": 346,
+        "height": 32
+      }
+    },
+    {
+      "name": "1366x768-dpr1-pd-running-parameters-disabled",
+      "passed": true,
+      "details": {
+        "enabledFields": 0
+      }
+    },
+    {
+      "name": "1366x768-dpr1-readout-geometry-10.000",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 98.984375,
+          "y": 69.78125,
+          "width": 70.03125,
+          "height": 35
+        },
+        "rect": {
+          "x": 91.203125,
+          "y": 69.78125,
+          "width": 85.59375,
+          "height": 35
+        },
+        "unitBefore": {
+          "x": 175.40625,
+          "y": 84.78125,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 183.1875,
+          "y": 84.78125,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "1366x768-dpr1-readout-geometry-999.999",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 98.984375,
+          "y": 69.78125,
+          "width": 70.03125,
+          "height": 35
+        },
+        "rect": {
+          "x": 83.421875,
+          "y": 69.78125,
+          "width": 101.15625,
+          "height": 35
+        },
+        "unitBefore": {
+          "x": 175.40625,
+          "y": 84.78125,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 190.96875,
+          "y": 84.78125,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "1366x768-dpr1-readout-geometry-1000.000",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 98.984375,
+          "y": 69.78125,
+          "width": 70.03125,
+          "height": 35
+        },
+        "rect": {
+          "x": 75.640625,
+          "y": 69.78125,
+          "width": 116.71875,
+          "height": 35
+        },
+        "unitBefore": {
+          "x": 175.40625,
+          "y": 84.78125,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 198.75,
+          "y": 84.78125,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "1366x768-dpr1-readout-geometry---",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 98.984375,
+          "y": 69.78125,
+          "width": 70.03125,
+          "height": 35
+        },
+        "rect": {
+          "x": 124.671875,
+          "y": 69.78125,
+          "width": 18.65625,
+          "height": 35
+        },
+        "unitBefore": {
+          "x": 175.40625,
+          "y": 84.78125,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 149.71875,
+          "y": 84.78125,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "1366x768-dpr1-readout-geometry--12.345",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 98.984375,
+          "y": 69.78125,
+          "width": 70.03125,
+          "height": 35
+        },
+        "rect": {
+          "x": 86.53125,
+          "y": 69.78125,
+          "width": 94.921875,
+          "height": 35
+        },
+        "unitBefore": {
+          "x": 175.40625,
+          "y": 84.78125,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 187.84375,
+          "y": 84.78125,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "1366x768-dpr1-readout-reduced-motion-no-animation",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-protection-dialog-bounded",
+      "passed": true,
+      "details": {
+        "x": 256,
+        "y": 16,
+        "width": 448,
+        "height": 508
+      }
+    },
+    {
+      "name": "960x540-dpr2-protection-footer-visible",
+      "passed": true,
+      "details": {
+        "x": 257,
+        "y": 462,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "960x540-dpr2-protection-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-protection-reverse-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-protection-background-inert",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-protection-ack-required",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-shutdown-dialog-bounded",
+      "passed": true,
+      "details": {
+        "x": 256,
+        "y": 16,
+        "width": 448,
+        "height": 508
+      }
+    },
+    {
+      "name": "960x540-dpr2-shutdown-footer-visible",
+      "passed": true,
+      "details": {
+        "x": 257,
+        "y": 462,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "960x540-dpr2-shutdown-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-shutdown-reverse-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-shutdown-background-inert",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-shutdown-unsafe-exit-disabled",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-pause-dialog-bounded",
+      "passed": true,
+      "details": {
+        "x": 256,
+        "y": 16,
+        "width": 448,
+        "height": 508
+      }
+    },
+    {
+      "name": "960x540-dpr2-pause-footer-visible",
+      "passed": true,
+      "details": {
+        "x": 257,
+        "y": 462,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "960x540-dpr2-pause-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-pause-reverse-tab-trapped",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-pause-background-inert",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-pause-ack-required",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-pd-running-stop-enabled",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-pd-running-stop-visible",
+      "passed": true,
+      "details": {
+        "x": 33,
+        "y": 149,
+        "width": 270,
+        "height": 32
+      }
+    },
+    {
+      "name": "960x540-dpr2-pd-running-parameters-disabled",
+      "passed": true,
+      "details": {
+        "enabledFields": 0
+      }
+    },
+    {
+      "name": "960x540-dpr2-readout-geometry-10.000",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 214.96875,
+          "y": 72.171875,
+          "width": 60.046875,
+          "height": 30
+        },
+        "rect": {
+          "x": 208.296875,
+          "y": 72.171875,
+          "width": 73.390625,
+          "height": 30
+        },
+        "unitBefore": {
+          "x": 281.40625,
+          "y": 82.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 288.078125,
+          "y": 82.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "960x540-dpr2-readout-geometry-999.999",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 214.96875,
+          "y": 72.171875,
+          "width": 60.046875,
+          "height": 30
+        },
+        "rect": {
+          "x": 201.625,
+          "y": 72.171875,
+          "width": 86.734375,
+          "height": 30
+        },
+        "unitBefore": {
+          "x": 281.40625,
+          "y": 82.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 294.75,
+          "y": 82.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "960x540-dpr2-readout-geometry-1000.000",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 214.96875,
+          "y": 72.171875,
+          "width": 60.046875,
+          "height": 30
+        },
+        "rect": {
+          "x": 194.953125,
+          "y": 72.171875,
+          "width": 100.078125,
+          "height": 30
+        },
+        "unitBefore": {
+          "x": 281.40625,
+          "y": 82.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 301.421875,
+          "y": 82.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "960x540-dpr2-readout-geometry---",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 214.96875,
+          "y": 72.171875,
+          "width": 60.046875,
+          "height": 30
+        },
+        "rect": {
+          "x": 237,
+          "y": 72.171875,
+          "width": 15.984375,
+          "height": 30
+        },
+        "unitBefore": {
+          "x": 281.40625,
+          "y": 82.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 259.375,
+          "y": 82.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "960x540-dpr2-readout-geometry--12.345",
+      "passed": true,
+      "details": {
+        "before": {
+          "x": 214.96875,
+          "y": 72.171875,
+          "width": 60.046875,
+          "height": 30
+        },
+        "rect": {
+          "x": 204.296875,
+          "y": 72.171875,
+          "width": 81.390625,
+          "height": 30
+        },
+        "unitBefore": {
+          "x": 281.40625,
+          "y": 82.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        },
+        "unitAfter": {
+          "x": 292.078125,
+          "y": 82.171875,
+          "width": 12.09375,
+          "height": 15.984375
+        }
+      }
+    },
+    {
+      "name": "960x540-dpr2-readout-reduced-motion-no-animation",
+      "passed": true
+    }
+  ],
+  "captures": [
+    "1920x1080-dpr1-protection.png",
+    "1920x1080-dpr1-shutdown.png",
+    "1920x1080-dpr1-pause.png",
+    "1920x1080-dpr1-pd-running.png",
+    "1920x1080-dpr1-readout.png",
+    "1366x768-dpr1-protection.png",
+    "1366x768-dpr1-shutdown.png",
+    "1366x768-dpr1-pause.png",
+    "1366x768-dpr1-pd-running.png",
+    "1366x768-dpr1-readout.png",
+    "960x540-dpr2-protection.png",
+    "960x540-dpr2-shutdown.png",
+    "960x540-dpr2-pause.png",
+    "960x540-dpr2-pd-running.png",
+    "960x540-dpr2-readout.png"
+  ]
+}
+{
+  "captures": 42,
+  "checks": 222,
+  "errors": [],
+  "failures": []
+}

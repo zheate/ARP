@@ -1,0 +1,21 @@
+✔ invalid stored appearance falls back safely and numeric ranges stay bounded (1.467ms)
+✔ stored appearance preserves independent valid choices (0.291375ms)
+✔ trail uses sample time and clamps to the visible domain (0.246708ms)
+✔ reveal follows received targets, retargets continuously, and finishes without new samples (0.761792ms)
+✔ partial linear paths keep gaps and return the exact visible endpoint without mutating samples (0.317416ms)
+✔ revealed cubic is the exact prefix of the original monotone curve at every progress (1.988333ms)
+✔ spectrum interpolation passes through every sample without overshoot on an irregular grid (2.250125ms)
+✔ missing data and nonincreasing wavelengths start a new curve (0.108875ms)
+✔ empty, singleton, and two-point spectra remain valid (0.071541ms)
+✔ curve commands retain the pre-optimization values across irregular grids and gaps (15.515791ms)
+✔ sparse indexes preserve original row positions, duplicates, zero and invalid gaps (0.958ms)
+✔ dense, inherited or accessor series retain the original scan path (0.2915ms)
+✔ indexed connected paths match a full scan for visible subsets and irregular grids (21.456042ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 122.317917

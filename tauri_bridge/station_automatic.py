@@ -28,7 +28,7 @@ from combined_test.automatic_samples import (
     AutomaticSecondSample,
     automatic_sample_path,
 )
-from combined_test.core import OPHIR_POWER_STABILITY_SPAN_W, WavelengthStabilityDetector
+from combined_test.core import WavelengthStabilityDetector
 from combined_test.excel_export import ExcelTestRecord, save_test_records
 from combined_test.models import PowerMeterReading, SpectrumFrame
 from combined_test.record_store import AttemptValidity, SessionStatus
@@ -57,9 +57,11 @@ STANDARD_WAVELENGTH_STABILITY_TOLERANCE_NM = 0.2
 STANDARD_TEST_STABILITY_WINDOW_S = 5.0
 RELAXED_STABILITY_CURRENT_A = 2.0
 RELAXED_WAVELENGTH_STABILITY_TOLERANCE_NM = 0.5
-RELAXED_POWER_STABILITY_SPAN_W = 0.2
-LOW_POWER_STABILITY_SPAN_W = 0.1
-LOW_POWER_STABILITY_WINDOW_S = 10.0
+
+
+def automatic_voltage_read_delay_s(power_supply_kind: str, index: int, point_count: int) -> float:
+    """TDK reads immediately after stability; CH341 retains its confirmation."""
+    return 0.0 if power_supply_kind in {"tdk", "ru"} else automatic_post_stable_delay_s(index, point_count)
 
 
 def automatic_wavelength_stability_tolerance_nm(current_a: float | None) -> float:
@@ -77,18 +79,7 @@ def automatic_wavelength_stability_tolerance_nm(current_a: float | None) -> floa
 def automatic_power_stability_span_limit_w(
     current_a: float | None, driver_kind: str = "",
 ) -> float | None:
-    """Use the Ophir 1 W criterion, otherwise retain current-specific limits."""
-    if driver_kind == "ophir":
-        return OPHIR_POWER_STABILITY_SPAN_W
-    if current_a is not None and 0.0 <= float(current_a) < RELAXED_STABILITY_CURRENT_A:
-        return LOW_POWER_STABILITY_SPAN_W
-    if current_a is not None and math.isclose(
-        float(current_a),
-        RELAXED_STABILITY_CURRENT_A,
-        rel_tol=0.0,
-        abs_tol=1e-9,
-    ):
-        return RELAXED_POWER_STABILITY_SPAN_W
+    """All meters/currents use relative deviation and fitted drift, never span."""
     return None
 
 
@@ -107,9 +98,7 @@ def automatic_power_stability_window_s(
     configured_window_s: Any,
     current_a: float | None,
 ) -> float:
-    """Require a full ten-second power window for points below 2 A."""
-    if current_a is not None and 0.0 <= float(current_a) < RELAXED_STABILITY_CURRENT_A:
-        return LOW_POWER_STABILITY_WINDOW_S
+    """Use one script/configuration window for every meter and current."""
     return automatic_stability_window_s(selected_script_id, configured_window_s)
 
 
@@ -124,15 +113,15 @@ class StationAutomaticMixin:
             mode="automatic",
             product_model=str(self.configuration.get("productModel", "")),
             batch=str(self.configuration.get("batch", "")),
-            settings=dict(self.configuration),
+            settings={**self.configuration, "powerStability": self.power_stability.session_metadata()},
             devices=self._device_snapshots(),
         )
         self.record_store.configure_sequence(self.automatic.currents)
         self._close_automatic_sample_recorder()
         self.automatic_sample_path = ""
-        # The one-second trace belongs only to TDK custom-hold plans. CH341
+        # The one-second trace belongs to serial-supply custom-hold plans. CH341
         # must never run this extra polling path.
-        if self.power_supply_kind != "tdk" or settings.current_plan_mode != "custom":
+        if self.power_supply_kind not in {"tdk", "ru"} or settings.current_plan_mode != "custom":
             return workbook_path
         sample_path = automatic_sample_path(workbook_path)
         self.automatic_sample_recorder = AutomaticSampleRecorder(sample_path)
@@ -291,7 +280,7 @@ class StationAutomaticMixin:
         target_current_a: float,
     ) -> None:
         recorder = self.automatic_sample_recorder
-        if recorder is None or self.power_supply_kind != "tdk":
+        if recorder is None or self.power_supply_kind not in {"tdk", "ru"}:
             return
         errors: list[str] = []
         output_voltage_raw_v: float | None = None
@@ -306,10 +295,8 @@ class StationAutomaticMixin:
                 )
                 self._last_live_current_read_at = time.monotonic()
                 output_voltage_raw_v = float(supply.read_output_voltage())
-            output_voltage_v = compensate_tdk_output_voltage(
-                output_voltage_raw_v,
-                output_current_a,
-            )
+            output_voltage_v = (compensate_tdk_output_voltage(output_voltage_raw_v, output_current_a)
+                                if self.power_supply_kind == "tdk" else output_voltage_raw_v)
         except Exception as exc:
             output_current_a = None
             errors.append(f"电流/电压读取失败：{exc}")
@@ -582,15 +569,15 @@ class StationAutomaticMixin:
                 bool(self.spectrometer_reader and self.spectrometer_reader.is_ready)
                 and not self._aging_test_selected()
             ),
-            maximum_current_a=None if self.power_supply_kind == "tdk" else 20.0,
+            maximum_current_a=self._maximum_current_a(),
             current_plan_mode=str(self.configuration["currentPlanMode"]),
             custom_current_points=points,
             custom_hold_ramp_enabled=(
                 str(self.configuration["currentPlanMode"]).lower() == "custom"
-                and self.power_supply_kind == "tdk"
+                and self.power_supply_kind in {"tdk", "ru"}
             ),
         )
-        return validate_automatic_test_settings(
+        validated = validate_automatic_test_settings(
             settings,
             stable_window_s=max(
                 automatic_stability_window_s(
@@ -603,17 +590,33 @@ class StationAutomaticMixin:
                     build_test_currents(settings)[0],
                 ),
             ),
-            post_stable_delay_s=FINAL_AUTO_POST_STABLE_DELAY_S,
+            post_stable_delay_s=(0.0 if self.power_supply_kind in {"tdk", "ru"} else FINAL_AUTO_POST_STABLE_DELAY_S),
             minimum_ramp_down_interval_s=(
-                0.0 if self.power_supply_kind == "tdk" else MIN_POWER_SUPPLY_COMMAND_INTERVAL_S
+                0.0 if self.power_supply_kind in {"tdk", "ru"} else MIN_POWER_SUPPLY_COMMAND_INTERVAL_S
             ),
         )
+        if self.power_supply_kind == "ru" and self.power_supply_controller is not None:
+            currents = build_test_currents(validated)
+            previous = 0.0
+            for current in currents:
+                self.power_supply_controller.validate_current(current)
+                if validated.custom_hold_ramp_enabled:
+                    for intermediate in build_custom_hold_ramp_currents(previous, current):
+                        self.power_supply_controller.validate_current(intermediate)
+                previous = current
+            for current in build_ramp_down_currents(max(currents, default=0.0), validated.ramp_down_step_a,
+                                                   maximum_current_a=validated.maximum_current_a):
+                self.power_supply_controller.validate_current(current)
+        return validated
 
     def automatic_readiness(self) -> dict[str, Any]:
         blockers: list[dict[str, str]] = []
 
         def block(code: str, message: str) -> None:
             blockers.append({"code": code, "message": message})
+
+        if self.power_stability.job:
+            block("noise_learning", "跳动量学习中，请先完成或取消")
 
         if self.automatic.state not in {
             AutomaticTestState.IDLE,
@@ -638,14 +641,16 @@ class StationAutomaticMixin:
             block("script_power_supply_mismatch", "当前测试脚本与电源类型不兼容")
 
         supply = self._power_supply()
+        if self.power_supply_kind == "ru" and self.shutdown_requested and not self.shutdown_confirmed:
+            block("shutdown_unconfirmed", "RU 安全下电尚未确认，请先执行归零下电并确认成功")
         if supply is None:
             block("power_supply_not_connected", "请先连接电源控制器")
         if self.power_supply_identity_error:
             block("power_supply_identity_error", f"电源状态异常：{self.power_supply_identity_error}")
         if float(self.active_current_a or 0.0) > 0.005:
             block("output_current_not_zero", "开始自动测试前必须先将输出电流归零")
-        if supply is not None and self.power_supply_kind == "tdk" and not supply.output_enabled:
-            block("tdk_output_disabled", "请先开启 TDK 电源输出")
+        if supply is not None and self.power_supply_kind in {"tdk", "ru"} and not supply.output_enabled:
+            block("tdk_output_disabled" if self.power_supply_kind == "tdk" else "ru_output_disabled", "请先开启电源输出")
 
         if not str(self.configuration.get("powerMeterResource", "")).strip():
             block("power_meter_not_selected", "请选择功率计资源")
@@ -674,6 +679,7 @@ class StationAutomaticMixin:
     def _start_automatic_impl(self, params: dict[str, Any]) -> None:
         if self._automatic_thread is not None and self._automatic_thread.is_alive():
             raise ValueError("自动测试已在运行")
+        self._require_output_safety()
         self.configure(params)
         if self.automatic.state == AutomaticTestState.COMPLETED:
             self._reset_completed_automatic(clear_sn=False, require_shutdown=False)
@@ -921,8 +927,8 @@ class StationAutomaticMixin:
         stability_generation: int,
         spectrum_revision: int,
     ) -> tuple[PowerMeterReading, Any]:
-        """Require an uninterrupted stable interval before reading voltage."""
-        required_s = automatic_post_stable_delay_s(index, len(self.automatic.currents))
+        """Respect explicit dwell and controller-specific confirmation before reading."""
+        required_s = automatic_voltage_read_delay_s(self.power_supply_kind, index, len(self.automatic.currents))
         dwell_s = self.automatic.current_dwell_s
         timer = StableHoldTimer(required_s, max(1.0, float(self.configuration["powerMeterIntervalMs"]) * 3.0 / 1000.0))
         started_at = time.monotonic()
@@ -954,14 +960,22 @@ class StationAutomaticMixin:
                     timer.reset()
                     self.automatic_stable_hold_elapsed_s = 0.0
                     self.automatic.set_state(AutomaticTestState.WAITING_STABLE)
-                    self.automatic_detail = f"{current_a:g} A 波动超限或采样中断，重新判稳后保持 {required_s:g} 秒"
+                    self.automatic_detail = (
+                        f"{current_a:g} A 波动超限或采样中断，重新判稳后保持 {required_s:g} 秒"
+                        if required_s else f"{current_a:g} A 波动超限或采样中断，重新等待稳定"
+                    )
                 else:
                     reading, frame = measurement
                     elapsed_s = timer.observe(reading.elapsed_s, self.latest_power_received_monotonic_s, now, stable=True)
                     self.automatic_stable_hold_elapsed_s = elapsed_s
                     self.automatic_stability_reading = reading
                     self.automatic.set_state(AutomaticTestState.WAITING_VOLTAGE)
-                    self.automatic_detail = f"{current_a:g} A 已稳定，保持 {elapsed_s:.1f} / {required_s:g} 秒"
+                    if required_s:
+                        self.automatic_detail = f"{current_a:g} A 已稳定，保持 {elapsed_s:.1f} / {required_s:g} 秒"
+                    elif now - started_at < dwell_s:
+                        self.automatic_detail = f"{current_a:g} A 已稳定，停留 {now - started_at:.1f} / {dwell_s:g} 秒"
+                    else:
+                        self.automatic_detail = f"{current_a:g} A 已稳定，正在读取输出电压"
                     power_w = self._stable_power_w(reading)
                     if self.stable_power_points.get(current_a) != power_w:
                         self.stable_power_points[current_a] = power_w
@@ -970,7 +984,10 @@ class StationAutomaticMixin:
                     if elapsed_s >= required_s and now - started_at >= dwell_s:
                         return reading, frame
             if now >= deadline:
-                raise TimeoutError(f"{current_a:g} A 测试点未能连续保持稳定 {required_s:g} 秒")
+                raise TimeoutError(
+                    f"{current_a:g} A 测试点未能连续保持稳定 {required_s:g} 秒"
+                    if required_s else f"{current_a:g} A 测试点等待稳定超时"
+                )
             while self.automatic_sample_recorder is not None and dwell_s > 0 and next_sample_s <= min(dwell_s, now - started_at):
                 self._write_automatic_second_sample(point_index=index + 1, elapsed_s=next_sample_s, target_current_a=current_a)
                 next_sample_s += 1.0
@@ -1099,9 +1116,10 @@ class StationAutomaticMixin:
         self._validate_automatic_spectrum(stable_frame)
         stable_power_w = self._stable_power_w(stable_reading)
         with self._supply_io_lock:
+            self._tdk_voltage_burst_stop.set()
             self._reserve_power_supply_command(wait=True)
             raw_voltage_v = self._require_power_supply().read_output_voltage()
-        self.latest_power_supply_output_voltage_v = float(raw_voltage_v)
+            self.latest_power_supply_output_voltage_v = float(raw_voltage_v)
         voltage_v = (
             compensate_tdk_output_voltage(raw_voltage_v, current_a)
             if self.power_supply_kind == "tdk"
@@ -1322,6 +1340,7 @@ class StationAutomaticMixin:
 
     def safe_ramp_down(self) -> None:
         with self.command_safety.stopping(), self._safe_ramp_lock:
+            self._tdk_voltage_burst_stop.set()
             self._shutdown_measurement_candidate = None
             try:
                 with self._supply_io_lock:
@@ -1369,7 +1388,7 @@ class StationAutomaticMixin:
             settings = AutomaticTestSettings(
                 ramp_down_step_a=configured_step,
                 ramp_down_interval_s=configured_interval,
-                maximum_current_a=None if self.power_supply_kind == "tdk" else 20.0,
+                maximum_current_a=self._maximum_current_a(),
             )
         start = max(0.0, float(self.active_current_a or 0.0))
         automatic_active = self.automatic.state not in {
@@ -1383,7 +1402,7 @@ class StationAutomaticMixin:
             settings.ramp_down_step_a,
             maximum_current_a=settings.maximum_current_a,
         )
-        read_current_during_ramp = self.power_supply_kind == "tdk"
+        read_current_during_ramp = self.power_supply_kind in {"tdk", "ru"}
         for current_a in ramp_currents:
             if self.power_supply_kind == "ch341":
                 previous = self._last_power_supply_command_at
@@ -1395,14 +1414,9 @@ class StationAutomaticMixin:
             try:
                 supply.set_current(current_a)
             except Exception:
-                if self.power_supply_kind == "tdk":
+                if self.power_supply_kind in {"tdk", "ru"}:
                     supply.set_output_enabled(False)
-                    measured_current_a = float(supply.read_output_current())
-                    self._shutdown_measurement_candidate = measured_current_a
-                    if not math.isfinite(measured_current_a) or abs(measured_current_a) > 0.01:
-                        raise RuntimeError(
-                            f"无法确认电源输出电流已归零：{measured_current_a:.3f} A"
-                        )
+                    measured_current_a = self._wait_for_zero_output_current(supply)
                     self.active_current_a = 0.0
                     self.configuration["setCurrentA"] = 0.0
                     self.latest_power_supply_output_current_a = measured_current_a
@@ -1419,16 +1433,12 @@ class StationAutomaticMixin:
         self.active_current_a = 0.0
         self.latest_power_supply_output_current_a = None
         self.configuration["setCurrentA"] = 0.0
-        if self.power_supply_kind == "tdk":
+        if self.power_supply_kind in {"tdk", "ru"}:
             # Always send OUT 0; the cached flag cannot prove the physical
             # state immediately after connecting to an already-running supply.
             supply.set_output_enabled(False)
-        if self.power_supply_kind == "tdk":
-            measured_current_a = float(supply.read_output_current())
-            self._shutdown_measurement_candidate = measured_current_a
-            self.latest_power_supply_output_current_a = measured_current_a
-            if not math.isfinite(measured_current_a) or abs(measured_current_a) > 0.01:
-                raise RuntimeError(f"无法确认电源输出电流已归零：{measured_current_a:.3f} A")
+        if self.power_supply_kind in {"tdk", "ru"}:
+            measured_current_a = self._wait_for_zero_output_current(supply)
             return measured_current_a, True
         return None, True
 

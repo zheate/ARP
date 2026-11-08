@@ -1,0 +1,191 @@
+{
+  "environment": {
+    "platform": "macOS-27.2-arm64-arm-64bit",
+    "python": "3.11.15",
+    "numpy": "2.4.6"
+  },
+  "workload": {
+    "iterations": 100,
+    "source": "synthetic reader-shaped lists; 1200 power points; 13000 PD points; no hardware"
+  },
+  "results": [
+    {
+      "points": 3648,
+      "scenario": "live_full",
+      "snapshot": {
+        "median_ms": 0.21462550000000002,
+        "p95_ms": 0.2819597999999999
+      },
+      "state_lock": {
+        "median_ms": 0.1946045,
+        "p95_ms": 0.24820624999999996
+      },
+      "json_encode": {
+        "median_ms": 3.7103954999999997,
+        "p95_ms": 5.6024211500000005
+      },
+      "response_bytes": 142449,
+      "spectrum_conversion": {
+        "median_ms": 0.113813,
+        "p95_ms": 0.22751459999999998
+      }
+    },
+    {
+      "points": 3648,
+      "scenario": "live_delta",
+      "snapshot": {
+        "median_ms": 0.5859795,
+        "p95_ms": 0.78102085
+      },
+      "state_lock": {
+        "median_ms": 0.5399585,
+        "p95_ms": 0.73233785
+      },
+      "json_encode": {
+        "median_ms": 0.8096034999999999,
+        "p95_ms": 1.4712569
+      },
+      "response_bytes": 29573
+    },
+    {
+      "points": 3648,
+      "scenario": "live_unchanged",
+      "snapshot": {
+        "median_ms": 0.0790835,
+        "p95_ms": 0.30780624999999995
+      },
+      "state_lock": {
+        "median_ms": 0.0643955,
+        "p95_ms": 0.2543898999999999
+      },
+      "json_encode": {
+        "median_ms": 0.0634165,
+        "p95_ms": 0.1039937499999999
+      },
+      "response_bytes": 4963
+    },
+    {
+      "points": 3648,
+      "scenario": "pd_full",
+      "snapshot": {
+        "median_ms": 0.147479,
+        "p95_ms": 0.9293755999999986
+      },
+      "state_lock": {
+        "median_ms": 0.1064795,
+        "p95_ms": 0.8469110499999987
+      },
+      "json_encode": {
+        "median_ms": 10.299479,
+        "p95_ms": 16.114451799999998
+      },
+      "response_bytes": 481439
+    },
+    {
+      "points": 3648,
+      "scenario": "pd_delta",
+      "snapshot": {
+        "median_ms": 0.8237085,
+        "p95_ms": 1.3209916499999996
+      },
+      "state_lock": {
+        "median_ms": 0.811729,
+        "p95_ms": 1.2709457999999998
+      },
+      "json_encode": {
+        "median_ms": 0.0509585,
+        "p95_ms": 0.12753189999999992
+      },
+      "response_bytes": 5363
+    },
+    {
+      "points": 8192,
+      "scenario": "live_full",
+      "snapshot": {
+        "median_ms": 0.41883349999999997,
+        "p95_ms": 0.8841659999999999
+      },
+      "state_lock": {
+        "median_ms": 0.36743800000000004,
+        "p95_ms": 0.71642885
+      },
+      "json_encode": {
+        "median_ms": 6.1199794999999995,
+        "p95_ms": 7.59911395
+      },
+      "response_bytes": 254880,
+      "spectrum_conversion": {
+        "median_ms": 0.4179585,
+        "p95_ms": 0.6183000000000001
+      }
+    },
+    {
+      "points": 8192,
+      "scenario": "live_delta",
+      "snapshot": {
+        "median_ms": 0.5248125,
+        "p95_ms": 1.0734169999999998
+      },
+      "state_lock": {
+        "median_ms": 0.5014585,
+        "p95_ms": 0.9368958499999998
+      },
+      "json_encode": {
+        "median_ms": 1.560042,
+        "p95_ms": 2.0728871499999992
+      },
+      "response_bytes": 60026
+    },
+    {
+      "points": 8192,
+      "scenario": "live_unchanged",
+      "snapshot": {
+        "median_ms": 0.077604,
+        "p95_ms": 0.2119601
+      },
+      "state_lock": {
+        "median_ms": 0.06364600000000001,
+        "p95_ms": 0.1746652
+      },
+      "json_encode": {
+        "median_ms": 0.0750415,
+        "p95_ms": 0.12674824999999995
+      },
+      "response_bytes": 4963
+    },
+    {
+      "points": 8192,
+      "scenario": "pd_full",
+      "snapshot": {
+        "median_ms": 0.13579200000000002,
+        "p95_ms": 0.32131699999999996
+      },
+      "state_lock": {
+        "median_ms": 0.09968750000000001,
+        "p95_ms": 0.21121459999999997
+      },
+      "json_encode": {
+        "median_ms": 15.043,
+        "p95_ms": 19.84594615
+      },
+      "response_bytes": 481439
+    },
+    {
+      "points": 8192,
+      "scenario": "pd_delta",
+      "snapshot": {
+        "median_ms": 2.0996455000000003,
+        "p95_ms": 5.746074699999996
+      },
+      "state_lock": {
+        "median_ms": 2.053271,
+        "p95_ms": 5.685668449999995
+      },
+      "json_encode": {
+        "median_ms": 0.081479,
+        "p95_ms": 0.128158
+      },
+      "response_bytes": 5363
+    }
+  ]
+}

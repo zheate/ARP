@@ -1,0 +1,76 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e5]: Power Test
+    - generic [ref=e7]:
+      - button "显示" [ref=e8] [cursor=pointer]
+      - button "保存设置" [disabled]
+      - button "急停" [ref=e10] [cursor=pointer]
+  - status [ref=e11]: 虚拟数据演示 · 不连接仪器，不写入正式数据库
+  - generic [ref=e12]:
+    - complementary [ref=e13]:
+      - navigation [ref=e14]:
+        - button "自动测试" [ref=e15] [cursor=pointer]
+        - button "手动配置" [ref=e21] [cursor=pointer]
+        - button "PD 采集" [ref=e28] [cursor=pointer]
+        - button "数据浏览" [ref=e32] [cursor=pointer]
+        - button "出货报告" [ref=e37] [cursor=pointer]
+        - button "系统设置" [ref=e42] [cursor=pointer]
+      - generic "侧栏格言 Stay True" [ref=e47]:
+        - paragraph [ref=e49]: Stay True
+    - main [ref=e50]:
+      - list:
+        - listitem [ref=e51]:
+          - status [ref=e52]:
+            - generic [ref=e56]:
+              - paragraph [ref=e57]: 示例数据
+              - paragraph [ref=e58]: 当前显示的是图表预览数据，不会连接真实仪器。
+            - button "关闭提示" [ref=e59] [cursor=pointer]
+      - region "数据浏览" [ref=e64]:
+        - generic [ref=e65]:
+          - generic [ref=e66]:
+            - tablist "数据来源" [ref=e67]:
+              - tab "测试数据库" [selected] [ref=e68] [cursor=pointer]
+              - tab "Excel 文件" [ref=e73] [cursor=pointer]
+            - generic [ref=e76]: 已完成测试自动存档 · Excel 同步保留
+            - button "刷新" [disabled]
+          - generic [ref=e77]:
+            - textbox "搜索 SN" [ref=e82]:
+              - /placeholder: 搜索产品 SN…
+            - generic [ref=e83]:
+              - text: 时间
+              - combobox "日期范围" [ref=e84]:
+                - option "全部时间" [selected]
+                - option "今天"
+                - option "最近 7 天"
+                - option "自定义"
+            - generic [ref=e85]:
+              - text: 站别
+              - combobox "测试站别筛选" [ref=e86]:
+                - option "全部站别" [selected]
+        - generic [ref=e87]:
+          - complementary "测试记录列表" [ref=e88]:
+            - generic [ref=e89]:
+              - generic [ref=e90]:
+                - text: 测试记录
+                - generic [ref=e91]: "0"
+              - generic [ref=e92]: 读取中…
+            - generic [ref=e94]:
+              - paragraph [ref=e99]: 正在读取测试记录…
+              - generic [ref=e100]: 完成测试后自动入库，也可从 Excel 文件导入。
+            - generic [ref=e101]:
+              - generic [ref=e102]: 第 1 / 1 页
+              - generic [ref=e103]:
+                - button "上一页" [disabled]
+                - button "下一页" [disabled]
+          - article "测试详情" [ref=e104]:
+            - generic [ref=e105]:
+              - generic [ref=e106]: 记录详情
+              - tablist "详情视图" [ref=e107]:
+                - tab "曲线" [selected] [ref=e108] [cursor=pointer]
+                - tab "测试点" [ref=e111] [cursor=pointer]
+                - tab "光谱" [ref=e114] [cursor=pointer]
+                - tab "信息" [ref=e117] [cursor=pointer]
+              - button "展开详情" [ref=e121] [cursor=pointer]
+            - generic [ref=e123]:
+              - paragraph [ref=e126]: 选择左侧记录查看详情
+              - generic [ref=e127]: 勾选 2 至 5 条记录，可跨 SN、跨日期对比全部参数。

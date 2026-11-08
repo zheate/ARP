@@ -1,0 +1,169 @@
+{
+  "version": "0.1.2",
+  "sourceCommit": "013db5aa",
+  "date": "2026-09-28",
+  "captureEnvironment": "Current Vite UI on macOS Chromium, actual interactions, built-in virtual demo data",
+  "limitations": [
+    "No Windows installer screenshots",
+    "Activation component in browser preview",
+    "No real-device measurements",
+    "Shipping export entry only"
+  ],
+  "pages": [
+    {
+      "page": 1,
+      "title": "封面",
+      "screenshot": "14-complete.png"
+    },
+    {
+      "page": 2,
+      "title": "阅读导航",
+      "screenshot": null
+    },
+    {
+      "page": 3,
+      "title": "01 安装软件与对应驱动",
+      "screenshot": null
+    },
+    {
+      "page": 4,
+      "title": "02  激活当前电脑",
+      "screenshot": "00-activation.png"
+    },
+    {
+      "page": 5,
+      "title": "03  认识主界面",
+      "screenshot": "11-ready.png"
+    },
+    {
+      "page": 6,
+      "title": "04  填写样品和保存位置",
+      "screenshot": "11-ready.png"
+    },
+    {
+      "page": 7,
+      "title": "05  选择 TDK 电源和串口",
+      "screenshot": "02-power-select.png"
+    },
+    {
+      "page": 8,
+      "title": "06  核对 TDK 输出和测试电流",
+      "screenshot": "03-power-connected.png"
+    },
+    {
+      "page": 9,
+      "title": "07  使用 CH341 电源控制器",
+      "screenshot": "04-ch341.png"
+    },
+    {
+      "page": 10,
+      "title": "08  识别并选择功率计",
+      "screenshot": "05-meter-select.png"
+    },
+    {
+      "page": 11,
+      "title": "09  确认或新建系数方案",
+      "screenshot": "06-meter-profile.png"
+    },
+    {
+      "page": 12,
+      "title": "10  开始功率采集与调零",
+      "screenshot": "07-meter-acquire.png"
+    },
+    {
+      "page": 13,
+      "title": "11  选择光谱仪并设置采集参数",
+      "screenshot": "08-spectrometer.png"
+    },
+    {
+      "page": 14,
+      "title": "12  启动光谱采集并检查饱和",
+      "screenshot": "09-spectrum-acquire.png"
+    },
+    {
+      "page": 15,
+      "title": "13  编辑测试脚本和合格规格",
+      "screenshot": "10-test-settings.png"
+    },
+    {
+      "page": 16,
+      "title": "14  开始一次自动测试",
+      "screenshot": "11-ready.png"
+    },
+    {
+      "page": 17,
+      "title": "15  观察测试阶段和读数",
+      "screenshot": "12-running.png"
+    },
+    {
+      "page": 18,
+      "title": "16  完成后先检查三个结果",
+      "screenshot": "14-complete.png"
+    },
+    {
+      "page": 19,
+      "title": "17  打开结果，再测试下一颗",
+      "screenshot": "13-complete-dialog.png"
+    },
+    {
+      "page": 20,
+      "title": "18  主动停止与急停",
+      "screenshot": "14b-stopped.png"
+    },
+    {
+      "page": 21,
+      "title": "19  查找历史测试记录",
+      "screenshot": "15-data-browser.png"
+    },
+    {
+      "page": 22,
+      "title": "20  查看测试点表",
+      "screenshot": "16-data-points-expanded.png"
+    },
+    {
+      "page": 23,
+      "title": "21  查看曲线与某个电流点的光谱",
+      "screenshot": "17-spectrum-review-expanded.png"
+    },
+    {
+      "page": 24,
+      "title": "22  选择要比较的记录",
+      "screenshot": "18-compare-selection.png"
+    },
+    {
+      "page": 25,
+      "title": "23  阅读比较结果",
+      "screenshot": "19-compare.png"
+    },
+    {
+      "page": 26,
+      "title": "24  手动测量并保存测试点",
+      "screenshot": "21-manual.png"
+    },
+    {
+      "page": 27,
+      "title": "25  使用 PD 采集",
+      "screenshot": "22-pd.png"
+    },
+    {
+      "page": 28,
+      "title": "26  生成单个出货报告",
+      "screenshot": "23-shipping.png"
+    },
+    {
+      "page": 29,
+      "title": "27  批量生成出货报告",
+      "screenshot": "24-shipping-batch.png"
+    },
+    {
+      "page": 30,
+      "title": "28  调整外观与检查授权",
+      "screenshot": "20-appearance.png"
+    },
+    {
+      "page": 31,
+      "title": "问题速查",
+      "screenshot": null
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+async (page) => {
+ await page.addInitScript(()=>{
+  if(window.__overlayProbe)return;
+  window.__overlayProbe={lines:0,errors:[]};
+  const line=CanvasRenderingContext2D.prototype.lineTo;
+  CanvasRenderingContext2D.prototype.lineTo=function(...args){if(this.canvas.getAttribute('aria-label')==='原始强度光谱叠加')window.__overlayProbe.lines++;return line.apply(this,args);};
+  addEventListener('error',e=>window.__overlayProbe.errors.push(e.message));
+ });
+ await page.goto('http://localhost:1420/spectrum-browser-fixture?demo=1&currents=24');
+ await page.locator('.db-record-button').first().waitFor();
+ await page.getByRole('combobox',{name:'曲线内容',exact:true}).selectOption('multiSpectrum');
+ const canvas=page.getByRole('img',{name:'原始强度光谱叠加',exact:true});await canvas.waitFor();
+ await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+ const result=await page.evaluate(()=>({choices:document.querySelectorAll('.db-spectrum-choices input').length,selected:document.querySelectorAll('.db-spectrum-choices input:checked').length,...window.__overlayProbe}));
+ if(result.errors.length||result.selected!==24||result.lines<24*8191)throw Error(JSON.stringify(result));
+ await page.screenshot({path:'output/playwright/spectrum-browse-20261015/large-overlay-after.png'});
+ return result;
+}

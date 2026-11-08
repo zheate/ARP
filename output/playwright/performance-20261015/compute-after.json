@@ -1,0 +1,58 @@
+{
+  "curves": [
+    {
+      "length": 1024,
+      "medianMs": 0.00570999999999998,
+      "p95BatchMs": 0.041154169999999934,
+      "heapIncreaseBytes": 3344,
+      "commandsPerDraw": 1024,
+      "hash": "886c42e46a763e18a36c48a0845f3b2ed8242897e79a9b090efdd0047dddd05b"
+    },
+    {
+      "length": 3648,
+      "medianMs": 0.05018791999999991,
+      "p95BatchMs": 0.07682749999999999,
+      "heapIncreaseBytes": 288720,
+      "commandsPerDraw": 3648,
+      "hash": "c524542729e86173be1289ff1f9b47ec863f08d8ae886b5bf9d6813b9ce0adac"
+    },
+    {
+      "length": 8192,
+      "medianMs": 0.11292167000000006,
+      "p95BatchMs": 0.1153816599999999,
+      "heapIncreaseBytes": 648096,
+      "commandsPerDraw": 8192,
+      "hash": "de120919effe4f712b0351d39a54e317130c1ba6e790b0b52865c12c5257ed3e"
+    }
+  ],
+  "comparisons": [
+    {
+      "length": 601,
+      "duplicate": false,
+      "medianMs": 0.5456666666666669,
+      "p95BatchMs": 0.640166666666668,
+      "hash": "c00978bb93db5d366b6e4efcc5ac1bc6eef41d5898ba372425c5a0c26d8369a5"
+    },
+    {
+      "length": 601,
+      "duplicate": true,
+      "medianMs": 0.13779166666665787,
+      "p95BatchMs": 0.16137499999998303,
+      "hash": "d65ca720799f88a99a0b2e8da01625494f12374cbfbf00b44cfa43c8b7b15515"
+    },
+    {
+      "length": 4000,
+      "duplicate": false,
+      "medianMs": 3.404930666666663,
+      "p95BatchMs": 3.7806386666666754,
+      "hash": "5d180ad58808168c4a6734469d438f47e1967d73528f21efadd390eaf7a48f89"
+    },
+    {
+      "length": 4000,
+      "duplicate": true,
+      "medianMs": 0.8268056666666629,
+      "p95BatchMs": 0.9115276666666811,
+      "hash": "d65ca720799f88a99a0b2e8da01625494f12374cbfbf00b44cfa43c8b7b15515"
+    }
+  ]
+}

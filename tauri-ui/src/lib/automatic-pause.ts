@@ -1,3 +1,4 @@
+import type { SnapshotCommand } from "./command-contract"
 import type { AutomaticPauseAction, AutomaticPauseKind } from "@/lib/backend"
 
 const PAUSE_COPY: Record<AutomaticPauseKind, readonly [string, string]> = {
@@ -10,7 +11,7 @@ const PAUSE_COPY: Record<AutomaticPauseKind, readonly [string, string]> = {
   device_error: ["设备异常", "检查设备状态后，重新测试当前点。"],
 }
 
-const PAUSE_COMMANDS: Record<AutomaticPauseAction, string> = {
+const PAUSE_COMMANDS = {
   resume: "automatic.resume",
   adjust_spectrum: "automatic.adjustSpectrum",
   recover_power_meter: "automatic.recoverPowerMeter",
@@ -18,13 +19,13 @@ const PAUSE_COMMANDS: Record<AutomaticPauseAction, string> = {
   retry_persist: "automatic.retryPersist",
   retry_point: "automatic.retryPoint",
   safe_end: "automatic.end",
-}
+} as const satisfies Record<AutomaticPauseAction, SnapshotCommand>
 
 export function automaticPauseCopy(kind: AutomaticPauseKind | null | undefined): readonly [string, string] {
   return PAUSE_COPY[kind ?? "device_error"]
 }
 
-export function automaticPauseCommand(action: AutomaticPauseAction): string {
+export function automaticPauseCommand(action: AutomaticPauseAction): (typeof PAUSE_COMMANDS)[AutomaticPauseAction] {
   return PAUSE_COMMANDS[action]
 }
 

@@ -1,0 +1,38 @@
+[
+  {
+    "currents": 1,
+    "pixels": 8192,
+    "rows": 8192,
+    "iterations_per_version": 12,
+    "before_median_ms": 1.132458000000014,
+    "after_median_ms": 0.822874999999982,
+    "original_value_bits_and_row_order_sha256": "31723b7006095d64126deb2c9df737c43d8c39e9cdc3a7acd20694d5e27a2f7d",
+    "bit_exact": true,
+    "index_build_ms_single_sample": 0.8273340000000076,
+    "retained_index_heap_bytes_single_probe": 86752
+  },
+  {
+    "currents": 12,
+    "pixels": 8192,
+    "rows": 98304,
+    "iterations_per_version": 12,
+    "before_median_ms": 17.957415999999967,
+    "after_median_ms": 13.225999999999999,
+    "original_value_bits_and_row_order_sha256": "9b6509f5a426b2d9acb0a0a194b2951c96e9888ebc0ee6d9b35c7df16ffb9a17",
+    "bit_exact": true,
+    "index_build_ms_single_sample": 5.693208000000141,
+    "retained_index_heap_bytes_single_probe": 962968
+  },
+  {
+    "currents": 24,
+    "pixels": 8192,
+    "rows": 196608,
+    "iterations_per_version": 12,
+    "before_median_ms": 38.70591699999977,
+    "after_median_ms": 28.12929099999974,
+    "original_value_bits_and_row_order_sha256": "ec19147f2824fb3f6bae82d643c767a53947f36969dc3587195be7685ffd65c9",
+    "bit_exact": true,
+    "index_build_ms_single_sample": 10.18362500000012,
+    "retained_index_heap_bytes_single_probe": 1925432
+  }
+]

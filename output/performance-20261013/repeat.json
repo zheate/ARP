@@ -1,0 +1,187 @@
+{
+  "environment": {
+    "platform": "macOS-27.2-arm64-arm-64bit",
+    "python": "3.11.15",
+    "sqlite": "3.53.3"
+  },
+  "workload": {
+    "repeats": 9,
+    "source": "synthetic temporary database; no hardware or user records",
+    "memory": "tracemalloc Python allocations only; excludes SQLite native memory",
+    "timing": "warm filesystem cache; fresh connection on each public call"
+  },
+  "inspect": [
+    {
+      "currents": 20,
+      "pixels": 3648,
+      "include_spectra": false,
+      "stored_json_bytes": 2003639,
+      "parity": true,
+      "full_decode_reference": {
+        "median_ms": 15.347,
+        "max_ms": 16.01725,
+        "peak_python_mib": 8.298393249511719,
+        "samples_ms": [
+          15.700708,
+          16.01725,
+          15.618916,
+          15.700041,
+          15.347,
+          15.3095,
+          15.100542,
+          15.175083,
+          15.127041
+        ]
+      },
+      "public_inspect": {
+        "median_ms": 3.101041,
+        "max_ms": 3.377125,
+        "peak_python_mib": 0.009393692016601562,
+        "samples_ms": [
+          2.748,
+          2.721625,
+          2.75725,
+          3.057416,
+          3.25425,
+          3.101041,
+          3.377125,
+          3.118875,
+          3.117042
+        ]
+      }
+    },
+    {
+      "currents": 20,
+      "pixels": 3648,
+      "include_spectra": true,
+      "stored_json_bytes": 2003639,
+      "parity": true,
+      "full_decode_reference": {
+        "median_ms": 15.430417,
+        "max_ms": 16.013125,
+        "peak_python_mib": 8.298393249511719,
+        "samples_ms": [
+          16.013125,
+          15.940791,
+          15.521791,
+          15.439917,
+          15.145833,
+          15.34725,
+          14.964958,
+          14.9545,
+          15.430417
+        ]
+      },
+      "public_inspect": {
+        "median_ms": 15.42825,
+        "max_ms": 15.62875,
+        "peak_python_mib": 8.298042297363281,
+        "samples_ms": [
+          15.066125,
+          15.241458,
+          15.62875,
+          15.42825,
+          15.198917,
+          15.29475,
+          15.552208,
+          15.487125,
+          15.462667
+        ]
+      }
+    },
+    {
+      "currents": 100,
+      "pixels": 8192,
+      "include_spectra": false,
+      "stored_json_bytes": 22482629,
+      "parity": true,
+      "full_decode_reference": {
+        "median_ms": 167.278083,
+        "max_ms": 170.340875,
+        "peak_python_mib": 93.27107810974121,
+        "samples_ms": [
+          168.553875,
+          167.481375,
+          167.278083,
+          170.340875,
+          168.056333,
+          166.084042,
+          166.409583,
+          165.788834,
+          166.086167
+        ]
+      },
+      "public_inspect": {
+        "median_ms": 27.15175,
+        "max_ms": 27.667459,
+        "peak_python_mib": 0.028448104858398438,
+        "samples_ms": [
+          27.564708,
+          27.44525,
+          26.606375,
+          27.15175,
+          27.341375,
+          26.939625,
+          27.667459,
+          27.074958,
+          26.639542
+        ]
+      }
+    },
+    {
+      "currents": 100,
+      "pixels": 8192,
+      "include_spectra": true,
+      "stored_json_bytes": 22482629,
+      "parity": true,
+      "full_decode_reference": {
+        "median_ms": 165.596334,
+        "max_ms": 167.676542,
+        "peak_python_mib": 93.27107810974121,
+        "samples_ms": [
+          167.487708,
+          167.609375,
+          165.297375,
+          165.895042,
+          167.676542,
+          164.402708,
+          163.878334,
+          165.596334,
+          164.553542
+        ]
+      },
+      "public_inspect": {
+        "median_ms": 164.31625,
+        "max_ms": 168.295333,
+        "peak_python_mib": 93.27072715759277,
+        "samples_ms": [
+          168.117667,
+          164.31625,
+          165.146416,
+          163.873708,
+          168.295333,
+          163.922042,
+          164.869792,
+          163.481291,
+          162.186334
+        ]
+      }
+    }
+  ],
+  "unchanged_recovery_200_journals": {
+    "median_ms": 4.07075,
+    "max_ms": 4.148041,
+    "peak_python_mib": 0.1617717742919922,
+    "samples_ms": [
+      4.049917,
+      4.095333,
+      4.148041,
+      4.00175,
+      4.034333,
+      4.07075,
+      4.080333,
+      4.027583,
+      4.1005
+    ]
+  }
+}

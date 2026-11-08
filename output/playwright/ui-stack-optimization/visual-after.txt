@@ -1,0 +1,24 @@
+### Result
+{"cases":54}
+### Ran Playwright code
+```js
+await (async (page) => {
+  await page.goto('http://127.0.0.1:1432/?demo=1&run=1');
+  await page.emulateMedia({reducedMotion:'reduce'});
+  const phase='after';const cases=[];
+  for(const [theme,label] of [['dark','深色'],['light','浅色']]){
+    await page.getByRole('button',{name:'系统设置',exact:true}).click();await page.getByRole('button',{name:label,exact:true}).click();
+    for(const [width,height] of [[1440,900],[1180,720],[760,700]]){
+      await page.setViewportSize({width,height});
+      for(const [label,id] of [['自动测试','automatic'],['手动配置','manual'],['PD 采集','pd'],['数据浏览','data'],['出货报告','shipping'],['系统设置','settings']]){
+        await page.getByRole('button',{name:label,exact:true}).click();await page.waitForTimeout(450);await page.screenshot({path:`output/playwright/ui-stack-optimization/${phase}-${id}-${theme}-${width}.png`});cases.push(id);
+      }
+      await page.getByRole('button',{name:'自动测试',exact:true}).click();
+      for(const [label,id] of [['电源','power'],['功率计','meter'],['光谱仪','spectrum']]){
+        await page.getByRole('button',{name:label+'信息，点击打开设置',exact:true}).click();await page.waitForTimeout(250);await page.screenshot({path:`output/playwright/ui-stack-optimization/${phase}-${id}-${theme}-${width}.png`});await page.keyboard.press('Escape');cases.push(id);
+      }
+    }
+  }
+  return {cases:cases.length};
+})(page);
+```

@@ -71,7 +71,7 @@ npm run license:generate -- \
 npm run check:windows
 ```
 
-预检会确认构建命令、`sth_eb314` 依赖、Rust manifests、OceanDirect DLL 和 CH341 DLL 均可用。预检通过后构建应用安装包或完整驱动安装包：
+预检会确认构建命令、`sth_eb314` 依赖、Rust manifests、OceanDirect DLL 和 CH341 DLL 均可用。预检通过后可构建应用包或完整离线安装包。对客户交付使用 `build:windows:full`：
 
 ```powershell
 npm run build:windows
@@ -79,6 +79,30 @@ npm run build:windows:full
 ```
 
 缺少必要硬件 DLL 或构建依赖时会直接失败，不生成能力不完整的发布包。
+
+完整安装包输出为 `release/full/Power Test_<版本号>_x64-all-drivers-setup.exe`。客户双击后允许管理员权限，按默认选项即可安装 Power Test、WebView2 和全部设备支持；也可取消不使用的组件。LaserPoint/FTDI、CH341/CH343 串口和 Coherent USB 组件会自动保留所需的 NI-VISA。安装使用离线文件，不要求客户安装 Python、Node.js 或 Rust。激活仍使用独立的本机许可证。
+
+安装流程位于 `packaging/install_full_bundle.ps1`，组件与设备安装逻辑位于 `packaging/full_bundle_helpers.ps1`，统一入口为 `packaging/power_test_full_installer.nsi`：
+
+- 先核验完整驱动文件清单及 SHA-256，再按组件安装 WebView2、INF 驱动、Ophir/Coherent 厂商组件和 NI 运行环境，最后安装应用 MSI。WebView2 检测机器级注册信息，已有环境会跳过，安装后再次确认；Ophir 检查 64 位 COM 注册。
+- INF 使用 Windows `pnputil /add-driver /install`，保留驱动签名检查。只在 INF 安装中接受 `259`（无匹配设备或已有更高版本驱动），允许未连接仪器时预装；其他安装器仍严格检查自身返回码。厂商或 Windows 安全确认可能仍需用户操作。厂商静默参数必须在所固定的安装文件版本上完成 Windows 验收，不能仅凭进程退出码证明所有硬件可用。
+- 本流程使用 NI Package Manager 24.0 或更新版本；已有旧版本时先调用随包 24.0 安装程序升级，升级要求重启时先续装，不执行旧版不支持的离线配置命令。NI 使用独立配置和本地源，关闭自动连接 ni.com 获取缺失依赖，不更改客户现有 NI 源配置。构建阶段检查离线源索引引用的文件；最终依赖解析仍须在干净 Windows 环境验证。
+- 普通重启要求返回 `3010`；需要先重启才能继续时返回 `20`，明确显示“安装尚未完成”。安装缓存保存在管理员可写的 `%CommonProgramFiles%\ARP\Setup\<版本号>\<本次安装>`，一次性计划任务在同一管理员账户下次登录时继续安装。已完成组件原子写入检查点，续装会跳过它们，避免重复执行厂商安装程序。续装读取状态文件前即删除任务，状态损坏也不会在以后每次登录时重复执行。最多允许两次续装；失败后由用户查看日志并重新运行完整安装包。
+- 缓存按每次安装隔离，避免旧文件混入新包。缓存会占用额外磁盘空间，不自动删除共享驱动或厂商软件。日志位于 `%ProgramData%\Power Test\InstallerLogs`。原生进程退出码不可用时停止，不能当作成功。超时不会强制终止 Windows Installer；记录进程 ID 和启动时间，在该进程仍运行时阻止再次安装，防止超时后重复启动厂商安装器。
+
+安装前检测本产品主程序与独立后端进程；仍在运行时要求从软件正常结束测试并退出，不强制关闭进程。初次安装与重启续装成功后均保存安装目录，供下次安装恢复。
+
+构建机还需原来的 `local_drivers/current_project` 离线驱动集合、`local_drivers/coherent` 压缩包、固定 SHA-256 的 StarLab/NI/WebView2 安装程序和 NSIS。构建脚本会在构建期解压 FTDI 和 Coherent，验证厂商安装程序签名，并为最终驱动文件生成完整性清单。`build:windows` 的独立应用包不含上述统一驱动安装流程。
+
+仅检查安装流程脚本（不会安装驱动、连接设备或打包）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\packaging\test_full_bundle.ps1
+```
+
+发布前需要在 Windows 10/11 x64 验证：干净离线系统完整安装、已有 WebView2/NI 的重复安装、每类组件自定义选择、中文/带空格安装路径、驱动失败、NI 中途重启续装、开始菜单启动及卸载。再独立完成真实设备识别、测量、Excel 导出和安全下电。macOS 的 PowerShell 测试、NSIS 编译或 dry-run 都不等于这些验收通过。
+
+部署参数依据：[Microsoft WebView2 离线部署](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution)、[PnPUtil 返回码](https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/pnputil-return-values)、[NI Package Manager CLI](https://www.ni.com/docs/en-US/bundle/package-manager/page/cli-package-manager.html)、[InstallShield 参数](https://docs.revenera.com/installshield/helplibrary/IHelpSetup_EXECmdLine.htm)和 [Inno Setup 参数](https://jrsoftware.org/ishelp/topic_setupcmdline.htm)。
 
 ## 目录
 

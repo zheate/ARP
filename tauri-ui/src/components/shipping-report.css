@@ -1,4 +1,5 @@
 .shipping-report-page {
+  --form-control-height: 2.375rem;
   font-size: 1rem;
   line-height: 1.5;
 }

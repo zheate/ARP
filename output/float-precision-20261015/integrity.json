@@ -1,0 +1,21 @@
+{
+  "source_workbooks": [
+    {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_02.xlsx",
+      "sha256": "42e6ba65fd7f30c17b00d822b5582282159fdb3a0ae48b8807ed1c6cf9817cfe"
+    },
+    {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_37.xlsx",
+      "sha256": "c64af2dba95e7e86d437c74dbac3e0ceceab87c7a5f0b66842baed7f90538ce3"
+    },
+    {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_45.xlsx",
+      "sha256": "a0b2dc1f8488f67ed73a945a58abd91085adf5bb2fcee3e80635212cd0b196bd"
+    }
+  ],
+  "all_fixture_wire_sha256_unchanged": true,
+  "unchanged_during_production_fix": {
+    "tauri-ui/src-tauri/src/lib.rs": true,
+    "tauri-ui/src-tauri/Cargo.lock": true
+  }
+}

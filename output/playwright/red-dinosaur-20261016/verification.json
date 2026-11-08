@@ -1,0 +1,35 @@
+{
+  "asset": "tauri-ui/public/chart-markers/dino-red-smooth-walk-four-frames-11ea1e4b1ebf.png",
+  "builtinImagegen": true,
+  "fourDistinctSpriteFrames": true,
+  "fourDistinctRenderedFrames": true,
+  "renderedDifferences": [
+    [
+      415,
+      63,
+      459,
+      113
+    ],
+    [
+      415,
+      63,
+      459,
+      113
+    ],
+    [
+      415,
+      63,
+      459,
+      113
+    ]
+  ],
+  "durationMs": 500,
+  "fps": 8,
+  "browser": "localhost:1420 demo settings; 1280x720",
+  "buildAssetMatchesSource": true,
+  "appearanceTests": 5,
+  "build": "passed",
+  "hardwareUsed": false,
+  "committed": false,
+  "pushed": false
+}

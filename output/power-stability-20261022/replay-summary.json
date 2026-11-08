@@ -1,0 +1,24 @@
+{
+  "source": "synthetic data, quantized after adding analogue noise and drift; no real instrument data",
+  "parameters": "simulation-only, not validated for a physical probe",
+  "results": [
+    {
+      "scenario": "constant",
+      "expected_stable": true,
+      "actual_stable": true,
+      "reason": "功率满足本底、噪声及漂移条件"
+    },
+    {
+      "scenario": "drift",
+      "expected_stable": false,
+      "actual_stable": false,
+      "reason": "功率仍在变化（趋势上升或窗口均值移动超限）"
+    },
+    {
+      "scenario": "oscillation",
+      "expected_stable": false,
+      "actual_stable": false,
+      "reason": "波动超出本底范围"
+    }
+  ]
+}

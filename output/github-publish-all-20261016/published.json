@@ -1,0 +1,18 @@
+{
+  "commit": "7febac3789e94640e771328f6b0384e9ac3af430",
+  "branch": "audit/arp-ui-final-20260914",
+  "origin": "https://github.com/zheate/ARP.git",
+  "trackedWorkingTreeClean": true,
+  "allowlistedFiles": 13,
+  "focusedTests": {
+    "pass": 46,
+    "fail": 0
+  },
+  "build": "passed",
+  "manualViewportChecks": 5,
+  "dialogChecks": 36,
+  "fullSuiteRun": false,
+  "windowsTauriVerified": false,
+  "hardwareConnected": false,
+  "excluded": "local output, QA screenshots, and unused candidate sprite preserved"
+}

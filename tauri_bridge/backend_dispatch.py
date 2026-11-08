@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 from typing import Any, Callable
 
+from .errors import CommandRejected
 from .service import BACKGROUND_FILE_TASK_METHODS
 from .station_support import (
     MANUAL_CONTROL_METHODS,
@@ -26,16 +27,25 @@ class BackendDispatcher:
         } or method.startswith("powerMeter.profile.") or (method == "powerSupply.setOutput" and params.get("enabled", False) is not False)
         if guarded:
             with st.command_safety.command(command_generation):
-                return self._dispatch(method, params)
-        return self._dispatch(method, params)
+                with st.workflow_access.command(method, params):
+                    return self._dispatch(method, params)
+        with st.workflow_access.command(method, params):
+            return self._dispatch(method, params)
 
     def _dispatch(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         backend = self._backend
         st = backend.runtime
 
+        if st.power_stability.job and (
+            method == "automatic.start" or method.startswith("powerMeter.profile.")
+            or method in {"powerSupply.setCurrent", "powerSupply.setVoltage", "powerMeter.setRelativeZero"}
+            or (method == "powerSupply.setOutput" and params.get("enabled") is True)
+        ):
+            raise CommandRejected("control_conflict", "本底任务进行中，请先完成或取消")
+
         if method in MANUAL_CONTROL_METHODS and not st.manual_controls_allowed():
-            raise RuntimeError(
-                "硬件控制权由自动测试持有；请先结束并安全下电"
+            raise CommandRejected(
+                "control_conflict", "硬件控制权由自动测试持有；请先结束并安全下电"
             )
 
         actions: dict[str, Callable[[dict[str, Any]], Any]] = {
@@ -43,13 +53,16 @@ class BackendDispatcher:
             "device.refresh": backend.discovery.refresh_device,
             "powerSupply.connect": lambda _p: st.connect_power_supply(),
             "powerSupply.disconnect": lambda _p: st.disconnect_power_supply(),
-            "powerSupply.setCurrent": lambda p: st.set_current(p),
+            "powerSupply.safeRampDown": lambda _p: st.safe_manual_power_down(),
+            "powerSupply.setCurrent": lambda p: st.set_manual_current(p),
             "powerSupply.setVoltage": lambda p: st.set_voltage(p),
             "powerSupply.setOutput": lambda p: st.set_output(p),
             "powerSupply.read": lambda p: st.read_power_supply(p),
             "powerMeter.start": lambda _p: st.start_power_meter(),
             "powerMeter.stop": lambda _p: st.stop_power_meter(),
             "powerMeter.setRelativeZero": lambda p: st.set_relative_zero(p),
+            "powerMeter.background.learn": lambda p: st.power_stability.start_background(p),
+            "powerMeter.background.cancel": lambda _p: st.power_stability.cancel_background(),
             "manual.saveExcel": lambda _p: st.save_manual_records(),
             "spectrometer.start": lambda _p: st.start_spectrometer(),
             "spectrometer.stop": lambda _p: st.stop_spectrometer(),
@@ -65,9 +78,11 @@ class BackendDispatcher:
             "automatic.end": lambda _p: st.end_automatic(),
             "automatic.nextDevice": lambda _p: st.prepare_next_device(),
             "automatic.retryExport": lambda p: st.retry_automatic_export(p),
+            "automatic.exportDiagnostics": self._export_diagnostics,
             "shippingReport.inspect": self._inspect_shipping_report,
             "dataBrowser.list": self._list_data_records,
             "dataBrowser.inspect": self._inspect_data_record,
+            "dataBrowser.import": self._import_data_records,
             "shippingReport.batchInspect": self._inspect_shipping_report_batch,
             "shippingReport.batchGenerateItem": self._generate_shipping_report_batch_item,
             "shippingReport.preview": self._preview_shipping_report,
@@ -100,8 +115,10 @@ class BackendDispatcher:
     def dispatch_file_task(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         backend = self._backend
         actions: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
+            "automatic.exportDiagnostics": self._export_diagnostics,
             "dataBrowser.list": self._list_data_records,
             "dataBrowser.inspect": self._inspect_data_record,
+            "dataBrowser.import": self._import_data_records,
             "shippingReport.inspect": self._inspect_shipping_report,
             "shippingReport.batchInspect": self._inspect_shipping_report_batch,
             "shippingReport.batchGenerateItem": self._generate_shipping_report_batch_item,
@@ -113,13 +130,35 @@ class BackendDispatcher:
             return action(params)
         raise KeyError(method)
 
+    def _export_diagnostics(self, params: dict[str, Any]) -> dict[str, Any]:
+        from .diagnostic_export import export_current_session
+        self._backend.validate_runtime_target(params)
+        return export_current_session(self._backend.runtime, params)
+
     def _list_data_records(self, params: dict[str, Any]) -> dict[str, Any]:
         from combined_test.data_browser import list_data_records
-        return list_data_records(params)
+        if params.get("source") != "database":
+            return list_data_records(params)
+        library = self._data_library()
+        warnings = []
+        for journal_root in sorted(library.path.parent.glob("station-*")):
+            warnings.extend(library.recover(journal_root))
+        result = library.list(params)
+        result["warnings"] = warnings
+        return result
 
     def _inspect_data_record(self, params: dict[str, Any]) -> dict[str, Any]:
         from combined_test.data_browser import inspect_data_record
+        if params.get("recordId"):
+            return self._data_library().inspect(str(params["recordId"]), include_spectra=bool(params.get("includeSpectra", False)))
         return inspect_data_record(params)
+
+    def _data_library(self):
+        from combined_test.data_library import DataLibrary
+        return DataLibrary(self._backend.settings.path.parent / "test-records" / "library.sqlite3")
+
+    def _import_data_records(self, params: dict[str, Any]) -> dict[str, Any]:
+        return self._data_library().import_excel(params)
 
     def configure(self, params: dict[str, Any]) -> None:
         backend = self._backend
@@ -157,11 +196,16 @@ class BackendDispatcher:
                 target_station.configuration["spectrometerDeviceId"] = None
                 target_station.configuration["spectrometerSerialNumber"] = ""
         current_kind = target_station.power_supply_kind
-        if previous_kind == "ch341" and current_kind == "tdk":
+        if previous_kind == "ch341" and current_kind in {"tdk", "ru"}:
             with backend._lock:
                 backend.ch341_discovery_state = "not_scanned"
                 backend.ch341_scan_error = ""
                 backend.ch341_descriptors = []
+        if previous_kind != current_kind and "ru" in {previous_kind, current_kind}:
+            with backend._lock:
+                backend.power_supply_resources = []
+                backend.power_supply_detection_detail = ""
+                backend.power_supply_detection_kind = None
 
     def _set_current(self, params: dict[str, Any]) -> None:
         backend = self._backend

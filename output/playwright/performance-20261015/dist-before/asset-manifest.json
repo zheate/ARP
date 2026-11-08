@@ -1,0 +1,63 @@
+{
+  "_data-browser-CO7sieXs.js": {
+    "file": "assets/data-browser-CO7sieXs.js",
+    "name": "data-browser"
+  },
+  "_tauri-vendor-BvoPdSUf.js": {
+    "file": "assets/tauri-vendor-BvoPdSUf.js",
+    "name": "tauri-vendor"
+  },
+  "index.html": {
+    "file": "assets/index-BA-865Y_.js",
+    "name": "index",
+    "src": "index.html",
+    "isEntry": true,
+    "imports": [
+      "_tauri-vendor-BvoPdSUf.js"
+    ],
+    "dynamicImports": [
+      "src/lib/data-browser-demo.ts",
+      "src/components/data-browser-page.tsx",
+      "src/features/shipping/report.tsx"
+    ],
+    "css": [
+      "assets/index-CtKBt4v3.css"
+    ]
+  },
+  "src/components/data-browser-page.tsx": {
+    "file": "assets/data-browser-page-BEzIQO-F.js",
+    "name": "data-browser-page",
+    "src": "src/components/data-browser-page.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html",
+      "_tauri-vendor-BvoPdSUf.js",
+      "_data-browser-CO7sieXs.js"
+    ],
+    "css": [
+      "assets/data-browser-page-BjIsBHfi.css"
+    ]
+  },
+  "src/features/shipping/report.tsx": {
+    "file": "assets/report-bhe-IXcC.js",
+    "name": "report",
+    "src": "src/features/shipping/report.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html",
+      "_tauri-vendor-BvoPdSUf.js"
+    ],
+    "css": [
+      "assets/report-ex56mTZq.css"
+    ]
+  },
+  "src/lib/data-browser-demo.ts": {
+    "file": "assets/data-browser-demo-Cj9uM1eU.js",
+    "name": "data-browser-demo",
+    "src": "src/lib/data-browser-demo.ts",
+    "isDynamicEntry": true,
+    "imports": [
+      "_data-browser-CO7sieXs.js"
+    ]
+  }
+}

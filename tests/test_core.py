@@ -47,7 +47,7 @@ class PowerStabilityDetectorTests(unittest.TestCase):
         self.assertFalse(result.stable)
         self.assertEqual(detector.add_sample(4.3, 12.0).stable_duration_s, 0.0)
 
-    def test_absolute_span_mode_accepts_two_tenths_watt_peak_to_peak(self) -> None:
+    def test_historical_span_argument_does_not_override_relative_limits(self) -> None:
         detector = PowerStabilityDetector(
             window_s=5.0,
             stability_limit_percent=0.2,
@@ -57,7 +57,7 @@ class PowerStabilityDetectorTests(unittest.TestCase):
         for elapsed_s, power_w in enumerate((1.0, 1.2, 1.0, 1.2, 1.0, 1.2)):
             result = detector.add_sample(float(elapsed_s), power_w)
 
-        self.assertTrue(result.stable)
+        self.assertFalse(result.stable)
         self.assertAlmostEqual(result.span_w, 0.2)
 
         result = detector.add_sample(6.0, 1.21)

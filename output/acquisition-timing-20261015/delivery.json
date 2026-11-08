@@ -1,0 +1,9 @@
+{
+  "added_files": {
+    "tools/profile_acquisition.py": "c495a62cecc3b6face04ff046d693da3382a13be2681f4d5e87fd70a6154e0de",
+    "tauri-ui/scripts/profile-acquisition.cjs": "1fcd351b7d33d765f097f9ec55376e4f75b9c693c32106c5d174bead3bcc8a5a",
+    "docs/acquisition-timing-2026-10-15.md": "7b31e9a57261ff2809d496ac743e81bae60ba3544bb4e19ee73636923af2fc29"
+  },
+  "changes": "diagnostic tools and report only; product file edits in shared worktree are from concurrent work",
+  "frontend_commit": "9ca676a9fbe3c008e1b1feff54a06fb693c46d1a"
+}

@@ -1,0 +1,168 @@
+### Page
+- Page URL: http://localhost:1424/?demo=1&run=1
+- Page Title: Power Test
+### Snapshot
+```yaml
+- generic [ref=f41e3]:
+  - banner [ref=f41e4]:
+    - generic [ref=f41e5]: Power Test
+    - button "急停" [ref=f41e8] [cursor=pointer]
+  - status [ref=f41e9]: 虚拟数据演示 · 不连接仪器，不写入正式数据库
+  - generic [ref=f41e10]:
+    - complementary [ref=f41e11]:
+      - navigation [ref=f41e12]:
+        - button "自动测试" [ref=f41e13] [cursor=pointer]
+        - button "手动配置" [ref=f41e19] [cursor=pointer]
+        - button "PD 采集" [ref=f41e26] [cursor=pointer]
+        - button "数据浏览" [ref=f41e30] [cursor=pointer]
+        - button "出货报告" [ref=f41e35] [cursor=pointer]
+        - button "系统设置" [ref=f41e40] [cursor=pointer]
+      - generic "侧栏格言 Stay True" [ref=f41e45]:
+        - paragraph [ref=f41e47]: Stay True
+    - main [ref=f41e48]:
+      - generic [ref=f41e49]:
+        - region "测试结果摘要" [ref=f41e50]:
+          - generic [ref=f41e51]:
+            - generic [ref=f41e58]:
+              - strong [ref=f41e59]: 测试完成
+              - button "详情" [ref=f41e60] [cursor=pointer]
+            - generic [ref=f41e63]:
+              - generic [ref=f41e64]: 当前样品
+              - strong [ref=f41e65]: DEMO-001
+              - generic [ref=f41e66]: 水冷25°C · 站别 1
+            - generic [ref=f41e67]:
+              - generic [ref=f41e68]:
+                - term [ref=f41e69]: 耗时
+                - definition [ref=f41e73]: 00:35
+              - generic [ref=f41e74]:
+                - term [ref=f41e75]: 测试点
+                - definition [ref=f41e76]: 3 / 3
+              - generic [ref=f41e77]:
+                - term [ref=f41e78]: 数据
+                - definition [ref=f41e79]: 本地已保存
+                - text: Excel 已生成
+              - generic [ref=f41e80]:
+                - term [ref=f41e81]: 安全下电
+                - definition [ref=f41e82]: 已确认
+            - generic [ref=f41e83]:
+              - button "查看数据" [ref=f41e84] [cursor=pointer]
+              - button "下一颗" [ref=f41e85] [cursor=pointer]
+        - region "测试设备与控制" [ref=f41e86]:
+          - button "电源信息，点击打开设置" [ref=f41e87] [cursor=pointer]:
+            - generic [ref=f41e91]:
+              - generic [ref=f41e92]:
+                - strong [ref=f41e93]: 电源
+                - generic "TDK" [ref=f41e94]
+              - generic [ref=f41e95]: 在线
+              - generic "电压 12 V · 电流 2 → 12 A · 步进 2 A" [ref=f41e97]
+          - button "功率计信息，点击打开设置" [ref=f41e98] [cursor=pointer]:
+            - generic [ref=f41e103]:
+              - generic [ref=f41e104]:
+                - strong [ref=f41e105]: 功率计
+                - generic "Caihuang CHLP-P" [ref=f41e106]
+              - generic [ref=f41e107]: 在线
+              - generic "976nm 生产光路 · v2 / 系数 ×1.018 · 976 nm" [ref=f41e109]
+          - button "光谱仪信息，点击打开设置" [ref=f41e110] [cursor=pointer]:
+            - generic [ref=f41e118]:
+              - generic [ref=f41e119]:
+                - strong [ref=f41e120]: 光谱仪
+                - generic "Ocean Insight" [ref=f41e121]
+              - generic [ref=f41e122]: 在线
+              - generic "中心波长 976 nm · FWHM ≤ 0.6 nm" [ref=f41e124]
+          - generic [ref=f41e127]:
+            - button "开始" [ref=f41e128] [cursor=pointer]
+            - button "停止" [disabled]
+        - generic [ref=f41e129]:
+          - generic [ref=f41e130]:
+            - generic "功率实时" [ref=f41e132]:
+              - generic [ref=f41e134]:
+                - img "功率实时曲线" [ref=f41e135]
+                - generic [ref=f41e136]: 实时功率
+            - generic "功率 / 效率" [ref=f41e137]:
+              - generic [ref=f41e138]:
+                - generic [ref=f41e139]:
+                  - img "功率 / 效率曲线" [ref=f41e140]
+                  - generic [ref=f41e141]: 功率 (W)、效率 (%)、历史参考
+                - generic:
+                  - generic "图例":
+                    - generic: 功率 (W)
+                    - generic: 效率 (%)
+                    - generic: 历史参考
+          - region "实时关键指标" [ref=f41e142]:
+            - generic [ref=f41e143]:
+              - generic "功率稳定状态：末点已稳定，10.0 / 10.0 秒" [ref=f41e145]:
+                - generic "末点已稳定" [ref=f41e148]
+                - generic [ref=f41e149]: 10.0 / 10.0 秒
+              - generic [ref=f41e150]:
+                - generic "0.000" [ref=f41e152]:
+                  - generic [ref=f41e155]:
+                    - generic [ref=f41e156]: "0"
+                    - generic [ref=f41e159]:
+                      - generic [ref=f41e160]: .
+                      - generic [ref=f41e162]: "0"
+                      - generic [ref=f41e164]: "0"
+                      - generic [ref=f41e166]: "0"
+                - generic [ref=f41e168]:
+                  - text: W @
+                  - generic [ref=f41e169]: 0 A
+            - button "中心波长 976.200 nm，达标，点击设置规格" [ref=f41e170] [cursor=pointer]:
+              - generic [ref=f41e171]:
+                - generic [ref=f41e172]: 中心波长
+                - generic "达标；规格 976 ± 1.5 nm" [ref=f41e173]: 达标
+              - generic [ref=f41e177]:
+                - generic "976.200" [ref=f41e179]:
+                  - generic [ref=f41e182]:
+                    - generic [ref=f41e183]:
+                      - generic [ref=f41e184]: "9"
+                      - generic [ref=f41e186]: "7"
+                      - generic [ref=f41e188]: "6"
+                    - generic [ref=f41e190]:
+                      - generic [ref=f41e191]: .
+                      - generic [ref=f41e193]: "2"
+                      - generic [ref=f41e195]: "0"
+                      - generic [ref=f41e197]: "0"
+                - generic [ref=f41e199]: nm
+            - button "FWHM 0.776 nm，超限，点击设置规格" [ref=f41e200] [cursor=pointer]:
+              - generic [ref=f41e201]:
+                - generic [ref=f41e202]: FWHM
+                - generic "超限；上限 0.6 nm" [ref=f41e203]: 超限
+              - generic [ref=f41e207]:
+                - generic "0.776" [ref=f41e209]:
+                  - generic [ref=f41e212]:
+                    - generic [ref=f41e213]: "0"
+                    - generic [ref=f41e216]:
+                      - generic [ref=f41e217]: .
+                      - generic [ref=f41e219]: "7"
+                      - generic [ref=f41e221]: "7"
+                      - generic [ref=f41e223]: "6"
+                - generic [ref=f41e225]: nm
+            - button "PIB 96.85 %，达标，点击设置规格" [ref=f41e226] [cursor=pointer]:
+              - generic [ref=f41e227]:
+                - generic [ref=f41e228]: PIB
+                - generic "达标；下限 95%" [ref=f41e229]: 达标
+              - generic [ref=f41e233]:
+                - generic "96.85" [ref=f41e235]:
+                  - generic [ref=f41e238]:
+                    - generic [ref=f41e239]:
+                      - generic [ref=f41e240]: "9"
+                      - generic [ref=f41e242]: "6"
+                    - generic [ref=f41e244]:
+                      - generic [ref=f41e245]: .
+                      - generic [ref=f41e247]: "8"
+                      - generic [ref=f41e249]: "5"
+                - generic [ref=f41e251]: "%"
+          - generic "光谱" [ref=f41e252]:
+            - generic [ref=f41e254]:
+              - img "光谱曲线" [ref=f41e255]
+              - generic "峰值图例":
+                - generic:
+                  - generic: Peak 1
+                  - generic: 976.200 nm
+                - generic:
+                  - generic: Peak 2
+                  - generic: 978.000 nm
+                - generic:
+                  - generic: Peak 3
+                  - generic: 973.000 nm
+              - generic [ref=f41e256]: 光谱（实时）
+```

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import tempfile
 import threading
 import time
@@ -88,24 +89,24 @@ class StationRuntimeTests(unittest.TestCase):
         station.power_meter_reader.reset_stability_window.return_value = 7
         station._begin_automatic_measurement_window(0.6)
         reading = PowerMeterReading(
-            elapsed_s=6.3, power_w=1.3, stable=False, stable_span_w=0.05,
-            stable_window_s=6.3, stable_median_w=1.3,
-            stability_generation=7, stable_duration_s=6.3,
+            elapsed_s=3.3, power_w=1.3, stable=False, stable_span_w=0.05,
+            stable_window_s=3.3, stable_median_w=1.3,
+            stability_generation=7, stable_duration_s=3.3,
         )
         station._on_power_reading(replace(reading, stability_generation=6))
         self.assertFalse(self.backend.snapshot()["automaticTest"]["stability"]["hasReading"])
         station._on_power_reading(reading)
         for view in ("automatic", "manual", "automatic"):
             progress = self.backend.snapshot({"view": view})["automaticTest"]["stability"]
-            self.assertEqual(progress["elapsedS"], 6.3)
-            self.assertEqual(progress["requiredS"], 10.0)
-            self.assertEqual(progress["spanLimitW"], 0.1)
+            self.assertEqual(progress["elapsedS"], 3.3)
+            self.assertEqual(progress["requiredS"], 5.0)
+            self.assertIsNone(progress["spanLimitW"])
             self.assertEqual(progress["quality"], "live")
             self.assertFalse(progress["powerStable"])
-        station._on_power_reading(replace(reading, stable_duration_s=9.96))
-        self.assertEqual(self.backend.snapshot()["automaticTest"]["stability"]["elapsedS"], 9.9)
-        station._on_power_reading(replace(reading, stable=True, stable_duration_s=10.0))
-        self.assertEqual(self.backend.snapshot()["automaticTest"]["stability"]["elapsedS"], 10.0)
+        station._on_power_reading(replace(reading, stable_duration_s=4.96))
+        self.assertEqual(self.backend.snapshot()["automaticTest"]["stability"]["elapsedS"], 4.9)
+        station._on_power_reading(replace(reading, stable=True, stable_duration_s=5.0))
+        self.assertEqual(self.backend.snapshot()["automaticTest"]["stability"]["elapsedS"], 5.0)
         station.automatic.current_index = 1
         station.automatic.state = AutomaticTestState.SETTING_CURRENT
         self.assertFalse(self.backend.snapshot()["automaticTest"]["stability"]["hasReading"])
@@ -116,7 +117,7 @@ class StationRuntimeTests(unittest.TestCase):
         progress = self.backend.snapshot()["automaticTest"]["stability"]
         self.assertEqual(progress["elapsedS"], 0.0)
         self.assertEqual(progress["requiredS"], 5.0)
-        self.assertEqual(progress["spanLimitW"], 0.2)
+        self.assertIsNone(progress["spanLimitW"])
 
     def test_stability_snapshot_rejects_stale_data_and_freezes_on_pause_or_completion(self) -> None:
         station = self.backend.runtime
@@ -127,26 +128,28 @@ class StationRuntimeTests(unittest.TestCase):
         station.power_meter_reader.reset_stability_window.return_value = 7
         station._begin_automatic_measurement_window(0.6)
         reading = PowerMeterReading(
-            elapsed_s=6.3, power_w=1.3, stable=False, stable_span_w=0.05,
-            stable_window_s=6.3, stable_median_w=1.3,
-            stability_generation=7, stable_duration_s=6.3,
+            elapsed_s=3.3, power_w=1.3, stable=False, stable_span_w=0.05,
+            stable_window_s=3.3, stable_median_w=1.3,
+            stability_generation=7, stable_duration_s=3.3,
         )
         station._on_power_reading(reading)
         station.latest_power_received_monotonic_s -= 60
         self.assertEqual(self.backend.snapshot()["automaticTest"]["stability"]["elapsedS"], 0.0)
         station.automatic.state = AutomaticTestState.PAUSED
         station._on_power_reading(replace(reading, stable_duration_s=0.0))
-        self.assertEqual(self.backend.snapshot()["automaticTest"]["stability"]["elapsedS"], 6.3)
+        self.assertEqual(self.backend.snapshot()["automaticTest"]["stability"]["elapsedS"], 3.3)
         station.automatic.state = AutomaticTestState.WAITING_STABLE
-        station._on_power_reading(replace(reading, stable=True, stable_duration_s=10.0))
+        station._on_power_reading(replace(reading, stable=True, stable_duration_s=5.0))
         station.automatic.state = AutomaticTestState.COMPLETED
         station._on_power_reading(replace(reading, stable_duration_s=0.0))
         progress = self.backend.snapshot()["automaticTest"]["stability"]
         self.assertTrue(progress["powerStable"])
-        self.assertEqual(progress["elapsedS"], 10.0)
+        self.assertEqual(progress["elapsedS"], 5.0)
 
-    def _simulate_stable_hold(self, *, stable=lambda _t: True, samples=lambda _t: True, wave=lambda _t: True, spectral=False, dwell=0.0, pause=False, stop_at=None, full_point=False, point_count=2, index=0):
+    def _simulate_stable_hold(self, *, stable=lambda _t: True, samples=lambda _t: True, wave=lambda _t: True, spectral=False, dwell=0.0, pause=False, stop_at=None, full_point=False, point_count=2, index=0, power_supply_kind="ch341"):
         station = self.backend.runtime
+        station.power_supply_kind = power_supply_kind
+        station.configuration["powerSupplyKind"] = power_supply_kind
         clock = [0.0]
         paused = [False]
         settings = AutomaticTestSettings(use_spectrometer=spectral, point_timeout_s=20.0)
@@ -170,6 +173,7 @@ class StationRuntimeTests(unittest.TestCase):
                 station.latest_spectrum = SimpleNamespace(
                     saturation=SimpleNamespace(saturated=False), stats=None, smsr=None,
                     wavelength=[975.0, 976.0], intensity=[10.0, 20.0], peak_annotations=(),
+                    peak_intensity=60000.0,
                 )
                 station.latest_spectrum_received_monotonic_s = now
                 station.spectrum_revision += 1
@@ -218,6 +222,49 @@ class StationRuntimeTests(unittest.TestCase):
         self.assertEqual(voltage_times, [5.0])
         self.assertEqual(progress["holdElapsedS"], 5.0)
         self.assertEqual(progress["holdRequiredS"], 5.0)
+
+    def test_tdk_reads_final_voltage_immediately_after_stability_including_last_point(self) -> None:
+        for point_count, index in ((2, 0), (2, 1), (1, 0)):
+            with self.subTest(point_count=point_count, index=index):
+                elapsed, progress, voltage_times = self._simulate_stable_hold(
+                    power_supply_kind="tdk", full_point=True, point_count=point_count, index=index,
+                )
+                self.assertEqual(elapsed, 0.0)
+                self.assertEqual(voltage_times, [0.0])
+                self.assertEqual(progress["holdRequiredS"], 0.0)
+                self.assertEqual(self.backend.runtime.latest_power_supply_output_voltage_v, 12.0)
+
+    def test_tdk_keeps_explicit_dwell_and_requires_stable_live_power_and_wavelength(self) -> None:
+        cases = (
+            ({"dwell": 4.0}, 4.0),
+            ({"dwell": 4.0, "pause": True}, 7.0),
+            ({"stable": lambda t: t >= 2.0}, 2.0),
+            ({"samples": lambda t: t >= 2.0}, 2.0),
+            ({"spectral": True, "wave": lambda t: t >= 2.0}, 2.0),
+        )
+        for params, expected in cases:
+            with self.subTest(params=params):
+                elapsed, progress, voltage_times = self._simulate_stable_hold(
+                    power_supply_kind="tdk", full_point=True, **params,
+                )
+                self.assertEqual(elapsed, expected)
+                self.assertEqual(voltage_times, [expected])
+                self.assertEqual(progress["holdRequiredS"], 0.0)
+
+    def test_tdk_direct_voltage_read_still_honors_stop_and_stability_timeout(self) -> None:
+        with self.assertRaisesRegex(RuntimeError, "自动测试已停止"):
+            self._simulate_stable_hold(power_supply_kind="tdk", dwell=4.0, stop_at=2.0)
+        with self.assertRaisesRegex(TimeoutError, "等待稳定超时"):
+            self._simulate_stable_hold(power_supply_kind="tdk", stable=lambda _t: False)
+
+    def test_tdk_timeout_validation_no_longer_includes_removed_confirmation(self) -> None:
+        station = self.backend.runtime
+        station.power_supply_kind = "tdk"
+        station.configuration.update({"initialCurrentA": 2.0, "pointTimeoutS": 5.0})
+        self.assertEqual(station._automatic_settings().point_timeout_s, 5.0)
+        station.power_supply_kind = "ch341"
+        with self.assertRaisesRegex(ValueError, "单点超时"):
+            station._automatic_settings()
 
     def test_final_point_waits_ten_seconds_and_reports_the_matching_target(self) -> None:
         for point_count, index in ((1, 0), (2, 1)):
@@ -351,29 +398,23 @@ class StationRuntimeTests(unittest.TestCase):
             automatic_stability_window_s("hold-points", 3.0),
             3.0,
         )
-        self.assertEqual(automatic_power_stability_span_limit_w(2.0), 0.2)
+        self.assertIsNone(automatic_power_stability_span_limit_w(2.0))
         self.assertIsNone(automatic_power_stability_span_limit_w(2.01))
 
-    def test_low_current_power_stability_accepts_one_tenth_watt_after_ten_seconds(self) -> None:
+    def test_low_current_uses_the_same_five_second_relative_and_slope_rule(self) -> None:
         station = self.backend.runtime
         reader = MagicMock()
         station.power_meter_reader = reader
         station._begin_automatic_measurement_window(0.6)
         detector = PowerStabilityDetector(*reader.update_stability_settings.call_args.args)
-
-        for elapsed_s in range(10):
-            power_w = 1.25 if elapsed_s % 2 == 0 else 1.35
-            self.assertFalse(detector.add_sample(float(elapsed_s), power_w).stable)
-
-        result = detector.add_sample(10.0, 1.35)
-        self.assertTrue(result.stable)
-        self.assertAlmostEqual(result.span_w, 0.1)
+        for i in range(51):
+            result = detector.add_sample(i / 10, 1.25 + (i % 2) * 0.1)
+        self.assertFalse(result.stable)
         self.assertGreater(result.stability_percent, 0.2)
-        self.assertEqual(result.window_s, 10.0)
-        self.assertFalse(detector.add_sample(11.0, 1.351).stable)
-        for elapsed_s in range(12, 22):
-            self.assertFalse(detector.add_sample(float(elapsed_s), 1.25).stable)
-        self.assertTrue(detector.add_sample(22.0, 1.25).stable)
+        self.assertEqual(result.window_s, 5)
+        for i in range(51, 102):
+            result = detector.add_sample(i / 10, 1.25)
+        self.assertTrue(result.stable)
 
     def test_point_specific_power_limits_are_reset_when_current_changes(self) -> None:
         station = self.backend.runtime
@@ -383,10 +424,10 @@ class StationRuntimeTests(unittest.TestCase):
         for script_id, normal_window_s in (("standard", 5.0), ("hold-points", 3.0)):
             station.configuration["selectedScriptId"] = script_id
             for current_a, expected_span_w, expected_window_s in (
-                (0.1, 0.1, 10.0), (0.6, 0.1, 10.0), (0.59, 0.1, 10.0),
-                (0.7, 0.1, 10.0), (1.0, 0.1, 10.0), (1.99, 0.1, 10.0),
-                (2.0, 0.2, normal_window_s), (2.01, None, normal_window_s),
-                (None, None, normal_window_s), (0.6, 0.1, 10.0),
+                (0.1, None, normal_window_s), (0.6, None, normal_window_s), (0.59, None, normal_window_s),
+                (0.7, None, normal_window_s), (1.0, None, normal_window_s), (1.99, None, normal_window_s),
+                (2.0, None, normal_window_s), (2.01, None, normal_window_s),
+                (None, None, normal_window_s), (0.6, None, normal_window_s),
             ):
                 with self.subTest(script_id=script_id, current_a=current_a):
                     reader.reset_mock()
@@ -396,30 +437,30 @@ class StationRuntimeTests(unittest.TestCase):
                     )
                     reader.reset_stability_window.assert_called_once_with()
 
-    def test_ophir_point_limits_and_snapshot_use_one_watt_with_existing_windows(self) -> None:
+    def test_all_meter_brands_share_limits_windows_and_snapshot(self) -> None:
         station = self.backend.runtime
         station.configuration["powerMeterDriverKind"] = "ophir"
         reader = MagicMock()
         station.power_meter_reader = reader
-        for current_a, window_s in ((0.6, 10.0), (2.0, 5.0), (20.0, 5.0)):
+        for current_a, window_s in ((0.6, 5.0), (2.0, 5.0), (20.0, 5.0)):
             with self.subTest(current_a=current_a):
                 station._begin_automatic_measurement_window(current_a)
-                reader.update_stability_settings.assert_called_with(window_s, 0.2, 1.0)
+                reader.update_stability_settings.assert_called_with(window_s, 0.2, None)
                 snapshot = self.backend.snapshot()["automaticTest"]["stability"]
-                self.assertEqual(snapshot["spanLimitW"], 1.0)
+                self.assertIsNone(snapshot["spanLimitW"])
         for driver in ("caihuang", "coherent", "laserpoint"):
             station.configuration["powerMeterDriverKind"] = driver
             station._begin_automatic_measurement_window(20.0)
             reader.update_stability_settings.assert_called_with(5.0, 0.2, None)
             self.assertIsNone(self.backend.snapshot()["automaticTest"]["stability"]["spanLimitW"])
 
-    def test_low_current_point_timeout_allows_ten_second_stability_window(self) -> None:
+    def test_low_current_point_timeout_uses_the_same_window_budget(self) -> None:
         station = self.backend.runtime
-        station.configuration.update({"initialCurrentA": 0.6, "pointTimeoutS": 19.9})
-        with self.assertRaisesRegex(ValueError, "单点超时不能小于 20.0 s"):
+        station.configuration.update({"initialCurrentA": 0.6, "pointTimeoutS": 14.9})
+        with self.assertRaisesRegex(ValueError, "单点超时不能小于 15.0 s"):
             station._automatic_settings()
-        station.configuration["pointTimeoutS"] = 20.0
-        self.assertEqual(station._automatic_settings().point_timeout_s, 20.0)
+        station.configuration["pointTimeoutS"] = 15.0
+        self.assertEqual(station._automatic_settings().point_timeout_s, 15.0)
 
         station.configuration.update({"initialCurrentA": 2.0, "pointTimeoutS": 15.0})
         self.assertEqual(station._automatic_settings().point_timeout_s, 15.0)
@@ -548,6 +589,132 @@ class StationRuntimeTests(unittest.TestCase):
         self.assertEqual(controller.writes, [7.0, 2.0, 0.0])
         self.assertEqual([item.args for item in sleep.call_args_list], [(0.1,), (0.1,)])
         self.assertFalse(controller.output_enabled)
+        self.assertTrue(station.shutdown_confirmed)
+
+    @staticmethod
+    def shutdown_clock():
+        now = [0.0]
+        sleeps = []
+        def sleep(seconds):
+            sleeps.append(seconds)
+            now[0] += seconds
+        return SimpleNamespace(monotonic=lambda: now[0], sleep=sleep), now, sleeps
+
+    def test_ramp_down_waits_for_current_to_settle_after_one_output_off(self) -> None:
+        station = self.backend.runtime
+        for kind in ("ru", "tdk"):
+            for final in (0.0, 0.01, -0.01):
+                with self.subTest(kind=kind, final=final):
+                    controller = _FakeController()
+                    station.power_supply_controller = controller
+                    station.power_supply_kind = station.configuration["powerSupplyKind"] = kind
+                    station.active_current_a = 0
+                    clock, now, sleeps = self.shutdown_clock()
+                    with patch("tauri_bridge.station_runtime.time", clock), \
+                            patch.object(controller, "read_output_current", side_effect=[0.4, 0.1, final]) as read_current, \
+                            patch.object(controller, "set_output_enabled", wraps=controller.set_output_enabled) as set_output:
+                        station.safe_ramp_down()
+                    self.assertEqual(controller.writes, [0.0])
+                    set_output.assert_called_once_with(False)
+                    self.assertEqual(read_current.call_count, 3)
+                    self.assertEqual(sleeps, [0.05, 0.05])
+                    self.assertAlmostEqual(now[0], 0.1)
+                    self.assertTrue(station.shutdown_confirmed)
+                    self.assertEqual(station.shutdown_measured_current_a, final)
+                    self.assertEqual(station.latest_power_supply_output_current_a, final)
+
+    def test_ramp_down_current_timeout_keeps_threshold_and_failure_lock(self) -> None:
+        station = self.backend.runtime
+        for current in (0.4, 0.010001, -0.010001):
+            with self.subTest(current=current):
+                controller = _FakeController()
+                station.power_supply_controller = controller
+                station.power_supply_kind = station.configuration["powerSupplyKind"] = "ru"
+                station.active_current_a = 0
+                clock, now, sleeps = self.shutdown_clock()
+                with patch("tauri_bridge.station_runtime.time", clock), \
+                        patch.object(controller, "read_output_current", return_value=current) as read_current, \
+                        patch.object(controller, "set_output_enabled", wraps=controller.set_output_enabled) as set_output:
+                    with self.assertRaisesRegex(RuntimeError, "无法确认电源输出电流已归零"):
+                        station.safe_ramp_down()
+                self.assertAlmostEqual(now[0], 1.0)
+                self.assertGreater(read_current.call_count, 1)
+                self.assertTrue(all(0 < delay <= 0.05 for delay in sleeps))
+                self.assertEqual(controller.writes, [0.0])
+                set_output.assert_called_once_with(False)
+                self.assertFalse(station.shutdown_confirmed)
+                self.assertEqual(station.shutdown_measured_current_a, current)
+                with self.assertRaisesRegex(RuntimeError, "安全下电尚未确认"):
+                    station._require_output_safety()
+
+    def test_ramp_down_read_failures_and_nonfinite_values_fail_immediately(self) -> None:
+        station = self.backend.runtime
+        for readings in ([RuntimeError("serial read failed")], [math.nan], [math.inf], [0.4, RuntimeError("serial read failed")]):
+            with self.subTest(readings=readings):
+                controller = _FakeController()
+                station.power_supply_controller = controller
+                station.power_supply_kind = "ru"
+                station.active_current_a = 0
+                clock, _, sleeps = self.shutdown_clock()
+                with patch("tauri_bridge.station_runtime.time", clock), \
+                        patch.object(controller, "read_output_current", side_effect=readings) as read_current:
+                    with self.assertRaises(RuntimeError):
+                        station.safe_ramp_down()
+                self.assertEqual(read_current.call_count, len(readings))
+                self.assertEqual(sleeps, [0.05] if len(readings) > 1 else [])
+                self.assertFalse(station.shutdown_confirmed)
+                if len(readings) > 1:
+                    self.assertEqual(station.shutdown_measured_current_a, 0.4)
+
+    def test_ramp_down_failed_current_write_still_waits_after_output_off(self) -> None:
+        station = self.backend.runtime
+        controller = _FakeController()
+        station.power_supply_controller = controller
+        station.power_supply_kind = "ru"
+        station.active_current_a = 0
+        clock, _, sleeps = self.shutdown_clock()
+        with patch("tauri_bridge.station_runtime.time", clock), \
+                patch.object(controller, "set_output_current", side_effect=RuntimeError("write failed")) as set_current, \
+                patch.object(controller, "read_output_current", side_effect=[0.4, 0.0]) as read_current, \
+                patch.object(controller, "set_output_enabled", wraps=controller.set_output_enabled) as set_output:
+            # Start with a nonzero target to exercise the ramp's write-failure branch.
+            station.active_current_a = 0.5
+            station.safe_ramp_down()
+        set_current.assert_called_once_with(0.0)
+        set_output.assert_called_once_with(False)
+        self.assertEqual(read_current.call_count, 2)
+        self.assertEqual(sleeps, [0.05])
+        self.assertTrue(station.shutdown_confirmed)
+
+    def test_ramp_down_failed_output_off_never_accepts_zero_current(self) -> None:
+        station = self.backend.runtime
+        controller = _FakeController()
+        station.power_supply_controller = controller
+        station.power_supply_kind = "ru"
+        station.active_current_a = 0
+        with patch.object(controller, "set_output_enabled", side_effect=RuntimeError("off failed")), \
+                patch.object(controller, "read_output_current", return_value=0) as read_current:
+            with self.assertRaisesRegex(RuntimeError, "off failed"):
+                station.safe_ramp_down()
+        read_current.assert_not_called()
+        self.assertFalse(station.shutdown_confirmed)
+
+    def test_ramp_down_steps_and_intervals_unchanged_during_current_confirmation(self) -> None:
+        station = self.backend.runtime
+        controller = _FakeController()
+        station.power_supply_controller = controller
+        station.power_supply_kind = "ru"
+        station.configuration.update({"rampDownStepA": 0.5, "rampDownIntervalS": 1.1})
+        station.active_current_a = 1.0
+        clock, _, sleeps = self.shutdown_clock()
+        with patch("tauri_bridge.station_runtime.time", clock), \
+                patch("tauri_bridge.station_automatic.time", clock), \
+                patch.object(controller, "read_output_current", side_effect=[0.5, 0.4, 0.1, 0.0]), \
+                patch.object(controller, "set_output_enabled", wraps=controller.set_output_enabled) as set_output:
+            station.safe_ramp_down()
+        self.assertEqual(controller.writes, [0.5, 0.0])
+        self.assertEqual(sleeps, [1.1, 0.05, 0.05])
+        set_output.assert_called_once_with(False)
         self.assertTrue(station.shutdown_confirmed)
 
     def test_automatic_start_without_connected_spectrometer_uses_power_only(self) -> None:
@@ -1359,7 +1526,7 @@ class StationRuntimeTests(unittest.TestCase):
 
         generation, spectrum_revision = station._begin_automatic_measurement_window(2.0)
 
-        reader.update_stability_settings.assert_called_once_with(5.0, 0.2, 0.2)
+        reader.update_stability_settings.assert_called_once_with(5.0, 0.2, None)
         reader.reset_stability_window.assert_called_once_with()
         self.assertEqual((generation, spectrum_revision), (7, 12))
         self.assertIsNone(

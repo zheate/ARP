@@ -1,0 +1,543 @@
+### Page
+- Page URL: http://localhost:1420/?demo=1&run=1&page=data
+- Page Title: Power Test
+### Snapshot
+```yaml
+- generic [ref=f3e3]:
+  - banner [ref=f3e4]:
+    - generic [ref=f3e5]: Power Test
+    - generic [ref=f3e7]:
+      - button "显示" [ref=f3e8] [cursor=pointer]
+      - button "保存设置" [disabled]
+      - button "急停" [ref=f3e10] [cursor=pointer]
+  - status [ref=f3e11]: 虚拟数据演示 · 不连接仪器，不写入正式数据库
+  - generic [ref=f3e12]:
+    - complementary [ref=f3e13]:
+      - navigation [ref=f3e14]:
+        - button "自动测试" [ref=f3e15] [cursor=pointer]
+        - button "手动配置" [ref=f3e21] [cursor=pointer]
+        - button "PD 采集" [ref=f3e28] [cursor=pointer]
+        - button "数据浏览" [ref=f3e32] [cursor=pointer]
+        - button "出货报告" [ref=f3e37] [cursor=pointer]
+        - button "系统设置" [ref=f3e42] [cursor=pointer]
+      - generic "侧栏格言 Stay True" [ref=f3e47]:
+        - paragraph [ref=f3e49]: Stay True
+    - main [ref=f3e50]:
+      - region "数据浏览" [ref=f3e52]:
+        - generic [ref=f3e53]:
+          - generic [ref=f3e54]:
+            - tablist "数据来源" [ref=f3e55]:
+              - tab "测试数据库" [selected] [ref=f3e56] [cursor=pointer]
+              - tab "Excel 文件" [ref=f3e61] [cursor=pointer]
+            - generic [ref=f3e64]: 已完成测试自动存档 · Excel 同步保留
+            - button "刷新" [ref=f3e65] [cursor=pointer]
+          - generic [ref=f3e66]:
+            - textbox "搜索 SN" [ref=f3e71]:
+              - /placeholder: 搜索产品 SN…
+            - generic [ref=f3e72]:
+              - text: 时间
+              - combobox "日期范围" [ref=f3e73]:
+                - option "全部时间" [selected]
+                - option "今天"
+                - option "最近 7 天"
+                - option "自定义"
+            - generic [ref=f3e74]:
+              - text: 站别
+              - combobox "测试站别筛选" [ref=f3e75]:
+                - option "全部站别" [selected]
+                - option "封盖前"
+                - option "封盖后"
+        - generic [ref=f3e76]:
+          - complementary "测试记录列表" [ref=f3e77]:
+            - generic [ref=f3e78]:
+              - generic [ref=f3e79]:
+                - text: 测试记录
+                - generic [ref=f3e80]: "55"
+              - generic [ref=f3e81]: 勾选加入对比
+            - generic [ref=f3e82]:
+              - generic [ref=f3e83]:
+                - checkbox "选择对比 DEMO-LD-001 · 封盖前 · 2026-09-18 09:00:00" [ref=f3e84] [cursor=pointer]
+                - button "DEMO-LD-001 2026-09-18 09:00:00 封盖前 · 10 点 已完成" [ref=f3e85] [cursor=pointer]:
+                  - strong [ref=f3e86]: DEMO-LD-001
+                  - time [ref=f3e87]: 2026-09-18 09:00:00
+                  - generic [ref=f3e88]:
+                    - generic [ref=f3e89]: 封盖前 · 10 点
+                    - generic [ref=f3e90]: 已完成
+              - generic [ref=f3e94]:
+                - checkbox "选择对比 DEMO-LD-001 · 封盖后 · 2026-09-18 01:00:00" [ref=f3e95] [cursor=pointer]
+                - button "DEMO-LD-001 2026-09-18 01:00:00 封盖后 · 10 点 已完成" [ref=f3e96] [cursor=pointer]:
+                  - strong [ref=f3e97]: DEMO-LD-001
+                  - time [ref=f3e98]: 2026-09-18 01:00:00
+                  - generic [ref=f3e99]:
+                    - generic [ref=f3e100]: 封盖后 · 10 点
+                    - generic [ref=f3e101]: 已完成
+              - generic [ref=f3e105]:
+                - checkbox "选择对比 DEMO-LD-002 · 封盖前 · 2026-09-17 17:00:00" [ref=f3e106] [cursor=pointer]
+                - button "DEMO-LD-002 2026-09-17 17:00:00 封盖前 · 10 点 已完成" [ref=f3e107] [cursor=pointer]:
+                  - strong [ref=f3e108]: DEMO-LD-002
+                  - time [ref=f3e109]: 2026-09-17 17:00:00
+                  - generic [ref=f3e110]:
+                    - generic [ref=f3e111]: 封盖前 · 10 点
+                    - generic [ref=f3e112]: 已完成
+              - generic [ref=f3e116]:
+                - checkbox "选择对比 DEMO-LD-002 · 封盖后 · 2026-09-17 09:00:00" [ref=f3e117] [cursor=pointer]
+                - button "DEMO-LD-002 2026-09-17 09:00:00 封盖后 · 10 点 已完成" [ref=f3e118] [cursor=pointer]:
+                  - strong [ref=f3e119]: DEMO-LD-002
+                  - time [ref=f3e120]: 2026-09-17 09:00:00
+                  - generic [ref=f3e121]:
+                    - generic [ref=f3e122]: 封盖后 · 10 点
+                    - generic [ref=f3e123]: 已完成
+              - generic [ref=f3e127]:
+                - checkbox "选择对比 DEMO-LD-003 · 封盖前 · 2026-09-17 01:00:00" [ref=f3e128] [cursor=pointer]
+                - button "DEMO-LD-003 2026-09-17 01:00:00 封盖前 · 10 点 已完成" [ref=f3e129] [cursor=pointer]:
+                  - strong [ref=f3e130]: DEMO-LD-003
+                  - time [ref=f3e131]: 2026-09-17 01:00:00
+                  - generic [ref=f3e132]:
+                    - generic [ref=f3e133]: 封盖前 · 10 点
+                    - generic [ref=f3e134]: 已完成
+              - generic [ref=f3e138]:
+                - checkbox "选择对比 DEMO-LD-003 · 封盖后 · 2026-09-16 17:00:00" [ref=f3e139] [cursor=pointer]
+                - button "DEMO-LD-003 2026-09-16 17:00:00 封盖后 · 10 点 已完成" [ref=f3e140] [cursor=pointer]:
+                  - strong [ref=f3e141]: DEMO-LD-003
+                  - time [ref=f3e142]: 2026-09-16 17:00:00
+                  - generic [ref=f3e143]:
+                    - generic [ref=f3e144]: 封盖后 · 10 点
+                    - generic [ref=f3e145]: 已完成
+              - generic [ref=f3e149]:
+                - checkbox "选择对比 DEMO-LD-004 · 封盖前 · 2026-09-16 09:00:00" [ref=f3e150] [cursor=pointer]
+                - button "DEMO-LD-004 2026-09-16 09:00:00 封盖前 · 10 点 已完成" [ref=f3e151] [cursor=pointer]:
+                  - strong [ref=f3e152]: DEMO-LD-004
+                  - time [ref=f3e153]: 2026-09-16 09:00:00
+                  - generic [ref=f3e154]:
+                    - generic [ref=f3e155]: 封盖前 · 10 点
+                    - generic [ref=f3e156]: 已完成
+              - generic [ref=f3e160]:
+                - checkbox "选择对比 DEMO-LD-004 · 封盖后 · 2026-09-16 01:00:00" [ref=f3e161] [cursor=pointer]
+                - button "DEMO-LD-004 2026-09-16 01:00:00 封盖后 · 10 点 已完成" [ref=f3e162] [cursor=pointer]:
+                  - strong [ref=f3e163]: DEMO-LD-004
+                  - time [ref=f3e164]: 2026-09-16 01:00:00
+                  - generic [ref=f3e165]:
+                    - generic [ref=f3e166]: 封盖后 · 10 点
+                    - generic [ref=f3e167]: 已完成
+              - generic [ref=f3e171]:
+                - checkbox "选择对比 DEMO-LD-005 · 封盖前 · 2026-09-15 17:00:00" [ref=f3e172] [cursor=pointer]
+                - button "DEMO-LD-005 2026-09-15 17:00:00 封盖前 · 10 点 已完成" [ref=f3e173] [cursor=pointer]:
+                  - strong [ref=f3e174]: DEMO-LD-005
+                  - time [ref=f3e175]: 2026-09-15 17:00:00
+                  - generic [ref=f3e176]:
+                    - generic [ref=f3e177]: 封盖前 · 10 点
+                    - generic [ref=f3e178]: 已完成
+              - generic [ref=f3e182]:
+                - checkbox "选择对比 DEMO-LD-005 · 封盖后 · 2026-09-15 09:00:00" [ref=f3e183] [cursor=pointer]
+                - button "DEMO-LD-005 2026-09-15 09:00:00 封盖后 · 10 点 已完成" [ref=f3e184] [cursor=pointer]:
+                  - strong [ref=f3e185]: DEMO-LD-005
+                  - time [ref=f3e186]: 2026-09-15 09:00:00
+                  - generic [ref=f3e187]:
+                    - generic [ref=f3e188]: 封盖后 · 10 点
+                    - generic [ref=f3e189]: 已完成
+              - generic [ref=f3e193]:
+                - checkbox "选择对比 DEMO-LD-006 · 封盖前 · 2026-09-15 01:00:00" [ref=f3e194] [cursor=pointer]
+                - button "DEMO-LD-006 2026-09-15 01:00:00 封盖前 · 10 点 已完成" [ref=f3e195] [cursor=pointer]:
+                  - strong [ref=f3e196]: DEMO-LD-006
+                  - time [ref=f3e197]: 2026-09-15 01:00:00
+                  - generic [ref=f3e198]:
+                    - generic [ref=f3e199]: 封盖前 · 10 点
+                    - generic [ref=f3e200]: 已完成
+              - generic [ref=f3e204]:
+                - checkbox "选择对比 DEMO-LD-006 · 封盖后 · 2026-09-14 17:00:00" [ref=f3e205] [cursor=pointer]
+                - button "DEMO-LD-006 2026-09-14 17:00:00 封盖后 · 10 点 已完成" [ref=f3e206] [cursor=pointer]:
+                  - strong [ref=f3e207]: DEMO-LD-006
+                  - time [ref=f3e208]: 2026-09-14 17:00:00
+                  - generic [ref=f3e209]:
+                    - generic [ref=f3e210]: 封盖后 · 10 点
+                    - generic [ref=f3e211]: 已完成
+              - generic [ref=f3e215]:
+                - checkbox "选择对比 DEMO-LD-007 · 封盖前 · 2026-09-14 09:00:00" [ref=f3e216] [cursor=pointer]
+                - button "DEMO-LD-007 2026-09-14 09:00:00 封盖前 · 10 点 已完成" [ref=f3e217] [cursor=pointer]:
+                  - strong [ref=f3e218]: DEMO-LD-007
+                  - time [ref=f3e219]: 2026-09-14 09:00:00
+                  - generic [ref=f3e220]:
+                    - generic [ref=f3e221]: 封盖前 · 10 点
+                    - generic [ref=f3e222]: 已完成
+              - generic [ref=f3e226]:
+                - checkbox "选择对比 DEMO-LD-007 · 封盖后 · 2026-09-14 01:00:00" [ref=f3e227] [cursor=pointer]
+                - button "DEMO-LD-007 2026-09-14 01:00:00 封盖后 · 10 点 已完成" [ref=f3e228] [cursor=pointer]:
+                  - strong [ref=f3e229]: DEMO-LD-007
+                  - time [ref=f3e230]: 2026-09-14 01:00:00
+                  - generic [ref=f3e231]:
+                    - generic [ref=f3e232]: 封盖后 · 10 点
+                    - generic [ref=f3e233]: 已完成
+              - generic [ref=f3e237]:
+                - checkbox "选择对比 DEMO-LD-008 · 封盖前 · 2026-09-13 17:00:00" [ref=f3e238] [cursor=pointer]
+                - button "DEMO-LD-008 2026-09-13 17:00:00 封盖前 · 10 点 已完成" [ref=f3e239] [cursor=pointer]:
+                  - strong [ref=f3e240]: DEMO-LD-008
+                  - time [ref=f3e241]: 2026-09-13 17:00:00
+                  - generic [ref=f3e242]:
+                    - generic [ref=f3e243]: 封盖前 · 10 点
+                    - generic [ref=f3e244]: 已完成
+              - generic [ref=f3e248]:
+                - checkbox "选择对比 DEMO-LD-008 · 封盖后 · 2026-09-13 09:00:00" [ref=f3e249] [cursor=pointer]
+                - button "DEMO-LD-008 2026-09-13 09:00:00 封盖后 · 10 点 已完成" [ref=f3e250] [cursor=pointer]:
+                  - strong [ref=f3e251]: DEMO-LD-008
+                  - time [ref=f3e252]: 2026-09-13 09:00:00
+                  - generic [ref=f3e253]:
+                    - generic [ref=f3e254]: 封盖后 · 10 点
+                    - generic [ref=f3e255]: 已完成
+              - generic [ref=f3e259]:
+                - checkbox "选择对比 DEMO-LD-009 · 封盖前 · 2026-09-13 01:00:00" [ref=f3e260] [cursor=pointer]
+                - button "DEMO-LD-009 2026-09-13 01:00:00 封盖前 · 10 点 已完成" [ref=f3e261] [cursor=pointer]:
+                  - strong [ref=f3e262]: DEMO-LD-009
+                  - time [ref=f3e263]: 2026-09-13 01:00:00
+                  - generic [ref=f3e264]:
+                    - generic [ref=f3e265]: 封盖前 · 10 点
+                    - generic [ref=f3e266]: 已完成
+              - generic [ref=f3e270]:
+                - checkbox "选择对比 DEMO-LD-009 · 封盖后 · 2026-09-12 17:00:00" [ref=f3e271] [cursor=pointer]
+                - button "DEMO-LD-009 2026-09-12 17:00:00 封盖后 · 10 点 已完成" [ref=f3e272] [cursor=pointer]:
+                  - strong [ref=f3e273]: DEMO-LD-009
+                  - time [ref=f3e274]: 2026-09-12 17:00:00
+                  - generic [ref=f3e275]:
+                    - generic [ref=f3e276]: 封盖后 · 10 点
+                    - generic [ref=f3e277]: 已完成
+              - generic [ref=f3e281]:
+                - checkbox "选择对比 DEMO-LD-010 · 封盖前 · 2026-09-12 09:00:00" [ref=f3e282] [cursor=pointer]
+                - button "DEMO-LD-010 2026-09-12 09:00:00 封盖前 · 10 点 已完成" [ref=f3e283] [cursor=pointer]:
+                  - strong [ref=f3e284]: DEMO-LD-010
+                  - time [ref=f3e285]: 2026-09-12 09:00:00
+                  - generic [ref=f3e286]:
+                    - generic [ref=f3e287]: 封盖前 · 10 点
+                    - generic [ref=f3e288]: 已完成
+              - generic [ref=f3e292]:
+                - checkbox "选择对比 DEMO-LD-010 · 封盖后 · 2026-09-12 01:00:00" [ref=f3e293] [cursor=pointer]
+                - button "DEMO-LD-010 2026-09-12 01:00:00 封盖后 · 10 点 已完成" [ref=f3e294] [cursor=pointer]:
+                  - strong [ref=f3e295]: DEMO-LD-010
+                  - time [ref=f3e296]: 2026-09-12 01:00:00
+                  - generic [ref=f3e297]:
+                    - generic [ref=f3e298]: 封盖后 · 10 点
+                    - generic [ref=f3e299]: 已完成
+              - generic [ref=f3e303]:
+                - checkbox "选择对比 DEMO-LD-011 · 封盖前 · 2026-09-11 17:00:00" [ref=f3e304] [cursor=pointer]
+                - button "DEMO-LD-011 2026-09-11 17:00:00 封盖前 · 10 点 已完成" [ref=f3e305] [cursor=pointer]:
+                  - strong [ref=f3e306]: DEMO-LD-011
+                  - time [ref=f3e307]: 2026-09-11 17:00:00
+                  - generic [ref=f3e308]:
+                    - generic [ref=f3e309]: 封盖前 · 10 点
+                    - generic [ref=f3e310]: 已完成
+              - generic [ref=f3e314]:
+                - checkbox "选择对比 DEMO-LD-011 · 封盖后 · 2026-09-11 09:00:00" [ref=f3e315] [cursor=pointer]
+                - button "DEMO-LD-011 2026-09-11 09:00:00 封盖后 · 10 点 已完成" [ref=f3e316] [cursor=pointer]:
+                  - strong [ref=f3e317]: DEMO-LD-011
+                  - time [ref=f3e318]: 2026-09-11 09:00:00
+                  - generic [ref=f3e319]:
+                    - generic [ref=f3e320]: 封盖后 · 10 点
+                    - generic [ref=f3e321]: 已完成
+              - generic [ref=f3e325]:
+                - checkbox "选择对比 DEMO-LD-012 · 封盖前 · 2026-09-11 01:00:00" [ref=f3e326] [cursor=pointer]
+                - button "DEMO-LD-012 2026-09-11 01:00:00 封盖前 · 10 点 已完成" [ref=f3e327] [cursor=pointer]:
+                  - strong [ref=f3e328]: DEMO-LD-012
+                  - time [ref=f3e329]: 2026-09-11 01:00:00
+                  - generic [ref=f3e330]:
+                    - generic [ref=f3e331]: 封盖前 · 10 点
+                    - generic [ref=f3e332]: 已完成
+              - generic [ref=f3e336]:
+                - checkbox "选择对比 DEMO-LD-012 · 封盖后 · 2026-09-10 17:00:00" [ref=f3e337] [cursor=pointer]
+                - button "DEMO-LD-012 2026-09-10 17:00:00 封盖后 · 10 点 已完成" [ref=f3e338] [cursor=pointer]:
+                  - strong [ref=f3e339]: DEMO-LD-012
+                  - time [ref=f3e340]: 2026-09-10 17:00:00
+                  - generic [ref=f3e341]:
+                    - generic [ref=f3e342]: 封盖后 · 10 点
+                    - generic [ref=f3e343]: 已完成
+              - generic [ref=f3e347]:
+                - checkbox "选择对比 DEMO-LD-013 · 封盖前 · 2026-09-10 09:00:00" [ref=f3e348] [cursor=pointer]
+                - button "DEMO-LD-013 2026-09-10 09:00:00 封盖前 · 10 点 已完成" [ref=f3e349] [cursor=pointer]:
+                  - strong [ref=f3e350]: DEMO-LD-013
+                  - time [ref=f3e351]: 2026-09-10 09:00:00
+                  - generic [ref=f3e352]:
+                    - generic [ref=f3e353]: 封盖前 · 10 点
+                    - generic [ref=f3e354]: 已完成
+              - generic [ref=f3e358]:
+                - checkbox "选择对比 DEMO-LD-013 · 封盖后 · 2026-09-10 01:00:00" [ref=f3e359] [cursor=pointer]
+                - button "DEMO-LD-013 2026-09-10 01:00:00 封盖后 · 10 点 已完成" [ref=f3e360] [cursor=pointer]:
+                  - strong [ref=f3e361]: DEMO-LD-013
+                  - time [ref=f3e362]: 2026-09-10 01:00:00
+                  - generic [ref=f3e363]:
+                    - generic [ref=f3e364]: 封盖后 · 10 点
+                    - generic [ref=f3e365]: 已完成
+              - generic [ref=f3e369]:
+                - checkbox "选择对比 DEMO-LD-014 · 封盖前 · 2026-09-09 17:00:00" [ref=f3e370] [cursor=pointer]
+                - button "DEMO-LD-014 2026-09-09 17:00:00 封盖前 · 10 点 已完成" [ref=f3e371] [cursor=pointer]:
+                  - strong [ref=f3e372]: DEMO-LD-014
+                  - time [ref=f3e373]: 2026-09-09 17:00:00
+                  - generic [ref=f3e374]:
+                    - generic [ref=f3e375]: 封盖前 · 10 点
+                    - generic [ref=f3e376]: 已完成
+              - generic [ref=f3e380]:
+                - checkbox "选择对比 DEMO-LD-014 · 封盖后 · 2026-09-09 09:00:00" [ref=f3e381] [cursor=pointer]
+                - button "DEMO-LD-014 2026-09-09 09:00:00 封盖后 · 10 点 已完成" [ref=f3e382] [cursor=pointer]:
+                  - strong [ref=f3e383]: DEMO-LD-014
+                  - time [ref=f3e384]: 2026-09-09 09:00:00
+                  - generic [ref=f3e385]:
+                    - generic [ref=f3e386]: 封盖后 · 10 点
+                    - generic [ref=f3e387]: 已完成
+              - generic [ref=f3e391]:
+                - checkbox "选择对比 DEMO-LD-015 · 封盖前 · 2026-09-09 01:00:00" [ref=f3e392] [cursor=pointer]
+                - button "DEMO-LD-015 2026-09-09 01:00:00 封盖前 · 10 点 已完成" [ref=f3e393] [cursor=pointer]:
+                  - strong [ref=f3e394]: DEMO-LD-015
+                  - time [ref=f3e395]: 2026-09-09 01:00:00
+                  - generic [ref=f3e396]:
+                    - generic [ref=f3e397]: 封盖前 · 10 点
+                    - generic [ref=f3e398]: 已完成
+              - generic [ref=f3e402]:
+                - checkbox "选择对比 DEMO-LD-015 · 封盖后 · 2026-09-08 17:00:00" [ref=f3e403] [cursor=pointer]
+                - button "DEMO-LD-015 2026-09-08 17:00:00 封盖后 · 10 点 已完成" [ref=f3e404] [cursor=pointer]:
+                  - strong [ref=f3e405]: DEMO-LD-015
+                  - time [ref=f3e406]: 2026-09-08 17:00:00
+                  - generic [ref=f3e407]:
+                    - generic [ref=f3e408]: 封盖后 · 10 点
+                    - generic [ref=f3e409]: 已完成
+              - generic [ref=f3e413]:
+                - checkbox "选择对比 DEMO-LD-016 · 封盖前 · 2026-09-08 09:00:00" [ref=f3e414] [cursor=pointer]
+                - button "DEMO-LD-016 2026-09-08 09:00:00 封盖前 · 10 点 已完成" [ref=f3e415] [cursor=pointer]:
+                  - strong [ref=f3e416]: DEMO-LD-016
+                  - time [ref=f3e417]: 2026-09-08 09:00:00
+                  - generic [ref=f3e418]:
+                    - generic [ref=f3e419]: 封盖前 · 10 点
+                    - generic [ref=f3e420]: 已完成
+              - generic [ref=f3e424]:
+                - checkbox "选择对比 DEMO-LD-016 · 封盖后 · 2026-09-08 01:00:00" [ref=f3e425] [cursor=pointer]
+                - button "DEMO-LD-016 2026-09-08 01:00:00 封盖后 · 10 点 已完成" [ref=f3e426] [cursor=pointer]:
+                  - strong [ref=f3e427]: DEMO-LD-016
+                  - time [ref=f3e428]: 2026-09-08 01:00:00
+                  - generic [ref=f3e429]:
+                    - generic [ref=f3e430]: 封盖后 · 10 点
+                    - generic [ref=f3e431]: 已完成
+              - generic [ref=f3e435]:
+                - checkbox "选择对比 DEMO-LD-017 · 封盖前 · 2026-09-07 17:00:00" [ref=f3e436] [cursor=pointer]
+                - button "DEMO-LD-017 2026-09-07 17:00:00 封盖前 · 10 点 已完成" [ref=f3e437] [cursor=pointer]:
+                  - strong [ref=f3e438]: DEMO-LD-017
+                  - time [ref=f3e439]: 2026-09-07 17:00:00
+                  - generic [ref=f3e440]:
+                    - generic [ref=f3e441]: 封盖前 · 10 点
+                    - generic [ref=f3e442]: 已完成
+              - generic [ref=f3e446]:
+                - checkbox "选择对比 DEMO-LD-017 · 封盖后 · 2026-09-07 09:00:00" [ref=f3e447] [cursor=pointer]
+                - button "DEMO-LD-017 2026-09-07 09:00:00 封盖后 · 10 点 已完成" [ref=f3e448] [cursor=pointer]:
+                  - strong [ref=f3e449]: DEMO-LD-017
+                  - time [ref=f3e450]: 2026-09-07 09:00:00
+                  - generic [ref=f3e451]:
+                    - generic [ref=f3e452]: 封盖后 · 10 点
+                    - generic [ref=f3e453]: 已完成
+              - generic [ref=f3e457]:
+                - checkbox "选择对比 DEMO-LD-018 · 封盖前 · 2026-09-07 01:00:00" [ref=f3e458] [cursor=pointer]
+                - button "DEMO-LD-018 2026-09-07 01:00:00 封盖前 · 10 点 已完成" [ref=f3e459] [cursor=pointer]:
+                  - strong [ref=f3e460]: DEMO-LD-018
+                  - time [ref=f3e461]: 2026-09-07 01:00:00
+                  - generic [ref=f3e462]:
+                    - generic [ref=f3e463]: 封盖前 · 10 点
+                    - generic [ref=f3e464]: 已完成
+              - generic [ref=f3e468]:
+                - checkbox "选择对比 DEMO-LD-018 · 封盖后 · 2026-09-06 17:00:00" [ref=f3e469] [cursor=pointer]
+                - button "DEMO-LD-018 2026-09-06 17:00:00 封盖后 · 10 点 已完成" [ref=f3e470] [cursor=pointer]:
+                  - strong [ref=f3e471]: DEMO-LD-018
+                  - time [ref=f3e472]: 2026-09-06 17:00:00
+                  - generic [ref=f3e473]:
+                    - generic [ref=f3e474]: 封盖后 · 10 点
+                    - generic [ref=f3e475]: 已完成
+              - generic [ref=f3e479]:
+                - checkbox "选择对比 DEMO-LD-019 · 封盖前 · 2026-09-06 09:00:00" [ref=f3e480] [cursor=pointer]
+                - button "DEMO-LD-019 2026-09-06 09:00:00 封盖前 · 10 点 已完成" [ref=f3e481] [cursor=pointer]:
+                  - strong [ref=f3e482]: DEMO-LD-019
+                  - time [ref=f3e483]: 2026-09-06 09:00:00
+                  - generic [ref=f3e484]:
+                    - generic [ref=f3e485]: 封盖前 · 10 点
+                    - generic [ref=f3e486]: 已完成
+              - generic [ref=f3e490]:
+                - checkbox "选择对比 DEMO-LD-019 · 封盖后 · 2026-09-06 01:00:00" [ref=f3e491] [cursor=pointer]
+                - button "DEMO-LD-019 2026-09-06 01:00:00 封盖后 · 10 点 已完成" [ref=f3e492] [cursor=pointer]:
+                  - strong [ref=f3e493]: DEMO-LD-019
+                  - time [ref=f3e494]: 2026-09-06 01:00:00
+                  - generic [ref=f3e495]:
+                    - generic [ref=f3e496]: 封盖后 · 10 点
+                    - generic [ref=f3e497]: 已完成
+              - generic [ref=f3e501]:
+                - checkbox "选择对比 DEMO-LD-020 · 封盖前 · 2026-09-05 17:00:00" [ref=f3e502] [cursor=pointer]
+                - button "DEMO-LD-020 2026-09-05 17:00:00 封盖前 · 10 点 已完成" [ref=f3e503] [cursor=pointer]:
+                  - strong [ref=f3e504]: DEMO-LD-020
+                  - time [ref=f3e505]: 2026-09-05 17:00:00
+                  - generic [ref=f3e506]:
+                    - generic [ref=f3e507]: 封盖前 · 10 点
+                    - generic [ref=f3e508]: 已完成
+              - generic [ref=f3e512]:
+                - checkbox "选择对比 DEMO-LD-020 · 封盖后 · 2026-09-05 09:00:00" [ref=f3e513] [cursor=pointer]
+                - button "DEMO-LD-020 2026-09-05 09:00:00 封盖后 · 10 点 已完成" [ref=f3e514] [cursor=pointer]:
+                  - strong [ref=f3e515]: DEMO-LD-020
+                  - time [ref=f3e516]: 2026-09-05 09:00:00
+                  - generic [ref=f3e517]:
+                    - generic [ref=f3e518]: 封盖后 · 10 点
+                    - generic [ref=f3e519]: 已完成
+              - generic [ref=f3e523]:
+                - checkbox "选择对比 DEMO-LD-021 · 封盖前 · 2026-09-05 01:00:00" [ref=f3e524] [cursor=pointer]
+                - button "DEMO-LD-021 2026-09-05 01:00:00 封盖前 · 10 点 已完成" [ref=f3e525] [cursor=pointer]:
+                  - strong [ref=f3e526]: DEMO-LD-021
+                  - time [ref=f3e527]: 2026-09-05 01:00:00
+                  - generic [ref=f3e528]:
+                    - generic [ref=f3e529]: 封盖前 · 10 点
+                    - generic [ref=f3e530]: 已完成
+              - generic [ref=f3e534]:
+                - checkbox "选择对比 DEMO-LD-021 · 封盖后 · 2026-09-04 17:00:00" [ref=f3e535] [cursor=pointer]
+                - button "DEMO-LD-021 2026-09-04 17:00:00 封盖后 · 10 点 已完成" [ref=f3e536] [cursor=pointer]:
+                  - strong [ref=f3e537]: DEMO-LD-021
+                  - time [ref=f3e538]: 2026-09-04 17:00:00
+                  - generic [ref=f3e539]:
+                    - generic [ref=f3e540]: 封盖后 · 10 点
+                    - generic [ref=f3e541]: 已完成
+              - generic [ref=f3e545]:
+                - checkbox "选择对比 DEMO-LD-022 · 封盖前 · 2026-09-04 09:00:00" [ref=f3e546] [cursor=pointer]
+                - button "DEMO-LD-022 2026-09-04 09:00:00 封盖前 · 10 点 已完成" [ref=f3e547] [cursor=pointer]:
+                  - strong [ref=f3e548]: DEMO-LD-022
+                  - time [ref=f3e549]: 2026-09-04 09:00:00
+                  - generic [ref=f3e550]:
+                    - generic [ref=f3e551]: 封盖前 · 10 点
+                    - generic [ref=f3e552]: 已完成
+              - generic [ref=f3e556]:
+                - checkbox "选择对比 DEMO-LD-022 · 封盖后 · 2026-09-04 01:00:00" [ref=f3e557] [cursor=pointer]
+                - button "DEMO-LD-022 2026-09-04 01:00:00 封盖后 · 10 点 已完成" [ref=f3e558] [cursor=pointer]:
+                  - strong [ref=f3e559]: DEMO-LD-022
+                  - time [ref=f3e560]: 2026-09-04 01:00:00
+                  - generic [ref=f3e561]:
+                    - generic [ref=f3e562]: 封盖后 · 10 点
+                    - generic [ref=f3e563]: 已完成
+              - generic [ref=f3e567]:
+                - checkbox "选择对比 DEMO-LD-023 · 封盖前 · 2026-09-03 17:00:00" [ref=f3e568] [cursor=pointer]
+                - button "DEMO-LD-023 2026-09-03 17:00:00 封盖前 · 10 点 已完成" [ref=f3e569] [cursor=pointer]:
+                  - strong [ref=f3e570]: DEMO-LD-023
+                  - time [ref=f3e571]: 2026-09-03 17:00:00
+                  - generic [ref=f3e572]:
+                    - generic [ref=f3e573]: 封盖前 · 10 点
+                    - generic [ref=f3e574]: 已完成
+              - generic [ref=f3e578]:
+                - checkbox "选择对比 DEMO-LD-023 · 封盖后 · 2026-09-03 09:00:00" [ref=f3e579] [cursor=pointer]
+                - button "DEMO-LD-023 2026-09-03 09:00:00 封盖后 · 10 点 已完成" [ref=f3e580] [cursor=pointer]:
+                  - strong [ref=f3e581]: DEMO-LD-023
+                  - time [ref=f3e582]: 2026-09-03 09:00:00
+                  - generic [ref=f3e583]:
+                    - generic [ref=f3e584]: 封盖后 · 10 点
+                    - generic [ref=f3e585]: 已完成
+              - generic [ref=f3e589]:
+                - checkbox "选择对比 DEMO-LD-024 · 封盖前 · 2026-09-03 01:00:00" [ref=f3e590] [cursor=pointer]
+                - button "DEMO-LD-024 2026-09-03 01:00:00 封盖前 · 10 点 已完成" [ref=f3e591] [cursor=pointer]:
+                  - strong [ref=f3e592]: DEMO-LD-024
+                  - time [ref=f3e593]: 2026-09-03 01:00:00
+                  - generic [ref=f3e594]:
+                    - generic [ref=f3e595]: 封盖前 · 10 点
+                    - generic [ref=f3e596]: 已完成
+              - generic [ref=f3e600]:
+                - checkbox "选择对比 DEMO-LD-024 · 封盖后 · 2026-09-02 17:00:00" [ref=f3e601] [cursor=pointer]
+                - button "DEMO-LD-024 2026-09-02 17:00:00 封盖后 · 10 点 已完成" [ref=f3e602] [cursor=pointer]:
+                  - strong [ref=f3e603]: DEMO-LD-024
+                  - time [ref=f3e604]: 2026-09-02 17:00:00
+                  - generic [ref=f3e605]:
+                    - generic [ref=f3e606]: 封盖后 · 10 点
+                    - generic [ref=f3e607]: 已完成
+              - generic [ref=f3e611]:
+                - checkbox "选择对比 DEMO-LD-025 · 封盖前 · 2026-09-02 09:00:00" [ref=f3e612] [cursor=pointer]
+                - button "DEMO-LD-025 2026-09-02 09:00:00 封盖前 · 10 点 已完成" [ref=f3e613] [cursor=pointer]:
+                  - strong [ref=f3e614]: DEMO-LD-025
+                  - time [ref=f3e615]: 2026-09-02 09:00:00
+                  - generic [ref=f3e616]:
+                    - generic [ref=f3e617]: 封盖前 · 10 点
+                    - generic [ref=f3e618]: 已完成
+              - generic [ref=f3e622]:
+                - checkbox "选择对比 DEMO-LD-025 · 封盖后 · 2026-09-02 01:00:00" [ref=f3e623] [cursor=pointer]
+                - button "DEMO-LD-025 2026-09-02 01:00:00 封盖后 · 10 点 已完成" [ref=f3e624] [cursor=pointer]:
+                  - strong [ref=f3e625]: DEMO-LD-025
+                  - time [ref=f3e626]: 2026-09-02 01:00:00
+                  - generic [ref=f3e627]:
+                    - generic [ref=f3e628]: 封盖后 · 10 点
+                    - generic [ref=f3e629]: 已完成
+            - generic [ref=f3e633]:
+              - generic [ref=f3e634]: 第 1 / 2 页
+              - generic [ref=f3e635]:
+                - button "上一页" [disabled]
+                - button "下一页" [ref=f3e636] [cursor=pointer]
+          - article "测试详情" [ref=f3e637]:
+            - generic [ref=f3e638]:
+              - generic [ref=f3e639]: 记录详情
+              - tablist "详情视图" [ref=f3e640]:
+                - tab "曲线" [selected] [ref=f3e641] [cursor=pointer]
+                - tab "测试点" [ref=f3e644] [cursor=pointer]
+                - tab "光谱" [ref=f3e647] [cursor=pointer]
+                - tab "信息" [ref=f3e650] [cursor=pointer]
+              - generic [ref=f3e653]:
+                - button "打开 Excel" [ref=f3e654] [cursor=pointer]
+                - button "展开详情" [ref=f3e655] [cursor=pointer]
+            - generic [ref=f3e656]:
+              - generic [ref=f3e657]:
+                - generic [ref=f3e658]:
+                  - heading "DEMO-LD-001" [level=2] [ref=f3e659]
+                  - paragraph [ref=f3e660]: 封盖前 · 2026-09-18 09:00:00 · 25 °C
+                - generic [ref=f3e661]: 数据库存档
+              - tablist "对比参数" [ref=f3e662]:
+                - tab "功率 W" [selected] [ref=f3e663] [cursor=pointer]:
+                  - text: 功率
+                  - generic [ref=f3e664]: W
+                - tab "电压 V" [ref=f3e665] [cursor=pointer]:
+                  - text: 电压
+                  - generic [ref=f3e666]: V
+                - tab "电光效率 %" [ref=f3e667] [cursor=pointer]:
+                  - text: 电光效率
+                  - generic [ref=f3e668]: "%"
+                - tab "峰值波长 nm" [ref=f3e669] [cursor=pointer]:
+                  - text: 峰值波长
+                  - generic [ref=f3e670]: nm
+                - tab "质心波长 nm" [ref=f3e671] [cursor=pointer]:
+                  - text: 质心波长
+                  - generic [ref=f3e672]: nm
+                - tab "FWHM nm" [ref=f3e673] [cursor=pointer]:
+                  - text: FWHM
+                  - generic [ref=f3e674]: nm
+                - tab "PIB %" [ref=f3e675] [cursor=pointer]:
+                  - text: PIB
+                  - generic [ref=f3e676]: "%"
+                - tab "SMSR dB" [ref=f3e677] [cursor=pointer]:
+                  - text: SMSR
+                  - generic [ref=f3e678]: dB
+              - generic [ref=f3e679]:
+                - generic [ref=f3e680]:
+                  - generic [ref=f3e681]: 最大光功率
+                  - strong [ref=f3e682]: 29.76 W
+                - generic [ref=f3e683]:
+                  - generic [ref=f3e684]: 最高电光效率
+                  - strong [ref=f3e685]: 64.95 %
+                - generic [ref=f3e686]:
+                  - generic [ref=f3e687]: 峰值波长（最大功率处）
+                  - strong [ref=f3e688]: 976.19 nm
+                - generic [ref=f3e689]:
+                  - generic [ref=f3e690]: 有效测试点
+                  - strong [ref=f3e691]:
+                    - text: "10"
+                    - generic [ref=f3e692]: / 10
+              - generic [ref=f3e693]:
+                - generic [ref=f3e694]:
+                  - generic [ref=f3e695]:
+                    - strong [ref=f3e698]: 功率与电流曲线
+                    - generic [ref=f3e699]: W
+                  - generic [ref=f3e700]:
+                    - text: 标注
+                    - combobox "选择测试点" [ref=f3e701]:
+                      - option "2.00 A · 0.504 W" [selected]
+                      - option "4.00 A · 3.864 W"
+                      - option "6.00 A · 7.224 W"
+                      - option "8.00 A · 10.584 W"
+                      - option "10.00 A · 13.944 W"
+                      - option "12.00 A · 17.304 W"
+                      - option "14.00 A · 20.499 W"
+                      - option "16.00 A · 23.640 W"
+                      - option "18.00 A · 26.727 W"
+                      - option "20.00 A · 29.760 W"
+                - generic [ref=f3e703]:
+                  - img "历史功率电流曲线" [ref=f3e704]
+                  - generic [ref=f3e705]: 功率
+                - paragraph [ref=f3e706]: 每条曲线保留实际测量电流点。悬停查看数值，展开详情可放大图表。
+              - generic [ref=f3e707]: 当前为虚拟测试数据，仅用于展示界面，不会写入真实测试数据库。
+```

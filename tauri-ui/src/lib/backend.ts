@@ -1,3 +1,6 @@
+import { validateCommandResponse, validateSnapshot } from "./bridge-validation"
+import type { CommandName, CommandParams, CommandResult, SnapshotCommand } from "./command-contract"
+import { normalizeBridgeError } from "./bridge-error"
 import { Channel, invoke } from "@tauri-apps/api/core"
 
 import { decodeColumnarSpectrum, mergeSpectrumColumns, type SpectrumColumns, type SpectrumColumnsPatch } from "@/lib/spectrum-columns"
@@ -47,6 +50,7 @@ export interface Ch341State {
 }
 
 export interface DeviceSnapshot {
+  powerBackground?: PowerBackgroundSnapshot
   state: DeviceConnectionState
   label: string
   detail: string
@@ -58,6 +62,7 @@ export interface DeviceSnapshot {
   resourceProfiles?: PowerMeterResourceProfile[]
   coefficientLibrary?: PowerMeterCoefficientLibrary | null
   ch341?: Ch341State
+  maximumCurrentA?: number | null
   outputEnabled?: boolean
   activeCurrentA?: number | null
   inputVoltageV?: number | null
@@ -134,9 +139,13 @@ export interface AppConfiguration {
   station: string
   testTemperatureC: string
   outputDir: string
-  powerSupplyKind: "ch341" | "tdk"
+  powerSupplyKind: "ch341" | "tdk" | "ru"
   ch341SelectedLocationPath: string
   ch341PortBindings: Ch341PortBinding[]
+  ruResource: string
+  ruBaudRate: number
+  ruAddress: number
+  ruVoltageV: number
   tdkResource: string
   setCurrentA: number
   tdkVoltageV: number
@@ -167,6 +176,7 @@ export interface AppConfiguration {
   pibMinimumPercent: number
   stableWindowS: number
   stabilityLimitPercent: number
+  powerStabilityAbsoluteFloorW?: number
   initialCurrentA: number
   targetCurrentA: number
   currentStepA: number
@@ -254,6 +264,7 @@ export interface BackendSnapshot {
     elapsedS?: number | null
     runContext?: Pick<AppConfiguration, "sn" | "station" | "testTemperatureC" | "selectedScriptId"> | null
     stability?: {
+      background?: PowerBackgroundSnapshot
       powerStable: boolean
       /** Continuous qualifying sample coverage, computed by the backend. */
       elapsedS: number
@@ -265,6 +276,12 @@ export interface BackendSnapshot {
       spanLimitW: number | null
       percent: number | null
       limitPercent: number
+      absoluteFloorW?: number
+      effectiveLimitW?: number | null
+      twoSigmaW?: number | null
+      driftW?: number | null
+      driftLimitW?: number | null
+      driftExceeded?: boolean
       quality: MeasurementQuality
       hasReading: boolean
       wavelengthRequired: boolean
@@ -281,6 +298,7 @@ export interface BackendSnapshot {
     savedPointCount?: number
     exportedPointCount?: number
     journalPath?: string
+    sessionId?: string | null
     canNextDevice?: boolean
     canRetryExport?: boolean
     exportStatus?: string
@@ -289,6 +307,18 @@ export interface BackendSnapshot {
     reference?: TestHistoryReference | null
   }
   manualTest?: {
+    currentCommand?: {
+      pending: boolean
+      requestedCurrentA: number | null
+      remainingS: number
+      stopping: boolean
+    }
+    capture?: {
+      state: "idle" | "waiting_stable" | "waiting_voltage" | "reading_voltage" | "validating" | "recorded" | "cancelled" | "failed"
+      detail: string
+      currentA: number | null
+      remainingS: number | null
+    }
     pendingCount: number
     exportStatus: string
     exportPath: string
@@ -335,9 +365,41 @@ export interface BackendSnapshot {
     detail: string
     controlOwner: ControlOwner
     manualControlsAllowed: boolean
+    workflowOwner?: "manual" | "automatic" | null
+    workflowBusy?: boolean
     shutdown: SafetyShutdownResult
   }
   status?: { message: string }
+}
+
+export interface DiagnosticExportResult {
+  path: string
+  sessionId: string
+  warnings: string[]
+}
+
+export interface PowerBackgroundSnapshot {
+  responseParametersConfirmed?: boolean
+  controlBlocker?: string | null
+  tolerancePreset?: "standard" | "custom"
+  tolerance?: { absolute_drift_w: number; relative_drift_percent: number; reference_s: number; extra_noise_percent: number }
+  mode: "legacy" | "shadow" | "dual"
+  algorithm: string
+  state: string
+  job: "learn" | "verify" | "saving" | null
+  parametersConfirmed: boolean
+  detectedSettings?: { fullScaleW: number | null; filter: "unavailable"; softwareGain: number; intervalMs: number }
+  model: { model_id: string; center_w: number; recurrent_jump_w?: number; quantization_w: number; quantization_source?: "manual" | "observed-grid-v1"; noise_sigma_w: number; shift_guard_w: number; slope_guard_w_s: number; created_at: string } | null
+  decision: {
+    code?: string
+    stable: boolean
+    reason: string
+    tolerance_w: number | null
+    noise_limit_w: number | null
+    guarded_shift_w: number | null
+    guarded_drift_w: number | null
+    metrics: { mean_w: number; median_w: number; span_w: number; residual_sigma_w: number; block_shift_w: number; slope_w_s: number; covered_s: number; sample_count: number } | null
+  }
 }
 
 export type BackendSnapshotPatch = Omit<BackendSnapshot, "measurements" | "pd"> & {
@@ -357,11 +419,18 @@ export function decodeBackendSnapshotPatch(value: unknown): BackendSnapshotPatch
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("后端快照格式无效")
   }
+  validateSnapshot(value)
   const patch = value as BackendSnapshotPatch
   if (patch.measurements?.spectrum !== undefined) {
     decodeColumnarSpectrum(patch.measurements.spectrum)
   }
   return patch
+}
+
+// These small, JSON-only sections change on configuration edits, not each sample.
+// Never use this comparison for measurement arrays or device safety state.
+function reuseConfigurationSection<T>(previous: T | undefined, next: T): T {
+  return previous !== undefined && (previous === next || JSON.stringify(previous) === JSON.stringify(next)) ? previous : next
 }
 
 export function mergeBackendSnapshot(previous: BackendSnapshot | null, patch: BackendSnapshotPatch): BackendSnapshot {
@@ -371,7 +440,10 @@ export function mergeBackendSnapshot(previous: BackendSnapshot | null, patch: Ba
     previous.backend.mode !== patch.backend.mode
     || previous.backend.runtimeId !== patch.backend.runtimeId
   )) previous = null
+  const workflowChanged = previous?.safety?.workflowOwner !== patch.safety?.workflowOwner
   const { measurements: patchMeasurements, pd: patchPd, seriesPatches, ...base } = patch
+  if (base.configuration) base.configuration = reuseConfigurationSection(previous?.configuration, base.configuration)
+  if (base.testScripts) base.testScripts = reuseConfigurationSection(previous?.testScripts, base.testScripts)
   const acceptsSeries = (name: keyof SeriesRevisions) => !isOlderSeriesRevision(previous?.seriesRevisions?.[name], patch.seriesRevisions?.[name])
   const seriesRevisions = patch.seriesRevisions ? { ...patch.seriesRevisions } : previous?.seriesRevisions
   if (seriesRevisions && previous?.seriesRevisions) {
@@ -379,7 +451,9 @@ export function mergeBackendSnapshot(previous: BackendSnapshot | null, patch: Ba
       if (!acceptsSeries(name)) seriesRevisions[name] = previous.seriesRevisions[name]
     }
   }
-  const previousMeasurements = previous?.measurements
+  // PD is an independent acquisition chain; changing the power/spectrum
+  // workflow invalidates only those histories, never the PD stream's cache.
+  const previousMeasurements = workflowChanged ? undefined : previous?.measurements
   const hasMeasurements = patchMeasurements !== undefined || previousMeasurements !== undefined || seriesPatches?.power !== undefined
   const measurements = hasMeasurements ? {
     power: mergeSnapshotSeries(previousMeasurements?.power, patchMeasurements?.power, seriesPatches?.power, (point) => point.elapsedS, previous?.seriesRevisions?.power, patch.seriesRevisions?.power)
@@ -410,10 +484,7 @@ function ensureTauri(): void {
 
 export async function fetchBackendSnapshot(view: SnapshotView, since?: SeriesRevisions, cursors?: SeriesCursors): Promise<BackendSnapshotPatch> {
   ensureTauri()
-  const value = await invoke<unknown>("bridge_request", {
-    method: "app.snapshot",
-    params: { view, ...(since ? { since } : {}), ...(cursors ? { cursors } : {}) },
-  })
+  const value = await sendBackendRequest("app.snapshot", { view, ...(since ? { since } : {}), ...(cursors ? { cursors } : {}) })
   return decodeBackendSnapshotPatch(value)
 }
 
@@ -594,18 +665,32 @@ export async function subscribeBackendSnapshots(
   }
 }
 
-export async function sendBackendCommand(
-  method: string,
-  params: Record<string, unknown> = {},
+export async function sendBackendCommand<M extends SnapshotCommand>(
+  method: M,
+  params: CommandParams<M> = {} as CommandParams<M>,
 ): Promise<BackendSnapshot> {
-  const value = await sendBackendRequest<unknown>(method, params)
+  const value = await sendBackendRequest(method, params)
   return decodeBackendSnapshotPatch(value) as BackendSnapshot
 }
 
-export async function sendBackendRequest<T>(
-  method: string,
-  params: Record<string, unknown> = {},
-): Promise<T> {
+export async function sendBackendRequest<M extends CommandName>(
+  method: M,
+  params: CommandParams<M>,
+): Promise<CommandResult<M>> {
+  if (typeof window !== "undefined"
+    && new URLSearchParams(window.location.search).get("demo") === "1") {
+    if (method.startsWith("dataBrowser.")) {
+      const { demoDataRequest } = await import("./data-browser-demo")
+      return demoDataRequest(method, params) as CommandResult<M>
+    }
+    throw new Error("虚拟演示模式不会调用真实后端")
+  }
   ensureTauri()
-  return invoke<T>("bridge_request", { method, params })
+  try {
+    const value = await invoke<CommandResult<M>>("bridge_request", { method, params })
+    validateCommandResponse(method, value)
+    return value
+  } catch (reason) {
+    throw normalizeBridgeError(reason, method)
+  }
 }

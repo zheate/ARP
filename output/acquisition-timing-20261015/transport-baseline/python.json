@@ -1,0 +1,213 @@
+{
+  "environment": {
+    "platform": "macOS-27.2-arm64-arm-64bit",
+    "python": "3.11.15",
+    "numpy": "2.4.6"
+  },
+  "workload": {
+    "iterations": 40,
+    "source": "synthetic reader-shaped lists; 1200 power points; 13000 PD points; no hardware"
+  },
+  "results": [
+    {
+      "points": 3648,
+      "scenario": "live_full",
+      "snapshot": {
+        "median_ms": 0.1175835,
+        "p95_ms": 0.15771219999999997
+      },
+      "state_lock": {
+        "median_ms": 0.10572899999999999,
+        "p95_ms": 0.1428455
+      },
+      "json_encode": {
+        "median_ms": 1.6569585,
+        "p95_ms": 1.7421955
+      },
+      "response_bytes": 142449,
+      "spectrum_conversion": {
+        "median_ms": 0.0765625,
+        "p95_ms": 0.08861694999999999
+      }
+    },
+    {
+      "points": 3648,
+      "scenario": "live_delta",
+      "snapshot": {
+        "median_ms": 0.15941650000000002,
+        "p95_ms": 0.20562295
+      },
+      "state_lock": {
+        "median_ms": 0.15037499999999998,
+        "p95_ms": 0.1898229
+      },
+      "json_encode": {
+        "median_ms": 0.28143799999999997,
+        "p95_ms": 0.29662885
+      },
+      "response_bytes": 29573
+    },
+    {
+      "points": 3648,
+      "scenario": "live_unchanged",
+      "snapshot": {
+        "median_ms": 0.0304785,
+        "p95_ms": 0.03534855
+      },
+      "state_lock": {
+        "median_ms": 0.025146,
+        "p95_ms": 0.029335100000000003
+      },
+      "json_encode": {
+        "median_ms": 0.027042,
+        "p95_ms": 0.031110749999999996
+      },
+      "response_bytes": 4963
+    },
+    {
+      "points": 3648,
+      "scenario": "pd_full",
+      "snapshot": {
+        "median_ms": 0.0589585,
+        "p95_ms": 0.06750835
+      },
+      "state_lock": {
+        "median_ms": 0.044042,
+        "p95_ms": 0.049807999999999984
+      },
+      "json_encode": {
+        "median_ms": 6.0253335,
+        "p95_ms": 6.49418125
+      },
+      "response_bytes": 481439
+    },
+    {
+      "points": 3648,
+      "scenario": "pd_delta",
+      "snapshot": {
+        "median_ms": 0.5282290000000001,
+        "p95_ms": 0.5630933999999999
+      },
+      "state_lock": {
+        "median_ms": 0.521354,
+        "p95_ms": 0.5548413499999999
+      },
+      "json_encode": {
+        "median_ms": 0.032791,
+        "p95_ms": 0.0390503
+      },
+      "response_bytes": 5363
+    },
+    {
+      "points": 8192,
+      "scenario": "live_full",
+      "snapshot": {
+        "median_ms": 0.25960399999999995,
+        "p95_ms": 0.4952419499999997
+      },
+      "state_lock": {
+        "median_ms": 0.228375,
+        "p95_ms": 0.4319913499999997
+      },
+      "json_encode": {
+        "median_ms": 3.1007499999999997,
+        "p95_ms": 3.4096017499999998
+      },
+      "response_bytes": 254880,
+      "spectrum_conversion": {
+        "median_ms": 0.16758299999999998,
+        "p95_ms": 0.18889024999999995
+      }
+    },
+    {
+      "points": 8192,
+      "scenario": "live_delta",
+      "snapshot": {
+        "median_ms": 0.2552915,
+        "p95_ms": 0.27577499999999994
+      },
+      "state_lock": {
+        "median_ms": 0.24377100000000002,
+        "p95_ms": 0.26363924999999994
+      },
+      "json_encode": {
+        "median_ms": 0.6158334999999999,
+        "p95_ms": 0.66650835
+      },
+      "response_bytes": 60026
+    },
+    {
+      "points": 8192,
+      "scenario": "live_unchanged",
+      "snapshot": {
+        "median_ms": 0.031229,
+        "p95_ms": 0.03563685
+      },
+      "state_lock": {
+        "median_ms": 0.025792,
+        "p95_ms": 0.030089899999999996
+      },
+      "json_encode": {
+        "median_ms": 0.0272295,
+        "p95_ms": 0.031845849999999995
+      },
+      "response_bytes": 4963
+    },
+    {
+      "points": 8192,
+      "scenario": "pd_full",
+      "snapshot": {
+        "median_ms": 0.0607915,
+        "p95_ms": 0.06664614999999999
+      },
+      "state_lock": {
+        "median_ms": 0.045271,
+        "p95_ms": 0.05001074999999999
+      },
+      "json_encode": {
+        "median_ms": 5.936396,
+        "p95_ms": 6.097470499999999
+      },
+      "response_bytes": 481439
+    },
+    {
+      "points": 8192,
+      "scenario": "pd_delta",
+      "snapshot": {
+        "median_ms": 0.523438,
+        "p95_ms": 0.55070415
+      },
+      "state_lock": {
+        "median_ms": 0.5165,
+        "p95_ms": 0.54432645
+      },
+      "json_encode": {
+        "median_ms": 0.031625,
+        "p95_ms": 0.03295805
+      },
+      "response_bytes": 5363
+    }
+  ],
+  "state_lock_wait_probe": [
+    {
+      "points": 3648,
+      "median_ms": 0.004417,
+      "p95_ms": 0.010562499999999999,
+      "max_ms": 0.023958,
+      "attempts": 491,
+      "snapshot_polls": 30,
+      "snapshot_interval_ms": 100,
+      "probe_interval_ms": 5
+    },
+    {
+      "points": 8192,
+      "median_ms": 0.003583,
+      "p95_ms": 0.010178949999999999,
+      "max_ms": 0.029458,
+      "attempts": 488,
+      "snapshot_polls": 30,
+      "snapshot_interval_ms": 100,
+      "probe_interval_ms": 5
+    }
+  ]
+}

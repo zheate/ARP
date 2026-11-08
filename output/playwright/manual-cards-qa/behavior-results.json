@@ -1,0 +1,17 @@
+{
+  "initialOnDisabled": false,
+  "initialOffDisabled": true,
+  "dialogOpen": true,
+  "hasVoltageInput": true,
+  "hasReadVoltage": true,
+  "hasReadCurrent": true,
+  "dialogClosed": true,
+  "hasProfileEditor": true,
+  "hasSmoothCheckbox": true,
+  "hasPibCenter": true,
+  "hasPibHalf": true,
+  "hasAutoIntegration": true,
+  "hasSpecSmoothing": true,
+  "lockedBannerVisible": true,
+  "allSettingsButtonsDisabled": true
+}

@@ -1,0 +1,10 @@
+   Compiling tauri-ui v0.1.2 (/Users/zh/Documents/test/ARP/tauri-ui/src-tauri)
+    Finished `release` profile [optimized] target(s) in 3.39s
+     Running unittests src/lib.rs (tauri-ui/src-tauri/target/release/deps/tauri_ui_lib-b45f485fb370f0c3)
+
+running 2 tests
+test snapshot_stream::tests::stream_moves_complete_owned_spectrum_into_message ... ok
+test tests::stream_envelope_moves_the_complete_owned_message ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.00s
+

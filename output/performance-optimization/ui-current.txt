@@ -1,0 +1,29 @@
+### Result
+{"commits":70,"renders":{"LicensedApp":30,"AppTitlebar":58,"AutomaticPhaseTrack":70,"DisplayMenu":70,"DropdownMenu":70,"DropdownMenuProvider":70,"Menu":70,"Popper":280,"PopperProvider":280,"MenuProvider":140,"DropdownMenuTrigger":70,"MenuAnchor":70,"PopperAnchor":280,"Primitive.div":280,"Primitive.div.Slot":280,"Primitive.button":280,"Primitive.button.Slot":280,"Button":910,"Eye":70,"ChevronDown":140,"DropdownMenuPortal":70,"MenuPortal":70,"MenuPortalProvider":70,"Presence":280,"OctagonAlert":70,"CircleGauge":70,"Hand":70,"ChartColumn":140,"FileText":210,"Settings":70,"AnimatedToastStack":24,"AnimatePresence":29,"PresenceChild":29,"PopChild":29,"PopChildMeasure":29,"MeasureLayout":29,"MeasureLayoutWithContext":29,"Info":29,"X":29,"AutomaticPage2":57,"Label":700,"Primitive.label":350,"QrCode":70,"Input":280,"Thermometer":70,"Milestone":70,"NativeSelect":70,"Plus":70,"Save":70,"Pencil":70,"FolderOpen":140,"DeviceCard":210,"TooltipProvider":420,"TooltipProviderProvider":210,"Tooltip":210,"TooltipTrigger":210,"Power":70,"StatusDot":210,"ChevronRight":280,"TooltipPortal":210,"TooltipPortalProvider":210,"Gauge":70,"Radio":70,"AutomaticTestControlCard":70,"Card":140,"CardContent":140,"Play":70,"Square":70,"PowerRealtimeChart2":70,"ChartPanel2":70,"CanvasLineChart":70,"AutomaticMetricCard":57,"PowerStabilityStatus":57,"LivePowerRecordingDot":70,"ChartLegend":70,"Search":70,"RefreshCw":70,"Database":140,"ChevronLeft":70,"Maximize2":70,"NumericReadout2":3},"intervalMs":6000,"viewport":[1440,960],"overflow":false}
+### Ran Playwright code
+```js
+await (async () => {
+ await page.addInitScript(() => {
+  window.__arpProfile = { commits: 0, renders: {} };
+  window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+   supportsFiber: true, renderers: new Map(), inject(renderer) { this.renderers.set(1, renderer); return 1; },
+   onCommitFiberRoot(id, root) {
+    const p = window.__arpProfile; p.commits++;
+    function walk(f) { if(!f)return; const name=f.type?.displayName || f.type?.name; if(name && (f.flags & 1)) p.renders[name]=(p.renders[name]||0)+1; walk(f.child); walk(f.sibling); }
+    walk(root.current);
+   }, onCommitFiberUnmount() {}, onPostCommitFiberRoot() {}
+  };
+ });
+ await page.setViewportSize({width:1440,height:960});
+ await page.reload();
+ await page.getByRole('button',{name:'开始',exact:true}).click();
+ await page.evaluate(() => { window.__arpProfile={commits:0,renders:{}}; });
+ await page.waitForTimeout(6000);
+ return await page.evaluate(() => ({...window.__arpProfile, intervalMs:6000, viewport:[innerWidth,innerHeight], overflow:document.documentElement.scrollWidth>innerWidth}));
+})(page);
+```
+### Page
+- Page URL: http://127.0.0.1:1423/?demo=1&run=1
+- Page Title: Power Test
+### Events
+- New console entries: .playwright-cli/console-2026-09-18T05-31-52-210Z.log#L3

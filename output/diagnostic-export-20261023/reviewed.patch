@@ -1,0 +1,987 @@
+diff --git a/combined_test/excel_export.py b/combined_test/excel_export.py
+index 99082dd7..152e0c4f 100644
+--- a/combined_test/excel_export.py
++++ b/combined_test/excel_export.py
+@@ -486,6 +486,10 @@ def _write_xlsx_session_information(
+     for key, value in sorted(dict(getattr(session, "settings", {}) or {}).items()):
+         if key == "testTemperatureC":
+             continue
++        if key == "powerStability" and isinstance(value, dict):
++            # Full baseline samples belong to JSONL/diagnostic ZIP, not a single
++            # Excel cell (32,767 characters). Keep the existing model metadata.
++            value = {name: item for name, item in value.items() if name != "backgroundLearning"}
+         row += 1
+         sheet.write(row, 0, str(key))
+         sheet.write(row, 1, str(value))
+diff --git a/docs/superpowers/specs/2026-10-22-background-dual-window.md b/docs/superpowers/specs/2026-10-22-background-dual-window.md
+index 9796f2a2..0a6424c9 100644
+--- a/docs/superpowers/specs/2026-10-22-background-dual-window.md
++++ b/docs/superpowers/specs/2026-10-22-background-dual-window.md
+@@ -1,5 +1,7 @@
+ # 功率本底与双窗口判稳：第一版
+ 
++参数入口与自动步进的控制资格已由 [2026-10-23 自动学习与容差预设](2026-10-23-power-stability-setup.md) 更新；下文保留第一版设计与验收背景。
++
+ 基于 `ca30ac89` 实现。算法版本为 `background-dual-window-v1`。当前默认使用旁路模式：新算法记录诊断，原有策略控制升流。响应时间、建立时间、回读容差和漂移容差尚无实测值，默认保留为 0，参数未确认。
+ 
+ ## 操作顺序
+@@ -51,3 +53,20 @@
+ 结果标记为 `observed-grid-v1`（观测估计值），不是仪器原生分辨率；可能遗漏未观察到的细台阶。样本已经应用软件增益，估计时不重复乘增益。自动估计仅供旁路诊断，不能使新策略接管升流。真正控制前，须填写已实测确认的步进和相关判稳参数。保存模型时同时记录设置来源，重连后复核使用同一模型的步进，不重新估计；重新学习则重新估计。
+ 
+ 量程展示使用 LaserPoint 已有配置标记中的原始满量程（软件增益前），不新增设备查询。其他驱动尚未提供量程时明确显示未提供；软件增益与采样间隔标明是 ARP 配置，滤波状态始终如实显示设备未提供。
++
++
++## 一键导出本轮诊断包
++
++测试结束后，结果摘要和结束详情均提供「一键导出诊断包」。等待自动测试工作线程和 Excel 写入结束后可用；Excel 生成失败时仍可导出已有诊断材料。点击后在后台文件线程打包，完成后调用系统文件管理器定位 ZIP。默认目录为 `settings.json` 同级的 `diagnostics`；Windows 默认是 `%LOCALAPPDATA%\Changguang Huaxin\Pump Driver Integrated Test\diagnostics`。可再次点击「定位诊断包」，无需重新打包。
++
++包内仅包含所选当前轮次的数据：
++
++- `session.json`：本轮 SN、时间、设备和冻结配置。
++- `background.json`：本轮冻结模型、策略及与模型 ID 匹配的 180 秒本底原始样本。
++- `session.jsonl`：本轮会话日志的原始字节。
++- `result/`：本轮生成的 Excel；若 Excel 失败并保留了逐秒 CSV，也一并收集。
++- `manifest.json`：轮次 ID、文件清单、SHA-256、完整性标记及缺失原因。
++
++从本版开始，本底原始样本随会话开始时冻结，重新学习不会改变上一轮导出的本底。旧会话仅在已保存模型 ID 完全匹配时补取样本；缺失时注明，不混入其他探头或后续学习结果。Excel 缺失不伪装成完整包；日志缺失或轮次不符时直接报错。不会打包整份全局设置、其他会话或数据库。
++
++压缩不持有设备状态锁，不新增硬件查询，不改动源文件。通过临时文件完成 ZIP 后再发布，失败清理临时文件；重复导出使用独立文件名。前后端均检查轮次和写入状态，客户端切换轮次后丢弃旧请求的显示和文件夹定位操作。此入口用于当前进程仍保留的本轮结束结果，尚不扩展到历史会话导出。
+diff --git a/tauri-ui/scripts/fixtures/power-background.tsx b/tauri-ui/scripts/fixtures/power-background.tsx
+index 987bd1fc..2cf63c9a 100644
+--- a/tauri-ui/scripts/fixtures/power-background.tsx
++++ b/tauri-ui/scripts/fixtures/power-background.tsx
+@@ -9,15 +9,29 @@ import type { RunCommand } from "../../src/lib/command-contract"
+ import "../../src/index.css"
+ import "../../src/workbench-appearance.css"
+ 
++const learned = new URLSearchParams(window.location.search).has("learned")
++const initialConfig: AppConfiguration = {
++  ...emptyConfig, ...DEMO_SNAPSHOT.configuration!, setCurrentA: 0,
++  powerStabilityAbsoluteDriftW: 0.35,
++  powerStabilityResponseS: learned ? 2 : 0,
++  powerStabilitySettleS: learned ? 1 : 0,
++  powerStabilityCurrentToleranceA: learned ? 0.01 : 0,
++  powerStabilityParametersConfirmed: learned,
++}
++
+ function Fixture() {
+   const [kind, setKind] = useState<DeviceSettingsKind | null>(null)
+-  const [config, setConfig] = useState<AppConfiguration>({ ...emptyConfig, ...DEMO_SNAPSHOT.configuration!, setCurrentA: 0 })
++  const [config, setConfig] = useState<AppConfiguration>(initialConfig)
+   const [snapshot, setSnapshot] = useState<BackendSnapshot>({ ...DEMO_SNAPSHOT,
++    configuration: initialConfig,
+     devices: { ...DEMO_SNAPSHOT.devices,
+       powerSupply: { ...DEMO_SNAPSHOT.devices.powerSupply, connected: false, outputEnabled: false },
+       powerMeter: { ...DEMO_SNAPSHOT.devices.powerMeter, running: false, powerBackground: {
+-        mode: "shadow", algorithm: "background-dual-window-v1", state: "尚未学习本底", job: null,
+-        parametersConfirmed: false, model: null, decision: { stable: false, reason: "参数待确认（仅诊断）",
++        mode: "shadow", algorithm: "background-dual-window-v1", state: learned ? "本底学习完成，当前连接可连续复用" : "尚未学习本底", job: null,
++        parametersConfirmed: learned, responseParametersConfirmed: learned,
++        model: learned ? { model_id: "example-background", quantization_w: 0.001, quantization_source: "observed-grid-v1",
++          center_w: 0.0005, noise_sigma_w: 0.0005, shift_guard_w: 0.001, slope_guard_w_s: 0.00005, created_at: "2026-10-23" } : null,
++        decision: { stable: false, reason: "参数待确认（仅诊断）",
+           metrics: null, tolerance_w: null, noise_limit_w: null, guarded_shift_w: null, guarded_drift_w: null },
+       } },
+       spectrometer: { ...DEMO_SNAPSHOT.devices.spectrometer, running: false },
+@@ -49,7 +63,11 @@ function Fixture() {
+     <div style={{ display: "flex", gap: 16 }} data-testid="cards">
+       {(["powerSupply", "powerMeter", "spectrometer"] as const).map((device, index) => <button style={{ width: 200, height: 100, border: "1px solid #ccc" }} key={device} onClick={() => setKind(device)}>{["电源设置", "功率计设置", "光谱仪设置"][index]}</button>)}
+     </div>
+-    {kind && <DeviceSettingsDialog kind={kind} open onClose={() => setKind(null)} onSave={async () => {}} snapshot={snapshot} config={config}
++    {kind && <DeviceSettingsDialog kind={kind} open onClose={() => setKind(null)} onSave={async () => {
++      setSnapshot(s => ({ ...s, configuration: config, devices: { ...s.devices, powerMeter: { ...s.devices.powerMeter,
++        powerBackground: { ...s.devices.powerMeter.powerBackground!, responseParametersConfirmed: Boolean(config.powerStabilityParametersConfirmed) },
++      } } }))
++    }} snapshot={snapshot} config={config}
+       update={(key, value) => setConfig(c => ({ ...c, [key]: value }))} active pending={false} run={run} />}
+   </main>
+ }
+diff --git a/tauri-ui/scripts/verify-power-background.cjs b/tauri-ui/scripts/verify-power-background.cjs
+index 74a67620..97b9b938 100644
+--- a/tauri-ui/scripts/verify-power-background.cjs
++++ b/tauri-ui/scripts/verify-power-background.cjs
+@@ -8,6 +8,7 @@ async (page) => {
+   function same(a, b) { return a && b && ['x', 'y', 'width', 'height'].every(key => Math.abs(a[key] - b[key]) < 0.5); }
+   for (const width of [1440, 1180, 760]) {
+     await page.setViewportSize({ width, height: width === 760 ? 600 : 900 });
++    await page.goto('http://127.0.0.1:1420/scripts/fixtures/power-background.html');
+     const cards = await box(page.getByTestId('cards'));
+     for (const name of ['电源设置', '功率计设置', '光谱仪设置']) {
+       await page.getByRole('button', { name, exact: true }).click();
+@@ -43,20 +44,47 @@ async (page) => {
+           buttons: [...el.querySelectorAll('button')].map(b => ({ text: b.textContent, color: getComputedStyle(b).backgroundColor, box: b.getBoundingClientRect().toJSON() })) }));
+         if (JSON.stringify(footerBefore) !== JSON.stringify(footerDuring)) throw Error('Detection changed footer');
+         await page.waitForTimeout(700);
+-        await dialog.getByText('高级判稳参数（首次旁路测试可跳过）', { exact: true }).click();
++        const setup = dialog.getByRole('region', { name: '功率本底与判稳' });
++        if (await setup.locator('input[type="number"]:visible').count()) throw Error('Advanced numeric inputs exposed by default');
++        await setup.scrollIntoViewIfNeeded();
++        await page.screenshot({ path: `output/playwright/power-stability-setup-20261023/default-${width}.png` });
++        const preset = dialog.getByRole('combobox', { name: '测试容差预设', exact: true });
++        await preset.click();
++        await dialog.getByRole('option', { name: '已保存的自定义容差', exact: true }).click();
++        await dialog.getByText('编辑自定义容差', { exact: true }).click();
++        await dialog.getByLabel('绝对漂移容差 (W)').fill('0.4');
++        await preset.click();
++        await dialog.getByRole('option', { name: '标准 · 相对漂移 0.2%', exact: true }).click();
++        if (!(await dialog.getByLabel('当前测试容差').innerText()).includes('0.2%')) throw Error('Standard tolerance missing');
++        await preset.click();
++        await dialog.getByRole('option', { name: '已保存的自定义容差', exact: true }).click();
++        await dialog.getByText('编辑自定义容差', { exact: true }).click();
++        if (Number(await dialog.getByLabel('绝对漂移容差 (W)').inputValue()) !== 0.4) throw Error('Preset switching overwrote custom tolerance');
++        await preset.click();
++        await dialog.getByRole('option', { name: '标准 · 相对漂移 0.2%', exact: true }).click();
++        await dialog.getByText('设备响应 · 一次确认', { exact: true }).click();
++        const confirmation = dialog.getByLabel('已依据设备规格或实测确认响应参数');
++        if (await confirmation.isChecked() || await confirmation.isEnabled()) throw Error('Unknown device response can be confirmed');
++        await dialog.getByLabel('电流最短建立时间 (s)').fill('1');
++        await dialog.getByLabel('电流回读容差 (A)').fill('0.01');
++        await dialog.getByLabel('探头最短响应时间 (s)').fill('2');
++        await confirmation.check();
++        if (!(await dialog.getByLabel('设备响应状态').innerText()).includes('待保存')) throw Error('Draft confirmation displayed as saved');
++        await page.screenshot({ path: `output/playwright/power-stability-setup-20261023/response-${width}.png` });
++        await dialog.getByRole('button', { name: '保存设置', exact: true }).click();
++        await page.getByRole('button', { name: '功率计设置', exact: true }).click();
++        if (!(await dialog.getByLabel('设备响应状态').innerText()).includes('已确认')) throw Error('Saved response not reused');
++        await dialog.getByText('维护选项（通常无需修改）', { exact: true }).click();
+         if (await dialog.getByLabel('仪器设置备注（可选）').inputValue() !== '') throw Error('Fresh notes not empty');
+-        if (Number(await dialog.getByLabel('手动步进 (W，0 为自动估计)').inputValue()) !== 0) throw Error('Automatic step not default');
+-        await dialog.getByLabel('已用响应实测和测试规范确认上述参数').scrollIntoViewIfNeeded();
+-        if (await dialog.getByLabel('已用响应实测和测试规范确认上述参数').isChecked()) throw Error('Unknown parameters were confirmed');
+-        await page.screenshot({ path: `output/playwright/power-background-20261022/parameters-${width}.png` });
+-        await dialog.getByText('高级判稳参数（首次旁路测试可跳过）', { exact: true }).click();
++        if (Number(await dialog.getByLabel('手动覆盖步进 (W，0 为自动学习)').inputValue()) !== 0) throw Error('Automatic step not default');
++        await dialog.getByText('维护选项（通常无需修改）', { exact: true }).click();
+         await dialog.getByRole('button', { name: '开始采集', exact: true }).click();
+         const detected = await dialog.getByLabel('自动获取的功率计设置').innerText();
+         if (!detected.includes('3000 W（设备返回，软件增益前）') || !detected.includes('滤波：设备未提供')) throw Error('Automatic settings missing');
+         await dialog.getByLabel('已确认 0 A、无光输出且探头已冷却').check();
+         await dialog.getByRole('button', { name: '学习本底 (180 s)', exact: true }).click();
+         await dialog.getByRole('button', { name: '取消本底任务', exact: true }).waitFor();
+-        await page.screenshot({ path: `output/playwright/power-background-20261022/learning-${width}.png` });
++        await page.screenshot({ path: `output/playwright/power-stability-setup-20261023/learning-${width}.png` });
+         await dialog.getByRole('button', { name: '取消本底任务', exact: true }).click();
+         await dialog.getByRole('button', { name: '停止采集', exact: true }).click();
+       }
+@@ -68,6 +96,17 @@ async (page) => {
+       if (!same(cards, await box(page.getByTestId('cards')))) throw Error('Background cards shifted after close');
+       report.push({ width, name, selectors: checked, aligned: true, before });
+     }
++    await page.goto('http://127.0.0.1:1420/scripts/fixtures/power-background.html?learned=1');
++    await page.getByRole('button', { name: '功率计设置', exact: true }).click();
++    const learnedDialog = page.getByRole('dialog');
++    if (!(await learnedDialog.getByLabel('本底自动学习参数').innerText()).includes('0.001 W（本底观测估计')) throw Error('Learned step not displayed');
++    if (!(await learnedDialog.getByLabel('设备响应状态').innerText()).includes('已确认')) throw Error('Saved response not confirmed');
++    await learnedDialog.getByRole('combobox', { name: '测试容差预设', exact: true }).click();
++    await learnedDialog.getByRole('option', { name: '已保存的自定义容差', exact: true }).click();
++    if (!(await learnedDialog.getByLabel('设备响应状态').innerText()).includes('已确认')) throw Error('Tolerance change invalidated device response');
++    await learnedDialog.getByRole('region', { name: '功率本底与判稳' }).scrollIntoViewIfNeeded();
++    await page.screenshot({ path: `output/playwright/power-stability-setup-20261023/learned-${width}.png` });
++    await page.keyboard.press('Escape');
+   }
+   return report;
+ }
+diff --git a/tauri-ui/src-tauri/src/lib.rs b/tauri-ui/src-tauri/src/lib.rs
+index 2a728e51..ffd78078 100644
+--- a/tauri-ui/src-tauri/src/lib.rs
++++ b/tauri-ui/src-tauri/src/lib.rs
+@@ -119,6 +119,7 @@ fn request_timeout(method: &str) -> Duration {
+         "app.shutdown" => SHUTDOWN_REQUEST_TIMEOUT_SECS,
+         "shippingReport.inspect" | "shippingReport.batchInspect" | "dataBrowser.list" | "dataBrowser.inspect" | "dataBrowser.import" => FILE_SCAN_REQUEST_TIMEOUT_SECS,
+         "shippingReport.preview"
++        | "automatic.exportDiagnostics"
+         | "shippingReport.generate"
+         | "shippingReport.batchGenerateItem" => REPORT_REQUEST_TIMEOUT_SECS,
+         _ => DEFAULT_REQUEST_TIMEOUT_SECS,
+@@ -566,6 +567,7 @@ fn is_safe_unlicensed_method(method: &str) -> bool {
+             | "automatic.end"
+             | "automatic.retryPersist"
+             | "automatic.retryExport"
++            | "automatic.exportDiagnostics"
+             | "pd.stop"
+             | "powerMeter.stop"
+             | "spectrometer.stop"
+@@ -1064,6 +1066,7 @@ mod tests {
+         assert_eq!(request_timeout("app.snapshot").as_secs(), 15);
+         assert_eq!(request_timeout("dataBrowser.import").as_secs(), 120);
+         assert_eq!(request_timeout("shippingReport.generate").as_secs(), 600);
++        assert_eq!(request_timeout("automatic.exportDiagnostics").as_secs(), 600);
+         assert_eq!(request_timeout("app.shutdown").as_secs(), 90);
+         assert_eq!(request_timeout("automatic.start").as_secs(), 60);
+     }
+@@ -1176,6 +1179,7 @@ mod tests {
+             "automatic.end",
+             "automatic.retryPersist",
+             "automatic.retryExport",
++            "automatic.exportDiagnostics",
+             "pd.stop",
+             "powerMeter.stop",
+             "spectrometer.stop",
+diff --git a/tauri-ui/src/App.tsx b/tauri-ui/src/App.tsx
+index 06f85437..8e4c626e 100644
+--- a/tauri-ui/src/App.tsx
++++ b/tauri-ui/src/App.tsx
+@@ -18,6 +18,7 @@ import { useConfigurationEditor } from "@/hooks/use-configuration-editor"
+ import { usePowerCouplingMode } from "@/hooks/use-power-coupling-mode"
+ import { ACCENT_THEMES, normalizeLatestPointMarkerStyle, type AccentTheme, type CurveLineStyle, type LatestPointMarkerStyle, type Theme } from "@/lib/appearance"
+ import { automaticPauseCommand } from "@/lib/automatic-pause"
++import { diagnosticExportAvailable } from "@/lib/diagnostic-export"
+ import { sendBackendRequest, type AutomaticPauseAction, type SnapshotView } from "@/lib/backend"
+ import { getLicenseStatus, installLicense, licenseReasonLabels, type LicenseStatus } from "@/lib/license"
+ import { automaticTerminalTitle } from "@/lib/safety-state"
+@@ -697,6 +698,8 @@ function LicensedApp({
+               exportPath={snapshot?.automaticTest.exportPath}
+               exportStatus={snapshot?.automaticTest.exportStatus}
+               journalPath={snapshot?.automaticTest.journalPath}
++              sessionId={snapshot?.automaticTest.sessionId}
++              canExportDiagnostics={Boolean(snapshot?.backend.connected && snapshot.backend.mode === "active" && diagnosticExportAvailable(snapshot.automaticTest))}
+               message={automaticCompletion.message}
+               onChooseExportDirectory={chooseAutomaticExportDirectory}
+               onClose={() => setAutomaticCompletion(null)}
+diff --git a/tauri-ui/src/components/automatic-overview.tsx b/tauri-ui/src/components/automatic-overview.tsx
+index e1def48d..602b6e2c 100644
+--- a/tauri-ui/src/components/automatic-overview.tsx
++++ b/tauri-ui/src/components/automatic-overview.tsx
+@@ -1,4 +1,6 @@
+ import { useActionFeedback } from "@/hooks/use-action-feedback"
++import { DiagnosticExportButton } from "@/components/diagnostic-export-button"
++import { diagnosticExportAvailable } from "@/lib/diagnostic-export"
+ import { useEffect, useRef, useState, type CSSProperties } from "react"
+ import { Check, CheckCircle2, ChevronRight, CircleAlert, Clock3, FileText, FolderOpen, Info, LoaderCircle, RefreshCw } from "lucide-react"
+ import { Button } from "@/components/ui/button"
+@@ -187,6 +189,7 @@ export function AutomaticCompletionSummary({ snapshot, config, active, pending,
+         </dl>
+ 
+         <div className="automatic-completion-summary__actions">
++          <DiagnosticExportButton key={`${auto.sessionId}:${auto.exportStatus}:${auto.exportPath}:${auto.exportError}`} sessionId={auto.sessionId} disabled={!snapshot.backend.connected || snapshot.backend.mode !== "active" || !diagnosticExportAvailable(auto)} />
+           {feedback.error && <span role="alert">{feedback.error}</span>}
+           {auto.canRetryExport && (
+             <>
+diff --git a/tauri-ui/src/features/automatic/lifecycle-dialogs.tsx b/tauri-ui/src/features/automatic/lifecycle-dialogs.tsx
+index 4fa41600..c8245edc 100644
+--- a/tauri-ui/src/features/automatic/lifecycle-dialogs.tsx
++++ b/tauri-ui/src/features/automatic/lifecycle-dialogs.tsx
+@@ -2,6 +2,7 @@ import { busyInteraction } from "@/components/busy-interaction"
+ import { useActionFeedback } from "@/hooks/use-action-feedback"
+ import { DialogPortal } from "@/components/dialog-portal"
+ import { Button } from "@/components/ui/button"
++import { DiagnosticExportButton } from "@/components/diagnostic-export-button"
+ import { Input } from "@/components/ui/input"
+ import { Label } from "@/components/ui/label"
+ import { automaticPauseCopy, pauseRemainingSeconds } from "@/lib/automatic-pause"
+@@ -145,6 +146,8 @@ export function AutomaticCompletionDialog({
+   exportPath,
+   exportError,
+   journalPath,
++  sessionId,
++  canExportDiagnostics = false,
+   canNextDevice,
+   canRetryExport,
+   onNextDevice,
+@@ -163,6 +166,8 @@ export function AutomaticCompletionDialog({
+   exportPath?: string
+   exportError?: string
+   journalPath?: string
++  sessionId?: string | null
++  canExportDiagnostics?: boolean
+   canNextDevice: boolean
+   canRetryExport: boolean
+   onNextDevice: () => void | Promise<unknown>
+@@ -328,6 +333,7 @@ export function AutomaticCompletionDialog({
+           </div>
+ 
+           <div className="flex flex-wrap justify-end gap-2 border-t border-border/70 bg-muted/20 px-6 py-3.5">
++            <DiagnosticExportButton key={`${sessionId}:${exportStatus}:${exportPath}:${exportError}`} sessionId={sessionId} disabled={!canExportDiagnostics} />
+             {feedback.error && <p role="alert">{feedback.error}</p>}
+             {exportPath && exportStatus === "completed" && <Button className="w-32" aria-disabled={openingResult} onClick={() => void handleOpenResult()} size="sm" variant="outline">{openingResult ? <LoaderCircle className="size-4 animate-spin" /> : <FileText className="size-4" />}{openingResult ? "正在打开…" : "打开结果"}</Button>}
+             {canRetryExport && <Button aria-busy={feedback.action === "retry"} aria-disabled={feedback.action !== null} onClick={() => void feedback.runAction("retry", onRetryExport)} size="sm" variant="outline"><RefreshCw className={`size-4 ${feedback.action === "retry" ? "animate-spin" : ""}`} />重新生成 Excel</Button>}
+diff --git a/tauri-ui/src/features/configuration/model.tsx b/tauri-ui/src/features/configuration/model.tsx
+index d25b23c6..8b864405 100644
+--- a/tauri-ui/src/features/configuration/model.tsx
++++ b/tauri-ui/src/features/configuration/model.tsx
+@@ -48,6 +48,7 @@ export const emptyConfig: AppConfiguration = {
+   stabilityLimitPercent: 0.2,
+   powerStabilityAbsoluteFloorW: 0.2,
+   powerStabilityMode: "shadow",
++  powerStabilityTolerancePreset: "standard",
+   powerStabilityQuantizationW: 0,
+   powerStabilityInstrumentSettings: "",
+   powerStabilityAbsoluteDriftW: 0,
+@@ -58,6 +59,7 @@ export const emptyConfig: AppConfiguration = {
+   powerStabilitySettleS: 0,
+   powerStabilityCurrentToleranceA: 0,
+   powerStabilityParametersConfirmed: false,
++  powerStabilityResponseConfirmationRevision: 0,
+   initialCurrentA: 1,
+   targetCurrentA: 20,
+   currentStepA: 3,
+diff --git a/tauri-ui/src/features/devices/settings.tsx b/tauri-ui/src/features/devices/settings.tsx
+index 0bfebd8c..418ca310 100644
+--- a/tauri-ui/src/features/devices/settings.tsx
++++ b/tauri-ui/src/features/devices/settings.tsx
+@@ -12,6 +12,7 @@ import { BUILTIN_TEST_SCRIPT_OPTIONS, UpdateConfig, applyTestScript } from "@/fe
+ import { NumberField, NumberInput, RunCommand, StatusDot, formatDuration, formatMeasurementAge, formatNumber, formatTrimmedNumber } from "@/features/shared/controls"
+ import { type AppConfiguration, type BackendSnapshot, type DeviceSnapshot, type PowerMeterCoefficientLibrary, type PowerMeterCoefficientRevision } from "@/lib/backend"
+ import { powerMeterCoefficientLibraryForResource, powerMeterIdentityForResource, powerMeterResourceValue } from "@/lib/power-meter-resource"
++import { powerStabilityResponseConfirmed, powerStabilityTolerance } from "@/lib/power-stability-setup"
+ import { ChevronRight, Gauge, Play, Plus, Power, Radio, RotateCcw, Save, Settings, SlidersHorizontal, Square, Trash2, X, type LucideIcon } from "lucide-react"
+ import { Tooltip } from "radix-ui"
+ import { memo, useEffect, useRef, useState } from "react"
+@@ -733,16 +734,25 @@ function PowerBackgroundSettings({ snapshot, config, update, active, pending, ru
+   const taskRunning = Boolean(background?.job)
+   const detected = background?.detectedSettings
+   const disabled = !active || pending || taskRunning
+-  const numericFields: Array<[keyof AppConfiguration, string, number]> = [
+-    ["powerStabilityQuantizationW", "手动步进 (W，0 为自动估计)", 0.01],
++  const toleranceFields: Array<[keyof AppConfiguration, string, number]> = [
+     ["powerStabilityAbsoluteDriftW", "绝对漂移容差 (W)", 0.01],
+     ["powerStabilityRelativeDriftPercent", "相对漂移容差 (%)", 0.01],
+     ["powerStabilityReferenceS", "漂移参考时间 (s)", 1],
+     ["powerStabilityExtraNoisePercent", "额外 2σ 波动容差 (%)", 0.01],
++  ]
++  const responseFields: Array<[keyof AppConfiguration, string, number]> = [
+     ["powerStabilitySettleS", "电流最短建立时间 (s)", 0.1],
+     ["powerStabilityCurrentToleranceA", "电流回读容差 (A)", 0.01],
+     ["powerStabilityResponseS", "探头最短响应时间 (s)", 0.1],
+   ]
++  const tolerance = powerStabilityTolerance(config)
++  const responseConfirmed = powerStabilityResponseConfirmed(config, snapshot?.configuration, background?.responseParametersConfirmed)
++  const responseComplete = responseFields.every(([key]) => Number(config[key] ?? 0) > 0)
++  const responseConfirmationPending = Boolean(config.powerStabilityParametersConfirmed && responseComplete && (
++    !snapshot?.configuration?.powerStabilityParametersConfirmed
++    || (config.powerStabilityResponseConfirmationRevision ?? 0) !== (snapshot?.configuration?.powerStabilityResponseConfirmationRevision ?? 0)
++  ))
++  const settingsDisabled = disabled || meter?.running
+   useEffect(() => { setConfirmedDark(false) }, [config.powerMeterResource, config.powerMeterSerialNumber])
+   async function backgroundCommand(method: "powerMeter.background.learn" | "powerMeter.background.verify" | "powerMeter.background.cancel") {
+     if (commandLock.current) return
+@@ -767,18 +777,23 @@ function PowerBackgroundSettings({ snapshot, config, update, active, pending, ru
+       </NativeSelect>
+     </Field>
+     {selectedMode !== "legacy" && <>
+-      <p className="text-xs text-muted-foreground">{selectedMode === "shadow" ? "新算法只计算并记录诊断，升流仍由原有策略控制。" : "参数已确认且本底有效时，可直接开始自动测试。"}同一探头、设置和连接未变时直接复用；重连或采样异常后才需复核。</p>
++      <p className="text-xs text-muted-foreground">{selectedMode === "shadow" ? "原有策略控制测试，新算法只记录诊断。" : "设备响应已确认、本底有效后，由双窗口规则控制测试。"}设置保存后复用，无需每轮填写。</p>
++      <Field label="测试容差预设">
++        <NativeSelect aria-label="测试容差预设" disabled={disabled} value={config.powerStabilityTolerancePreset ?? "standard"} onChange={(value) => update("powerStabilityTolerancePreset", value as "standard" | "custom")}>
++          <option value="standard">标准 · 相对漂移 0.2%</option>
++          <option value="custom">已保存的自定义容差</option>
++        </NativeSelect>
++      </Field>
++      <p className="text-xs text-muted-foreground" aria-label="当前测试容差">漂移限值取 {formatTrimmedNumber(tolerance.absoluteW, 6)} W 与平均功率的 {formatTrimmedNumber(tolerance.relativePercent, 4)}% 中较大值 · 参考 {formatTrimmedNumber(tolerance.referenceS, 2)} s · 额外 2σ 波动 {formatTrimmedNumber(tolerance.extraNoisePercent, 4)}%。预设用于双窗口规则，旁路模式仍沿用原有规则。</p>
++      {config.powerStabilityTolerancePreset === "custom" && <details className="space-y-3">
++        <summary className="cursor-pointer text-sm">编辑自定义容差</summary>
++        <p className="text-xs text-muted-foreground">按测试规范设置一次并保存。切换标准预设不会覆盖这些值。</p>
++        <ControlGrid>{toleranceFields.map(([key, label, step]) => <NumberField key={key} disabled={disabled} label={label} min={key === "powerStabilityReferenceS" ? 0.1 : 0} step={String(step)} value={Number(config[key] ?? 0)} onChange={(value) => update(key, value)} />)}</ControlGrid>
++        {Math.max(tolerance.absoluteW, tolerance.relativePercent) <= 0 && <p role="alert" className="text-xs text-destructive">请填写至少一种漂移容差，或选择标准预设。</p>}
++      </details>}
++      <p className="text-sm font-medium">设备信息与本底</p>
+       <p className="text-xs text-muted-foreground" aria-label="自动获取的功率计设置">量程：{detected?.fullScaleW != null ? `${formatTrimmedNumber(detected.fullScaleW, 6)} W（设备返回，软件增益前）` : "设备未提供"} · 软件增益 ×{formatTrimmedNumber(detected?.softwareGain ?? config.softwareGain, 6)} · 采样间隔 {detected?.intervalMs ?? config.powerMeterIntervalMs} ms（ARP 设置） · 滤波：设备未提供</p>
+-      <p className="text-xs text-muted-foreground">步进：{Number(config.powerStabilityQuantizationW ?? 0) > 0 ? `${formatTrimmedNumber(config.powerStabilityQuantizationW!, 6)} W（手动值，含软件增益）` : background?.model ? `${formatTrimmedNumber(background.model.quantization_w, 6)} W（观测估计值，含软件增益）` : "随 180 秒本底学习自动估计，无需手填"}。改变仪器面板滤波等设置后，请重新学习本底。</p>
+-      <details className="space-y-3">
+-        <summary className="cursor-pointer text-sm">高级判稳参数（首次旁路测试可跳过）</summary>
+-        <Field label="仪器设置备注（可选）">
+-          <Input aria-label="仪器设置备注（可选）" disabled={disabled || meter?.running} value={config.powerStabilityInstrumentSettings ?? ""} placeholder="可补充设备未提供的滤波等设置" onChange={(event) => { update("powerStabilityParametersConfirmed", false); update("powerStabilityInstrumentSettings", event.target.value) }} />
+-        </Field>
+-        <ControlGrid>{numericFields.map(([key, label, step]) => <NumberField key={key} disabled={disabled || meter?.running} label={label} min={key === "powerStabilityReferenceS" ? 0.1 : 0} step={String(step)} value={Number(config[key] ?? 0)} onChange={(value) => { update("powerStabilityParametersConfirmed", false); update(key, value) }} />)}</ControlGrid>
+-        <p className="text-xs text-muted-foreground">5 s / 20 s 双窗口；本底学习至少 180 s，复核 20 s。自动步进只表示本次观察到的台阶，不保证仪器真实分辨率；仅用于旁路诊断。启用新策略控制前，须填写已实测确认的步进、响应时间和测试容差。手动步进使用 ARP 显示单位，已含增益时不要重复换算。未知参数保持 0；不会自动放宽容差。</p>
+-        <label className="device-settings-checkbox"><input type="checkbox" disabled={disabled || meter?.running} checked={config.powerStabilityParametersConfirmed ?? false} onChange={(event) => update("powerStabilityParametersConfirmed", event.target.checked)} />已用响应实测和测试规范确认上述参数</label>
+-      </details>
++      <p className="text-xs text-muted-foreground" aria-label="本底自动学习参数">步进：{Number(config.powerStabilityQuantizationW ?? 0) > 0 ? `${formatTrimmedNumber(config.powerStabilityQuantizationW!, 6)} W（手动覆盖，含软件增益）` : background?.model ? `${formatTrimmedNumber(background.model.quantization_w, 6)} W（本底${background.model.quantization_source === "observed-grid-v1" ? "观测估计" : "保存"}，含软件增益）` : "随本底学习自动估计"} · 噪声和漂移保护量自动学习。观测步进不等于仪器真实分辨率；估计失败时不会启用新控制。</p>
+       <p role="status" className="text-xs text-muted-foreground">{background?.state ?? "尚未学习本底"}{background?.model ? ` · 模型 ${background.model.model_id.slice(0, 8)}` : ""}</p>
+       {background?.model && <p className="text-xs text-muted-foreground">零点 {formatNumber(background.model.center_w, " W", 4)} · 均值差保护量 {formatNumber(background.model.shift_guard_w, " W", 4)} · 斜率保护量 {formatNumber(background.model.slope_guard_w_s, " W/s", 5)}</p>}
+       <label className="device-settings-checkbox"><input type="checkbox" disabled={disabled} checked={confirmedDark} onChange={(event) => setConfirmedDark(event.target.checked)} />已确认 0 A、无光输出且探头已冷却</label>
+@@ -788,6 +803,24 @@ function PowerBackgroundSettings({ snapshot, config, update, active, pending, ru
+       </ControlGrid>
+       {taskRunning && <Button variant="outline" aria-disabled={commandBusy || undefined} onClick={() => void backgroundCommand("powerMeter.background.cancel")}>取消本底任务</Button>}
+       {selectedMode === "shadow" && background?.decision.metrics && <p className="text-xs text-muted-foreground">旁路：{background.decision.reason} · 短窗残差 σ {formatNumber(background.decision.metrics.residual_sigma_w, " W", 4)} · 长窗均值差 {formatNumber(background.decision.metrics.block_shift_w, " W", 4)}</p>}
++      <details className="space-y-3">
++        <summary className="cursor-pointer text-sm">设备响应 · {responseConfirmed ? "已确认，后续复用" : "一次确认"}</summary>
++        <p className="text-xs text-muted-foreground">这三项不能从无光本底推算。按设备规格或响应实测确认一次，绑定当前探头、量程和电源后保存；切换测试容差不必重填。</p>
++        <ControlGrid>{responseFields.map(([key, label, step]) => <NumberField key={key} disabled={settingsDisabled} label={label} min={0} step={String(step)} value={Number(config[key] ?? 0)} onChange={(value) => { update("powerStabilityParametersConfirmed", false); update(key, value) }} />)}</ControlGrid>
++        <label className="device-settings-checkbox"><input type="checkbox" disabled={settingsDisabled || !responseComplete} checked={responseConfirmed || responseConfirmationPending} onChange={(event) => {
++          update("powerStabilityParametersConfirmed", event.target.checked)
++          if (event.target.checked) update("powerStabilityResponseConfirmationRevision", (config.powerStabilityResponseConfirmationRevision ?? 0) + 1)
++        }} />已依据设备规格或实测确认响应参数</label>
++      </details>
++      <p role="status" className="text-xs text-muted-foreground" aria-label="设备响应状态">{responseConfirmed ? "设备响应已确认，保存的参数可复用。" : responseConfirmationPending ? "设备响应确认待保存。" : "设备响应尚未确认；可先学习本底和旁路验证，新控制暂不可用。"}</p>
++      <details className="space-y-3">
++        <summary className="cursor-pointer text-sm">维护选项（通常无需修改）</summary>
++        <NumberField disabled={settingsDisabled} label="手动覆盖步进 (W，0 为自动学习)" min={0} step="0.01" value={config.powerStabilityQuantizationW ?? 0} onChange={(value) => { update("powerStabilityParametersConfirmed", false); update("powerStabilityQuantizationW", value) }} />
++        <Field label="仪器设置备注（可选）">
++          <Input aria-label="仪器设置备注（可选）" disabled={settingsDisabled} value={config.powerStabilityInstrumentSettings ?? ""} placeholder="设备未提供的滤波等设置，可留空" onChange={(event) => { update("powerStabilityParametersConfirmed", false); update("powerStabilityInstrumentSettings", event.target.value) }} />
++        </Field>
++        <p className="text-xs text-muted-foreground">改变仪器面板滤波等设置后，请重新学习本底。同一探头、设置和连接未变时连续复用；重连或采样异常后在 0 A 复核 20 秒。</p>
++      </details>
+       {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
+     </>}
+   </section>
+diff --git a/tauri-ui/src/features/shared/snapshot-equality.tsx b/tauri-ui/src/features/shared/snapshot-equality.tsx
+index c67ef69d..ee211e95 100644
+--- a/tauri-ui/src/features/shared/snapshot-equality.tsx
++++ b/tauri-ui/src/features/shared/snapshot-equality.tsx
+@@ -91,6 +91,7 @@ export function sameDeviceSnapshot(left: DeviceSnapshot | undefined, right: Devi
+     && sameStringArray(left.resources, right.resources)
+     && samePowerMeterResourceProfiles(left.resourceProfiles, right.resourceProfiles)
+     && JSON.stringify(left.coefficientLibrary ?? null) === JSON.stringify(right.coefficientLibrary ?? null)
++    && JSON.stringify(left.powerBackground ?? null) === JSON.stringify(right.powerBackground ?? null)
+     && sameCh341State(left.ch341, right.ch341)
+     && left.outputEnabled === right.outputEnabled
+     && left.maximumCurrentA === right.maximumCurrentA
+@@ -189,6 +190,7 @@ export function sameAutomaticTestState(
+     && left.canStart === right.canStart
+     && left.exportedPointCount === right.exportedPointCount
+     && left.journalPath === right.journalPath
++    && left.sessionId === right.sessionId
+     && left.canNextDevice === right.canNextDevice
+     && left.canRetryExport === right.canRetryExport
+     && left.pauseKind === right.pauseKind
+diff --git a/tauri-ui/src/lib/backend.ts b/tauri-ui/src/lib/backend.ts
+index 74b79ac0..35c036bd 100644
+--- a/tauri-ui/src/lib/backend.ts
++++ b/tauri-ui/src/lib/backend.ts
+@@ -178,6 +178,7 @@ export interface AppConfiguration {
+   stabilityLimitPercent: number
+   powerStabilityAbsoluteFloorW?: number
+   powerStabilityMode?: "legacy" | "shadow" | "dual"
++  powerStabilityTolerancePreset?: "standard" | "custom"
+   powerStabilityQuantizationW?: number
+   powerStabilityInstrumentSettings?: string
+   powerStabilityAbsoluteDriftW?: number
+@@ -188,6 +189,7 @@ export interface AppConfiguration {
+   powerStabilitySettleS?: number
+   powerStabilityCurrentToleranceA?: number
+   powerStabilityParametersConfirmed?: boolean
++  powerStabilityResponseConfirmationRevision?: number
+   powerStabilityConfirmedSignature?: string
+   initialCurrentA: number
+   targetCurrentA: number
+@@ -310,6 +312,7 @@ export interface BackendSnapshot {
+     savedPointCount?: number
+     exportedPointCount?: number
+     journalPath?: string
++    sessionId?: string | null
+     canNextDevice?: boolean
+     canRetryExport?: boolean
+     exportStatus?: string
+@@ -383,7 +386,17 @@ export interface BackendSnapshot {
+   status?: { message: string }
+ }
+ 
++export interface DiagnosticExportResult {
++  path: string
++  sessionId: string
++  warnings: string[]
++}
++
+ export interface PowerBackgroundSnapshot {
++  responseParametersConfirmed?: boolean
++  controlBlocker?: string | null
++  tolerancePreset?: "standard" | "custom"
++  tolerance?: { absolute_drift_w: number; relative_drift_percent: number; reference_s: number; extra_noise_percent: number }
+   mode: "legacy" | "shadow" | "dual"
+   algorithm: string
+   state: string
+diff --git a/tauri-ui/src/lib/bridge-validation.ts b/tauri-ui/src/lib/bridge-validation.ts
+index 85fc51d4..aba38291 100644
+--- a/tauri-ui/src/lib/bridge-validation.ts
++++ b/tauri-ui/src/lib/bridge-validation.ts
+@@ -16,6 +16,10 @@ export function validateCommandResponse(method: string, value: unknown): void {
+     if (value.shutdownConfirmed !== value.shutdown.confirmed) invalid(method)
+   }
+   if (method === "app.configure" && !objectValue(value.configuration)) invalid(method)
++  if (method === "automatic.exportDiagnostics" && (
++    typeof value.path !== "string" || !value.path || typeof value.sessionId !== "string" || !value.sessionId
++    || !Array.isArray(value.warnings) || value.warnings.some(item => typeof item !== "string")
++  )) invalid(method)
+ }
+ export function validateSnapshot(value: unknown): void {
+   if (!objectValue(value) || !objectValue(value.backend) || !objectValue(value.devices) || !objectValue(value.automaticTest) || !objectValue(value.safety)) invalid("app.snapshot")
+diff --git a/tauri-ui/src/lib/command-contract.ts b/tauri-ui/src/lib/command-contract.ts
+index 721b27b9..6f10189f 100644
+--- a/tauri-ui/src/lib/command-contract.ts
++++ b/tauri-ui/src/lib/command-contract.ts
+@@ -1,4 +1,4 @@
+-import type { AppConfiguration, AppShutdownResult, BackendSnapshot, BackendSnapshotPatch, ShippingReportBatchGenerationResult, ShippingReportBatchInspection, ShippingReportGenerationResult, ShippingReportLanguage, ShippingReportFieldDefinition, ShippingReportPreviewResult, ShippingReportType, ShippingWorkbookInspection, SnapshotView, SpectrumAxisMode } from "./backend"
++import type { AppConfiguration, AppShutdownResult, BackendSnapshot, BackendSnapshotPatch, DiagnosticExportResult, ShippingReportBatchGenerationResult, ShippingReportBatchInspection, ShippingReportGenerationResult, ShippingReportLanguage, ShippingReportFieldDefinition, ShippingReportPreviewResult, ShippingReportType, ShippingWorkbookInspection, SnapshotView, SpectrumAxisMode } from "./backend"
+ import type { DataDetail, DataList } from "./data-browser"
+ 
+ type Context = { view?: SnapshotView }
+@@ -53,6 +53,7 @@ export interface CommandMap {
+   "automatic.end": Entry<{}>
+   "automatic.nextDevice": Entry<{}>
+   "automatic.retryExport": Entry<{ outputDir?: string }>
++  "automatic.exportDiagnostics": Entry<{ sessionId: string }, DiagnosticExportResult>
+   "pd.refresh": Entry<{}>
+   "pd.configure": Entry<Partial<NonNullable<BackendSnapshot["pd"]>["settings"]>>
+   "pd.start": Entry<Partial<NonNullable<BackendSnapshot["pd"]>["settings"]>>
+diff --git a/tauri-ui/src/workbench-appearance.css b/tauri-ui/src/workbench-appearance.css
+index ddb39037..d46cc6d9 100644
+--- a/tauri-ui/src/workbench-appearance.css
++++ b/tauri-ui/src/workbench-appearance.css
+@@ -227,7 +227,7 @@
+ .numeric-readout__flow::part(digit) { width: 1ch; text-align: center; }
+ 
+ .automatic-completion-summary { flex-shrink: 0; border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 0.625rem 1.25rem; background: var(--card); animation: completion-reveal 180ms ease-out; }
+-.automatic-completion-summary__main { display: flex; align-items: center; gap: 1rem; }
++.automatic-completion-summary__main { display: flex; flex-wrap: wrap; align-items: center; gap: 1rem; }
+ .automatic-completion-summary__status { display: flex; align-items: center; gap: 0.625rem; min-width: 10rem; max-width: 17rem; }
+ .automatic-completion-summary__status-icon { display: flex; align-items: center; color: var(--app-warning); flex-shrink: 0; }
+ .automatic-completion-summary[data-tone="success"] .automatic-completion-summary__status-icon { color: var(--app-success); }
+@@ -248,7 +248,7 @@
+ .automatic-completion-summary .is-success { color: var(--app-success); }
+ .automatic-completion-summary .is-warning { color: var(--app-warning); }
+ .automatic-completion-summary .is-danger { color: var(--app-danger); }
+-.automatic-completion-summary__actions { display: flex; gap: 0.5rem; align-items: center; flex-shrink: 0; }
++.automatic-completion-summary__actions { display: flex; flex-wrap: wrap; max-width: 100%; gap: 0.5rem; align-items: flex-start; flex-shrink: 0; }
+ @keyframes completion-reveal { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+ 
+ .display-menu { z-index: 100; width: 17.25rem; max-width: calc(100vw - 24px); padding: 0.5rem; border: 1px solid var(--app-border-strong); border-radius: 0.6rem; background: var(--popover); color: var(--foreground); box-shadow: 0 10px 35px rgb(0 0 0 / 0.2); }
+diff --git a/tauri_bridge/backend_dispatch.py b/tauri_bridge/backend_dispatch.py
+index 06426808..438c5a49 100644
+--- a/tauri_bridge/backend_dispatch.py
++++ b/tauri_bridge/backend_dispatch.py
+@@ -79,6 +79,7 @@ class BackendDispatcher:
+             "automatic.end": lambda _p: st.end_automatic(),
+             "automatic.nextDevice": lambda _p: st.prepare_next_device(),
+             "automatic.retryExport": lambda p: st.retry_automatic_export(p),
++            "automatic.exportDiagnostics": self._export_diagnostics,
+             "shippingReport.inspect": self._inspect_shipping_report,
+             "dataBrowser.list": self._list_data_records,
+             "dataBrowser.inspect": self._inspect_data_record,
+@@ -115,6 +116,7 @@ class BackendDispatcher:
+     def dispatch_file_task(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+         backend = self._backend
+         actions: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
++            "automatic.exportDiagnostics": self._export_diagnostics,
+             "dataBrowser.list": self._list_data_records,
+             "dataBrowser.inspect": self._inspect_data_record,
+             "dataBrowser.import": self._import_data_records,
+@@ -129,6 +131,11 @@ class BackendDispatcher:
+             return action(params)
+         raise KeyError(method)
+ 
++    def _export_diagnostics(self, params: dict[str, Any]) -> dict[str, Any]:
++        from .diagnostic_export import export_current_session
++        self._backend.validate_runtime_target(params)
++        return export_current_session(self._backend.runtime, params)
++
+     def _list_data_records(self, params: dict[str, Any]) -> dict[str, Any]:
+         from combined_test.data_browser import list_data_records
+         if params.get("source") != "database":
+diff --git a/tauri_bridge/power_stability_runtime.py b/tauri_bridge/power_stability_runtime.py
+index aabf19c4..df4fc97a 100644
+--- a/tauri_bridge/power_stability_runtime.py
++++ b/tauri_bridge/power_stability_runtime.py
+@@ -30,7 +30,32 @@ POLICY_KEYS = (
+     "powerStabilityParametersConfirmed", "powerStabilitySettleS",
+     "powerStabilityCurrentToleranceA",
+     "powerSupplyKind",
++    "powerStabilityTolerancePreset",
++    "powerStabilityResponseConfirmationRevision",
+ )
++RESPONSE_KEYS = (
++    "powerStabilityResponseS", "powerStabilitySettleS", "powerStabilityCurrentToleranceA",
++    "powerSupplyKind",
++)
++STANDARD_TOLERANCE = {
++    "absolute_drift_w": 0.0, "relative_drift_percent": 0.2,
++    "reference_s": 20.0, "extra_noise_percent": 0.0,
++}
++
++
++def tolerance_policy(config: dict) -> dict[str, float]:
++    """Resolve acceptance limits without overwriting the saved custom preset."""
++    preset = config.get("powerStabilityTolerancePreset", "standard")
++    if preset == "standard":
++        return dict(STANDARD_TOLERANCE)
++    if preset != "custom":
++        raise ValueError("未知功率判稳容差预设")
++    return {
++        "absolute_drift_w": float(config["powerStabilityAbsoluteDriftW"]),
++        "relative_drift_percent": float(config["powerStabilityRelativeDriftPercent"]),
++        "reference_s": float(config["powerStabilityReferenceS"]),
++        "extra_noise_percent": float(config["powerStabilityExtraNoisePercent"]),
++    }
+ 
+ 
+ class PowerStabilityRuntime:
+@@ -89,24 +114,35 @@ class PowerStabilityRuntime:
+             quantization = self.model.quantization_w
+         return StabilityPolicy(
+             quantization_w=quantization,
+-            absolute_drift_w=float(c["powerStabilityAbsoluteDriftW"]),
+-            relative_drift_percent=float(c["powerStabilityRelativeDriftPercent"]),
+-            reference_s=float(c["powerStabilityReferenceS"]),
+-            extra_noise_percent=float(c["powerStabilityExtraNoisePercent"]),
++            **tolerance_policy(c),
+             response_s=float(c["powerStabilityResponseS"]),
+-            parameters_confirmed=(bool(c["powerStabilityParametersConfirmed"])
+-                                  and float(c["powerStabilityQuantizationW"]) > 0
+-                                  and c.get("powerStabilityConfirmedSignature") == self.confirmation_signature()),
++            parameters_confirmed=self.response_parameters_confirmed(),
+             gap_s=min(5.0, max(1.0, float(c["powerMeterIntervalMs"]) * 0.003)),
+         )
+ 
+     def confirmation_signature(self, config: dict | None = None) -> str:
+         config = self.station.configuration if config is None else config
++        values = {key: config.get(key) for key in RESPONSE_KEYS}
++        values["identity"] = self.identity(config)
++        values["version"] = "device-response-v2"
++        return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
++
++    def _legacy_confirmation_signature(self, config: dict) -> str:
+         values = {key: config.get(key) for key in POLICY_KEYS
+-                  if key not in {"powerStabilityMode", "powerStabilityParametersConfirmed"}}
++                  if key not in {"powerStabilityMode", "powerStabilityParametersConfirmed",
++                                 "powerStabilityTolerancePreset", "powerStabilityResponseConfirmationRevision"}}
+         values["identity"] = self.identity(config)
+         return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
+ 
++    def response_parameters_confirmed(self, config: dict | None = None) -> bool:
++        config = self.station.configuration if config is None else config
++        if not config["powerStabilityParametersConfirmed"] or any(
++            float(config[key]) <= 0 for key in RESPONSE_KEYS if key != "powerSupplyKind"
++        ):
++            return False
++        signature = config.get("powerStabilityConfirmedSignature")
++        return signature in (self.confirmation_signature(config), self._legacy_confirmation_signature(config))
++
+     @property
+     def mode(self) -> str:
+         return str(self.station.configuration["powerStabilityMode"])
+@@ -191,15 +227,17 @@ class PowerStabilityRuntime:
+             return "本底任务进行中，请完成或取消后再开始测试"
+         if not self.controls:
+             return None
+-        if float(self.station.configuration["powerStabilityQuantizationW"]) <= 0:
+-            return "自动估计的步进仅用于旁路诊断；新策略控制前请填写实测确认的步进"
+-        if not str(self.station.configuration["powerStabilityInstrumentSettings"]).strip():
+-            return "新策略控制前请在仪器设置备注中确认设备未提供的滤波等设置"
+-        if (not self.policy().ready or float(self.station.configuration["powerStabilitySettleS"]) <= 0
+-                or float(self.station.configuration["powerStabilityCurrentToleranceA"]) <= 0):
+-            return "新判稳策略的响应时间、电流建立时间和漂移容差尚未确认"
++        return self.control_blocker()
++
++    def control_blocker(self) -> str | None:
++        """Expose setup readiness even while the legacy algorithm still controls."""
++        if not self.response_parameters_confirmed():
++            return "设备响应参数尚未确认，请在一次确认中保存响应时间、电流建立时间和回读容差"
++        policy = self.policy()
++        if max(policy.absolute_drift_w, policy.relative_drift_percent) <= 0:
++            return "请选择有效的测试容差预设"
+         if self.model is None or self.model.identity != self.identity():
+-            return "新判稳策略需要匹配的 0 A 本底"
++            return "请学习 0 A 本底，自动获取步进与噪声保护量"
+         if (self.verified_at is None or self.verified_connection is None
+                 or self.verified_connection != self.connection):
+             return "连接或本底状态已改变，请在 0 A 复核 20 秒；通过后可连续复用"
+@@ -360,16 +398,29 @@ class PowerStabilityRuntime:
+         return {"mode": self.mode, "algorithm": ALGORITHM_VERSION,
+                 "state": self.state, "job": self.job,
+                 "parametersConfirmed": self.policy().ready,
++                "responseParametersConfirmed": self.response_parameters_confirmed(),
++                "controlBlocker": self.control_blocker(),
++                "tolerancePreset": self.station.configuration["powerStabilityTolerancePreset"],
++                "tolerance": tolerance_policy(self.station.configuration),
+                 "detectedSettings": self.detected_settings(),
+                 "model": None if self.model is None else asdict(self.model),
+                 "decision": asdict(self.decision)}
+ 
+     def session_metadata(self) -> dict:
++        learning = None
++        if self.frozen_model is not None:
++            saved = self.station.backend.settings.get("runtime/powerBackgrounds", {})
++            candidate = saved.get(self.frozen_model.identity) if isinstance(saved, dict) else None
++            candidate_model = candidate.get("model") if isinstance(candidate, dict) else None
++            if isinstance(candidate_model, dict) and candidate_model.get("model_id") == self.frozen_model.model_id:
++                learning = candidate
+         return {"mode": self.mode, "algorithm": ALGORITHM_VERSION,
+                 "legacyAlgorithm": "relative-or-span-v1",
++                "tolerancePreset": self.station.configuration["powerStabilityTolerancePreset"],
+                 "policy": asdict(self.policy()),
+                 "identity": {key: self.station.configuration.get(key) for key in IDENTITY_KEYS},
+                 "instrumentToken": self.instrument_token,
++                "backgroundLearning": learning,
+                 "background": None if self.frozen_model is None else asdict(self.frozen_model)}
+ 
+     def journal_diagnostic(self, current_a: float, *, force: bool = False) -> None:
+diff --git a/tauri_bridge/service.py b/tauri_bridge/service.py
+index c2aad728..b26ab337 100644
+--- a/tauri_bridge/service.py
++++ b/tauri_bridge/service.py
+@@ -22,6 +22,7 @@ BACKGROUND_FILE_TASK_METHODS = frozenset(
+         "dataBrowser.list",
+         "dataBrowser.inspect",
+         "dataBrowser.import",
++        "automatic.exportDiagnostics",
+         "shippingReport.inspect",
+         "shippingReport.batchInspect",
+         "shippingReport.preview",
+diff --git a/tauri_bridge/snapshot_builder.py b/tauri_bridge/snapshot_builder.py
+index 934206ef..781d2844 100644
+--- a/tauri_bridge/snapshot_builder.py
++++ b/tauri_bridge/snapshot_builder.py
+@@ -448,6 +448,7 @@ class SnapshotBuilder:
+                 "savedPointCount": len(active_st.record_store.recorded_currents),
+                 "exportedPointCount": len(active_st.record_store.exported_currents),
+                 "journalPath": "" if active_st.record_store.journal_path is None else str(active_st.record_store.journal_path),
++                "sessionId": None if active_st.record_store.current_session is None else active_st.record_store.current_session.session_id,
+                 "canNextDevice": active_st.automatic.state == AutomaticTestState.COMPLETED and active_st.shutdown_confirmed,
+                 "canRetryExport": active_st.automatic.state == AutomaticTestState.COMPLETED and active_st.export_status == "failed",
+                 "exportStatus": active_st.export_status,
+diff --git a/tauri_bridge/station_runtime.py b/tauri_bridge/station_runtime.py
+index 5bb4a3e1..c3c75296 100644
+--- a/tauri_bridge/station_runtime.py
++++ b/tauri_bridge/station_runtime.py
+@@ -61,7 +61,7 @@ from .workflow_access import WorkflowAccess
+ from .command_safety import CommandSafetyGate, finite_number
+ from .test_script_presets import normalize_script_presets
+ from .station_automatic import StationAutomaticMixin
+-from .power_stability_runtime import IDENTITY_KEYS, POLICY_KEYS, PowerStabilityRuntime
++from .power_stability_runtime import IDENTITY_KEYS, POLICY_KEYS, PowerStabilityRuntime, tolerance_policy
+ from .power_meter_profiles import MEASUREMENT_CONFIGURATION_KEYS
+ from .station_support import (
+     AGING_TEST_SCRIPT_ID,
+@@ -104,6 +104,12 @@ class StationRuntime(StationAutomaticMixin):
+                 self.configuration["centerWavelengthSpecNm"] = self.configuration["pibCenterWavelengthNm"]
+             if "centerWavelengthToleranceNm" not in initial_config and "pibHalfRangeNm" in initial_config:
+                 self.configuration["centerWavelengthToleranceNm"] = self.configuration["pibHalfRangeNm"]
++            if "powerStabilityTolerancePreset" not in initial_config and any(
++                float(initial_config.get(key, 0)) > 0
++                for key in ("powerStabilityAbsoluteDriftW", "powerStabilityRelativeDriftPercent",
++                            "powerStabilityExtraNoisePercent")
++            ):
++                self.configuration["powerStabilityTolerancePreset"] = "custom"
+         self.power_meter_configuration_migrated = _normalize_power_meter_configuration(
+             self.configuration
+         )
+@@ -204,6 +210,7 @@ class StationRuntime(StationAutomaticMixin):
+         self.shutdown_reason = ""
+         self.automatic_sample_path = ""
+         self.automatic_sample_recorder: AutomaticSampleRecorder | None = None
++        self._diagnostic_export_lock = threading.Lock()
+         journal_root = (
+             self.backend.settings.path.parent
+             / "test-records"
+@@ -641,7 +648,14 @@ class StationRuntime(StationAutomaticMixin):
+             candidate["currentPlanMode"] = mode
+             self.backend.power_meter_profiles.resolve_configuration(candidate, self.configuration)
+             self._validate_configuration(candidate)
+-            if candidate["powerStabilityParametersConfirmed"] and not self.configuration["powerStabilityParametersConfirmed"]:
++            if candidate["powerStabilityParametersConfirmed"] and (
++                not self.configuration["powerStabilityParametersConfirmed"]
++                or candidate["powerStabilityResponseConfirmationRevision"] != self.configuration["powerStabilityResponseConfirmationRevision"]
++            ):
++                candidate["powerStabilityConfirmedSignature"] = self.power_stability.confirmation_signature(candidate)
++            elif (self.power_stability.response_parameters_confirmed()
++                  and self.power_stability.confirmation_signature(candidate) == self.power_stability.confirmation_signature()):
++                # Upgrade an older confirmation before switching tolerance presets.
+                 candidate["powerStabilityConfirmedSignature"] = self.power_stability.confirmation_signature(candidate)
+             if self.power_meter_reader is not None:
+                 self.power_meter_reader.update_stability_settings(
+@@ -697,16 +711,15 @@ class StationRuntime(StationAutomaticMixin):
+         candidate["customCurrentPoints"] = cleaned_points
+         if candidate["powerStabilityReferenceS"] <= 0:
+             raise ValueError("漂移参考时间必须大于 0 秒")
++        tolerance_policy(candidate)
+         if not isinstance(candidate["powerStabilityInstrumentSettings"], str):
+             raise ValueError("仪器量程和滤波设置必须是文本")
+         if candidate["powerStabilityParametersConfirmed"] and (
+             candidate["powerStabilityResponseS"] <= 0
+             or candidate["powerStabilitySettleS"] <= 0
+             or candidate["powerStabilityCurrentToleranceA"] <= 0
+-            or candidate["powerStabilityQuantizationW"] <= 0
+-            or max(candidate["powerStabilityAbsoluteDriftW"], candidate["powerStabilityRelativeDriftPercent"]) <= 0
+         ):
+-            raise ValueError("确认判稳参数前，请填写响应时间、电流建立时间、量化步进和漂移容差")
++            raise ValueError("确认设备响应前，请填写响应时间、电流建立时间和回读容差")
+         if candidate["ruBaudRate"] not in RU_BAUD_RATES:
+             raise ValueError("RU 波特率不在手册支持范围内")
+         if not 1 <= candidate["ruAddress"] <= 255:
+diff --git a/tauri_bridge/station_support.py b/tauri_bridge/station_support.py
+index b20f6b55..dd4db12b 100644
+--- a/tauri_bridge/station_support.py
++++ b/tauri_bridge/station_support.py
+@@ -133,6 +133,7 @@ DEFAULT_CONFIGURATION: dict[str, Any] = {
+     "stabilityLimitPercent": 0.2,
+     "powerStabilityAbsoluteFloorW": 0.2,
+     "powerStabilityMode": "shadow",
++    "powerStabilityTolerancePreset": "standard",
+     "powerStabilityQuantizationW": 0.0,
+     "powerStabilityInstrumentSettings": "",
+     "powerStabilityAbsoluteDriftW": 0.0,
+@@ -143,6 +144,7 @@ DEFAULT_CONFIGURATION: dict[str, Any] = {
+     "powerStabilitySettleS": 0.0,
+     "powerStabilityCurrentToleranceA": 0.0,
+     "powerStabilityParametersConfirmed": False,
++    "powerStabilityResponseConfirmationRevision": 0,
+     "powerStabilityConfirmedSignature": "",
+     "initialCurrentA": 1.0,
+     "targetCurrentA": 20.0,
+diff --git a/tests/test_power_stability_runtime.py b/tests/test_power_stability_runtime.py
+index c33e2059..88cde664 100644
+--- a/tests/test_power_stability_runtime.py
++++ b/tests/test_power_stability_runtime.py
+@@ -33,6 +33,7 @@ class PowerStabilityRuntimeTests(unittest.TestCase):
+             "powerStabilityInstrumentSettings": "100 W range; filter off; fixed range",
+             "powerStabilityResponseS": 2, "powerStabilitySettleS": 1,
+             "powerStabilityCurrentToleranceA": 0.01,
++            "powerStabilityTolerancePreset": "custom",
+             "powerStabilityAbsoluteDriftW": 0.35, "powerStabilityParametersConfirmed": True,
+         })
+         self.station._validate_configuration(self.station.configuration)
+@@ -186,7 +187,7 @@ class PowerStabilityRuntimeTests(unittest.TestCase):
+     def test_parameter_confirmation_cannot_be_reused_for_another_probe_range_or_controller(self):
+         self.assertTrue(self.manager.policy().ready)
+         for key, value in (("powerMeterSerialNumber", "head-B"), ("powerSupplyKind", "ru"),
+-                           ("powerStabilityResponseS", 3), ("powerStabilityAbsoluteDriftW", 0.5)):
++                           ("powerStabilityResponseS", 3)):
+             previous = self.station.configuration[key]
+             self.station.configuration[key] = value
+             self.assertFalse(self.manager.policy().ready, key)
+@@ -446,7 +447,7 @@ class PowerStabilityRuntimeTests(unittest.TestCase):
+             self.manager.freeze()
+             self.assertIs(self.manager.model, model)
+         self.station.configuration["powerStabilityMode"] = "dual"
+-        self.assertIn("仅用于旁路", self.manager.blocker())
++        self.assertIn("响应参数尚未确认", self.manager.blocker())
+         self.station.configuration["powerStabilityMode"] = "shadow"
+         self.publish(181, 0, connection=1)
+         self.assertIsNone(self.manager.verified_connection)
+@@ -489,6 +490,124 @@ class PowerStabilityRuntimeTests(unittest.TestCase):
+             self.manager.instrument_token = token
+             self.assertIsNone(self.manager.detected_settings()["fullScaleW"])
+ 
++    def test_learned_step_and_empty_notes_can_control_without_manual_transcription(self):
++        reader = self.station.power_meter_reader
++        self.station.power_meter_reader = None
++        self.station.configure({"powerStabilityQuantizationW": 0, "powerStabilityInstrumentSettings": "",
++                                "powerStabilityTolerancePreset": "standard",
++                                "powerStabilityParametersConfirmed": False})
++        self.station.configure({"powerStabilityParametersConfirmed": True})
++        self.station.power_meter_reader = reader
++        self.assertTrue(self.manager.response_parameters_confirmed())
++        self.assertFalse(self.manager.policy().ready, "background step is still unknown")
++        self.assertIn("学习", self.manager.control_blocker())
++        samples = [(i * 0.5, 0.15 if i % 2 else 0) for i in range(361)]
++        self.manager.job_connection = self.manager.connection
++        self.manager._finish_learning(self.manager.job_epoch, samples, self.manager.identity(), self.manager.policy())
++        self.assertEqual(self.manager.model.quantization_source, "observed-grid-v1")
++        self.station.configure({"powerStabilityMode": "dual"})
++        self.assertIsNone(self.manager.blocker())
++        self.assertTrue(self.manager.policy().ready)
++        self.assertEqual(self.station.configuration["powerStabilityQuantizationW"], 0)
++        self.manager.freeze()
++        self.station.automatic.state = AutomaticTestState.WAITING_STABLE
++        self.manager.begin_point(7)
++        for i in range(1, 45):
++            self.publish(i * 0.5, 1000 + (0.15 if i % 2 else 0))
++        self.assertTrue(self.station.latest_power.stable, self.manager.decision)
++
++    def test_preset_switch_preserves_response_confirmation_background_and_custom_values(self):
++        self.install_model()
++        self.verify()
++        original_model = self.manager.model
++        verified_at = self.manager.verified_at
++        self.station.configure({"powerStabilityTolerancePreset": "standard"})
++        policy = self.manager.policy()
++        self.assertEqual((policy.absolute_drift_w, policy.relative_drift_percent, policy.reference_s,
++                          policy.extra_noise_percent), (0, 0.2, 20, 0))
++        self.assertTrue(policy.ready)
++        self.assertEqual(self.station.configuration["powerStabilityAbsoluteDriftW"], 0.35)
++        self.station.configure({"powerStabilityTolerancePreset": "custom"})
++        self.assertEqual(self.manager.policy().absolute_drift_w, 0.35)
++        self.assertTrue(self.manager.response_parameters_confirmed())
++        self.assertIs(self.manager.model, original_model)
++        self.assertEqual(self.manager.verified_at, verified_at)
++        self.assertEqual(self.manager.session_metadata()["tolerancePreset"], "custom")
++
++    def test_empty_custom_preset_and_unknown_device_response_still_block_control(self):
++        self.station.configure({"powerStabilityMode": "dual", "powerStabilityAbsoluteDriftW": 0})
++        self.assertIn("容差预设", self.manager.blocker())
++        self.station.configure({"powerStabilityTolerancePreset": "standard",
++                                "powerStabilityParametersConfirmed": False})
++        self.assertIn("响应参数尚未确认", self.manager.blocker())
++        with self.assertRaisesRegex(ValueError, "未知.*预设"):
++            self.station.configure({"powerStabilityTolerancePreset": "unknown"})
++        self.assertEqual(self.station.configuration["powerStabilityTolerancePreset"], "standard")
++
++    def test_old_custom_configuration_and_confirmation_migrate_without_changing_limits(self):
++        from tauri_bridge.station_runtime import StationRuntime
++
++        old_config = dict(self.station.configuration)
++        del old_config["powerStabilityTolerancePreset"]
++        old_config["powerStabilityConfirmedSignature"] = self.manager._legacy_confirmation_signature(old_config)
++        migrated = StationRuntime(self.backend, initial_config=old_config)
++        self.assertEqual(migrated.configuration["powerStabilityTolerancePreset"], "custom")
++        self.assertEqual(migrated.power_stability.policy().absolute_drift_w, 0.35)
++        self.assertTrue(migrated.power_stability.response_parameters_confirmed())
++        migrated.configure({"powerStabilityTolerancePreset": "standard"})
++        self.assertTrue(migrated.power_stability.response_parameters_confirmed())
++        self.assertEqual(migrated.configuration["powerStabilityConfirmedSignature"],
++                         migrated.power_stability.confirmation_signature())
++
++    def test_saved_preset_response_and_learned_model_survive_restart_without_hardware_access(self):
++        self.backend.power_meter_profiles.initialize(dict(self.station.configuration))
++        self.station.configure({"powerStabilityParametersConfirmed": False})
++        self.station.configure({"powerStabilityParametersConfirmed": True})
++        self.station.configure({"powerStabilityTolerancePreset": "standard"})
++        samples = self.install_model()
++        self.manager._finish_learning(self.manager.job_epoch, samples, self.manager.identity(), self.manager.policy())
++        self.backend._persist_configuration()
++        with (patch("tauri_bridge.station_runtime.PowerMeterReaderThread") as reader,
++              patch("tauri_bridge.station_runtime.PowerMeterDetectThread") as detect,
++              patch("tauri_bridge.station_runtime.create_ch341_controller") as controller):
++            restarted = HeadlessBackend(JsonSettings(self.backend.settings.path))
++            try:
++                self.assertEqual(restarted.configuration["powerStabilityTolerancePreset"], "standard")
++                self.assertTrue(restarted.runtime.power_stability.response_parameters_confirmed(),
++                                {key: (self.station.configuration[key], restarted.configuration[key])
++                                 for key in self.station.configuration
++                                 if self.station.configuration[key] != restarted.configuration[key]})
++                self.assertEqual(restarted.runtime.power_stability.model.model_id, self.manager.model.model_id)
++                self.assertIsNone(restarted.runtime.power_stability.verified_connection)
++                reader.assert_not_called()
++                detect.assert_not_called()
++                controller.assert_not_called()
++            finally:
++                restarted.export_worker.graceful_stop(timeout_s=5)
++
++    def test_standard_preset_does_not_relax_limits_when_background_capability_is_insufficient(self):
++        self.activate_dual()
++        self.station.automatic.state = AutomaticTestState.IDLE
++        self.station.configure({"powerStabilityTolerancePreset": "standard"})
++        self.manager.freeze()
++        self.station.automatic.state = AutomaticTestState.WAITING_STABLE
++        self.manager.begin_point(7)
++        start = self.clock[0] - 1000
++        for i in range(1, 45):
++            self.publish(start + i * 0.5, 32.4 + (0.15 if i % 2 else 0))
++        self.assertFalse(self.station.latest_power.stable)
++        self.assertEqual(self.manager.decision.code, "capability_insufficient")
++        self.assertEqual(self.manager.policy().relative_drift_percent, 0.2)
++
++    def test_changed_instrument_settings_require_explicit_reconfirmation_not_an_ordinary_save(self):
++        self.manager.instrument_token = "laserpoint:2:3000:1"
++        self.assertFalse(self.manager.response_parameters_confirmed())
++        self.station.configure({"powerStabilityTolerancePreset": "standard"})
++        self.assertFalse(self.manager.response_parameters_confirmed())
++        self.station.configure({"powerStabilityParametersConfirmed": True,
++                                "powerStabilityResponseConfirmationRevision": 1})
++        self.assertTrue(self.manager.response_parameters_confirmed())
++
+ 
+ if __name__ == "__main__":
+     unittest.main()
+diff --git a/tests/test_tauri_bridge.py b/tests/test_tauri_bridge.py
+index 9afa77e5..88230f0b 100644
+--- a/tests/test_tauri_bridge.py
++++ b/tests/test_tauri_bridge.py
+@@ -366,6 +366,7 @@ class TauriBridgeServiceTests(unittest.TestCase):
+                     "dataBrowser.list",
+                     "dataBrowser.inspect",
+                     "dataBrowser.import",
++                    "automatic.exportDiagnostics",
+                     "shippingReport.inspect",
+                     "shippingReport.batchInspect",
+                     "shippingReport.preview",

@@ -1,0 +1,80 @@
+[
+  {
+    "label": "功率实时曲线",
+    "rect": {
+      "x": 207,
+      "y": 271,
+      "width": 834,
+      "height": 314,
+      "top": 271,
+      "right": 1041,
+      "bottom": 585,
+      "left": 207
+    }
+  },
+  {
+    "label": null,
+    "rect": {
+      "x": 207,
+      "y": 271,
+      "width": 834,
+      "height": 314,
+      "top": 271,
+      "right": 1041,
+      "bottom": 585,
+      "left": 207
+    }
+  },
+  {
+    "label": "功率 / 效率曲线",
+    "rect": {
+      "x": 1067,
+      "y": 271,
+      "width": 834,
+      "height": 314,
+      "top": 271,
+      "right": 1901,
+      "bottom": 585,
+      "left": 1067
+    }
+  },
+  {
+    "label": null,
+    "rect": {
+      "x": 1067,
+      "y": 271,
+      "width": 834,
+      "height": 314,
+      "top": 271,
+      "right": 1901,
+      "bottom": 585,
+      "left": 1067
+    }
+  },
+  {
+    "label": "光谱曲线",
+    "rect": {
+      "x": 207,
+      "y": 735,
+      "width": 1694,
+      "height": 314,
+      "top": 735,
+      "right": 1901,
+      "bottom": 1049,
+      "left": 207
+    }
+  },
+  {
+    "label": null,
+    "rect": {
+      "x": 207,
+      "y": 735,
+      "width": 1694,
+      "height": 314,
+      "top": 735,
+      "right": 1901,
+      "bottom": 1049,
+      "left": 207
+    }
+  }
+]

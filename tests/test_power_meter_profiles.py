@@ -78,6 +78,116 @@ class PowerMeterProfileTests(unittest.TestCase):
         )
         return profile, revision
 
+    def test_delete_selected_profile_switches_to_remaining_profile_and_persists(self) -> None:
+        self.bind(self.option("PROBE-A"))
+        default_id = self.library()["selectedProfileId"]
+        self.command("save", profileId=default_id, expectedVersion=1,
+                     name="Updated default", softwareGain=1.07512345, wavelengthNm=975.5)
+        self.command("create", name="Remove me", softwareGain=1.2, wavelengthNm=980.0)
+        deleted_id = self.library()["selectedProfileId"]
+        other_probe = copy.deepcopy(self.backend.power_meter_profiles.ensure("coherent", "OTHER", wavelength=976.0))
+
+        result = self.command("delete", profileId=deleted_id, expectedVersion=1)
+
+        self.assertEqual([p["id"] for p in self.library()["profiles"]], [default_id])
+        self.assertEqual(result["configuration"]["powerMeterProfileId"], default_id)
+        self.assertEqual(result["configuration"]["softwareGain"], 1.07512345)
+        self.assertEqual(result["configuration"]["powerMeterWavelengthNm"], 975.5)
+        self.assertEqual(result["configuration"]["powerMeterProfileVersion"], 2)
+        saved = json.loads(self.settings.path.read_text(encoding="utf-8"))
+        self.assertEqual(saved["runtime/deviceProfiles"], self.backend.device_profiles)
+        self.assertEqual(saved["runtime/configuration"]["powerMeterProfileId"], default_id)
+        self.assertEqual(self.backend.device_profiles["powerMeters"]["coherent:OTHER"], other_probe)
+
+    def test_delete_unselected_profile_keeps_active_measurement_parameters(self) -> None:
+        self.bind(self.option("PROBE-A"))
+        default_id = self.library()["selectedProfileId"]
+        self.command("create", name="Keep me", softwareGain=1.23456789, wavelengthNm=979.123456)
+        before = dict(self.backend.runtime.configuration)
+        self.command("delete", profileId=default_id, expectedVersion=1)
+        self.assertEqual(self.backend.runtime.configuration, before)
+        self.assertEqual(len(self.library()["profiles"]), 1)
+
+    def test_delete_last_profile_stays_empty_after_restart_and_blocks_acquisition(self) -> None:
+        meter = self.option("PROBE-A")
+        self.bind(meter)
+        profile_id = self.library()["selectedProfileId"]
+        self.command("delete", profileId=profile_id, expectedVersion=1)
+        self.assertEqual(self.library()["profiles"], [])
+        self.assertEqual(self.library()["selectedProfileId"], "")
+        self.assertEqual(self.library()["selectedVersion"], 0)
+        self.assertEqual(self.backend.runtime.configuration["powerMeterProfileName"], "未绑定方案")
+        with self.assertRaisesRegex(ValueError, "建立系数方案"):
+            self.backend.runtime.start_power_meter()
+        self.bind(meter)
+        restarted = HeadlessBackend(JsonSettings(self.settings.path))
+        try:
+            self.assertEqual(restarted.power_meter_profiles.library()["profiles"], [])
+            with self.assertRaisesRegex(ValueError, "建立系数方案"):
+                restarted.power_meter_profiles.require_ready()
+        finally:
+            restarted.export_worker.graceful_stop(timeout_s=5.0)
+        self.command("create", name="Replacement", softwareGain=1.1, wavelengthNm=977.0)
+        self.backend.power_meter_profiles.require_ready()
+
+    def test_delete_rejects_stale_version_wrong_probe_and_missing_profile(self) -> None:
+        self.bind(self.option("PROBE-A"))
+        profile_id = self.library()["selectedProfileId"]
+        self.command("save", profileId=profile_id, expectedVersion=1,
+                     name="Updated", softwareGain=1.1, wavelengthNm=977.0)
+        before = copy.deepcopy(self.backend.device_profiles)
+        for params, message in [
+            ({"profileId": profile_id, "expectedVersion": 1}, "刷新"),
+            ({"profileId": profile_id, "expectedVersion": 2, "serialNumber": "OTHER"}, "探头已切换"),
+            ({"profileId": "missing", "expectedVersion": 2}, "方案不存在"),
+        ]:
+            with self.subTest(params=params), self.assertRaisesRegex(ValueError, message):
+                self.command("delete", **params)
+            self.assertEqual(self.backend.device_profiles, before)
+
+    def test_delete_obeys_acquisition_automatic_discovery_and_unsaved_point_locks(self) -> None:
+        self.bind(self.option("PROBE-A"))
+        profile_id = self.library()["selectedProfileId"]
+        before = copy.deepcopy(self.backend.device_profiles)
+        for target, attribute, value in [
+            (self.backend.runtime, "power_meter_reader", MagicMock()),
+            (self.backend.runtime.automatic, "state", AutomaticTestState.WAITING_STABLE),
+            (self.backend.runtime, "_automatic_thread", MagicMock()),
+            (self.backend, "power_meter_detect_thread", MagicMock()),
+            (self.backend.runtime.record_store, "unsaved_records", MagicMock(return_value=[object()])),
+        ]:
+            with self.subTest(attribute=attribute), patch.object(target, attribute, value):
+                with self.assertRaises(ValueError):
+                    self.command("delete", profileId=profile_id, expectedVersion=1)
+            self.assertEqual(self.backend.device_profiles, before)
+
+    def test_delete_persistence_failure_rolls_back_catalog_configuration_and_disk(self) -> None:
+        self.bind(self.option("PROBE-A"))
+        profile_id = self.library()["selectedProfileId"]
+        before_profiles = copy.deepcopy(self.backend.device_profiles)
+        before_config = dict(self.backend.runtime.configuration)
+        before_disk = self.settings.path.read_bytes()
+        with patch.object(self.settings, "flush", side_effect=OSError("disk full")):
+            with self.assertRaisesRegex(OSError, "disk full"):
+                self.command("delete", profileId=profile_id, expectedVersion=1)
+        self.assertEqual(self.backend.device_profiles, before_profiles)
+        self.assertEqual(self.backend.runtime.configuration, before_config)
+        self.assertEqual(self.settings.get("runtime/deviceProfiles"), before_profiles)
+        self.assertEqual(self.settings.path.read_bytes(), before_disk)
+
+    def test_delete_preserves_frozen_session_measurement_provenance(self) -> None:
+        self.bind(self.option("PROBE-A"))
+        self.command("create", name="Recorded profile", softwareGain=1.23456789, wavelengthNm=978.25)
+        profile_id = self.library()["selectedProfileId"]
+        self.backend.runtime.configuration.update({"sn": "RECORDED", "outputDir": self.temp_dir.name})
+        self.backend.runtime._ensure_manual_recording_session()
+        session = self.backend.runtime.record_store.current_session
+        frozen = copy.deepcopy(session.settings)
+        self.command("delete", profileId=profile_id, expectedVersion=1)
+        self.assertEqual(session.settings, frozen)
+        self.assertEqual(session.settings["powerMeterProfileId"], profile_id)
+        self.assertEqual(session.settings["softwareGain"], 1.23456789)
+
     def test_new_probe_gets_a_default_profile_and_snapshot_wire_shape(self) -> None:
         meter = self.option("probe-a")
         snapshot = self.bind(meter)

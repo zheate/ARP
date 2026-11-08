@@ -1,0 +1,59 @@
+### Result
+[{"round":1,"version":"before","samples_ms":[116.29999999701977,112.69999999552965,116.90000000596046,115.40000000596046,116.79999999701977],"canvas_exact":true,"hover_exact":true,"selected":12},{"round":1,"version":"after","samples_ms":[82.5,83.09999999403954,83.20000000298023,83,67.39999999850988],"canvas_exact":true,"hover_exact":true,"selected":12},{"round":2,"version":"after","samples_ms":[82.10000000149012,83.39999999850988,82.79999999701977,82.5,66.40000000596046],"canvas_exact":true,"hover_exact":true,"selected":12},{"round":2,"version":"before","samples_ms":[116.30000000447035,116.19999999552965,115.89999999850988,103.79999999701977,99.10000000149012],"canvas_exact":true,"hover_exact":true,"selected":12},{"round":3,"version":"before","samples_ms":[116.29999999701977,99.30000000447035,99.80000000447035,99.79999999701977,99.5],"canvas_exact":true,"hover_exact":true,"selected":12},{"round":3,"version":"after","samples_ms":[83,65.39999999850988,83.60000000149012,83.80000000447035,66.39999999850988],"canvas_exact":true,"hover_exact":true,"selected":12}]
+### Ran Playwright code
+```js
+await (async (page) => {
+  await page.unrouteAll({behavior:'wait'});
+  let version='before';
+  await page.route('**/src/components/canvas-line-chart.tsx*', route=>version==='before'
+    ?route.fulfill({contentType:'text/javascript',path:'outputs/remaining-perf-20261015/canvas-line-chart.before.js'}):route.continue());
+  await page.route('**/src/lib/data-browser.ts*', route=>version==='before'
+    ?route.fulfill({contentType:'text/javascript',path:'outputs/remaining-perf-20261015/data-browser.before.js'}):route.continue());
+  await page.route('**/src/lib/data-browser-demo.ts*', route=>route.fulfill({contentType:'text/javascript',path:'tauri-ui/scripts/fixtures/spectrum-browser-data.js'}));
+  await page.route('**/paired-spectrum-fixture?*', route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html><head><meta charset="UTF-8"><link rel="icon" href="data:,"></head><body><div id="root"></div><script type="module">await import("/scripts/fixtures/spectrum-browser.tsx");</script></body></html>'}));
+  await page.setViewportSize({width:1440,height:900});
+  const rows=[]; const images={};
+  const settle=()=>page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  for(let round=0;round<3;round++) {
+    for(const candidate of round%2?['after','before']:['before','after']) {
+      version=candidate;
+      await page.goto('http://localhost:1420/paired-spectrum-fixture?demo=1&currents=12');
+      await page.locator('.db-record-button').first().waitFor();
+      await page.evaluate(()=>document.fonts.ready);
+      await settle();
+      const samples=[];
+      for(let i=0;i<6;i++) {
+        await page.getByRole('combobox',{name:'曲线内容',exact:true}).selectOption('metrics');
+        await settle();
+        const started=await page.evaluate(()=>performance.now());
+        await page.getByRole('combobox',{name:'曲线内容',exact:true}).selectOption('multiSpectrum');
+        const canvas=page.getByRole('img',{name:'原始强度光谱叠加',exact:true});await canvas.waitFor();
+        await settle();
+        const elapsed=await page.evaluate(()=>performance.now());
+        if(i>0)samples.push(elapsed-started);
+      }
+      const base=page.getByRole('img',{name:'原始强度光谱叠加',exact:true});
+      const image=await base.evaluate(canvas=>canvas.toDataURL());
+      if(!images.before&&version==='before') images.before=image;
+      if(images.before&&image!==images.before)throw Error(`Canvas differs: ${round} ${version}`);
+      const box=await base.boundingBox();
+      const metrics={};
+      for(const [label,x] of [['left',.1],['middle',.5],['right',.9]]) {
+        await page.mouse.move(box.x+64+(box.width-90)*x,box.y+box.height/2);await settle();
+        metrics[label]=await base.evaluate(c=>({text:c.parentElement.textContent,overlay:c.nextElementSibling.toDataURL()}));
+      }
+      if(!images.hover&&version==='before')images.hover=metrics;
+      if(images.hover&&JSON.stringify(metrics)!==JSON.stringify(images.hover))throw Error(`Hover differs: ${round} ${version}`);
+      await page.mouse.move(2,2);
+      if(round===2)await page.screenshot({path:`output/performance-remaining-20261015/paired-12-${version}.png`});
+      rows.push({round:round+1,version,samples_ms:samples,canvas_exact:true,hover_exact:true,selected:await page.locator('.db-spectrum-choices input:checked').count()});
+    }
+  }
+  return rows;
+}
+)(page);
+```
+### Page
+- Page URL: http://localhost:1420/paired-spectrum-fixture?demo=1&currents=12
+### Events
+- New console entries: .playwright-cli/console-2026-10-15T03-27-42-667Z.log#L142-L150

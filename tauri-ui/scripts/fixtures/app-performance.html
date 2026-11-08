@@ -1,0 +1,20 @@
+<!doctype html>
+<html>
+  <head><meta charset="UTF-8"><link rel="icon" href="data:,"><title>App performance fixture</title></head>
+  <body>
+    <div id="root"></div>
+    <script type="module">
+      // Open with ?demo=1. Imports the actual application with deterministic,
+      // device-free data; no product runtime or backend is replaced.
+      import { DEMO_SNAPSHOT, resetDemoRun } from "../../src/lib/demo-snapshot.ts";
+      const measurements = DEMO_SNAPSHOT.measurements;
+      Object.assign(DEMO_SNAPSHOT, resetDemoRun(DEMO_SNAPSHOT));
+      DEMO_SNAPSHOT.measurements = measurements;
+      DEMO_SNAPSHOT.devices.spectrometer.running = true;
+      measurements.power = Array.from({ length: 601 }, (_, i) => ({ elapsedS: i / 10, powerW: 20 + Math.sin(i / 13) }));
+      const wavelengthNm = Array.from({ length: 8192 }, (_, i) => 972 + i * 8 / 8191);
+      measurements.spectrum = { wavelengthNm, intensity: wavelengthNm.map(w => 100 + 12000 * Math.exp(-(((w - 976.2) / .4) ** 2))) };
+      await import("../../src/main.tsx");
+    </script>
+  </body>
+</html>

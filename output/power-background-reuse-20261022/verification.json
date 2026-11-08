@@ -1,0 +1,27 @@
+{
+  "base_commit": "ca30ac895a5e300776ebb2e5cdfc05439260376a",
+  "change": "Reuse valid background across runs on the same uninterrupted acquisition connection; no per-run verification or 60-second start deadline.",
+  "python_tests": "----------------------------------------------------------------------\nRan 154 tests in 0.998s\n\nOK",
+  "build": "tsc and Vite passed; existing bundle-size warning",
+  "browser": "Production dialog components in isolated fixture; 1440x900, 1180x900, 760x600; updated copy, all three device selectors, refresh, Escape and layout passed.",
+  "checks": [
+    "Fresh successful learning is immediately reusable on its acquisition connection.",
+    "Repeated freezes and completed-to-idle transitions preserve validation.",
+    "More than 120 seconds of uninterrupted acquisition does not expire validation.",
+    "Changing shadow to dual does not require redundant background verification.",
+    "Reconnect reuses the persisted model after verification, without new learning.",
+    "Stale, interrupted or invalid acquisition still blocks reuse.",
+    "Software restart requires connection verification again."
+  ],
+  "not_verified": [
+    "Windows Tauri/WebView",
+    "real hardware"
+  ],
+  "delivery": "Local source changes; no commit, push or product restart",
+  "source_sha256": {
+    "tauri_bridge/power_stability_runtime.py": "244f4fd36252470649736f8e87738ef42349e6d608b370323371619970609b24",
+    "tests/test_power_stability_runtime.py": "dabcc687b3acf4fedaeed10f36c45be051e42c141b2db841e32b3062f9f4b411",
+    "tauri-ui/src/features/devices/settings.tsx": "e1b9176c4213c2fe7a53fcc097bda984b3a0af3e4361e0aafa13b2d7d3eb43a8",
+    "docs/superpowers/specs/2026-10-22-background-dual-window.md": "faf2dfe694059e77b2d66233e357636a08b2decbcb5fe7a7366da54c14ea4098"
+  }
+}

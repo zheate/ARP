@@ -35,3 +35,15 @@ export function scriptPresetCompatible(config: AppConfiguration, preset: TestScr
 export function applyScriptPreset(config: AppConfiguration, preset: TestScriptPreset): AppConfiguration {
   return { ...config, ...captureScriptParameters(preset.parameters), selectedScriptPresetId: preset.id }
 }
+
+export function removeScriptPreset(config: AppConfiguration, presetId: string): AppConfiguration {
+  if (!presetId || !config.testScriptPresets?.some((preset) => preset.id === presetId)) {
+    throw new Error("只能删除已保存的自定义脚本")
+  }
+  if (config.selectedScriptPresetId !== presetId) throw new Error("所选脚本已改变，请重新确认删除")
+  return {
+    ...config,
+    selectedScriptPresetId: "",
+    testScriptPresets: config.testScriptPresets.filter((preset) => preset.id !== presetId),
+  }
+}

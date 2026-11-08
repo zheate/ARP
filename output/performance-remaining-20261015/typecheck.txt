@@ -1,0 +1,2 @@
+src/lib/sparse-chart-index.test.ts(13,46): error TS2339: Property 'a' does not exist on type 'Readonly<{ x: 2; a: 0; }> | Readonly<{ x: 1; b: 3; }> | Readonly<{ x: 1; a: 4; }> | Readonly<{ x: 1; a: null; }> | Readonly<{ x: null; a: 7; }> | Readonly<{ x: 0; a: number; b: number; }>'.
+  Property 'a' does not exist on type 'Readonly<{ x: 1; b: 3; }>'.
