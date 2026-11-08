@@ -1,0 +1,21 @@
+{
+  "packageVersion": "0.1.2",
+  "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+  "system": "macOS-27.3-arm64-arm-64bit",
+  "binary": "gpui-ui/target/debug/arp-gpui",
+  "binarySha256": "da8770ed4cc95afbe1cde0e3dde1c493b1ec1ca17f7ee5cba3ba6905730c4eb1",
+  "mode": "demo only; original demo-idle.json fixture; no backend or devices",
+  "contentSizes": [
+    [
+      1180,
+      760
+    ],
+    [
+      960,
+      640
+    ]
+  ],
+  "latestBuildLog": "build.txt",
+  "latestCoreTestLog": "native-core-tests.txt",
+  "screenshots": "CUA tool outputs in this Codex chat; not saved as repository image files"
+}

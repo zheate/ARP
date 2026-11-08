@@ -45,6 +45,7 @@ struct Editor {
     input: Option<Entity<InputState>>,
     select: Option<Entity<SelectState<Vec<Choice>>>>,
     options: Vec<(String, Value)>,
+    source_value: Value,
 }
 #[derive(Clone)]
 enum Action {
@@ -91,6 +92,9 @@ struct Workbench {
     cache: SnapshotCache,
     page: &'static str,
     dialog: Option<&'static str>,
+    presented_dialog: Option<&'static str>,
+    modal_focus: FocusHandle,
+    page_focus: FocusHandle,
     editors: HashMap<String, Editor>,
     draft: HashMap<String, Value>,
     subscriptions: Vec<Subscription>,
@@ -205,6 +209,9 @@ impl Workbench {
             cache,
             page: "automatic",
             dialog: None,
+            presented_dialog: None,
+            modal_focus: cx.focus_handle(),
+            page_focus: cx.focus_handle(),
             editors: HashMap::new(),
             draft: HashMap::new(),
             subscriptions: vec![],
@@ -460,7 +467,7 @@ impl Workbench {
         match a {
             Action::Command(method, params) => self.dispatch(method, params, cx),
             Action::Page(page) => {
-                if self.pending.is_some() {
+                if self.pending.is_some() || self.dialog.is_some() {
                     return;
                 }
                 self.page = page;
@@ -816,13 +823,20 @@ impl Workbench {
                 true
             }
         });
-        if self.editors.get(&key).is_some_and(|e| e.options != options) {
+        if self.editors.get(&key).is_some_and(|e| {
+            e.options != options
+                || (!self.draft.contains_key(&key)
+                    && !self.invalid.contains(&key)
+                    && e.source_value != value)
+        }) {
             self.editors.remove(&key);
         }
 
         if !self.editors.contains_key(&key) {
             let editor = if options.is_empty() {
-                let display = if value.is_string() {
+                let display = if value.is_null() {
+                    String::new()
+                } else if value.is_string() {
                     value.as_str().unwrap().to_string()
                 } else if key.ends_with("customCurrentPoints") {
                     value
@@ -881,6 +895,7 @@ impl Workbench {
                     input: Some(input),
                     select: None,
                     options: vec![],
+                    source_value: value.clone(),
                 }
             } else {
                 let choices = options
@@ -972,6 +987,7 @@ impl Workbench {
                     input: None,
                     select: Some(select),
                     options: options.clone(),
+                    source_value: value.clone(),
                 }
             };
             self.editors.insert(key.clone(), editor);
@@ -1170,10 +1186,21 @@ fn parse_currents(s: &str) -> Result<Value, String> {
 
 impl Render for Workbench {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.dialog != self.presented_dialog {
+            if self.dialog.is_some() {
+                self.modal_focus.focus(window, cx);
+            } else {
+                // Closing can recreate editors, so return to the persistent page
+                // handle rather than an input handle whose view was discarded.
+                self.page_focus.focus(window, cx);
+            }
+            self.presented_dialog = self.dialog;
+        }
         let licensed = self.demo || self.license["valid"] == true;
         let mut root = div()
             .id("workbench")
             .key_context("Workbench")
+            .track_focus(&self.page_focus)
             .size_full()
             .flex()
             .flex_col()
@@ -1183,10 +1210,8 @@ impl Render for Workbench {
             .on_action(cx.listener(|this, _: &Quit, _, cx| this.begin_close(cx)))
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
                 if event.keystroke.key == "escape" {
-                    if this.coupling {
+                    if this.dialog.is_none() && this.coupling {
                         this.coupling = false;
-                    } else if this.dialog.is_some() && !this.closing {
-                        this.dialog = None;
                     }
                     cx.notify();
                 }
@@ -1664,12 +1689,18 @@ impl Workbench {
 }
 fn apply_theme(mode: ThemeMode, window: Option<&mut Window>, cx: &mut App) {
     Theme::change(mode, window, cx);
-    let theme = Theme::global_mut(cx);
-    theme.colors.background = rgb(if mode.is_dark() { 0x0f1112 } else { 0xf4f6f8 }).into();
-    theme.colors.primary = rgb(if mode.is_dark() { 0xff7a1a } else { 0xb65310 }).into();
-    theme.colors.primary_hover = theme.colors.primary;
-    theme.colors.primary_active = theme.colors.primary;
-    theme.colors.primary_foreground = rgb(if mode.is_dark() { 0x121212 } else { 0xffffff }).into();
+    Theme::update(cx, |theme| {
+        theme.colors.background = rgb(if mode.is_dark() { 0x0f1112 } else { 0xf4f6f8 }).into();
+        theme.colors.primary = rgb(if mode.is_dark() { 0xff7a1a } else { 0xb65310 }).into();
+        theme.colors.primary_hover = theme.colors.primary;
+        theme.colors.primary_active = theme.colors.primary;
+        theme.colors.primary_foreground =
+            rgb(if mode.is_dark() { 0x121212 } else { 0xffffff }).into();
+        theme.colors.button_primary = theme.colors.primary;
+        theme.colors.button_primary_hover = theme.colors.primary;
+        theme.colors.button_primary_active = theme.colors.primary;
+        theme.colors.button_primary_foreground = theme.colors.primary_foreground;
+    });
 }
 fn status_label(value: &Value) -> String {
     match value.as_str().unwrap_or("") {

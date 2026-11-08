@@ -44,22 +44,11 @@ impl Workbench {
             .into_any_element()
     }
     pub(super) fn device_metric(&self, device: &str, key: &str, digits: usize) -> String {
-        let d = &self.cache.value["devices"][device];
-        if d["quality"] != "live" || d["saturated"] == true {
-            return "—".into();
-        }
-        d[key]
-            .as_f64()
-            .or_else(|| {
-                if key == "pibPercent" {
-                    d["pib"].as_f64().map(|x| x * 100.)
-                } else {
-                    None
-                }
-            })
-            .map(|v| format!("{v:.digits$}"))
+        arp_gpui::model::live_device_metric(&self.cache.value["devices"][device], key)
+            .map(|value| format!("{value:.digits$}"))
             .unwrap_or("—".into())
     }
+
     pub(super) fn device_cards(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let mut row = div().flex().gap_4();
         for (device, title) in [
@@ -545,6 +534,17 @@ impl Workbench {
     }
     pub(super) fn pd_page(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let pd = self.cache.value["pd"].clone();
+        if !pd["settings"].is_object() {
+            return self.panel(
+                "采集设置",
+                if self.demo {
+                    "当前演示快照未包含 PD 配置"
+                } else {
+                    "等待后端提供 PD 配置"
+                },
+                cx,
+            );
+        }
         let mut form = div().flex().flex_col().gap_3();
         for (key, label) in fields::PD {
             form = form.child(self.field(
@@ -1568,8 +1568,7 @@ impl Workbench {
         let dialog = div()
             .flex()
             .flex_col()
-            .w(px(720.))
-            .h(relative(0.84))
+            .size_full()
             .p_5()
             .gap_4()
             .bg(cx.theme().background)
@@ -1586,14 +1585,26 @@ impl Workbench {
                     .child(body),
             )
             .child(footer);
-        div()
-            .absolute()
-            .inset_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .bg(rgba(0x00000099))
-            .child(dialog)
+        let owner = cx.entity().downgrade();
+        gpui::base::Dialog::new(cx)
+            .focus_handle(self.modal_focus.clone())
+            .close_on_backdrop_press(false)
+            .close_on_escape(!self.closing)
+            .on_open_change(move |open, _, window, cx| {
+                if !open {
+                    let _ = owner.update(cx, |this, cx| {
+                        this.execute(Action::Dialog(None), window, cx)
+                    });
+                }
+            })
+            .backdrop(div().absolute().inset_0().occlude().bg(rgba(0x00000099)))
+            .popup(
+                gpui::base::DialogPopup::new()
+                    .w(px(720.))
+                    .max_w(relative(0.94))
+                    .h(relative(0.84))
+                    .child(dialog),
+            )
             .into_any_element()
     }
 }

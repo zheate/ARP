@@ -1,6 +1,22 @@
 //! UI-independent snapshot cache. All stored measurement values remain binary64.
 use serde_json::{Value, json};
 
+/// Snapshot metrics already use display units. In particular, the backend
+/// serializes `pib` as percent, including values below one percent.
+pub fn live_device_metric(device: &Value, key: &str) -> Option<f64> {
+    if device["quality"] != "live" || device["saturated"] == true {
+        return None;
+    }
+    device[key]
+        .as_f64()
+        .or_else(|| {
+            (key == "pibPercent")
+                .then(|| device["pib"].as_f64())
+                .flatten()
+        })
+        .filter(|value| value.is_finite())
+}
+
 pub fn safe_without_license(method: &str) -> bool {
     matches!(
         method,
@@ -275,5 +291,46 @@ mod tests {
             current["measurements"]["power"]
         );
         assert_eq!(c.value["seriesRevisions"]["power"], 3);
+    }
+}
+
+#[cfg(test)]
+mod metric_tests {
+    use super::*;
+    #[test]
+    fn wire_pib_is_percent_without_a_second_conversion() {
+        let fixture: Value = serde_json::from_str(include_str!("../fixtures/demo.json")).unwrap();
+        let device = &fixture["devices"]["spectrometer"];
+        assert_eq!(live_device_metric(device, "pibPercent"), Some(96.85));
+        for percent in [0.0, 0.25, 1.0, 100.0] {
+            let d = json!({"quality":"live","pib":percent});
+            assert_eq!(live_device_metric(&d, "pibPercent"), Some(percent));
+        }
+    }
+    #[test]
+    fn explicit_percent_and_other_metrics_keep_their_wire_units() {
+        let d = json!({"quality":"live","pibPercent":0.25,"powerW":0.12345678901234566});
+        assert_eq!(live_device_metric(&d, "pibPercent"), Some(0.25));
+        assert_eq!(live_device_metric(&d, "powerW"), d["powerW"].as_f64());
+    }
+    #[test]
+    fn unavailable_or_saturated_samples_never_become_current_metrics() {
+        for quality in ["stale", "invalid", "saturated"] {
+            assert_eq!(
+                live_device_metric(&json!({"quality":quality,"pib":96.85}), "pibPercent"),
+                None
+            );
+        }
+        assert_eq!(
+            live_device_metric(
+                &json!({"quality":"live","saturated":true,"pib":96.85}),
+                "pibPercent"
+            ),
+            None
+        );
+        assert_eq!(
+            live_device_metric(&json!({"quality":"live"}), "pibPercent"),
+            None
+        );
     }
 }
