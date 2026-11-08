@@ -1,0 +1,105 @@
+{
+  "workbook_reads": [
+    {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_02.xlsx",
+      "full_spectra": false,
+      "median_ms": 85.16508300090209,
+      "samples_ms": [
+        85.16508300090209,
+        86.96491600130685,
+        74.61116700142156
+      ],
+      "points": 4,
+      "spectra": 0
+    },
+    {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_02.xlsx",
+      "full_spectra": true,
+      "median_ms": 85.61954100150615,
+      "samples_ms": [
+        85.61954100150615,
+        86.87662499869475,
+        81.4547079935437
+      ],
+      "points": 4,
+      "spectra": 4
+    },
+    {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_37.xlsx",
+      "full_spectra": false,
+      "median_ms": 26.517292004427873,
+      "samples_ms": [
+        34.54341700125951,
+        25.98908299842151,
+        26.517292004427873
+      ],
+      "points": 1,
+      "spectra": 0
+    },
+    {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_37.xlsx",
+      "full_spectra": true,
+      "median_ms": 27.574041996558663,
+      "samples_ms": [
+        27.574041996558663,
+        33.27354099747026,
+        27.389584000047762
+      ],
+      "points": 1,
+      "spectra": 1
+    },
+    {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_45.xlsx",
+      "full_spectra": false,
+      "median_ms": 73.25316700007534,
+      "samples_ms": [
+        75.77999999921303,
+        67.67483400471974,
+        73.25316700007534
+      ],
+      "points": 4,
+      "spectra": 0
+    },
+    {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_45.xlsx",
+      "full_spectra": true,
+      "median_ms": 78.87704200402368,
+      "samples_ms": [
+        78.87704200402368,
+        75.8620830019936,
+        84.26166699791793
+      ],
+      "points": 4,
+      "spectra": 4
+    },
+    {
+      "path": "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-00.xlsx",
+      "full_spectra": false,
+      "median_ms": 649.7830410007737,
+      "samples_ms": [
+        683.2144170039101,
+        649.7830410007737,
+        631.6523749992484
+      ],
+      "points": 24,
+      "spectra": 0
+    },
+    {
+      "path": "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-00.xlsx",
+      "full_spectra": true,
+      "median_ms": 770.0071669969475,
+      "samples_ms": [
+        758.8000830000965,
+        770.0071669969475,
+        823.9720419951482
+      ],
+      "points": 24,
+      "spectra": 24
+    }
+  ],
+  "directory": {
+    "files": 36,
+    "first_index_ms": 25030.437374996836,
+    "unchanged_refresh_ms": 2.4987500000861473
+  }
+}

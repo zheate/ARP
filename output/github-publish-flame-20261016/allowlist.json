@@ -1,0 +1,17 @@
+[
+  {
+    "path": "tauri-ui/src/components/character-sprite-marker.tsx",
+    "bytes": 7095,
+    "sha256": "535d21643ce9205dce7cdfaf2428e0d47244f5c69e726864292e9e5a7356eefb"
+  },
+  {
+    "path": "tauri-ui/src/components/character-sprite-marker.css",
+    "bytes": 1494,
+    "sha256": "a050f840bb7a622ccd0ffffb362fb9f986e8066e1bc022885180e8771b3e0d29"
+  },
+  {
+    "path": "tauri-ui/public/chart-markers/dino-red-tail-flame-aligned-four-frames-b7fb24b7b24a.png",
+    "bytes": 383959,
+    "sha256": "b7fb24b7b24a8ddf092c4167c76b343f44d650f0ea1c3dd0a790b83bf1499e90"
+  }
+]

@@ -1,0 +1,28 @@
+   Compiling tauri-ui v0.1.2 (/Users/zh/Documents/test/ARP/tauri-ui/src-tauri)
+    Finished `release` profile [optimized] target(s) in 3.46s
+     Running unittests src/lib.rs (tauri-ui/src-tauri/target/release/deps/tauri_ui_lib-b45f485fb370f0c3)
+
+running 2 tests
+
+thread 'snapshot_stream::tests::stream_moves_complete_owned_spectrum_into_message' (934535) panicked at src/snapshot_stream.rs:301:17:
+assertion `left == right` failed: owned spectrum must move through the stream without copying its sample array
+  left: 0x10518a930
+ right: 0x105189b70
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'tests::stream_envelope_moves_the_complete_owned_message' (934536) panicked at src/lib.rs:1113:9:
+assertion `left == right` failed: owned history must move into the envelope without another sample-array copy
+  left: 0x10518b360
+ right: 0x105189090
+test tests::stream_envelope_moves_the_complete_owned_message ... FAILED
+test snapshot_stream::tests::stream_moves_complete_owned_spectrum_into_message ... FAILED
+
+failures:
+
+failures:
+    snapshot_stream::tests::stream_moves_complete_owned_spectrum_into_message
+    tests::stream_envelope_moves_the_complete_owned_message
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 22 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`

@@ -1,0 +1,26 @@
+
+> tauri-ui@0.1.2 build
+> tsc && vite build
+
+[36mvite v7.3.6 [32mbuilding client environment for production...[36m[39m
+transforming...
+[32m✓[39m 2390 modules transformed.
+rendering chunks...
+computing gzip size...
+[2mdist/[22m[32mindex.html                             [39m[1m[2m  1.55 kB[22m[1m[22m[2m │ gzip:   0.70 kB[22m
+[2mdist/[22m[32masset-manifest.json                    [39m[1m[2m  1.58 kB[22m[1m[22m[2m │ gzip:   0.41 kB[22m
+[2mdist/[22m[2massets/[22m[35mreport-ex56mTZq.css             [39m[1m[2m  1.35 kB[22m[1m[22m[2m │ gzip:   0.50 kB[22m
+[2mdist/[22m[2massets/[22m[35mdata-browser-page-BjIsBHfi.css  [39m[1m[2m 15.93 kB[22m[1m[22m[2m │ gzip:   3.47 kB[22m
+[2mdist/[22m[2massets/[22m[35mindex-CtKBt4v3.css              [39m[1m[2m178.42 kB[22m[1m[22m[2m │ gzip:  29.03 kB[22m
+[2mdist/[22m[2massets/[22m[36mtauri-vendor-BvoPdSUf.js        [39m[1m[2m  1.79 kB[22m[1m[22m[2m │ gzip:   0.79 kB[22m
+[2mdist/[22m[2massets/[22m[36mdata-browser-demo-Cj9uM1eU.js   [39m[1m[2m  3.51 kB[22m[1m[22m[2m │ gzip:   2.02 kB[22m
+[2mdist/[22m[2massets/[22m[36mdata-browser-CO7sieXs.js        [39m[1m[2m 11.71 kB[22m[1m[22m[2m │ gzip:   5.12 kB[22m
+[2mdist/[22m[2massets/[22m[36mreport-bhe-IXcC.js              [39m[1m[2m 40.00 kB[22m[1m[22m[2m │ gzip:  11.70 kB[22m
+[2mdist/[22m[2massets/[22m[36mdata-browser-page-BEzIQO-F.js   [39m[1m[2m 69.98 kB[22m[1m[22m[2m │ gzip:  22.70 kB[22m
+[2mdist/[22m[2massets/[22m[36mindex-BA-865Y_.js               [39m[1m[33m692.80 kB[39m[22m[2m │ gzip: 217.19 kB[22m
+[33m
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+[32m✓ built in 5.25s[39m

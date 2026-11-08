@@ -1,0 +1,12 @@
+{
+  "all_non_writer_entry_functions_ast_equal": true,
+  "writer_lock_and_io_block_ast_equal": true,
+  "functions": [
+    "_reserve_protocol_stdout",
+    "_read_request_lines",
+    "_request_method",
+    "_run_read_only",
+    "_run_headless_backend",
+    "main"
+  ]
+}

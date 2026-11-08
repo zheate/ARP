@@ -1,0 +1,24 @@
+F
+======================================================================
+FAIL: test_bulk_spectrum_avoids_slow_python_float_formatting (tests.test_json_transport.JsonTransportTests.test_bulk_spectrum_avoids_slow_python_float_formatting)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/zh/Documents/test/ARP/tests/test_json_transport.py", line 34, in test_bulk_spectrum_avoids_slow_python_float_formatting
+    sidecar._write_response(response)
+  File "/Users/zh/Documents/test/ARP/tauri_bridge/__main__.py", line 49, in _write_response
+    json.dumps(response, ensure_ascii=False, separators=(",", ":")) + "\n"
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/zh/miniconda3/envs/sth_eb314/lib/python3.11/unittest/mock.py", line 1124, in __call__
+    return self._mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/zh/miniconda3/envs/sth_eb314/lib/python3.11/unittest/mock.py", line 1128, in _mock_call
+    return self._execute_mock_call(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/zh/miniconda3/envs/sth_eb314/lib/python3.11/unittest/mock.py", line 1183, in _execute_mock_call
+    raise effect
+AssertionError: bulk spectrum used slow float formatter
+
+----------------------------------------------------------------------
+Ran 1 test in 0.002s
+
+FAILED (failures=1)

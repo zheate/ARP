@@ -1,0 +1,51 @@
+{
+  "browserOnly": true,
+  "hardwareConnected": false,
+  "nativeWindowsVerified": false,
+  "checks": [
+    {
+      "name": "1920x1080-dpr1-shutdown-pending-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 736,
+        "y": 170,
+        "width": 448,
+        "height": 740
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-pending-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-pending-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-pending-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-pending-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 737,
+        "y": 848,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-pending-all-actions-disabled",
+      "passed": false
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-pending-no-document-overflow",
+      "passed": true
+    }
+  ],
+  "errors": [],
+  "captures": [
+    "1920x1080-dpr1-shutdown-pending"
+  ]
+}

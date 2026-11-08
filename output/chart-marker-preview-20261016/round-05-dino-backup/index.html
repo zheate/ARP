@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ARP · 曲线末端样式</title>
+<link rel="icon" href="data:,">
+<style>
+:root{color-scheme:light;--page:#f3f5f4;--card:#fff;--ink:#202a27;--muted:#75807b;--line:#e1e7e3;--grid:#edf1ee;--accent:#3b8768;--chip:#edf4ef;--shadow:0 3px 16px #192d2210;--radius:18px;--gap:18px;--pad:22px;--font: -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
+:root[data-theme=dark]{color-scheme:dark;--page:#141b18;--card:#1c2520;--ink:#edf3ef;--muted:#9aa99f;--line:#34423a;--grid:#2a352e;--accent:#84c6a0;--chip:#293c30;--shadow:0 3px 18px #0002}
+*{box-sizing:border-box}body{margin:0;background:var(--page);color:var(--ink);font:14px/1.5 var(--font)}button,select{font:inherit}button,select{border:1px solid var(--line);border-radius:9px;background:var(--card);color:var(--ink);height:36px;padding:0 12px}button{cursor:pointer}button:hover,select:hover{border-color:var(--accent)}button:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:3px}button.primary{background:var(--ink);color:var(--card);border-color:var(--ink);min-width:86px}button.theme{min-width:82px}button[aria-pressed=true]{background:var(--chip);border-color:var(--accent)}
+main{max-width:1440px;margin:auto;padding:32px 36px 24px}.heading{display:flex;align-items:end;justify-content:space-between;gap:18px;margin-bottom:22px}.eyebrow{color:var(--accent);font-size:11px;font-weight:700;letter-spacing:.16em;margin:0 0 8px}h1{font-size:26px;line-height:1.25;letter-spacing:-.04em;margin:0;font-weight:650}.subtitle{color:var(--muted);margin:9px 0 0;font-size:13px}.toolbar{display:flex;align-items:center;gap:9px;flex-wrap:wrap}.toolbar label{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px}.toolbar label select{color:var(--ink)}
+button.primary[aria-pressed=true]{color:var(--ink)}
+.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--gap)}.card{border:1px solid var(--line);border-radius:var(--radius);background:var(--card);box-shadow:var(--shadow);min-width:0;overflow:hidden}.card-top{padding:19px var(--pad) 0;display:flex;align-items:center;justify-content:space-between;gap:12px}.name{display:flex;align-items:center;gap:10px}h2{margin:0;font-size:16px;font-weight:650}.number{font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums}.tag{font-size:10px;color:var(--accent);background:var(--chip);padding:3px 7px;border-radius:5px;white-space:nowrap}.description{margin:5px var(--pad) 0;font-size:12px;color:var(--muted)}.chart{width:100%;height:auto;display:block;overflow:visible;margin:6px 0 0}.gridline{stroke:var(--grid);stroke-width:1}.axis{font:9px var(--font);fill:var(--muted)}.curve{stroke:var(--accent);stroke-width:1.7;fill:none;stroke-linecap:round;stroke-linejoin:round}.area{fill:var(--accent);opacity:.045}.anchor{fill:var(--card);stroke:var(--accent);stroke-width:1.4}.readout{font:600 12px var(--font);fill:var(--ink);font-variant-numeric:tabular-nums}
+.detail{border-top:1px solid var(--line);margin:0 var(--pad);padding:12px 0 14px;display:flex;align-items:center;justify-content:space-between;gap:12px}.detail-label{color:var(--muted);font-size:11px}.detail-value{font-size:12px;margin-top:3px}.large-icon{width:128px;height:96px;display:block;overflow:visible}.note{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:18px 2px 0;color:var(--muted);font-size:11px}.signal{display:flex;align-items:center;gap:6px}.signal i{width:5px;height:5px;border-radius:50%;background:var(--accent)}.baseline .tag{color:var(--muted);background:var(--page)}.baseline{box-shadow:none}.compare-label{color:var(--muted);font-size:10px;letter-spacing:.08em}.size-note{font-variant-numeric:tabular-nums}.marker{pointer-events:none}
+@media(min-width:1600px){main{padding-top:44px}.chart{margin-top:14px}}@media(max-width:1090px){main{padding:24px}.heading{align-items:start;flex-direction:column}.grid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:610px){main{padding:22px 14px}.grid{grid-template-columns:1fr;gap:14px}h1{font-size:24px}.toolbar{gap:8px}.toolbar label{gap:5px}.toolbar button,.toolbar select{height:34px;padding:0 9px}.note{align-items:start;flex-direction:column;gap:5px}.card-top{padding-top:16px}}
+@media(prefers-reduced-motion:reduce){.motion-hint{display:inline}}
+</style>
+</head>
+<body>
+<main x-data="controls" x-init="apply()">
+  <header class="heading">
+    <div><p class="eyebrow">ARP / LIVE CURVE</p><h1>曲线，也可以有一点性格。</h1><p class="subtitle">五只像素小伙伴，同一条轨迹。圆一点，呆一点，也可爱一点。</p></div>
+    <div class="toolbar">
+      <label>轨迹<select aria-label="轨迹" x-model="profile" @change="apply()"><option value="wave">起伏</option><option value="rise">爬升</option><option value="stable">平稳</option></select></label>
+      <label>尺寸<select aria-label="尺寸" x-model.number="size" @change="apply()"><option value="24">24 px</option><option value="32">32 px</option><option value="40">40 px</option></select></label>
+      <button class="theme" @click="dark = !dark; apply()" x-text="dark ? '切换浅色' : '切换深色'">切换深色</button>
+      <button class="primary pause" @click="playing = !playing; apply()" :aria-pressed="!playing" x-text="playing ? '暂停' : '继续'">暂停</button>
+    </div>
+  </header>
+  <section class="grid" id="cards" aria-label="曲线末端样式对比"></section>
+  <footer class="note"><span class="signal"><i></i><span>角色中心对齐数据位置 · 右侧为造型放大</span></span><span class="size-note">末端 <span x-text="size">24</span> px · 右侧放大 · <span x-text="playing ? '播放中' : '已暂停'">播放中</span></span></footer>
+</main>
+<script src="pixel-sprites.js?v=3"></script>
+<script>
+// Standalone design prototype. All samples are generated in memory; no backend or storage.
+const entries = [
+ {id:'bee',name:'小蜜蜂',tag:'轻快',desc:'圆滚滚的小蜜蜂，扑扇着两片像素翅膀。',detail:'像素薄翼 · 蜂蜜黄 · 小腮红',color:'#eab83d'},
+ {id:'fish',name:'小河豚',tag:'鼓鼓的',desc:'鼓鼓的圆肚皮，一双好奇的大眼睛。',detail:'金黄色 · 大眼睛 · 圆肚皮',color:'#edc16b'},
+ {id:'pacman',name:'吃豆人',tag:'复古',desc:'奶黄色的小圆球，一口一口吃着曲线。',detail:'阶梯形嘴巴 · 奶油高光 · 腮红',color:'#f1c53f'},
+ {id:'dino',name:'小恐龙',tag:'呆萌',desc:'大脑袋、小短手，交替迈着小碎步。',detail:'四帧迈步 · 8 fps · 位置对齐',color:'#8ccda7'},
+ {id:'gecko',name:'小壁虎',tag:'软乎乎',desc:'大眼睛向前看，尾巴卷成一个小圈。',detail:'大眼睛 · 吸盘脚趾 · 卷尾巴',color:'#abd26d'},
+ {id:'bird',name:'Flappy Bird',tag:'现有样式',desc:'保留像素小鸟，方便比较尺寸与节奏。',detail:'现有像素帧 · 四帧扇翼',color:'#f9d43b'}
+];
+const cards=document.getElementById('cards');
+const xmlns='http://www.w3.org/2000/svg';
+function markerArt(id,prefix){ return '<g class="pixel-art"></g>'; }
+for(const [i,e] of entries.entries()){
+ const article=document.createElement('article');article.className='card'+(e.id==='bird'?' baseline':'');article.dataset.marker=e.id;
+ article.innerHTML=`<div class="card-top"><div class="name"><span class="number">${e.id==='bird'?'REF':String(i+1).padStart(2,'0')}</span><h2>${e.name}</h2></div><span class="tag">${e.tag}</span></div><p class="description">${e.desc}</p><svg class="chart" viewBox="0 0 400 160" role="img" aria-label="${e.name}曲线效果"><defs><clipPath id="clip-${e.id}"><rect x="36" y="18" width="344" height="106"/></clipPath></defs>${[28,70,112].map((y,j)=>`<path class="gridline" d="M36 ${y}H380"/><text class="axis" x="27" y="${y+3}" text-anchor="end">${[8,6,4][j]}</text>`).join('')}<text class="axis" x="36" y="14">W</text><text class="axis" x="36" y="140">−12 s</text><text class="axis" x="185" y="140">−6 s</text><text class="axis" x="341" y="140" text-anchor="end">现在</text><text class="readout" x="380" y="14" text-anchor="end">6.00 W</text><g clip-path="url(#clip-${e.id})"><path class="area"/><path class="curve"/></g><g class="endpoint"><g class="marker">${markerArt(e.id,e.id+'-chart')}</g></g></svg><div class="detail"><div><div class="detail-label">造型放大</div><div class="detail-value">${e.detail}</div></div><svg class="large-icon" viewBox="-16 -12 32 24" aria-label="${e.name}动作放大"><g class="marker">${markerArt(e.id,e.id+'-large')}</g></svg></div>`;
+ cards.append(article);
+}
+// The reference uses the same pixel drawing routine as the existing FlappyBirdMarker.
+function drawBird(context, x, size, wingOffset) {
+  context.save()
+  context.translate(x, size / 3)
+  context.scale(size / 24, size / 24)
+  context.translate(-12, -8)
+
+  context.fillStyle = "#543b2b"
+  context.fillRect(7, 0, 9, 1)
+  context.fillRect(5, 1, 13, 1)
+  context.fillRect(3, 2, 16, 2)
+  context.fillRect(2, 4, 18, 2)
+  context.fillRect(1, 6, 19, 6)
+  context.fillRect(3, 12, 17, 2)
+  context.fillRect(5, 14, 13, 1)
+  context.fillRect(7, 15, 9, 1)
+
+  context.fillStyle = "#f9d43b"
+  context.fillRect(7, 1, 9, 1)
+  context.fillRect(5, 2, 13, 1)
+  context.fillRect(4, 3, 15, 3)
+  context.fillRect(3, 6, 16, 6)
+  context.fillRect(4, 12, 13, 2)
+  context.fillRect(7, 14, 9, 1)
+  context.fillStyle = "#edaa2e"
+  context.fillRect(3, 10, 13, 2)
+  context.fillRect(4, 12, 13, 2)
+  context.fillRect(7, 14, 9, 1)
+
+  context.fillStyle = "#543b2b"
+  context.fillRect(12, 2, 5, 1)
+  context.fillRect(11, 3, 8, 2)
+  context.fillRect(11, 5, 9, 4)
+  context.fillRect(13, 9, 6, 1)
+  context.fillStyle = "#fffdf2"
+  context.fillRect(12, 3, 5, 1)
+  context.fillRect(12, 4, 6, 4)
+  context.fillRect(14, 8, 5, 1)
+  context.fillStyle = "#29221d"
+  context.fillRect(16, 4, 2, 4)
+
+  context.save()
+  context.translate(0, wingOffset)
+  context.fillStyle = "#543b2b"
+  context.fillRect(2, 6, 5, 1)
+  context.fillRect(1, 7, 7, 4)
+  context.fillRect(2, 11, 5, 1)
+  context.fillStyle = "#fff2b3"
+  context.fillRect(2, 7, 4, 1)
+  context.fillRect(2, 8, 5, 2)
+  context.fillStyle = "#e7bc54"
+  context.fillRect(2, 10, 5, 1)
+  context.restore()
+
+  context.fillStyle = "#543b2b"
+  context.fillRect(17, 8, 6, 1)
+  context.fillRect(16, 9, 8, 4)
+  context.fillRect(18, 13, 5, 1)
+  context.fillStyle = "#ff9b3d"
+  context.fillRect(17, 9, 6, 1)
+  context.fillRect(17, 10, 6, 1)
+  context.fillStyle = "#f16c34"
+  context.fillRect(18, 12, 5, 1)
+  context.restore()
+}
+
+const importedCharacters={fish:[53,165,553,474],gecko:[748,230,674,433],dino:[1522,46,591,625]};
+const originalCharacterImage='assets/image-characters-original.png';
+// Source bytes stay intact. Same-size viewports align the eye highlight at x=183.
+const animatedCharacters={dino:{image:'assets/dino-walk-four-frames-original.png',width:1254,height:1254,fps:8,crops:[[8,496,310,310],[320,496,310,310],[636,496,310,310],[947,496,310,310]]}};
+const spriteFrames={};
+for(const e of entries){
+ if(importedCharacters[e.id]||animatedCharacters[e.id])continue;
+ spriteFrames[e.id]=[];
+ for(let i=0;i<4;i++){
+  const canvas=document.createElement('canvas');canvas.width=24;canvas.height=24;
+  const ctx=canvas.getContext('2d');
+  if(e.id==='bird')drawBird(ctx,12,24,[0,-3,0,3][i]);
+  else drawPixelSprite(ctx,e.id,i);
+  spriteFrames[e.id].push(canvas.toDataURL());
+ }
+}
+for(const card of cards.children){
+ for(const group of card.querySelectorAll('.pixel-art')){
+  const animation=animatedCharacters[card.dataset.marker];
+  if(animation){
+   group.classList.add('animated-character');
+   group._frames=animation.crops.map((crop,i)=>{
+    const viewport=document.createElementNS(xmlns,'svg');
+    viewport.setAttribute('x','-12');viewport.setAttribute('y','-12');viewport.setAttribute('width','24');viewport.setAttribute('height','24');viewport.setAttribute('viewBox',crop.join(' '));viewport.setAttribute('preserveAspectRatio','xMidYMid meet');viewport.style.overflow='hidden';viewport.style.display=i?'none':'';
+    const img=document.createElementNS(xmlns,'image');img.setAttribute('href',animation.image);img.setAttribute('width',String(animation.width));img.setAttribute('height',String(animation.height));viewport.append(img);group.append(viewport);return viewport;
+   });
+   continue;
+  }
+  const crop=importedCharacters[card.dataset.marker];
+  if(crop){
+   const viewport=document.createElementNS(xmlns,'svg');
+   viewport.setAttribute('x','-12');viewport.setAttribute('y','-12');viewport.setAttribute('width','24');viewport.setAttribute('height','24');viewport.setAttribute('viewBox',crop.join(' '));viewport.setAttribute('preserveAspectRatio','xMidYMid meet');viewport.style.overflow='hidden';
+   const img=document.createElementNS(xmlns,'image');img.setAttribute('href',originalCharacterImage);img.setAttribute('width','2172');img.setAttribute('height','724');viewport.append(img);group.append(viewport);continue;
+  }
+  group._frames=spriteFrames[card.dataset.marker].map((href,i)=>{
+   const img=document.createElementNS(xmlns,'image');img.setAttribute('href',href);
+   img.setAttribute('x','-12');img.setAttribute('y',card.dataset.marker==='bird'?'-8':'-12');img.setAttribute('width','24');img.setAttribute('height','24');img.style.imageRendering='pixelated';img.style.display=i?'none':'';group.append(img);return img;
+  });
+ }
+}
+let settings={playing:!matchMedia('(prefers-reduced-motion: reduce)').matches,dark:new URLSearchParams(location.search).get('state')==='dark',size:24,profile:'wave'};
+if(new URLSearchParams(location.search).get('state')==='paused')settings.playing=false;
+let time=0,last=0;const cardNodes=[...cards.children];
+function sample(t,profile){
+ if(profile==='stable')return 6.15+.045*Math.sin(t*2.1)+.025*Math.sin(t*5);
+ if(profile==='rise')return 5.5+1.65*Math.sin(t*.12)+.07*Math.sin(t*1.3);
+ return 6.1+1.05*Math.sin(t*.66)+.25*Math.sin(t*1.85)+.09*Math.cos(t*4.1);
+}
+const resizeObserver=new ResizeObserver(entries=>{for(const entry of entries){entry.target.closest('.card')._chartScale=entry.contentRect.width/400}draw()});
+cardNodes.forEach(card=>resizeObserver.observe(card.querySelector('.chart')));
+function position(t){return 70-(sample(t,settings.profile)-6)*21}
+function setTransform(root,selector,value){const n=root.querySelector(selector);if(n)n.setAttribute('transform',value)}
+function animateArt(root,id,t){
+ if(importedCharacters[id]&&!animatedCharacters[id])return;
+ const rate=animatedCharacters[id]?.fps??{bee:10,fish:5,pacman:9,dino:8,gecko:5,bird:10}[id];
+ root.querySelector('.pixel-art')._frames.forEach((n,i)=>n.style.display=i===Math.floor(t*rate)%4?'':'none');
+}
+function draw(){
+ const now=time+15,y=position(now),slope=(position(now+.02)-position(now-.02))/.04/25;
+ const angle=Math.max(-26,Math.min(26,Math.atan(slope)*180/Math.PI));
+ const points=[];for(let i=0;i<=240;i++){const x=36+i/240*305,t=now-12+i/240*12;points.push(`${x.toFixed(2)} ${position(t).toFixed(2)}`)}
+ const path='M'+points.join('L'),value=sample(now,settings.profile).toFixed(2)+' W';
+ cardNodes.forEach((card,i)=>{
+  const id=entries[i].id;card.querySelector('.curve').setAttribute('d',path);card.querySelector('.area').setAttribute('d',path+'L341 124L36 124Z');card.querySelector('.endpoint').setAttribute('transform',`translate(341 ${y})`);
+  card.querySelector('.endpoint .marker').setAttribute('transform',`scale(${settings.size/24/(card._chartScale||1)})`);
+  card.querySelector('.readout').textContent=value;animateArt(card.querySelector('.chart .marker'),id,time);animateArt(card.querySelector('.large-icon .marker'),id,time);
+ });
+}
+function loop(timestamp){if(last&&settings.playing&&!document.hidden)time+=Math.min((timestamp-last)/1000,.06);last=timestamp;if(settings.playing&&!document.hidden)draw();requestAnimationFrame(loop)}
+document.addEventListener('visibilitychange',()=>last=0);
+document.addEventListener('alpine:init',()=>Alpine.data('controls',()=>({...settings,apply(){settings={playing:this.playing,dark:this.dark,size:Number(this.size),profile:this.profile};document.documentElement.dataset.theme=this.dark?'dark':'light';draw()}})));
+draw();requestAnimationFrame(loop);
+</script>
+<script defer src="vendor/alpine.min.js"></script>
+</body>
+</html>

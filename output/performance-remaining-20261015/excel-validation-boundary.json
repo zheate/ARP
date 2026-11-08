@@ -1,0 +1,12 @@
+[
+  {
+    "file": "valid-unused-cell.xlsx",
+    "readable": true,
+    "points": 1
+  },
+  {
+    "file": "invalid-unused-cell.xlsx",
+    "readable": false,
+    "error": "could not convert string to float: 'invalid-number'"
+  }
+]

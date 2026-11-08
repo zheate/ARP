@@ -1,0 +1,12 @@
+{
+  "focusedTests": 19,
+  "build": "passed",
+  "bothChoicesPersistAfterReload": true,
+  "legacyFireDragonChoicePreserved": true,
+  "originalGreenAssetUnchanged": true,
+  "greenFourFrameRunWithoutFlame": true,
+  "fireDragonFourFrameRunWithContinuousFlame": true,
+  "browser": "localhost:1420 demo settings; 1280x720",
+  "committed": false,
+  "pushed": false
+}

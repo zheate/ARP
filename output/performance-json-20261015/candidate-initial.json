@@ -1,0 +1,163 @@
+[
+  {
+    "scenario": "8192-live_full",
+    "timings": {
+      "stdlib": {
+        "median_ms": 2.981667,
+        "p95_ms": 3.274667
+      },
+      "stdlib_reused": {
+        "median_ms": 2.951041,
+        "p95_ms": 3.031166
+      },
+      "simplejson": {
+        "median_ms": 3.163542,
+        "p95_ms": 3.197292
+      },
+      "orjson": {
+        "median_ms": 0.227584,
+        "p95_ms": 0.360709
+      }
+    },
+    "simple_bytes_equal": true,
+    "orjson_bytes_equal": true
+  },
+  {
+    "scenario": "8192-live_delta",
+    "timings": {
+      "stdlib": {
+        "median_ms": 0.612292,
+        "p95_ms": 0.661208
+      },
+      "stdlib_reused": {
+        "median_ms": 0.605583,
+        "p95_ms": 0.65125
+      },
+      "simplejson": {
+        "median_ms": 0.796,
+        "p95_ms": 0.899875
+      },
+      "orjson": {
+        "median_ms": 0.087958,
+        "p95_ms": 0.097875
+      }
+    },
+    "simple_bytes_equal": true,
+    "orjson_bytes_equal": true
+  },
+  {
+    "scenario": "8192-live_unchanged",
+    "timings": {
+      "stdlib": {
+        "median_ms": 0.02875,
+        "p95_ms": 0.091333
+      },
+      "stdlib_reused": {
+        "median_ms": 0.024959,
+        "p95_ms": 0.030583
+      },
+      "simplejson": {
+        "median_ms": 0.0245,
+        "p95_ms": 0.030083
+      },
+      "orjson": {
+        "median_ms": 0.002667,
+        "p95_ms": 0.002833
+      }
+    },
+    "simple_bytes_equal": true,
+    "orjson_bytes_equal": true
+  },
+  {
+    "scenario": "8192-pd_full",
+    "timings": {
+      "stdlib": {
+        "median_ms": 5.85125,
+        "p95_ms": 9.398166
+      },
+      "stdlib_reused": {
+        "median_ms": 6.502667,
+        "p95_ms": 9.264167
+      },
+      "simplejson": {
+        "median_ms": 4.956292,
+        "p95_ms": 6.117125
+      },
+      "orjson": {
+        "median_ms": 0.768625,
+        "p95_ms": 0.811791
+      }
+    },
+    "simple_bytes_equal": true,
+    "orjson_bytes_equal": true
+  },
+  {
+    "scenario": "8192-pd_delta",
+    "timings": {
+      "stdlib": {
+        "median_ms": 0.032208,
+        "p95_ms": 0.071333
+      },
+      "stdlib_reused": {
+        "median_ms": 0.029833,
+        "p95_ms": 0.037166
+      },
+      "simplejson": {
+        "median_ms": 0.027833,
+        "p95_ms": 0.028833
+      },
+      "orjson": {
+        "median_ms": 0.003083,
+        "p95_ms": 0.003125
+      }
+    },
+    "simple_bytes_equal": true,
+    "orjson_bytes_equal": true
+  },
+  {
+    "scenario": "8192-dense-live-delta",
+    "timings": {
+      "stdlib": {
+        "median_ms": 1.972958,
+        "p95_ms": 2.15525
+      },
+      "stdlib_reused": {
+        "median_ms": 2.055125,
+        "p95_ms": 3.533834
+      },
+      "simplejson": {
+        "median_ms": 2.032834,
+        "p95_ms": 2.230166
+      },
+      "orjson": {
+        "median_ms": 0.105791,
+        "p95_ms": 0.147208
+      }
+    },
+    "simple_bytes_equal": true,
+    "orjson_bytes_equal": true
+  },
+  {
+    "scenario": "24x8192-full-spectra",
+    "timings": {
+      "stdlib": {
+        "median_ms": 92.958125,
+        "p95_ms": 106.690917
+      },
+      "stdlib_reused": {
+        "median_ms": 92.2555,
+        "p95_ms": 95.790792
+      },
+      "simplejson": {
+        "median_ms": 95.277375,
+        "p95_ms": 98.515375
+      },
+      "orjson": {
+        "median_ms": 5.472833,
+        "p95_ms": 6.990542
+      }
+    },
+    "simple_bytes_equal": true,
+    "orjson_bytes_equal": true
+  }
+]

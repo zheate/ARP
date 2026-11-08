@@ -1,0 +1,32 @@
+
+> build
+> npm --prefix tauri-ui run build
+
+
+> tauri-ui@0.1.2 build
+> tsc && vite build
+
+vite v7.3.6 building client environment for production...
+transforming...
+✓ 2390 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                               1.55 kB │ gzip:   0.70 kB
+dist/asset-manifest.json                      1.99 kB │ gzip:   0.48 kB
+dist/assets/report-ex56mTZq.css               1.35 kB │ gzip:   0.50 kB
+dist/assets/data-browser-page-BjIsBHfi.css   15.93 kB │ gzip:   3.47 kB
+dist/assets/index-CtKBt4v3.css              178.42 kB │ gzip:  29.03 kB
+dist/assets/tauri-vendor-BvoPdSUf.js          1.79 kB │ gzip:   0.79 kB
+dist/assets/data-browser-demo-DJW545Oz.js     3.51 kB │ gzip:   2.02 kB
+dist/assets/demo-run-C3Iqv7fR.js              3.61 kB │ gzip:   1.66 kB
+dist/assets/demo-snapshot-rWwGwtJ2.js         7.42 kB │ gzip:   2.95 kB
+dist/assets/data-browser-Cnf84S1c.js         11.72 kB │ gzip:   5.12 kB
+dist/assets/report-CM8smPjv.js               40.00 kB │ gzip:  11.70 kB
+dist/assets/data-browser-page-Ci3we3Dk.js    69.98 kB │ gzip:  22.70 kB
+dist/assets/index-BDBn2V_0.js               682.18 kB │ gzip: 213.88 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 2.81s

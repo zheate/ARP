@@ -1,0 +1,14 @@
+{
+  "branch": "audit/arp-ui-final-20260914",
+  "commit": "0b3829b6e2e9bace7fc3833978ce465b6629cff1",
+  "remote_commit": "0b3829b6e2e9bace7fc3833978ce465b6629cff1",
+  "ahead_behind": "0\t0",
+  "committed_files": 26,
+  "tracked_status": "",
+  "source_hashes_match": true,
+  "unrelated_untracked_preserved": true,
+  "python_tests": "255 passed",
+  "frontend_tests": "32 passed",
+  "build": "tsc and Vite passed; bundle-size warning",
+  "windows_hardware_verified": false
+}

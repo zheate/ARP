@@ -1,0 +1,84 @@
+{
+  "_data-browser-DjVEC4y5.js": {
+    "file": "assets/data-browser-DjVEC4y5.js",
+    "name": "data-browser"
+  },
+  "_tauri-vendor-BvoPdSUf.js": {
+    "file": "assets/tauri-vendor-BvoPdSUf.js",
+    "name": "tauri-vendor"
+  },
+  "index.html": {
+    "file": "assets/index-BCF79OYS.js",
+    "name": "index",
+    "src": "index.html",
+    "isEntry": true,
+    "imports": [
+      "_tauri-vendor-BvoPdSUf.js"
+    ],
+    "dynamicImports": [
+      "src/lib/data-browser-demo.ts",
+      "src/lib/demo-snapshot.ts",
+      "src/lib/demo-run.ts",
+      "src/components/data-browser-page.tsx",
+      "src/features/shipping/report.tsx"
+    ],
+    "css": [
+      "assets/index-Dzytkaa6.css"
+    ],
+    "assets": [
+      "assets/DSEG7Classic-Bold-jUCkPCxO.woff2"
+    ]
+  },
+  "src/assets/fonts/dseg7/DSEG7Classic-Bold.woff2": {
+    "file": "assets/DSEG7Classic-Bold-jUCkPCxO.woff2",
+    "src": "src/assets/fonts/dseg7/DSEG7Classic-Bold.woff2"
+  },
+  "src/components/data-browser-page.tsx": {
+    "file": "assets/data-browser-page-BTwVdD5X.js",
+    "name": "data-browser-page",
+    "src": "src/components/data-browser-page.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html",
+      "_tauri-vendor-BvoPdSUf.js",
+      "_data-browser-DjVEC4y5.js"
+    ],
+    "css": [
+      "assets/data-browser-page-BjIsBHfi.css"
+    ]
+  },
+  "src/features/shipping/report.tsx": {
+    "file": "assets/report-DDWmGA2e.js",
+    "name": "report",
+    "src": "src/features/shipping/report.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "index.html",
+      "_tauri-vendor-BvoPdSUf.js"
+    ],
+    "css": [
+      "assets/report-ex56mTZq.css"
+    ]
+  },
+  "src/lib/data-browser-demo.ts": {
+    "file": "assets/data-browser-demo-CHg35VRR.js",
+    "name": "data-browser-demo",
+    "src": "src/lib/data-browser-demo.ts",
+    "isDynamicEntry": true,
+    "imports": [
+      "_data-browser-DjVEC4y5.js"
+    ]
+  },
+  "src/lib/demo-run.ts": {
+    "file": "assets/demo-run-C3Iqv7fR.js",
+    "name": "demo-run",
+    "src": "src/lib/demo-run.ts",
+    "isDynamicEntry": true
+  },
+  "src/lib/demo-snapshot.ts": {
+    "file": "assets/demo-snapshot-rWwGwtJ2.js",
+    "name": "demo-snapshot",
+    "src": "src/lib/demo-snapshot.ts",
+    "isDynamicEntry": true
+  }
+}

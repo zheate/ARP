@@ -1,0 +1,412 @@
+{
+  "scope": [
+    "combined_test/data_browser.py",
+    "combined_test/xlsx_reader.py",
+    "tests/test_xlsx_reader.py",
+    "tools/benchmark_xlsx_browser.py",
+    "docs/performance-optimization.md"
+  ],
+  "test_result": {
+    "command": "python -m unittest tests.test_xlsx_reader tests.test_data_browser tests.test_shipping_report -v",
+    "passed": 57,
+    "seeded_cell_combinations": 2000
+  },
+  "index": {
+    "original": {
+      "median_ms": 22006.703291499434,
+      "samples_ms": [
+        22264.7558749959,
+        21748.65070800297
+      ]
+    },
+    "optimized": {
+      "median_ms": 19008.614499998657,
+      "samples_ms": [
+        19231.580708001275,
+        18785.64829199604
+      ]
+    },
+    "reduction_percent": 13.62352530403249,
+    "identical_output_sha256_with_float_bits": "58f8fd3cceefbec046b98a6e41987ddacdc41a218f2f66c57e298746f3491337",
+    "fileCount": 36,
+    "errorCount": 0,
+    "unchanged_refresh_median_ms": 1.015416499285493
+  },
+  "reads": [
+    {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_02.xlsx",
+      "includeSpectra": false,
+      "original": {
+        "median_ms": 45.858125002268935,
+        "samples_ms": [
+          46.29141699842876,
+          45.25058300350793,
+          45.13375000533415,
+          45.42483300610911,
+          45.137250002881046,
+          85.24729200144066,
+          48.20912500144914,
+          47.37066600500839
+        ]
+      },
+      "optimized": {
+        "median_ms": 42.10006249923026,
+        "samples_ms": [
+          41.889042004186194,
+          42.280833004042506,
+          41.66633299610112,
+          41.742917004739866,
+          42.28804100421257,
+          41.91929199441802,
+          45.94566599553218,
+          43.123499999637716
+        ]
+      },
+      "reduction_percent": 8.19497635992037,
+      "identical_output_sha256_with_float_bits": "31fcc4a9376e4c91481a5f620ae97cec7dfd51ced270fdd25e30c7b3059bb559",
+      "points": 4,
+      "spectra": 0,
+      "samples": 0
+    },
+    {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_02.xlsx",
+      "includeSpectra": true,
+      "original": {
+        "median_ms": 51.184958501835354,
+        "samples_ms": [
+          50.53962499368936,
+          58.91775000054622,
+          51.52104100125143,
+          50.98095800349256,
+          51.29287500312785,
+          51.448666003125254,
+          51.07704200054286,
+          50.790207998943515
+        ]
+      },
+      "optimized": {
+        "median_ms": 47.32502100523561,
+        "samples_ms": [
+          47.23533299693372,
+          49.743792005756404,
+          47.89520800113678,
+          47.467958997003734,
+          47.29237500578165,
+          47.357667004689574,
+          47.21650000283262,
+          47.18370800401317
+        ]
+      },
+      "reduction_percent": 7.5411558582417,
+      "identical_output_sha256_with_float_bits": "e88995f1c07d8765ef3006f0ae17ac347ae6ce4bcb427bb08a8e83fe0614f79b",
+      "points": 4,
+      "spectra": 4,
+      "samples": 14592
+    },
+    {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_37.xlsx",
+      "includeSpectra": false,
+      "original": {
+        "median_ms": 17.92858349654125,
+        "samples_ms": [
+          17.89512499817647,
+          17.904749998706393,
+          18.05854099802673,
+          18.100749999575783,
+          17.86533300037263,
+          18.3772080054041,
+          17.68212499882793,
+          17.952416994376108
+        ]
+      },
+      "optimized": {
+        "median_ms": 17.11006249752245,
+        "samples_ms": [
+          17.05450000008568,
+          17.24129100330174,
+          17.164707998745143,
+          17.055416996299755,
+          16.90670900279656,
+          16.958082997007295,
+          17.19658400543267,
+          17.381459001626354
+        ]
+      },
+      "reduction_percent": 4.565452698350148,
+      "identical_output_sha256_with_float_bits": "61eceb6ba2c72a209c6dc2f2cf2d04106a062dc6d29178ce3ce46650f156a311",
+      "points": 1,
+      "spectra": 0,
+      "samples": 0
+    },
+    {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_37.xlsx",
+      "includeSpectra": true,
+      "original": {
+        "median_ms": 19.802583497948945,
+        "samples_ms": [
+          19.121333003567997,
+          21.87495800171746,
+          20.010542000818532,
+          19.262957997852936,
+          19.066790999204386,
+          20.60183299909113,
+          20.191000003251247,
+          19.594624995079357
+        ]
+      },
+      "optimized": {
+        "median_ms": 18.802875001711072,
+        "samples_ms": [
+          18.50320800440386,
+          18.300499999895692,
+          19.157208000251558,
+          18.968249998579267,
+          18.449790994054638,
+          18.829041000572033,
+          18.855665999581106,
+          18.77670900285011
+        ]
+      },
+      "reduction_percent": 5.048374098972575,
+      "identical_output_sha256_with_float_bits": "57f0d0b0ece20f1672aab3821ee74dcf7224af68abe3662b40490b5d02dc110d",
+      "points": 1,
+      "spectra": 1,
+      "samples": 3648
+    },
+    {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_45.xlsx",
+      "includeSpectra": false,
+      "original": {
+        "median_ms": 47.66149999704794,
+        "samples_ms": [
+          47.588791996531654,
+          47.048000000359025,
+          48.487790998478886,
+          48.774082999443635,
+          48.449125002662186,
+          47.07349999807775,
+          46.84641700441716,
+          47.734207997564226
+        ]
+      },
+      "optimized": {
+        "median_ms": 44.178541997098364,
+        "samples_ms": [
+          44.32620800071163,
+          44.51254100422375,
+          44.42520800512284,
+          44.2755420008325,
+          43.72183299710741,
+          43.605625003692694,
+          43.7497080056346,
+          44.081541993364226
+        ]
+      },
+      "reduction_percent": 7.307696988481904,
+      "identical_output_sha256_with_float_bits": "caab02a07e8d7254ccfcbd684f8c460814631f2eeaee6511f2a87f57c11506b5",
+      "points": 4,
+      "spectra": 0,
+      "samples": 0
+    },
+    {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_45.xlsx",
+      "includeSpectra": true,
+      "original": {
+        "median_ms": 52.84864599889261,
+        "samples_ms": [
+          52.431416006584186,
+          52.39162500220118,
+          53.16391700034728,
+          53.51150000205962,
+          52.02116700093029,
+          53.37408300692914,
+          52.53337499743793,
+          53.307458001654595
+        ]
+      },
+      "optimized": {
+        "median_ms": 49.11052050010767,
+        "samples_ms": [
+          48.76008300198009,
+          48.4862079974846,
+          49.0757500010659,
+          49.496665997139644,
+          48.7842919974355,
+          49.546124995686114,
+          49.14529099914944,
+          49.75600000034319
+        ]
+      },
+      "reduction_percent": 7.073266359299479,
+      "identical_output_sha256_with_float_bits": "a1810a0bd03b2e34a1c7a5a58be9f76e56d0942f7f7e5453fbeca66774eb7216",
+      "points": 4,
+      "spectra": 4,
+      "samples": 14592
+    },
+    {
+      "path": "outputs/xlsx-reader-20261015-baseline/native-index/native-00.xlsx",
+      "includeSpectra": false,
+      "original": {
+        "median_ms": 548.123229003977,
+        "samples_ms": [
+          553.0264589979197,
+          545.8408749982482,
+          548.8984160037944,
+          547.3480420041597,
+          549.6283329994185,
+          546.4860830034013,
+          547.0567090014811,
+          549.078541000199
+        ]
+      },
+      "optimized": {
+        "median_ms": 496.4425625039439,
+        "samples_ms": [
+          505.89120799850207,
+          509.7950419949484,
+          496.81662500370294,
+          611.479250001139,
+          492.6450830025715,
+          494.3287920032162,
+          496.0685000041849,
+          495.84729200432776
+        ]
+      },
+      "reduction_percent": 9.428658331803364,
+      "identical_output_sha256_with_float_bits": "c66353d83dc0fd2d29a5189efa12e5d63994af86a354b5baf9b430e439298807",
+      "points": 24,
+      "spectra": 0,
+      "samples": 0
+    },
+    {
+      "path": "outputs/xlsx-reader-20261015-baseline/native-index/native-00.xlsx",
+      "includeSpectra": true,
+      "original": {
+        "median_ms": 631.6565415036166,
+        "samples_ms": [
+          625.0049579975894,
+          630.9809170052176,
+          633.2993749965681,
+          629.5371669984888,
+          628.3028749967343,
+          641.0662919952301,
+          632.3321660020156,
+          673.9702920021955
+        ]
+      },
+      "optimized": {
+        "median_ms": 580.0090835036826,
+        "samples_ms": [
+          580.7690829969943,
+          571.3332919985987,
+          580.4574170033447,
+          573.3824169947184,
+          579.5607500040205,
+          575.6844999996247,
+          593.0004160036333,
+          584.1850840006373
+        ]
+      },
+      "reduction_percent": 8.176509638765172,
+      "identical_output_sha256_with_float_bits": "49e0c2a5ea89edc4760305041a91caad0d7f3869f9d811bb3731f4bfb16b28ba",
+      "points": 24,
+      "spectra": 24,
+      "samples": 196608
+    },
+    {
+      "path": "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-00.xlsx",
+      "includeSpectra": false,
+      "original": {
+        "median_ms": 579.9001455052348,
+        "samples_ms": [
+          577.6708749981481,
+          575.7653749969904,
+          585.3784999999334,
+          584.1307079972466,
+          577.363416996377,
+          579.1874160058796,
+          588.7239169969689,
+          580.61287500459
+        ]
+      },
+      "optimized": {
+        "median_ms": 544.0888545017515,
+        "samples_ms": [
+          543.6308749995078,
+          558.2970420000493,
+          547.2595829996862,
+          547.5168339980883,
+          543.4102919971338,
+          543.8838749978459,
+          542.1959579980467,
+          544.2938340056571
+        ]
+      },
+      "reduction_percent": 6.175423696830251,
+      "identical_output_sha256_with_float_bits": "cd02377cbb1c55fbfce3325da67b27f19ab94971c30d4a38f00560f1d596bc61",
+      "points": 24,
+      "spectra": 0,
+      "samples": 0
+    },
+    {
+      "path": "output/playwright/spectrum-browse-20261015/fixtures/spectrum-24-8192-00.xlsx",
+      "includeSpectra": true,
+      "original": {
+        "median_ms": 660.9057710011257,
+        "samples_ms": [
+          640.2043339985539,
+          786.0154160007369,
+          713.8387910017627,
+          656.1905839989777,
+          658.8534170005005,
+          652.6924580030027,
+          662.9581250017509,
+          695.372917005443
+        ]
+      },
+      "optimized": {
+        "median_ms": 618.4783745011373,
+        "samples_ms": [
+          625.5537090037251,
+          619.4031659979373,
+          612.5835829952848,
+          615.366209000058,
+          617.5535830043373,
+          613.9889580008457,
+          633.8563749959576,
+          644.6878750066389
+        ]
+      },
+      "reduction_percent": 6.419583299404441,
+      "identical_output_sha256_with_float_bits": "a02f5cf42beb83e2bf551f946020cef82d6a96ce3016a544768282bf9b08f626",
+      "points": 24,
+      "spectra": 24,
+      "samples": 196608
+    }
+  ],
+  "source_files_unchanged": true,
+  "coordinate_and_numeric_counts": {
+    "original": {
+      "general_coordinate_conversions": 393506,
+      "numeric_conversions": 393432,
+      "output_float_bits_sha256": "12287137de2f9c9f7a9c07a2a6ef350a2239782fafa857d33358a105bfc41a67"
+    },
+    "optimized": {
+      "general_coordinate_conversions": 74,
+      "numeric_conversions": 393432,
+      "output_float_bits_sha256": "12287137de2f9c9f7a9c07a2a6ef350a2239782fafa857d33358a105bfc41a67",
+      "column_cache_entries": 57,
+      "style_cache_entries": 6,
+      "additional_cache_shallow_and_items_bytes": 6859
+    }
+  },
+  "unchanged_safety_and_persistence_files": 17,
+  "remaining_limit": "Complete XML/cell validation remains O(cells); first index still about 19 seconds for 36 large files.",
+  "not_executed": [
+    "full suite",
+    "packaging",
+    "Windows WebView2",
+    "real hardware"
+  ],
+  "git": "Local edits only; no commit or push in this task."
+}

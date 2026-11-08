@@ -1,0 +1,35 @@
+✔ run progress distinguishes the current point from durably recorded points and uses backend elapsed time (1.053542ms)
+✔ run progress does not invent a point, a clock, or shutdown confirmation (0.138541ms)
+✔ dual-window presentation preserves diagnostic reasons, hold, freshness and pause states (0.269125ms)
+✔ confirmation starts only after stability and completes after five seconds (0.084333ms)
+✔ zero confirmation reads directly while preserving freshness, wavelength and explicit dwell states (0.095666ms)
+✔ new points, lost stability and stale readings clear the confirmation clock (0.058125ms)
+✔ final-point display uses the backend ten-second target (0.049542ms)
+✔ spectral testing also waits for wavelength stability before confirmation (0.038291ms)
+✔ paused and finished runs retain their recorded confirmation interval (0.061ms)
+✔ absolute floor uses backend acceptance and reports drift separately (0.127417ms)
+✔ noise above the absolute floor still reports fluctuation (0.053291ms)
+✔ older timing fields cannot be mistaken for the post-stability hold (0.056958ms)
+✔ entering SN unlocks start even while the saved snapshot still has an empty SN (0.384959ms)
+✔ SN and output directory are checked from the current form without a separate save (0.054084ms)
+✔ clearing either required field disables start despite a previously ready snapshot (0.04275ms)
+✔ editing SN preserves device, current, settings and unknown backend blockers (0.095709ms)
+✔ editing SN cannot enable start while a test is active or readiness is unavailable (0.045333ms)
+✔ legacy settings errors remain visible when structured readiness is unavailable (0.0385ms)
+✔ phase track distinguishes recording, ramp down, pause and confirmed completion (0.053834ms)
+✔ only an in-flight phase animates, so the track cannot imply progress while stopped (0.039834ms)
+✔ a reported hold drives the light as real progress instead of a looping sweep (0.176208ms)
+✔ completion uses recorded count instead of the attempted point index (0.106583ms)
+✔ power stability requires a live reading and a backend duration instead of a local timer (0.099584ms)
+✔ summary keeps journal persistence separate from export failures (0.057125ms)
+✔ summary duration handles unavailable, minute and hour ranges (0.032167ms)
+✔ standard tolerance leaves the saved custom values intact (0.897375ms)
+✔ switching tolerance preserves response confirmation but unsaved device edits do not (0.10375ms)
+ℹ tests 27
+ℹ suites 0
+ℹ pass 27
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 86.883625

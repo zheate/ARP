@@ -1,0 +1,23 @@
+{
+  "mountRectReads": 0,
+  "hoverBaseDraws": 0,
+  "changedFrameDraws": 2,
+  "hiddenFrameDraws": 2,
+  "tooltipAndCrosshair": true,
+  "pointerLeaveClears": true,
+  "sizes": [
+    {
+      "ratio": 1,
+      "correct": true
+    },
+    {
+      "ratio": 1.5,
+      "correct": true
+    },
+    {
+      "ratio": 2,
+      "correct": true
+    }
+  ],
+  "themeRepaint": true
+}

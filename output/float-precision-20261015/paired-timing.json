@@ -1,0 +1,254 @@
+[
+  {
+    "round": 1,
+    "version": "before",
+    "binary_sha256": "26ab2749eda0dd684358272b9d59124c5240ff94cb45120fd4eaf95ccbd783e5",
+    "cases": [
+      {
+        "bytes": 529485,
+        "iterations": 60,
+        "median_ms": 0.692792,
+        "name": "real-0-full",
+        "p95_ms": 0.9374579999999999
+      },
+      {
+        "bytes": 136465,
+        "iterations": 60,
+        "median_ms": 0.168959,
+        "name": "real-1-full",
+        "p95_ms": 0.182792
+      },
+      {
+        "bytes": 531183,
+        "iterations": 60,
+        "median_ms": 0.61825,
+        "name": "real-2-full",
+        "p95_ms": 0.635542
+      },
+      {
+        "bytes": 298167,
+        "iterations": 60,
+        "median_ms": 0.33629200000000004,
+        "name": "8192-dense-live-delta",
+        "p95_ms": 0.35762499999999997
+      },
+      {
+        "bytes": 7155942,
+        "iterations": 60,
+        "median_ms": 8.110125,
+        "name": "24x8192-full-spectra",
+        "p95_ms": 8.300040999999998
+      }
+    ]
+  },
+  {
+    "round": 1,
+    "version": "after",
+    "binary_sha256": "0b44534450c335cd217bce3ad753993b57a22565d923aa54821b8078c9275315",
+    "cases": [
+      {
+        "bytes": 529485,
+        "iterations": 60,
+        "median_ms": 0.68675,
+        "name": "real-0-full",
+        "p95_ms": 0.712209
+      },
+      {
+        "bytes": 136465,
+        "iterations": 60,
+        "median_ms": 0.17858300000000002,
+        "name": "real-1-full",
+        "p95_ms": 0.192083
+      },
+      {
+        "bytes": 531183,
+        "iterations": 60,
+        "median_ms": 0.678833,
+        "name": "real-2-full",
+        "p95_ms": 0.704542
+      },
+      {
+        "bytes": 298167,
+        "iterations": 60,
+        "median_ms": 0.44783399999999995,
+        "name": "8192-dense-live-delta",
+        "p95_ms": 0.46900000000000003
+      },
+      {
+        "bytes": 7155942,
+        "iterations": 60,
+        "median_ms": 10.891917,
+        "name": "24x8192-full-spectra",
+        "p95_ms": 11.2
+      }
+    ]
+  },
+  {
+    "round": 2,
+    "version": "after",
+    "binary_sha256": "0b44534450c335cd217bce3ad753993b57a22565d923aa54821b8078c9275315",
+    "cases": [
+      {
+        "bytes": 529485,
+        "iterations": 60,
+        "median_ms": 0.67975,
+        "name": "real-0-full",
+        "p95_ms": 0.7062919999999999
+      },
+      {
+        "bytes": 136465,
+        "iterations": 60,
+        "median_ms": 0.176042,
+        "name": "real-1-full",
+        "p95_ms": 0.19325
+      },
+      {
+        "bytes": 531183,
+        "iterations": 60,
+        "median_ms": 0.6713749999999999,
+        "name": "real-2-full",
+        "p95_ms": 0.698667
+      },
+      {
+        "bytes": 298167,
+        "iterations": 60,
+        "median_ms": 0.453125,
+        "name": "8192-dense-live-delta",
+        "p95_ms": 0.481708
+      },
+      {
+        "bytes": 7155942,
+        "iterations": 60,
+        "median_ms": 10.784041,
+        "name": "24x8192-full-spectra",
+        "p95_ms": 11.021541
+      }
+    ]
+  },
+  {
+    "round": 2,
+    "version": "before",
+    "binary_sha256": "26ab2749eda0dd684358272b9d59124c5240ff94cb45120fd4eaf95ccbd783e5",
+    "cases": [
+      {
+        "bytes": 529485,
+        "iterations": 60,
+        "median_ms": 0.606083,
+        "name": "real-0-full",
+        "p95_ms": 0.6375419999999999
+      },
+      {
+        "bytes": 136465,
+        "iterations": 60,
+        "median_ms": 0.1595,
+        "name": "real-1-full",
+        "p95_ms": 0.17725
+      },
+      {
+        "bytes": 531183,
+        "iterations": 60,
+        "median_ms": 0.612209,
+        "name": "real-2-full",
+        "p95_ms": 0.6480830000000001
+      },
+      {
+        "bytes": 298167,
+        "iterations": 60,
+        "median_ms": 0.32537499999999997,
+        "name": "8192-dense-live-delta",
+        "p95_ms": 0.35320799999999997
+      },
+      {
+        "bytes": 7155942,
+        "iterations": 60,
+        "median_ms": 7.967874999999999,
+        "name": "24x8192-full-spectra",
+        "p95_ms": 8.168291
+      }
+    ]
+  },
+  {
+    "round": 3,
+    "version": "before",
+    "binary_sha256": "26ab2749eda0dd684358272b9d59124c5240ff94cb45120fd4eaf95ccbd783e5",
+    "cases": [
+      {
+        "bytes": 529485,
+        "iterations": 60,
+        "median_ms": 0.622916,
+        "name": "real-0-full",
+        "p95_ms": 0.6685000000000001
+      },
+      {
+        "bytes": 136465,
+        "iterations": 60,
+        "median_ms": 0.167583,
+        "name": "real-1-full",
+        "p95_ms": 0.187416
+      },
+      {
+        "bytes": 531183,
+        "iterations": 60,
+        "median_ms": 0.6194580000000001,
+        "name": "real-2-full",
+        "p95_ms": 0.642625
+      },
+      {
+        "bytes": 298167,
+        "iterations": 60,
+        "median_ms": 0.332125,
+        "name": "8192-dense-live-delta",
+        "p95_ms": 0.3565
+      },
+      {
+        "bytes": 7155942,
+        "iterations": 60,
+        "median_ms": 8.076082999999999,
+        "name": "24x8192-full-spectra",
+        "p95_ms": 8.293541
+      }
+    ]
+  },
+  {
+    "round": 3,
+    "version": "after",
+    "binary_sha256": "0b44534450c335cd217bce3ad753993b57a22565d923aa54821b8078c9275315",
+    "cases": [
+      {
+        "bytes": 529485,
+        "iterations": 60,
+        "median_ms": 0.688042,
+        "name": "real-0-full",
+        "p95_ms": 0.7241660000000001
+      },
+      {
+        "bytes": 136465,
+        "iterations": 60,
+        "median_ms": 0.18075,
+        "name": "real-1-full",
+        "p95_ms": 0.196584
+      },
+      {
+        "bytes": 531183,
+        "iterations": 60,
+        "median_ms": 0.6817080000000001,
+        "name": "real-2-full",
+        "p95_ms": 0.716167
+      },
+      {
+        "bytes": 298167,
+        "iterations": 60,
+        "median_ms": 0.449334,
+        "name": "8192-dense-live-delta",
+        "p95_ms": 0.465209
+      },
+      {
+        "bytes": 7155942,
+        "iterations": 60,
+        "median_ms": 10.86825,
+        "name": "24x8192-full-spectra",
+        "p95_ms": 11.051166
+      }
+    ]
+  }
+]

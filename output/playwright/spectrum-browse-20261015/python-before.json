@@ -1,0 +1,567 @@
+{
+  "environment": {
+    "python": "3.11.15",
+    "platform": "macOS-27.2-arm64-arm-64bit"
+  },
+  "workload": {
+    "source": "synthetic XLSX copies; no user file modification; no hardware",
+    "files": 36,
+    "currents": 24,
+    "pixels": 8192,
+    "xlsx_bytes_each": 1817835
+  },
+  "start_rss_mib": 52.578125,
+  "peak_rss_mib": 572.109375,
+  "after_clear_rss_mib": 260.578125,
+  "rows": [
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-00.xlsx",
+      "total_ms": 15961.56612499908,
+      "parse_ms": 14840.518541001074,
+      "read_count": 1,
+      "rss_mib": 59.015625,
+      "cache_entries": 1,
+      "cached_numbers": 393216
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-01.xlsx",
+      "total_ms": 15066.509583997686,
+      "parse_ms": 14663.505917000293,
+      "read_count": 1,
+      "rss_mib": 76.859375,
+      "cache_entries": 2,
+      "cached_numbers": 786432
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-02.xlsx",
+      "total_ms": 8020.816666001338,
+      "parse_ms": 7694.692540997494,
+      "read_count": 1,
+      "rss_mib": 91.921875,
+      "cache_entries": 3,
+      "cached_numbers": 1179648
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-03.xlsx",
+      "total_ms": 6657.20520800096,
+      "parse_ms": 6391.759624999395,
+      "read_count": 1,
+      "rss_mib": 109.890625,
+      "cache_entries": 4,
+      "cached_numbers": 1572864
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-04.xlsx",
+      "total_ms": 5927.970249998907,
+      "parse_ms": 5568.655458999274,
+      "read_count": 1,
+      "rss_mib": 127.125,
+      "cache_entries": 5,
+      "cached_numbers": 1966080
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-05.xlsx",
+      "total_ms": 6354.323374998785,
+      "parse_ms": 6037.415791000967,
+      "read_count": 1,
+      "rss_mib": 143.59375,
+      "cache_entries": 6,
+      "cached_numbers": 2359296
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-06.xlsx",
+      "total_ms": 6684.946958001092,
+      "parse_ms": 6418.080041999929,
+      "read_count": 1,
+      "rss_mib": 158.046875,
+      "cache_entries": 7,
+      "cached_numbers": 2752512
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-07.xlsx",
+      "total_ms": 5653.440666999813,
+      "parse_ms": 5317.073750000418,
+      "read_count": 1,
+      "rss_mib": 178.234375,
+      "cache_entries": 8,
+      "cached_numbers": 3145728
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-08.xlsx",
+      "total_ms": 6635.094500001287,
+      "parse_ms": 6301.577040998382,
+      "read_count": 1,
+      "rss_mib": 196.09375,
+      "cache_entries": 9,
+      "cached_numbers": 3538944
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-09.xlsx",
+      "total_ms": 4184.415499999886,
+      "parse_ms": 4061.144625000452,
+      "read_count": 1,
+      "rss_mib": 211.578125,
+      "cache_entries": 10,
+      "cached_numbers": 3932160
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-10.xlsx",
+      "total_ms": 2446.3302080002904,
+      "parse_ms": 2332.1959579989198,
+      "read_count": 1,
+      "rss_mib": 226.734375,
+      "cache_entries": 11,
+      "cached_numbers": 4325376
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-11.xlsx",
+      "total_ms": 2547.4190000022645,
+      "parse_ms": 2424.9103750007635,
+      "read_count": 1,
+      "rss_mib": 243.984375,
+      "cache_entries": 12,
+      "cached_numbers": 4718592
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-12.xlsx",
+      "total_ms": 2680.97966699861,
+      "parse_ms": 2524.0434170009394,
+      "read_count": 1,
+      "rss_mib": 262.0625,
+      "cache_entries": 13,
+      "cached_numbers": 5111808
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-13.xlsx",
+      "total_ms": 3362.3371659996337,
+      "parse_ms": 3110.477250000258,
+      "read_count": 1,
+      "rss_mib": 275.421875,
+      "cache_entries": 14,
+      "cached_numbers": 5505024
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-14.xlsx",
+      "total_ms": 3532.0197500004724,
+      "parse_ms": 3390.098333999049,
+      "read_count": 1,
+      "rss_mib": 286.109375,
+      "cache_entries": 15,
+      "cached_numbers": 5898240
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-15.xlsx",
+      "total_ms": 3091.568167001242,
+      "parse_ms": 2962.0364170004905,
+      "read_count": 1,
+      "rss_mib": 297.625,
+      "cache_entries": 16,
+      "cached_numbers": 6291456
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-16.xlsx",
+      "total_ms": 3073.0533330024628,
+      "parse_ms": 2856.258165997133,
+      "read_count": 1,
+      "rss_mib": 311.953125,
+      "cache_entries": 17,
+      "cached_numbers": 6684672
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-17.xlsx",
+      "total_ms": 2947.4764590013365,
+      "parse_ms": 2818.5006659987266,
+      "read_count": 1,
+      "rss_mib": 328.109375,
+      "cache_entries": 18,
+      "cached_numbers": 7077888
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-18.xlsx",
+      "total_ms": 2581.073583001853,
+      "parse_ms": 2491.1578749997716,
+      "read_count": 1,
+      "rss_mib": 346.640625,
+      "cache_entries": 19,
+      "cached_numbers": 7471104
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-19.xlsx",
+      "total_ms": 2137.428750000254,
+      "parse_ms": 2050.963707999472,
+      "read_count": 1,
+      "rss_mib": 364.15625,
+      "cache_entries": 20,
+      "cached_numbers": 7864320
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-20.xlsx",
+      "total_ms": 2522.0011670025997,
+      "parse_ms": 2407.1207499982847,
+      "read_count": 1,
+      "rss_mib": 379.953125,
+      "cache_entries": 21,
+      "cached_numbers": 8257536
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-21.xlsx",
+      "total_ms": 6282.715749999625,
+      "parse_ms": 6055.859333999251,
+      "read_count": 1,
+      "rss_mib": 385.515625,
+      "cache_entries": 22,
+      "cached_numbers": 8650752
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-22.xlsx",
+      "total_ms": 5469.016582999757,
+      "parse_ms": 5306.9083749978745,
+      "read_count": 1,
+      "rss_mib": 401.125,
+      "cache_entries": 23,
+      "cached_numbers": 9043968
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-23.xlsx",
+      "total_ms": 5045.06983399915,
+      "parse_ms": 4910.793582999759,
+      "read_count": 1,
+      "rss_mib": 418.984375,
+      "cache_entries": 24,
+      "cached_numbers": 9437184
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-24.xlsx",
+      "total_ms": 4441.366332997859,
+      "parse_ms": 4295.865042000514,
+      "read_count": 1,
+      "rss_mib": 434.484375,
+      "cache_entries": 25,
+      "cached_numbers": 9830400
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-25.xlsx",
+      "total_ms": 4635.934207999526,
+      "parse_ms": 4440.854166998179,
+      "read_count": 1,
+      "rss_mib": 452.78125,
+      "cache_entries": 26,
+      "cached_numbers": 10223616
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-26.xlsx",
+      "total_ms": 3701.063124997745,
+      "parse_ms": 3576.2384580011712,
+      "read_count": 1,
+      "rss_mib": 471.484375,
+      "cache_entries": 27,
+      "cached_numbers": 10616832
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-27.xlsx",
+      "total_ms": 3058.8684160029516,
+      "parse_ms": 2954.131291997328,
+      "read_count": 1,
+      "rss_mib": 486.609375,
+      "cache_entries": 28,
+      "cached_numbers": 11010048
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-28.xlsx",
+      "total_ms": 3656.5315420011757,
+      "parse_ms": 3546.1786250016303,
+      "read_count": 1,
+      "rss_mib": 503.5,
+      "cache_entries": 29,
+      "cached_numbers": 11403264
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-29.xlsx",
+      "total_ms": 3925.042791001033,
+      "parse_ms": 3809.5849999990605,
+      "read_count": 1,
+      "rss_mib": 517.90625,
+      "cache_entries": 30,
+      "cached_numbers": 11796480
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-30.xlsx",
+      "total_ms": 2890.516709001531,
+      "parse_ms": 2787.5530409983185,
+      "read_count": 1,
+      "rss_mib": 533.0625,
+      "cache_entries": 31,
+      "cached_numbers": 12189696
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-31.xlsx",
+      "total_ms": 3794.710665999446,
+      "parse_ms": 3640.803375001269,
+      "read_count": 1,
+      "rss_mib": 549.015625,
+      "cache_entries": 32,
+      "cached_numbers": 12582912
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-32.xlsx",
+      "total_ms": 3749.5229589985684,
+      "parse_ms": 3620.4211250005756,
+      "read_count": 1,
+      "rss_mib": 565.1875,
+      "cache_entries": 32,
+      "cached_numbers": 12582912
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-33.xlsx",
+      "total_ms": 4345.572833000915,
+      "parse_ms": 4188.9592919978895,
+      "read_count": 1,
+      "rss_mib": 555.953125,
+      "cache_entries": 32,
+      "cached_numbers": 12582912
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-34.xlsx",
+      "total_ms": 4055.692291000014,
+      "parse_ms": 3908.3462079979654,
+      "read_count": 1,
+      "rss_mib": 554.453125,
+      "cache_entries": 32,
+      "cached_numbers": 12582912
+    },
+    {
+      "phase": "sequential",
+      "file": "spectrum-24-8192-35.xlsx",
+      "total_ms": 2766.9674579992716,
+      "parse_ms": 2681.1446669998986,
+      "read_count": 1,
+      "rss_mib": 557.078125,
+      "cache_entries": 32,
+      "cached_numbers": 12582912
+    },
+    {
+      "phase": "warm",
+      "file": "spectrum-24-8192-35.xlsx",
+      "total_ms": 90.27666699694237,
+      "parse_ms": 0,
+      "read_count": 0,
+      "rss_mib": 558.46875,
+      "cache_entries": 32,
+      "cached_numbers": 12582912
+    },
+    {
+      "phase": "warm",
+      "file": "spectrum-24-8192-35.xlsx",
+      "total_ms": 105.86250000051223,
+      "parse_ms": 0,
+      "read_count": 0,
+      "rss_mib": 559.125,
+      "cache_entries": 32,
+      "cached_numbers": 12582912
+    },
+    {
+      "phase": "warm",
+      "file": "spectrum-24-8192-35.xlsx",
+      "total_ms": 87.57937500195112,
+      "parse_ms": 0,
+      "read_count": 0,
+      "rss_mib": 559.46875,
+      "cache_entries": 32,
+      "cached_numbers": 12582912
+    },
+    {
+      "phase": "warm",
+      "file": "spectrum-24-8192-35.xlsx",
+      "total_ms": 121.1970830008795,
+      "parse_ms": 0,
+      "read_count": 0,
+      "rss_mib": 559.828125,
+      "cache_entries": 32,
+      "cached_numbers": 12582912
+    },
+    {
+      "phase": "warm",
+      "file": "spectrum-24-8192-35.xlsx",
+      "total_ms": 95.20625000004657,
+      "parse_ms": 0,
+      "read_count": 0,
+      "rss_mib": 560.28125,
+      "cache_entries": 32,
+      "cached_numbers": 12582912
+    },
+    {
+      "phase": "warm",
+      "file": "spectrum-24-8192-35.xlsx",
+      "total_ms": 113.54512500111014,
+      "parse_ms": 0,
+      "read_count": 0,
+      "rss_mib": 560.34375,
+      "cache_entries": 32,
+      "cached_numbers": 12582912
+    },
+    {
+      "phase": "warm",
+      "file": "spectrum-24-8192-35.xlsx",
+      "total_ms": 88.61862499907147,
+      "parse_ms": 0,
+      "read_count": 0,
+      "rss_mib": 560.359375,
+      "cache_entries": 32,
+      "cached_numbers": 12582912
+    },
+    {
+      "phase": "recent",
+      "file": "spectrum-24-8192-31.xlsx",
+      "total_ms": 103.84666599929915,
+      "parse_ms": 0,
+      "read_count": 0,
+      "rss_mib": 560.40625,
+      "cache_entries": 32,
+      "cached_numbers": 12582912
+    },
+    {
+      "phase": "recent",
+      "file": "spectrum-24-8192-32.xlsx",
+      "total_ms": 95.8385410012852,
+      "parse_ms": 0,
+      "read_count": 0,
+      "rss_mib": 560.421875,
+      "cache_entries": 32,
+      "cached_numbers": 12582912
+    },
+    {
+      "phase": "recent",
+      "file": "spectrum-24-8192-33.xlsx",
+      "total_ms": 125.81970799874398,
+      "parse_ms": 0,
+      "read_count": 0,
+      "rss_mib": 560.59375,
+      "cache_entries": 32,
+      "cached_numbers": 12582912
+    },
+    {
+      "phase": "recent",
+      "file": "spectrum-24-8192-34.xlsx",
+      "total_ms": 119.66737500188174,
+      "parse_ms": 0,
+      "read_count": 0,
+      "rss_mib": 560.890625,
+      "cache_entries": 32,
+      "cached_numbers": 12582912
+    },
+    {
+      "phase": "recent",
+      "file": "spectrum-24-8192-35.xlsx",
+      "total_ms": 145.29795899943565,
+      "parse_ms": 0,
+      "read_count": 0,
+      "rss_mib": 561.140625,
+      "cache_entries": 32,
+      "cached_numbers": 12582912
+    },
+    {
+      "phase": "old_revisit",
+      "file": "spectrum-24-8192-00.xlsx",
+      "total_ms": 4580.126707998716,
+      "parse_ms": 4467.0979590009665,
+      "read_count": 1,
+      "rss_mib": 562.796875,
+      "cache_entries": 32,
+      "cached_numbers": 12582912
+    },
+    {
+      "phase": "old_revisit",
+      "file": "spectrum-24-8192-01.xlsx",
+      "total_ms": 3481.0456250015704,
+      "parse_ms": 3361.903375000111,
+      "read_count": 1,
+      "rss_mib": 566.578125,
+      "cache_entries": 32,
+      "cached_numbers": 12582912
+    },
+    {
+      "phase": "old_revisit",
+      "file": "spectrum-24-8192-02.xlsx",
+      "total_ms": 3281.4042500031064,
+      "parse_ms": 3162.6706659990305,
+      "read_count": 1,
+      "rss_mib": 572.09375,
+      "cache_entries": 32,
+      "cached_numbers": 12582912
+    }
+  ],
+  "hashes": {
+    "spectrum-24-8192-00.xlsx": "d84f8c612f8c31d68709b815b43ed25f60343f99a9f1bd582d893670ef8a4989",
+    "spectrum-24-8192-01.xlsx": "e2849f5241da86ff562d7e2f0a82a2eb62b7e7e083a4f5f6c02efcc08756d724",
+    "spectrum-24-8192-02.xlsx": "50df44e71532c611cabc7a5419c71db53047a12580327dce988f83fc0264619b",
+    "spectrum-24-8192-03.xlsx": "b843e48f51b86b4b3e95f39a342e525272af39ae343274d0c47512760e57d7b5",
+    "spectrum-24-8192-04.xlsx": "35274db3fb366ce7dad654e78d9aa874f1c714627748240928c365256c364365",
+    "spectrum-24-8192-05.xlsx": "de8ce3beed14a4991c75c44cb5af378fe863ee9e8d2ab8a6f4e637bdf29f64c8",
+    "spectrum-24-8192-06.xlsx": "dc270a81ea4be98efb2be2d9ca75ce645b9abbfbbcdeaa83fd822e722664c9fb",
+    "spectrum-24-8192-07.xlsx": "82b71e1bb0a3f3707ca79e48075124d86e037c3652b6849af18ce241e85f8cd7",
+    "spectrum-24-8192-08.xlsx": "8fc5464785dd6467944417dccf4de5b41414105429f8cfc3e9f16bb88f795e4d",
+    "spectrum-24-8192-09.xlsx": "f6438e5b576efd0ff6a185c87138ffad9565bd9eff9bdc6acc239bbed75db897",
+    "spectrum-24-8192-10.xlsx": "8c6ad6ca8f8685a21ff6cb5b797988fa0b617b86e3eaeda8c44f3f1ade6294a9",
+    "spectrum-24-8192-11.xlsx": "6b171eab7847251b3770d6607fa3a23f63b77508004411e2227c44fc6ccc111f",
+    "spectrum-24-8192-12.xlsx": "dade228a9489f859012fb42edde8ddab4d81eace77e49c95beddf94361893481",
+    "spectrum-24-8192-13.xlsx": "789f8b57728525447a9736864203189258474fb36c3441f64968413b4d48d9ad",
+    "spectrum-24-8192-14.xlsx": "14ff3151026ef2974ca048504fea9a7baee6ae83395987383180169fbcef49df",
+    "spectrum-24-8192-15.xlsx": "1b99c80adde86f72e04a9f68a728796babf6e4be409b716e2b304a94e085739c",
+    "spectrum-24-8192-16.xlsx": "648665589f9305a6e59e872ec0e83a7755f393a05ce64352d2ae5c7aac11d76c",
+    "spectrum-24-8192-17.xlsx": "c6455ec9d5d7fe1673eef1731d76ac81249648019659c2683f393b5107e56cc7",
+    "spectrum-24-8192-18.xlsx": "a885af2c1d699c8df547deef7604bed7d2fabb36594b638fa5c7e49858ada760",
+    "spectrum-24-8192-19.xlsx": "7f6d3b270e7b9bb2581fe81daa42cf9aa47325ec0c470518f1de77388e66a2ce",
+    "spectrum-24-8192-20.xlsx": "7d175dfdd06c986653e5a7b42e7ed803c466464794d7cba3204d28464d9a98e4",
+    "spectrum-24-8192-21.xlsx": "333bc05738742d7916f2ef0d267a935798bbcf318a870b697664bfd183081e6b",
+    "spectrum-24-8192-22.xlsx": "03932e2916c99d12d136f80630776f04c84f61e9efdd916c22b58a514a0aec8f",
+    "spectrum-24-8192-23.xlsx": "660ae41f1584409938be551c2563bdb3afe6aa1f02d435301ae018b971c6d75a",
+    "spectrum-24-8192-24.xlsx": "e985ab5ec7766e6fa099b62e5c78edf4c5c1ca0a386f8226698db0eabdc1a5bd",
+    "spectrum-24-8192-25.xlsx": "bee1839d5fa6319664a358826c57d499e787be14732b023fc04b5b1d7401410c",
+    "spectrum-24-8192-26.xlsx": "b28fb5d8281307629668897f985117a385b6b7674f9998e0a2ce492b81acf84f",
+    "spectrum-24-8192-27.xlsx": "76df73c09d374dbbd4f48381de25314e1678923992711c3d48e0f2b8b6ac8199",
+    "spectrum-24-8192-28.xlsx": "d5cd5b38e83f199b9db6bea4bc21b8d43bd608cc397bee29082922e78072d796",
+    "spectrum-24-8192-29.xlsx": "e13f1352b3a79fc73253c8dd76a7488e831edb0d7feb3abbbd145fb7ed0fb7ba",
+    "spectrum-24-8192-30.xlsx": "15c757936cb1249fcbe6b4b4d5f60e687f046e6fa2a1b5c4082e5ac1425efb1e",
+    "spectrum-24-8192-31.xlsx": "9f09a978fd01f2cab4a9c54edd306ebec463732372eb34ca60f21b53c849fbf7",
+    "spectrum-24-8192-32.xlsx": "4ffcd4ea915ecba77ad1a0ff5e1d6d9f087c300d2f33b049dc626b3486e638da",
+    "spectrum-24-8192-33.xlsx": "de111b92540a1ecb22c54a4ef35d0b79f417d6616872ec61db73d6b1e1dad800",
+    "spectrum-24-8192-34.xlsx": "e6b053698682047e7c73ea70356d97f42383174856870f64ec689432fcb0c14a",
+    "spectrum-24-8192-35.xlsx": "79c78d00ffb681df3d865aa702ae73cdc69172282c68d02b015ce7267e8ba064"
+  },
+  "warm_median_ms": 95.20625000004657
+}

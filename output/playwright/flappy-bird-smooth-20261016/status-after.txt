@@ -1,0 +1,128 @@
+ M combined_test/data_browser.py
+ M combined_test/devices.py
+ M combined_test/spectrum.py
+ M combined_test/spectrum_math.py
+ M design-qa.md
+ M docs/performance-optimization.md
+ M tauri-ui/src-tauri/src/lib.rs
+ M tauri-ui/src/App.tsx
+ M tauri-ui/src/components/canvas-line-chart.tsx
+ M tauri-ui/src/components/flappy-bird-marker.tsx
+ M tauri-ui/src/components/numeric-readout.tsx
+ M tauri-ui/src/components/ui/input.tsx
+ M tauri-ui/src/features/automatic/page.tsx
+ M tauri-ui/src/features/charts/realtime.tsx
+ M tauri-ui/src/features/manual/page.tsx
+ M tauri-ui/src/features/shared/controls.tsx
+ M tauri-ui/src/hooks/use-backend-snapshot.ts
+ M tauri-ui/src/index.css
+ M tauri-ui/src/lib/automatic-presentation.test.ts
+ M tauri-ui/src/lib/automatic-presentation.ts
+ M tauri-ui/src/lib/backend.ts
+ M tauri-ui/src/lib/command-contract.ts
+ M tauri-ui/src/lib/data-browser.test.ts
+ M tauri-ui/src/lib/data-browser.ts
+ M tauri-ui/src/lib/numeric-readout.test.ts
+ M tauri-ui/src/lib/numeric-readout.ts
+ M tauri-ui/src/lib/spectrum-annotations.test.ts
+ M tauri-ui/src/lib/spectrum-annotations.ts
+ M tauri-ui/src/main.tsx
+ M tauri-ui/src/workbench-appearance.css
+ M tauri_bridge/backend_dispatch.py
+ M tauri_bridge/service.py
+ M tauri_bridge/snapshot_builder.py
+ M tauri_bridge/station_automatic.py
+ M tauri_bridge/station_runtime.py
+ M tauri_bridge/station_support.py
+ M tests/test_spectrum.py
+ M tests/test_station_runtime.py
+ M tests/test_tauri_bridge.py
+?? combined_test/xlsx_reader.py
+?? docs/acquisition-timing-2026-10-15.md
+?? docs/operation-motion-2026-10-15.md
+?? docs/spectrum-analysis-optimization-2026-10-15.md
+?? output/acquisition-timing-20261015/
+?? output/desktop-demo-20261015/
+?? output/float-precision-20261015/
+?? output/manual-compact-preview-20261015/
+?? output/manual-seven-segment-preview-20261015/
+?? output/native-readout-20261016/
+?? output/performance-json-20261015/
+?? output/performance-realtime-20261015/
+?? output/performance-remaining-20261015/
+?? output/performance-xlsx-20261015/
+?? output/playwright/acquisition-timing-20261015/
+?? output/playwright/automatic-control-20261015/
+?? output/playwright/automatic-proportions-20261015/
+?? output/playwright/button-plm-20261016/
+?? output/playwright/button-press-plm-20261016/
+?? output/playwright/compact-stable-readout-20261016/
+?? output/playwright/core-pages-audit-20261015/
+?? output/playwright/current-theme-20261016/
+?? output/playwright/efficiency-legend-raised-20261016/
+?? output/playwright/fixed-current-input-20261015/
+?? output/playwright/flappy-bird-smooth-20261016/
+?? output/playwright/flappy-bird-sync-20261016/
+?? output/playwright/frontend-qa-20261013/
+?? output/playwright/input-focus-20261015/
+?? output/playwright/input-widths-20261015/
+?? output/playwright/large-spectrum-regression.png
+?? output/playwright/manual-compact-20261015/
+?? output/playwright/manual-control-flow/
+?? output/playwright/manual-feedback-gap-20261016/
+?? output/playwright/manual-integrated-charts-20261015/
+?? output/playwright/manual-label-gap-20261015/
+?? output/playwright/manual-readout-colors-20261015/
+?? output/playwright/manual-seven-segment-20261015/
+?? output/playwright/operation-motion/
+?? output/playwright/peak-legend-font-20261015/
+?? output/playwright/performance-20261015/
+?? output/playwright/power-card-compact-20261015/
+?? output/playwright/power-chart-header-20261015/
+?? output/playwright/power-current-gap-20261016/
+?? output/playwright/power-readout-fixed-20261015/
+?? output/playwright/power-readout-inset-20261015/
+?? output/playwright/power-readout-raised-20261015/
+?? output/playwright/power-units-fixed-20261015/
+?? output/playwright/seven-segment-motion-20261015/
+?? output/playwright/sn-font-20261015/
+?? output/playwright/spectrum-browse-20261015/
+?? output/playwright/spectrum-number-format-20261015/
+?? output/playwright/spectrum-readouts-20261015/
+?? output/playwright/stable-power-labels-20261015/
+?? output/playwright/stay-true-removed-1280.png
+?? output/playwright/stay-true-removed-1440.png
+?? output/playwright/tdk-auto-immediate-20261015/
+?? output/playwright/text-selection-20261016/
+?? output/playwright/voltage-theme-20261016/
+?? output/seven-segment-motion-preview-20261015/
+?? output/tdk-auto-immediate-preview-20261015/
+?? output/tdk-manual-order-20261015/
+?? qa-evidence/
+?? tauri-ui/.tdk-manual-order-qa-20261015/
+?? tauri-ui/public/
+?? tauri-ui/scripts/benchmark-sparse-spectrum.mjs
+?? tauri-ui/scripts/fixtures/flappy-bird-motion.tsx
+?? tauri-ui/scripts/fixtures/flappy-bird-sync.tsx
+?? tauri-ui/scripts/fixtures/operation-motion.tsx
+?? tauri-ui/scripts/manual-current.test.mjs
+?? tauri-ui/scripts/operation-motion-qa.mjs
+?? tauri-ui/scripts/profile-acquisition.cjs
+?? tauri-ui/scripts/profile-flappy-bird-motion.cjs
+?? tauri-ui/scripts/verify-flappy-bird-motion.cjs
+?? tauri-ui/scripts/verify-flappy-bird-sync.cjs
+?? tauri-ui/scripts/verify-sparse-spectrum.cjs
+?? tauri-ui/src/assets/
+?? tauri-ui/src/features/manual/current-controls.css
+?? tauri-ui/src/lib/chart-curve-reveal.test.ts
+?? tauri-ui/src/lib/chart-curve-reveal.ts
+?? tauri-ui/src/lib/sparse-chart-index.test.ts
+?? tauri-ui/src/lib/sparse-chart-index.ts
+?? tauri-ui/src/operation-motion.css
+?? tests/test_manual_control_flow.py
+?? tests/test_spectrum_analysis_reuse.py
+?? tests/test_tdk_voltage_burst.py
+?? tests/test_xlsx_reader.py
+?? tools/benchmark_spectrum_analysis.py
+?? tools/benchmark_xlsx_browser.py
+?? tools/profile_acquisition.py

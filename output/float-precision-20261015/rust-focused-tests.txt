@@ -1,0 +1,24 @@
+
+running 19 tests
+test snapshot_stream::tests::cancelling_during_request_drops_the_late_response ... ok
+test tests::backend_action_errors_do_not_restart_the_python_process ... ok
+test snapshot_stream::tests::fatal_transport_or_backend_errors_are_not_retried ... ok
+test float_precision_benchmark::float_parser_preserves_control_protocol_types_and_errors ... ok
+test snapshot_stream::tests::repeated_timeouts_back_off_with_a_cap_and_cancel_without_an_extra_request ... ok
+test tests::request_timeouts_match_operation_cost ... ok
+test tests::bridge_contract_preserves_remote_identity_and_timeout_semantics ... ok
+test snapshot_stream::tests::a_successful_recovery_resets_the_next_timeout_delay ... ok
+test tests::snapshot_intervals_keep_shipping_and_pd_at_500_ms ... ok
+test snapshot_stream::tests::stream_moves_complete_owned_spectrum_into_message ... ok
+test tests::stream_envelope_moves_the_complete_owned_message ... ok
+test tests::columnar_spectrum_requires_two_equal_length_arrays ... ok
+test tests::stream_envelope_routes_messages_to_one_subscription ... ok
+test tests::snapshot_state_fingerprint_ignores_transport_only_changes ... ok
+test snapshot_stream::tests::timeout_recovers_with_full_snapshot_even_when_state_has_not_changed ... ok
+test tests::snapshot_fingerprint_preserves_all_non_history_fields ... ok
+test tests::webview_send_callback_error_is_propagated ... ok
+test float_precision_benchmark::python_response_float_bits_are_preserved ... ok
+test tests::webview_send_dispatch_error_is_propagated ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.00s
+

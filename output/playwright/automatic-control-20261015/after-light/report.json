@@ -1,0 +1,44 @@
+[
+  {
+    "file": "done-1440x900.png",
+    "state": "done",
+    "size": "1440x900",
+    "zoom": 1,
+    "issues": []
+  },
+  {
+    "file": "running-1440x900.png",
+    "state": "running",
+    "size": "1440x900",
+    "zoom": 1,
+    "issues": []
+  },
+  {
+    "file": "uncertain-1440x900.png",
+    "state": "uncertain",
+    "size": "1440x900",
+    "zoom": 1,
+    "issues": []
+  },
+  {
+    "file": "done-960x720.png",
+    "state": "done",
+    "size": "960x720",
+    "zoom": 1,
+    "issues": []
+  },
+  {
+    "file": "running-960x720.png",
+    "state": "running",
+    "size": "960x720",
+    "zoom": 1,
+    "issues": []
+  },
+  {
+    "file": "uncertain-960x720.png",
+    "state": "uncertain",
+    "size": "960x720",
+    "zoom": 1,
+    "issues": []
+  }
+]

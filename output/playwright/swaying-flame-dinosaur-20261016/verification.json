@@ -1,0 +1,24 @@
+{
+  "bodyFps": 8,
+  "flameSwayDurationMs": 1000,
+  "flameSway": "continuous rotation and stretch around tail-tip pivot",
+  "spriteReconstructionMatchesBaseline": true,
+  "baselineRgbaSha256": "c918170a7ec7f1cf26acbbe086f823c3c5c8fc07997893a5811f7b75d401888a",
+  "observedDistinctFlameTransformsIn650ms": 39,
+  "stepSheetsShareAnimationTime": true,
+  "hiddenPausesAllLayers": true,
+  "reducedMotionStopsAllLayers": true,
+  "beeHasNoFlameLayer": true,
+  "focusedTests": 19,
+  "build": "passed",
+  "gifFrames": 16,
+  "gifDurationMs": 1000,
+  "gifSize": [
+    416,
+    416
+  ],
+  "browser": "localhost:1420 demo settings; 1280x720",
+  "hardwareUsed": false,
+  "committed": false,
+  "pushed": false
+}

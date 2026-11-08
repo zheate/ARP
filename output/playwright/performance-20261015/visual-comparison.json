@@ -1,0 +1,113 @@
+[
+  {
+    "key": "automatic-dark-1440",
+    "canvasEqual": true,
+    "pixelsEqual": true,
+    "differentBox": null
+  },
+  {
+    "key": "manual-dark-1440",
+    "canvasEqual": true,
+    "pixelsEqual": true,
+    "differentBox": null
+  },
+  {
+    "key": "settings-dark-1440",
+    "canvasEqual": true,
+    "pixelsEqual": true,
+    "differentBox": null
+  },
+  {
+    "key": "data-dark-1440",
+    "canvasEqual": true,
+    "pixelsEqual": true,
+    "differentBox": null
+  },
+  {
+    "key": "automatic-dark-1180",
+    "canvasEqual": true,
+    "pixelsEqual": true,
+    "differentBox": null
+  },
+  {
+    "key": "manual-dark-1180",
+    "canvasEqual": true,
+    "pixelsEqual": true,
+    "differentBox": null
+  },
+  {
+    "key": "settings-dark-1180",
+    "canvasEqual": true,
+    "pixelsEqual": true,
+    "differentBox": null
+  },
+  {
+    "key": "data-dark-1180",
+    "canvasEqual": true,
+    "pixelsEqual": true,
+    "differentBox": null
+  },
+  {
+    "key": "automatic-light-1440",
+    "canvasEqual": true,
+    "pixelsEqual": false,
+    "differentBox": [
+      1297,
+      137,
+      1346,
+      138
+    ]
+  },
+  {
+    "key": "manual-light-1440",
+    "canvasEqual": true,
+    "pixelsEqual": false,
+    "differentBox": [
+      364,
+      26,
+      715,
+      50
+    ]
+  },
+  {
+    "key": "settings-light-1440",
+    "canvasEqual": true,
+    "pixelsEqual": true,
+    "differentBox": null
+  },
+  {
+    "key": "data-light-1440",
+    "canvasEqual": true,
+    "pixelsEqual": true,
+    "differentBox": null
+  },
+  {
+    "key": "automatic-light-1180",
+    "canvasEqual": true,
+    "pixelsEqual": false,
+    "differentBox": [
+      168,
+      134,
+      1100,
+      396
+    ]
+  },
+  {
+    "key": "manual-light-1180",
+    "canvasEqual": true,
+    "pixelsEqual": true,
+    "differentBox": null
+  },
+  {
+    "key": "settings-light-1180",
+    "canvasEqual": true,
+    "pixelsEqual": true,
+    "differentBox": null
+  },
+  {
+    "key": "data-light-1180",
+    "canvasEqual": true,
+    "pixelsEqual": true,
+    "differentBox": null
+  }
+]

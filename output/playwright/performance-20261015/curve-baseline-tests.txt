@@ -1,0 +1,12 @@
+✔ spectrum interpolation passes through every sample without overshoot on an irregular grid (3.126ms)
+✔ missing data and nonincreasing wavelengths start a new curve (0.296959ms)
+✔ empty, singleton, and two-point spectra remain valid (0.160959ms)
+✔ curve commands retain the pre-optimization values across irregular grids and gaps (12.739042ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 138.325916

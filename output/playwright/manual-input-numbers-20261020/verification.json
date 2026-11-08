@@ -1,0 +1,49 @@
+{
+  "checks": [
+    {
+      "scenario": "light-1440",
+      "input_geometry_unchanged": true,
+      "arrows_unchanged": true,
+      "card_unchanged": true,
+      "buttons_unchanged": true,
+      "readouts_unchanged": true,
+      "font_20px": true,
+      "right_aligned": true,
+      "no_horizontal_overflow": true
+    },
+    {
+      "scenario": "light-1180",
+      "input_geometry_unchanged": true,
+      "arrows_unchanged": true,
+      "card_unchanged": true,
+      "buttons_unchanged": true,
+      "readouts_unchanged": true,
+      "font_20px": true,
+      "right_aligned": true,
+      "no_horizontal_overflow": true
+    },
+    {
+      "scenario": "dark-1440",
+      "input_geometry_unchanged": true,
+      "arrows_unchanged": true,
+      "card_unchanged": true,
+      "buttons_unchanged": true,
+      "readouts_unchanged": true,
+      "font_20px": true,
+      "right_aligned": true,
+      "no_horizontal_overflow": true
+    },
+    {
+      "scenario": "dark-1180",
+      "input_geometry_unchanged": true,
+      "arrows_unchanged": true,
+      "card_unchanged": true,
+      "buttons_unchanged": true,
+      "readouts_unchanged": true,
+      "font_20px": true,
+      "right_aligned": true,
+      "no_horizontal_overflow": true
+    }
+  ],
+  "page_errors": []
+}

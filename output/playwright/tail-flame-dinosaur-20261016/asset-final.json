@@ -1,0 +1,15 @@
+{
+  "source": "/Users/zh/.codex/generated_images/01a1427e-527c-7db3-ab3b-e193c17b2f70/exec-aeccc4b2-c04e-48bf-9e73-8abf8274fa44.png",
+  "asset": "tauri-ui/public/chart-markers/dino-red-tail-flame-aligned-four-frames-b7fb24b7b24a.png",
+  "sha256": "b7fb24b7b24a8ddf092c4167c76b343f44d650f0ea1c3dd0a790b83bf1499e90",
+  "size": [
+    1254,
+    1254
+  ],
+  "mode": "RGBA",
+  "alphaExtrema": [
+    0,
+    255
+  ],
+  "distinctFrames": 4
+}

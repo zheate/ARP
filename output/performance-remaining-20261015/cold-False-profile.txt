@@ -1,0 +1,33 @@
+         6057133 function calls (6055395 primitive calls) in 1.614 seconds
+
+   Ordered by: cumulative time
+   List reduced from 393 to 25 due to restriction <25>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+        1    0.000    0.000    1.614    1.614 data_browser.py:335(inspect_data_record)
+        1    0.000    0.000    1.614    1.614 data_browser.py:301(_read_detail)
+        1    0.006    0.006    1.613    1.613 data_browser.py:137(_read_workbook)
+     8202    0.006    0.000    1.599    0.000 _read_only.py:60(_cells_by_row)
+     8203    0.146    0.000    1.565    0.000 _reader.py:125(parse)
+     8200    0.009    0.000    0.805    0.000 _reader.py:282(parse_row)
+     8200    0.048    0.000    0.793    0.000 _reader.py:303(<listcomp>)
+   393510    0.352    0.000    0.745    0.000 _reader.py:189(parse_cell)
+795323/795322    0.076    0.000    0.593    0.000 ElementTree.py:1248(iterator)
+      908    0.000    0.000    0.264    0.000 ElementTree.py:1293(feed)
+      913    0.263    0.000    0.263    0.000 {method 'feed' of 'xml.etree.ElementTree.XMLParser' objects}
+   796233    0.162    0.000    0.222    0.000 ElementTree.py:1317(read_events)
+   393510    0.219    0.000    0.219    0.000 cell.py:206(coordinate_to_tuple)
+   393432    0.078    0.000    0.078    0.000 _reader.py:80(_cast_number)
+  1180538    0.056    0.000    0.056    0.000 {method 'get' of 'xml.etree.ElementTree.Element' objects}
+   393432    0.040    0.000    0.040    0.000 {method 'findtext' of 'xml.etree.ElementTree.Element' objects}
+   799071    0.032    0.000    0.032    0.000 {built-in method builtins.isinstance}
+      916    0.002    0.000    0.031    0.000 zipfile.py:957(read)
+      914    0.003    0.000    0.029    0.000 zipfile.py:1039(_read1)
+   795318    0.028    0.000    0.028    0.000 {method 'popleft' of 'collections.deque' objects}
+     8199    0.027    0.000    0.027    0.000 _read_only.py:105(_get_row)
+     8208    0.022    0.000    0.022    0.000 {method 'clear' of 'xml.etree.ElementTree.Element' objects}
+      914    0.018    0.000    0.018    0.000 {method 'decompress' of 'zlib.Decompress' objects}
+        1    0.000    0.000    0.007    0.007 excel.py:316(load_workbook)
+        1    0.000    0.000    0.007    0.007 excel.py:286(read)
+
+

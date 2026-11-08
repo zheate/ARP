@@ -1,0 +1,81 @@
+### Result
+[{"version":"before","heap":{"usedSize":23488500,"totalSize":24559616,"embedderHeapUsedSize":2638184,"backingStorageSize":3804774},"control_evolution_ms":[96.70000000298023,117,118.60000000149012,116.10000000149012],"exact_canvas_and_layout_checks":10},{"version":"after","heap":{"usedSize":24459872,"totalSize":26656768,"embedderHeapUsedSize":2679144,"backingStorageSize":3812810},"control_evolution_ms":[115.90000000596046,100.20000000298023,116.79999999701977,116.79999999701977],"exact_canvas_and_layout_checks":10}]
+### Ran Playwright code
+```js
+await (async (page) => {
+  await page.unrouteAll({behavior:'wait'});
+  let version='before';
+  await page.route('**/src/components/canvas-line-chart.tsx*', route=>version==='before'?route.fulfill({contentType:'text/javascript',path:'outputs/remaining-perf-20261015/canvas-line-chart.before.js'}):route.continue());
+  await page.route('**/src/lib/data-browser.ts*', route=>version==='before'?route.fulfill({contentType:'text/javascript',path:'outputs/remaining-perf-20261015/data-browser.before.js'}):route.continue());
+  await page.route('**/src/lib/data-browser-demo.ts*', route=>route.fulfill({contentType:'text/javascript',path:'tauri-ui/scripts/fixtures/spectrum-browser-data.js'}));
+  await page.route('**/verify-spectrum-fixture?*', route=>route.fulfill({contentType:'text/html',body:'<!doctype html><html><head><meta charset="UTF-8"><link rel="icon" href="data:,"></head><body><div id="root"></div><script type="module">await import("/scripts/fixtures/spectrum-browser.tsx");</script></body></html>'}));
+  const settle=()=>page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+  const expected={};const reports=[];
+  const cdp=await page.context().newCDPSession(page);
+  const capture=async(key,canvas)=>{
+    await page.waitForFunction(c=>{
+      const dpr=Math.min(Math.max(devicePixelRatio||1,1),2);
+      return Math.abs(c.width-c.clientWidth*dpr)<=1&&Math.abs(c.height-c.clientHeight*dpr)<=1;
+    },await canvas.elementHandle());
+    await settle();
+    const value=await canvas.evaluate(c=>({pixels:c.toDataURL(),width:c.width,height:c.height,rect:[c.clientWidth,c.clientHeight]}));
+    const extra=await page.evaluate(()=>({choices:[...document.querySelectorAll('.db-spectrum-choices input')].map(x=>x.checked),overflow:document.documentElement.scrollWidth>innerWidth,card:[...document.querySelectorAll('.db-detail-panel,.db-chart')].map(x=>{const r=x.getBoundingClientRect();return [r.x,r.y,r.width,r.height]})}));
+    const record={...value,...extra};
+    if(version==='before') {
+      expected[key]=record;
+      if(key==='deselected-multi')await canvas.screenshot({path:'output/performance-remaining-20261015/deselected-before.png'});
+    } else if(JSON.stringify(record)!==JSON.stringify(expected[key])) {
+      await canvas.screenshot({path:'output/performance-remaining-20261015/mismatch-after.png'});
+      const fields=Object.keys(record).filter(k=>JSON.stringify(record[k])!==JSON.stringify(expected[key][k]));
+      throw Error('Rendered result changed: '+key+' '+JSON.stringify({fields,before:{...expected[key],pixels:expected[key].pixels.length},after:{...record,pixels:record.pixels.length}}));
+    }
+  };
+  for(const candidate of ['before','after']) {
+    version=candidate;await page.setViewportSize({width:1440,height:900});
+    await page.goto('http://localhost:1420/verify-spectrum-fixture?demo=1&currents=24');
+    await page.locator('.db-record-button').first().waitFor();await page.evaluate(()=>document.fonts.ready);
+    await page.getByRole('combobox',{name:'曲线内容',exact:true}).selectOption('multiSpectrum');
+    const canvas=page.getByRole('img',{name:'原始强度光谱叠加',exact:true});await canvas.waitFor();await settle();
+    await cdp.send('HeapProfiler.collectGarbage');
+    const heap=await cdp.send('Runtime.getHeapUsage');
+    for(const [width,height,ratio] of [[1440,900,1],[1180,720,1.5]]) {
+      await cdp.send('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:ratio,mobile:false});
+      for(const theme of ['dark','light']) {
+        await page.evaluate(theme=>document.documentElement.dataset.theme=theme,theme);
+        await capture(`multi-${width}-${ratio}-${theme}`,canvas);
+      }
+    }
+    await cdp.send('Emulation.setDeviceMetricsOverride',{width:1440,height:900,deviceScaleFactor:1,mobile:false});
+    await page.evaluate(()=>document.documentElement.dataset.theme='dark');await settle();
+    const choices=page.locator('.db-spectrum-choices input');
+    await choices.nth(3).uncheck();await choices.nth(11).uncheck();
+    await capture('deselected-multi',canvas);
+    await choices.nth(3).check();await choices.nth(11).check();
+    const controls=[];
+    for(let i=0;i<5;i++) {
+      await page.getByRole('combobox',{name:'曲线内容',exact:true}).selectOption('metrics');await settle();
+      const start=await page.evaluate(()=>performance.now());
+      await page.getByRole('combobox',{name:'曲线内容',exact:true}).selectOption('evolution');
+      const heatmap=page.getByRole('img',{name:'光谱演化热力图',exact:true});await heatmap.waitFor();await settle();
+      const end=await page.evaluate(()=>performance.now());if(i>0)controls.push(end-start);
+    }
+    await capture('evolution-focus',page.getByRole('img',{name:'光谱演化热力图',exact:true}));
+    await page.getByRole('button',{name:'全波段',exact:true}).click();
+    await capture('evolution-full',page.getByRole('img',{name:'光谱演化热力图',exact:true}));
+    await page.getByRole('button',{name:'3D 瀑布脊线',exact:true}).click();
+    await capture('evolution-ridge',page.getByRole('img',{name:'光谱演化瀑布脊线图',exact:true}));
+    await page.getByRole('combobox',{name:'曲线内容',exact:true}).selectOption('spectrum');
+    await capture('single-spectrum',canvas);
+    await page.getByRole('combobox',{name:'当前测试点',exact:true}).selectOption('3');
+    await capture('next-single-spectrum',canvas);
+    reports.push({version,heap,control_evolution_ms:controls,exact_canvas_and_layout_checks:Object.keys(expected).length});
+  }
+  await cdp.send('Emulation.clearDeviceMetricsOverride');await cdp.detach();return reports;
+}
+)(page);
+```
+### Page
+- Page URL: http://localhost:1420/verify-spectrum-fixture?demo=1&currents=24
+- Console: 3 errors, 0 warnings
+### Events
+- New console entries: .playwright-cli/console-2026-10-15T03-27-42-667Z.log#L44-L99

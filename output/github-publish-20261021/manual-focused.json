@@ -1,0 +1,87 @@
+{
+  "checks": [
+    {
+      "width": 1366,
+      "height": 768,
+      "fixture": "manual",
+      "inputs": [
+        {
+          "id": "manual-psu-voltage",
+          "font": "20px",
+          "align": "right",
+          "fits": true
+        },
+        {
+          "id": "manual-psu-current",
+          "font": "20px",
+          "align": "right",
+          "fits": true
+        }
+      ],
+      "settingsButtons": [],
+      "escapeClosed": true
+    },
+    {
+      "width": 1366,
+      "height": 768,
+      "fixture": "manual-ch341",
+      "inputs": [
+        {
+          "id": "manual-psu-current",
+          "font": "20px",
+          "align": "right",
+          "fits": true
+        }
+      ],
+      "settingsButtons": [
+        "读取输出电压",
+        "读取输出电流",
+        "读取输入电压",
+        "读取模块温度"
+      ],
+      "escapeClosed": true
+    },
+    {
+      "width": 960,
+      "height": 540,
+      "fixture": "manual",
+      "inputs": [
+        {
+          "id": "manual-psu-voltage",
+          "font": "20px",
+          "align": "right",
+          "fits": true
+        },
+        {
+          "id": "manual-psu-current",
+          "font": "20px",
+          "align": "right",
+          "fits": true
+        }
+      ],
+      "settingsButtons": [],
+      "escapeClosed": true
+    },
+    {
+      "width": 960,
+      "height": 540,
+      "fixture": "manual-ch341",
+      "inputs": [
+        {
+          "id": "manual-psu-current",
+          "font": "20px",
+          "align": "right",
+          "fits": true
+        }
+      ],
+      "settingsButtons": [
+        "读取输出电压",
+        "读取输出电流",
+        "读取输入电压",
+        "读取模块温度"
+      ],
+      "escapeClosed": true
+    }
+  ],
+  "passed": true
+}

@@ -1,0 +1,54 @@
+[
+  {
+    "record_index": 0,
+    "include_spectra": false,
+    "native_eligible": false,
+    "bytes": 1960,
+    "sha256": "9274d424d75e56da796b018b0cd866c2237a9e376a0f7734e321200e683b96e0",
+    "source_unchanged": true
+  },
+  {
+    "record_index": 0,
+    "include_spectra": true,
+    "native_eligible": false,
+    "bytes": 529480,
+    "sha256": "62702d2e5e1476c9b51b6cb42dd7a76267abc19af7f5e724af976ebc2e6ec13a",
+    "source_unchanged": true,
+    "fallback_reason": {
+      "kind": "float outside byte-compatible fixed-notation range",
+      "path": "$.result.spectra[3].intensity[3608]"
+    }
+  },
+  {
+    "record_index": 1,
+    "include_spectra": false,
+    "native_eligible": false,
+    "bytes": 3023,
+    "sha256": "919932927d5cf27737ca1a5e7684cad1cc0df11afe69905b55173d9a7675daff",
+    "source_unchanged": true
+  },
+  {
+    "record_index": 1,
+    "include_spectra": true,
+    "native_eligible": true,
+    "bytes": 136460,
+    "sha256": "60407ce1667e3986d986667eb9582ea5217db894f5731c0be577c932799c6b28",
+    "source_unchanged": true
+  },
+  {
+    "record_index": 2,
+    "include_spectra": false,
+    "native_eligible": false,
+    "bytes": 3726,
+    "sha256": "4b6edf5fd0fc7b734c60dce4c9c931b9d50ef5aa50d6c2df8f54ed4c92e66eac",
+    "source_unchanged": true
+  },
+  {
+    "record_index": 2,
+    "include_spectra": true,
+    "native_eligible": true,
+    "bytes": 531178,
+    "sha256": "f946bba85b5faad8f2b4b96785703245b36f48259b6a346e9103a14f85966c22",
+    "source_unchanged": true
+  }
+]

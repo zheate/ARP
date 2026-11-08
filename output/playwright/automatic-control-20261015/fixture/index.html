@@ -1,0 +1,6 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><link rel="icon" href="data:,"><link rel="stylesheet" href="/src/index.css"><script>
+const before = new URLSearchParams(location.search).get('before') === '1';
+document.write('<link rel="stylesheet" href="'+(before?'./before.css':'/src/workbench-appearance.css')+'">');
+</script><link rel="stylesheet" href="/src/operation-motion.css"></head><body><div id="root"></div><script>
+document.write('<script type="module" src="'+(before?'./before.js':'./after.js')+'"><\/script>');
+</script></body></html>

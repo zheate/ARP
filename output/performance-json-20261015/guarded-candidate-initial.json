@@ -1,0 +1,86 @@
+[
+  {
+    "scenario": "8192-live_full",
+    "compatible": true,
+    "guard": {
+      "median_ms": 1.15325,
+      "p95_ms": 2.434333
+    },
+    "encoder": {
+      "median_ms": 1.3645,
+      "p95_ms": 2.063708
+    }
+  },
+  {
+    "scenario": "8192-live_delta",
+    "compatible": true,
+    "guard": {
+      "median_ms": 0.348,
+      "p95_ms": 1.030375
+    },
+    "encoder": {
+      "median_ms": 0.449166,
+      "p95_ms": 0.793417
+    }
+  },
+  {
+    "scenario": "8192-live_unchanged",
+    "compatible": true,
+    "guard": {
+      "median_ms": 0.069958,
+      "p95_ms": 0.09825
+    },
+    "encoder": {
+      "median_ms": 0.0295,
+      "p95_ms": 0.029791
+    }
+  },
+  {
+    "scenario": "8192-pd_full",
+    "compatible": true,
+    "guard": {
+      "median_ms": 5.891583,
+      "p95_ms": 10.749375
+    },
+    "encoder": {
+      "median_ms": 6.275916,
+      "p95_ms": 10.410458
+    }
+  },
+  {
+    "scenario": "8192-pd_delta",
+    "compatible": true,
+    "guard": {
+      "median_ms": 0.030542,
+      "p95_ms": 0.127
+    },
+    "encoder": {
+      "median_ms": 0.033708,
+      "p95_ms": 0.034209
+    }
+  },
+  {
+    "scenario": "8192-dense-live-delta",
+    "compatible": true,
+    "guard": {
+      "median_ms": 0.329042,
+      "p95_ms": 0.341208
+    },
+    "encoder": {
+      "median_ms": 0.564334,
+      "p95_ms": 1.03425
+    }
+  },
+  {
+    "scenario": "24x8192-full-spectra",
+    "compatible": true,
+    "guard": {
+      "median_ms": 14.333833,
+      "p95_ms": 14.48625
+    },
+    "encoder": {
+      "median_ms": 22.042,
+      "p95_ms": 23.478125
+    }
+  }
+]

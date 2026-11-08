@@ -1,0 +1,75 @@
+[
+  {
+    "name": "real-0-detail",
+    "source": {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_02.xlsx",
+      "sha256": "42e6ba65fd7f30c17b00d822b5582282159fdb3a0ae48b8807ed1c6cf9817cfe",
+      "full_spectra": false
+    },
+    "float_count": 36,
+    "bytes": 1967,
+    "wire_sha256": "d07c36d831e7c272c918eaf07bbdbdec3cd33d19641d238e22f8fda29681a8d6"
+  },
+  {
+    "name": "real-0-full",
+    "source": {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_02.xlsx",
+      "sha256": "42e6ba65fd7f30c17b00d822b5582282159fdb3a0ae48b8807ed1c6cf9817cfe",
+      "full_spectra": true
+    },
+    "float_count": 29232,
+    "bytes": 529485,
+    "wire_sha256": "109f723c17dbfd9f88d9211911d68d2106d60f5f38ff126b7a500a75b9c9de5f"
+  },
+  {
+    "name": "real-1-detail",
+    "source": {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_37.xlsx",
+      "sha256": "c64af2dba95e7e86d437c74dbac3e0ceceab87c7a5f0b66842baed7f90538ce3",
+      "full_spectra": false
+    },
+    "float_count": 12,
+    "bytes": 3030,
+    "wire_sha256": "516528ff2353e9a79df48e03d53d354c2d226bcf699bb4fa8739597ece22f82d"
+  },
+  {
+    "name": "real-1-full",
+    "source": {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_37.xlsx",
+      "sha256": "c64af2dba95e7e86d437c74dbac3e0ceceab87c7a5f0b66842baed7f90538ce3",
+      "full_spectra": true
+    },
+    "float_count": 7311,
+    "bytes": 136465,
+    "wire_sha256": "7d2fdff3fc53b832d6168b5e5be26d7e5e74d09bedf2466643461070561bc875"
+  },
+  {
+    "name": "real-2-detail",
+    "source": {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_45.xlsx",
+      "sha256": "a0b2dc1f8488f67ed73a945a58abd91085adf5bb2fcee3e80635212cd0b196bd",
+      "full_spectra": false
+    },
+    "float_count": 36,
+    "bytes": 3733,
+    "wire_sha256": "f7ae9ef4666ccb55ed4cc6bb367e849f89ac2ea5078579f49b74554810882a9d"
+  },
+  {
+    "name": "real-2-full",
+    "source": {
+      "path": "test_records/H6B560569/熔接前/2026_08_17_18_45.xlsx",
+      "sha256": "a0b2dc1f8488f67ed73a945a58abd91085adf5bb2fcee3e80635212cd0b196bd",
+      "full_spectra": true
+    },
+    "float_count": 29232,
+    "bytes": 531183,
+    "wire_sha256": "fa9da09f27fbde1282a604ccc19ea9b67a8cc9c71fe717738a5f8d719ae4ce7b"
+  },
+  {
+    "name": "finite-double-corpus",
+    "source": null,
+    "float_count": 100000,
+    "bytes": 2344964,
+    "wire_sha256": "f236e6c15020acabf8fac69455e88990f4b5728f85cac93c3fc242567206dbfc"
+  }
+]

@@ -1,0 +1,2338 @@
+{
+  "browserOnly": true,
+  "hardwareConnected": false,
+  "nativeWindowsVerified": false,
+  "checks": [
+    {
+      "name": "1920x1080-dpr1-protection-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 736,
+        "y": 252,
+        "width": 448,
+        "height": 576
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-protection-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-protection-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-protection-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-protection-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 737,
+        "y": 766,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-protection-no-unverified-safe-claim",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-protection-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 736,
+        "y": 170,
+        "width": 448,
+        "height": 740
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 737,
+        "y": 848,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-force-guarded",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-explicit-ack-enables-force",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-pending-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 736,
+        "y": 170,
+        "width": 448,
+        "height": 740
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-pending-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-pending-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-pending-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-pending-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 737,
+        "y": 848,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-pending-all-actions-disabled",
+      "passed": false
+    },
+    {
+      "name": "1920x1080-dpr1-shutdown-pending-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-pause-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 736,
+        "y": 187.5,
+        "width": 448,
+        "height": 705
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-pause-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-pause-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-pause-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-pause-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 737,
+        "y": 830.5,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-pause-escape-cannot-dismiss",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-pause-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-completion-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 736,
+        "y": 58.25,
+        "width": 448,
+        "height": 963.5
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-completion-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-completion-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-completion-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-completion-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 737,
+        "y": 959.75,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-completion-no-unverified-disk-claim",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-completion-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-specifications-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 608,
+        "y": 301,
+        "width": 704,
+        "height": 478
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-specifications-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-specifications-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-specifications-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-specifications-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 609,
+        "y": 713,
+        "width": 702,
+        "height": 65
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-specifications-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-profiles-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 608,
+        "y": 276.609375,
+        "width": 704,
+        "height": 526.78125
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-profiles-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-profiles-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-profiles-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-profiles-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 609,
+        "y": 737.390625,
+        "width": 702,
+        "height": 65
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-profiles-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-save-error-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 608,
+        "y": 410,
+        "width": 704,
+        "height": 260
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-save-error-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-save-error-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-save-error-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-save-error-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 609,
+        "y": 604,
+        "width": 702,
+        "height": 65
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-save-error-error-preserves-dialog",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-save-error-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-save-pending-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 608,
+        "y": 410,
+        "width": 704,
+        "height": 260
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-save-pending-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-save-pending-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-save-pending-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-save-pending-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 609,
+        "y": 604,
+        "width": 702,
+        "height": 65
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-save-pending-pending-lock",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-save-pending-pending-escape-ignored",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-save-pending-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-pd-running-settings-disabled",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-pd-running-stop-visible-enabled",
+      "passed": true,
+      "detail": {
+        "x": 17,
+        "y": 133,
+        "width": 346,
+        "height": 32
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-pd-running-chart-present",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-pd-running-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-manual-readback-not-setpoint",
+      "passed": true,
+      "detail": {
+        "expected": "0.25",
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.25",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-manual-current-unit",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.25",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-manual-current-visible-without-overflow",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.25",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-manual-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-manual-missing-readback-not-setpoint",
+      "passed": true,
+      "detail": {
+        "expected": "--",
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-manual-missing-current-unit",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-manual-missing-current-visible-without-overflow",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-manual-missing-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-manual-disconnected-readback-not-setpoint",
+      "passed": true,
+      "detail": {
+        "expected": "--",
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-manual-disconnected-current-unit",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-manual-disconnected-current-visible-without-overflow",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-manual-disconnected-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-manual-ch341-readback-not-setpoint",
+      "passed": true,
+      "detail": {
+        "expected": "1.25",
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "1.25",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-manual-ch341-current-unit",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "1.25",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-manual-ch341-current-visible-without-overflow",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "1.25",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-manual-ch341-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-manual-zero-readback-not-setpoint",
+      "passed": true,
+      "detail": {
+        "expected": "0.00",
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.00",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-manual-zero-current-unit",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.00",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-manual-zero-current-visible-without-overflow",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.00",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-manual-zero-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-manual-ch341-zero-readback-not-setpoint",
+      "passed": true,
+      "detail": {
+        "expected": "0.00",
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.00",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-manual-ch341-zero-current-unit",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.00",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-manual-ch341-zero-current-visible-without-overflow",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.00",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-manual-ch341-zero-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-manual-ch341-missing-readback-not-setpoint",
+      "passed": true,
+      "detail": {
+        "expected": "--",
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-manual-ch341-missing-current-unit",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-manual-ch341-missing-current-visible-without-overflow",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-manual-ch341-missing-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dpr1-manual-ch341-disconnected-readback-not-setpoint",
+      "passed": true,
+      "detail": {
+        "expected": "--",
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-manual-ch341-disconnected-current-unit",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-manual-ch341-disconnected-current-visible-without-overflow",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1920x1080-dpr1-manual-ch341-disconnected-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-protection-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 459,
+        "y": 96,
+        "width": 448,
+        "height": 576
+      }
+    },
+    {
+      "name": "1366x768-dpr1-protection-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-protection-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-protection-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-protection-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 460,
+        "y": 610,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "1366x768-dpr1-protection-no-unverified-safe-claim",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-protection-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 459,
+        "y": 16,
+        "width": 448,
+        "height": 736
+      }
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 460,
+        "y": 690,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-force-guarded",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-explicit-ack-enables-force",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-pending-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 459,
+        "y": 16,
+        "width": 448,
+        "height": 736
+      }
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-pending-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-pending-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-pending-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-pending-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 460,
+        "y": 690,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-pending-all-actions-disabled",
+      "passed": false
+    },
+    {
+      "name": "1366x768-dpr1-shutdown-pending-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-pause-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 459,
+        "y": 31.5,
+        "width": 448,
+        "height": 705
+      }
+    },
+    {
+      "name": "1366x768-dpr1-pause-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-pause-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-pause-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-pause-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 460,
+        "y": 674.5,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "1366x768-dpr1-pause-escape-cannot-dismiss",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-pause-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-completion-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 459,
+        "y": 16,
+        "width": 448,
+        "height": 736
+      }
+    },
+    {
+      "name": "1366x768-dpr1-completion-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-completion-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-completion-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-completion-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 460,
+        "y": 690,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "1366x768-dpr1-completion-no-unverified-disk-claim",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-completion-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-specifications-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 331,
+        "y": 145,
+        "width": 704,
+        "height": 478
+      }
+    },
+    {
+      "name": "1366x768-dpr1-specifications-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-specifications-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-specifications-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-specifications-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 332,
+        "y": 557,
+        "width": 702,
+        "height": 65
+      }
+    },
+    {
+      "name": "1366x768-dpr1-specifications-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-profiles-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 331,
+        "y": 120.609375,
+        "width": 704,
+        "height": 526.78125
+      }
+    },
+    {
+      "name": "1366x768-dpr1-profiles-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-profiles-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-profiles-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-profiles-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 332,
+        "y": 581.390625,
+        "width": 702,
+        "height": 65
+      }
+    },
+    {
+      "name": "1366x768-dpr1-profiles-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-save-error-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 331,
+        "y": 254,
+        "width": 704,
+        "height": 260
+      }
+    },
+    {
+      "name": "1366x768-dpr1-save-error-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-save-error-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-save-error-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-save-error-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 332,
+        "y": 448,
+        "width": 702,
+        "height": 65
+      }
+    },
+    {
+      "name": "1366x768-dpr1-save-error-error-preserves-dialog",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-save-error-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-save-pending-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 331,
+        "y": 254,
+        "width": 704,
+        "height": 260
+      }
+    },
+    {
+      "name": "1366x768-dpr1-save-pending-background-inert",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-save-pending-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-save-pending-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-save-pending-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 332,
+        "y": 448,
+        "width": 702,
+        "height": 65
+      }
+    },
+    {
+      "name": "1366x768-dpr1-save-pending-pending-lock",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-save-pending-pending-escape-ignored",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-save-pending-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-pd-running-settings-disabled",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-pd-running-stop-visible-enabled",
+      "passed": true,
+      "detail": {
+        "x": 17,
+        "y": 133,
+        "width": 346,
+        "height": 32
+      }
+    },
+    {
+      "name": "1366x768-dpr1-pd-running-chart-present",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-pd-running-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-manual-readback-not-setpoint",
+      "passed": true,
+      "detail": {
+        "expected": "0.25",
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.25",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1366x768-dpr1-manual-current-unit",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.25",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1366x768-dpr1-manual-current-visible-without-overflow",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.25",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1366x768-dpr1-manual-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-manual-missing-readback-not-setpoint",
+      "passed": true,
+      "detail": {
+        "expected": "--",
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1366x768-dpr1-manual-missing-current-unit",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1366x768-dpr1-manual-missing-current-visible-without-overflow",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1366x768-dpr1-manual-missing-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-manual-disconnected-readback-not-setpoint",
+      "passed": true,
+      "detail": {
+        "expected": "--",
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1366x768-dpr1-manual-disconnected-current-unit",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1366x768-dpr1-manual-disconnected-current-visible-without-overflow",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1366x768-dpr1-manual-disconnected-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-manual-ch341-readback-not-setpoint",
+      "passed": true,
+      "detail": {
+        "expected": "1.25",
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "1.25",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1366x768-dpr1-manual-ch341-current-unit",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "1.25",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1366x768-dpr1-manual-ch341-current-visible-without-overflow",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "1.25",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1366x768-dpr1-manual-ch341-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-manual-zero-readback-not-setpoint",
+      "passed": true,
+      "detail": {
+        "expected": "0.00",
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.00",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1366x768-dpr1-manual-zero-current-unit",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.00",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1366x768-dpr1-manual-zero-current-visible-without-overflow",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.00",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1366x768-dpr1-manual-zero-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-manual-ch341-zero-readback-not-setpoint",
+      "passed": true,
+      "detail": {
+        "expected": "0.00",
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.00",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1366x768-dpr1-manual-ch341-zero-current-unit",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.00",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1366x768-dpr1-manual-ch341-zero-current-visible-without-overflow",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.00",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1366x768-dpr1-manual-ch341-zero-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-manual-ch341-missing-readback-not-setpoint",
+      "passed": true,
+      "detail": {
+        "expected": "--",
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1366x768-dpr1-manual-ch341-missing-current-unit",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1366x768-dpr1-manual-ch341-missing-current-visible-without-overflow",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1366x768-dpr1-manual-ch341-missing-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dpr1-manual-ch341-disconnected-readback-not-setpoint",
+      "passed": true,
+      "detail": {
+        "expected": "--",
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1366x768-dpr1-manual-ch341-disconnected-current-unit",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1366x768-dpr1-manual-ch341-disconnected-current-visible-without-overflow",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "1366x768-dpr1-manual-ch341-disconnected-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-protection-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 256,
+        "y": 16,
+        "width": 448,
+        "height": 508
+      }
+    },
+    {
+      "name": "960x540-dpr2-protection-background-inert",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-protection-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-protection-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-protection-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 257,
+        "y": 462,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "960x540-dpr2-protection-no-unverified-safe-claim",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-protection-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-shutdown-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 256,
+        "y": 16,
+        "width": 448,
+        "height": 508
+      }
+    },
+    {
+      "name": "960x540-dpr2-shutdown-background-inert",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-shutdown-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-shutdown-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-shutdown-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 257,
+        "y": 462,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "960x540-dpr2-shutdown-force-guarded",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-shutdown-explicit-ack-enables-force",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-shutdown-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-shutdown-pending-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 256,
+        "y": 16,
+        "width": 448,
+        "height": 508
+      }
+    },
+    {
+      "name": "960x540-dpr2-shutdown-pending-background-inert",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-shutdown-pending-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-shutdown-pending-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-shutdown-pending-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 257,
+        "y": 462,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "960x540-dpr2-shutdown-pending-all-actions-disabled",
+      "passed": false
+    },
+    {
+      "name": "960x540-dpr2-shutdown-pending-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-pause-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 256,
+        "y": 16,
+        "width": 448,
+        "height": 508
+      }
+    },
+    {
+      "name": "960x540-dpr2-pause-background-inert",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-pause-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-pause-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-pause-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 257,
+        "y": 462,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "960x540-dpr2-pause-escape-cannot-dismiss",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-pause-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-completion-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 256,
+        "y": 16,
+        "width": 448,
+        "height": 508
+      }
+    },
+    {
+      "name": "960x540-dpr2-completion-background-inert",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-completion-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-completion-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-completion-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 257,
+        "y": 462,
+        "width": 446,
+        "height": 61
+      }
+    },
+    {
+      "name": "960x540-dpr2-completion-no-unverified-disk-claim",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-completion-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-specifications-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 128,
+        "y": 51,
+        "width": 704,
+        "height": 438
+      }
+    },
+    {
+      "name": "960x540-dpr2-specifications-background-inert",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-specifications-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-specifications-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-specifications-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 129,
+        "y": 435,
+        "width": 702,
+        "height": 53
+      }
+    },
+    {
+      "name": "960x540-dpr2-specifications-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-profiles-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 128,
+        "y": 26.609375,
+        "width": 704,
+        "height": 486.78125
+      }
+    },
+    {
+      "name": "960x540-dpr2-profiles-background-inert",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-profiles-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-profiles-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-profiles-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 129,
+        "y": 459.390625,
+        "width": 702,
+        "height": 53
+      }
+    },
+    {
+      "name": "960x540-dpr2-profiles-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-save-error-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 128,
+        "y": 160,
+        "width": 704,
+        "height": 220
+      }
+    },
+    {
+      "name": "960x540-dpr2-save-error-background-inert",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-save-error-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-save-error-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-save-error-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 129,
+        "y": 326,
+        "width": 702,
+        "height": 53
+      }
+    },
+    {
+      "name": "960x540-dpr2-save-error-error-preserves-dialog",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-save-error-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-save-pending-dialog-bounded",
+      "passed": true,
+      "detail": {
+        "x": 128,
+        "y": 160,
+        "width": 704,
+        "height": 220
+      }
+    },
+    {
+      "name": "960x540-dpr2-save-pending-background-inert",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-save-pending-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-save-pending-reverse-tab-wrap",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-save-pending-footer-visible",
+      "passed": true,
+      "detail": {
+        "x": 129,
+        "y": 326,
+        "width": 702,
+        "height": 53
+      }
+    },
+    {
+      "name": "960x540-dpr2-save-pending-pending-lock",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-save-pending-pending-escape-ignored",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-save-pending-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-pd-running-settings-disabled",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-pd-running-stop-visible-enabled",
+      "passed": true,
+      "detail": {
+        "x": 17,
+        "y": 133,
+        "width": 270,
+        "height": 32
+      }
+    },
+    {
+      "name": "960x540-dpr2-pd-running-chart-present",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-pd-running-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-manual-readback-not-setpoint",
+      "passed": true,
+      "detail": {
+        "expected": "0.25",
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.25",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "960x540-dpr2-manual-current-unit",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.25",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "960x540-dpr2-manual-current-visible-without-overflow",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.25",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "960x540-dpr2-manual-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-manual-missing-readback-not-setpoint",
+      "passed": true,
+      "detail": {
+        "expected": "--",
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "960x540-dpr2-manual-missing-current-unit",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "960x540-dpr2-manual-missing-current-visible-without-overflow",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "960x540-dpr2-manual-missing-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-manual-disconnected-readback-not-setpoint",
+      "passed": true,
+      "detail": {
+        "expected": "--",
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "960x540-dpr2-manual-disconnected-current-unit",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "960x540-dpr2-manual-disconnected-current-visible-without-overflow",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "960x540-dpr2-manual-disconnected-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-manual-ch341-readback-not-setpoint",
+      "passed": true,
+      "detail": {
+        "expected": "1.25",
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "1.25",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "960x540-dpr2-manual-ch341-current-unit",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "1.25",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "960x540-dpr2-manual-ch341-current-visible-without-overflow",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "1.25",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "960x540-dpr2-manual-ch341-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-manual-zero-readback-not-setpoint",
+      "passed": true,
+      "detail": {
+        "expected": "0.00",
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.00",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "960x540-dpr2-manual-zero-current-unit",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.00",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "960x540-dpr2-manual-zero-current-visible-without-overflow",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.00",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "960x540-dpr2-manual-zero-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-manual-ch341-zero-readback-not-setpoint",
+      "passed": true,
+      "detail": {
+        "expected": "0.00",
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.00",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "960x540-dpr2-manual-ch341-zero-current-unit",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.00",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "960x540-dpr2-manual-ch341-zero-current-visible-without-overflow",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "0.00",
+        "unit": "A",
+        "placeholder": "",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "960x540-dpr2-manual-ch341-zero-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-manual-ch341-missing-readback-not-setpoint",
+      "passed": true,
+      "detail": {
+        "expected": "--",
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "960x540-dpr2-manual-ch341-missing-current-unit",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "960x540-dpr2-manual-ch341-missing-current-visible-without-overflow",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "960x540-dpr2-manual-ch341-missing-no-document-overflow",
+      "passed": true
+    },
+    {
+      "name": "960x540-dpr2-manual-ch341-disconnected-readback-not-setpoint",
+      "passed": true,
+      "detail": {
+        "expected": "--",
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "960x540-dpr2-manual-ch341-disconnected-current-unit",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "960x540-dpr2-manual-ch341-disconnected-current-visible-without-overflow",
+      "passed": true,
+      "detail": {
+        "valueCount": 1,
+        "unitCount": 1,
+        "value": "--",
+        "unit": "A",
+        "placeholder": "--",
+        "visible": true,
+        "inViewport": true,
+        "fits": true
+      }
+    },
+    {
+      "name": "960x540-dpr2-manual-ch341-disconnected-no-document-overflow",
+      "passed": true
+    }
+  ],
+  "errors": [],
+  "captures": [
+    "1920x1080-dpr1-protection",
+    "1920x1080-dpr1-shutdown",
+    "1920x1080-dpr1-shutdown-pending",
+    "1920x1080-dpr1-pause",
+    "1920x1080-dpr1-completion",
+    "1920x1080-dpr1-specifications",
+    "1920x1080-dpr1-profiles",
+    "1920x1080-dpr1-save-error",
+    "1920x1080-dpr1-save-pending",
+    "1920x1080-dpr1-pd-running",
+    "1920x1080-dpr1-manual",
+    "1920x1080-dpr1-manual-missing",
+    "1920x1080-dpr1-manual-disconnected",
+    "1920x1080-dpr1-manual-ch341",
+    "1920x1080-dpr1-manual-zero",
+    "1920x1080-dpr1-manual-ch341-zero",
+    "1920x1080-dpr1-manual-ch341-missing",
+    "1920x1080-dpr1-manual-ch341-disconnected",
+    "1366x768-dpr1-protection",
+    "1366x768-dpr1-shutdown",
+    "1366x768-dpr1-shutdown-pending",
+    "1366x768-dpr1-pause",
+    "1366x768-dpr1-completion",
+    "1366x768-dpr1-specifications",
+    "1366x768-dpr1-profiles",
+    "1366x768-dpr1-save-error",
+    "1366x768-dpr1-save-pending",
+    "1366x768-dpr1-pd-running",
+    "1366x768-dpr1-manual",
+    "1366x768-dpr1-manual-missing",
+    "1366x768-dpr1-manual-disconnected",
+    "1366x768-dpr1-manual-ch341",
+    "1366x768-dpr1-manual-zero",
+    "1366x768-dpr1-manual-ch341-zero",
+    "1366x768-dpr1-manual-ch341-missing",
+    "1366x768-dpr1-manual-ch341-disconnected",
+    "960x540-dpr2-protection",
+    "960x540-dpr2-shutdown",
+    "960x540-dpr2-shutdown-pending",
+    "960x540-dpr2-pause",
+    "960x540-dpr2-completion",
+    "960x540-dpr2-specifications",
+    "960x540-dpr2-profiles",
+    "960x540-dpr2-save-error",
+    "960x540-dpr2-save-pending",
+    "960x540-dpr2-pd-running",
+    "960x540-dpr2-manual",
+    "960x540-dpr2-manual-missing",
+    "960x540-dpr2-manual-disconnected",
+    "960x540-dpr2-manual-ch341",
+    "960x540-dpr2-manual-zero",
+    "960x540-dpr2-manual-ch341-zero",
+    "960x540-dpr2-manual-ch341-missing",
+    "960x540-dpr2-manual-ch341-disconnected"
+  ]
+}

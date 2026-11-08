@@ -1,0 +1,10 @@
+{
+  "browserOnly": true,
+  "hardwareConnected": false,
+  "checks": [
+    "actual-app-demo-stop-and-single-terminal-title",
+    "actual-app-demo-stopped-button-remains-disabled"
+  ],
+  "errors": [],
+  "limits": "Starting a new run is covered by the isolated real-component callbacks; the full demo retains acquisition and power-output readiness requirements."
+}

@@ -1,0 +1,78 @@
+{
+  "checks": [
+    {
+      "name": "current-up-arrow",
+      "passed": true
+    },
+    {
+      "name": "current-tenth-step",
+      "passed": true
+    },
+    {
+      "name": "confirm-keeps-focus",
+      "passed": true
+    },
+    {
+      "name": "voltage-tenth-step",
+      "passed": true
+    },
+    {
+      "name": "voltage-step-button",
+      "passed": true
+    },
+    {
+      "name": "manual-psu-current-0-preserved",
+      "passed": true
+    },
+    {
+      "name": "manual-psu-current-0-fits",
+      "passed": true,
+      "detail": {
+        "available": 106,
+        "textWidth": 9.599609375,
+        "fits": true
+      }
+    },
+    {
+      "name": "manual-psu-current-12.345678-preserved",
+      "passed": true
+    },
+    {
+      "name": "manual-psu-current-12.345678-fits",
+      "passed": true,
+      "detail": {
+        "available": 106,
+        "textWidth": 81.591796875,
+        "fits": true
+      }
+    },
+    {
+      "name": "manual-psu-voltage-0-preserved",
+      "passed": true
+    },
+    {
+      "name": "manual-psu-voltage-0-fits",
+      "passed": true,
+      "detail": {
+        "available": 106,
+        "textWidth": 9.599609375,
+        "fits": true
+      }
+    },
+    {
+      "name": "manual-psu-voltage-12.345678-preserved",
+      "passed": true
+    },
+    {
+      "name": "manual-psu-voltage-12.345678-fits",
+      "passed": true,
+      "detail": {
+        "available": 106,
+        "textWidth": 81.591796875,
+        "fits": true
+      }
+    }
+  ],
+  "browserOnly": true,
+  "hardwareAccess": false
+}

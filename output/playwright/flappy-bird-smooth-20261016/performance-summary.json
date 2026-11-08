@@ -1,0 +1,74 @@
+{
+  "environment": "Local headed Chromium, production React runtime, 1440x900, 601 power points plus 8192-pixel spectrum",
+  "trialsPerCadence": 3,
+  "secondsPerTrial": 4,
+  "rows": [
+    {
+      "sampleIntervalMs": 100,
+      "before": {
+        "drawsPerSecond": 9.98,
+        "meanDrawMs": 0.396,
+        "worstTrialP95DrawMs": 0.7,
+        "maxDrawMs": 0.7,
+        "drawMsPerSecond": 3.95,
+        "mainThreadTaskMsPerSecond": 45.23,
+        "worstFrameP95Ms": 17.5,
+        "frameGapsOver25Ms": 0
+      },
+      "after": {
+        "drawsPerSecond": 59.91,
+        "meanDrawMs": 0.421,
+        "worstTrialP95DrawMs": 0.7,
+        "maxDrawMs": 1,
+        "drawMsPerSecond": 25.19,
+        "mainThreadTaskMsPerSecond": 89.03,
+        "worstFrameP95Ms": 17.5,
+        "frameGapsOver25Ms": 0
+      },
+      "additionalDrawMsPerSecond": 21.24
+    },
+    {
+      "sampleIntervalMs": 200,
+      "before": {
+        "drawsPerSecond": 4.99,
+        "meanDrawMs": 0.4,
+        "worstTrialP95DrawMs": 0.7,
+        "maxDrawMs": 0.7,
+        "drawMsPerSecond": 2.0,
+        "mainThreadTaskMsPerSecond": 37.66,
+        "worstFrameP95Ms": 17.4,
+        "frameGapsOver25Ms": 0
+      },
+      "after": {
+        "drawsPerSecond": 59.93,
+        "meanDrawMs": 0.285,
+        "worstTrialP95DrawMs": 0.5,
+        "maxDrawMs": 0.6,
+        "drawMsPerSecond": 17.06,
+        "mainThreadTaskMsPerSecond": 55.59,
+        "worstFrameP95Ms": 17.4,
+        "frameGapsOver25Ms": 0
+      },
+      "additionalDrawMsPerSecond": 15.06
+    }
+  ],
+  "scope": "JS draw callback including Canvas command submission and DOM marker update; not GPU raster/compositor duration",
+  "limits": [
+    "Local Chromium at DPR 1 and about 60 Hz; not native Tauri/WebView2 or hardware acceptance",
+    "Short repeated synthetic runs; main-thread timings include browser and test instrumentation noise"
+  ],
+  "sourceSha256": {
+    "tauri-ui/src/components/canvas-line-chart.tsx": "4fa0b85b1299016062144f9275ad41171dd62a432d7c7bda476a8a9dfd650a91",
+    "tauri-ui/src/features/charts/realtime.tsx": "f0e2463a00ba9e91f5043514def3cc7c9a046a02901015bf1c31fe1da2fc4758",
+    "tauri-ui/src/lib/chart-curve-reveal.ts": "0f2e6eb46cc50646e9ad94d19e0c5663d5b678186c9ccf3aa8d7b26e2452a099"
+  },
+  "verification": {
+    "focusedUnitTests": 13,
+    "productionFrontendBuild": "passed",
+    "motionRegression": "passed",
+    "existingSyncRegression": "passed",
+    "existingChartRegression": "passed",
+    "wingCadence": "400ms steps(4)",
+    "sourceSamples": "unchanged in frozen-input regression"
+  }
+}

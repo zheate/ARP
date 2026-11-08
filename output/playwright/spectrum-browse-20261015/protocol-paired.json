@@ -1,0 +1,199 @@
+{
+  "rows": [
+    {
+      "implementation": "before",
+      "phase": "cold",
+      "inspect_ms": 782.7058750008291,
+      "json_ms": 137.34412499979953,
+      "total_ms": 920.0500000006286,
+      "bytes": 5608270
+    },
+    {
+      "implementation": "after",
+      "phase": "cold",
+      "inspect_ms": 732.6126660009322,
+      "json_ms": 73.36529199892539,
+      "total_ms": 805.9779579998576,
+      "bytes": 5608270
+    },
+    {
+      "implementation": "after",
+      "phase": "cold",
+      "inspect_ms": 678.9122499976656,
+      "json_ms": 71.39112500226474,
+      "total_ms": 750.3033749999304,
+      "bytes": 5608270
+    },
+    {
+      "implementation": "before",
+      "phase": "cold",
+      "inspect_ms": 655.5015419980919,
+      "json_ms": 78.92658299897448,
+      "total_ms": 734.4281249970663,
+      "bytes": 5608270
+    },
+    {
+      "implementation": "before",
+      "phase": "cold",
+      "inspect_ms": 649.6689579980739,
+      "json_ms": 79.16250000198488,
+      "total_ms": 728.8314580000588,
+      "bytes": 5608270
+    },
+    {
+      "implementation": "after",
+      "phase": "cold",
+      "inspect_ms": 666.7222500000207,
+      "json_ms": 71.58566699945368,
+      "total_ms": 738.3079169994744,
+      "bytes": 5608270
+    },
+    {
+      "implementation": "before",
+      "phase": "warm",
+      "inspect_ms": 45.64941699936753,
+      "json_ms": 80.53762499912409,
+      "total_ms": 126.18704199849162,
+      "bytes": 5608270
+    },
+    {
+      "implementation": "after",
+      "phase": "warm",
+      "inspect_ms": 2.911332998337457,
+      "json_ms": 71.09637499888777,
+      "total_ms": 74.00770799722522,
+      "bytes": 5608270
+    },
+    {
+      "implementation": "after",
+      "phase": "warm",
+      "inspect_ms": 2.1941249979136046,
+      "json_ms": 71.8311669988907,
+      "total_ms": 74.0252919968043,
+      "bytes": 5608270
+    },
+    {
+      "implementation": "before",
+      "phase": "warm",
+      "inspect_ms": 47.97975000110455,
+      "json_ms": 83.33958299772348,
+      "total_ms": 131.31933299882803,
+      "bytes": 5608270
+    },
+    {
+      "implementation": "before",
+      "phase": "warm",
+      "inspect_ms": 45.73341700233868,
+      "json_ms": 78.97524999862071,
+      "total_ms": 124.7086670009594,
+      "bytes": 5608270
+    },
+    {
+      "implementation": "after",
+      "phase": "warm",
+      "inspect_ms": 3.1168339992291294,
+      "json_ms": 70.94904099722044,
+      "total_ms": 74.06587499644957,
+      "bytes": 5608270
+    },
+    {
+      "implementation": "after",
+      "phase": "warm",
+      "inspect_ms": 2.0504170024651103,
+      "json_ms": 70.93279199762037,
+      "total_ms": 72.98320900008548,
+      "bytes": 5608270
+    },
+    {
+      "implementation": "before",
+      "phase": "warm",
+      "inspect_ms": 44.57870799888042,
+      "json_ms": 77.80916699994123,
+      "total_ms": 122.38787499882164,
+      "bytes": 5608270
+    },
+    {
+      "implementation": "before",
+      "phase": "warm",
+      "inspect_ms": 44.69233299823827,
+      "json_ms": 77.46083399979398,
+      "total_ms": 122.15316699803225,
+      "bytes": 5608270
+    },
+    {
+      "implementation": "after",
+      "phase": "warm",
+      "inspect_ms": 2.6748339987534564,
+      "json_ms": 71.25920800172025,
+      "total_ms": 73.93404200047371,
+      "bytes": 5608270
+    },
+    {
+      "implementation": "after",
+      "phase": "warm",
+      "inspect_ms": 2.0652499988500495,
+      "json_ms": 70.61283299844945,
+      "total_ms": 72.6780829972995,
+      "bytes": 5608270
+    },
+    {
+      "implementation": "before",
+      "phase": "warm",
+      "inspect_ms": 45.55104199971538,
+      "json_ms": 78.59858299707412,
+      "total_ms": 124.1496249967895,
+      "bytes": 5608270
+    },
+    {
+      "implementation": "before",
+      "phase": "warm",
+      "inspect_ms": 43.44287500134669,
+      "json_ms": 78.11220799703733,
+      "total_ms": 121.55508299838402,
+      "bytes": 5608270
+    },
+    {
+      "implementation": "after",
+      "phase": "warm",
+      "inspect_ms": 2.545999999711057,
+      "json_ms": 71.14195800022571,
+      "total_ms": 73.68795799993677,
+      "bytes": 5608270
+    },
+    {
+      "implementation": "after",
+      "phase": "warm",
+      "inspect_ms": 1.8586249971122015,
+      "json_ms": 70.88704100169707,
+      "total_ms": 72.74566599880927,
+      "bytes": 5608270
+    },
+    {
+      "implementation": "before",
+      "phase": "warm",
+      "inspect_ms": 44.73141600101371,
+      "json_ms": 78.05845899929409,
+      "total_ms": 122.7898750003078,
+      "bytes": 5608270
+    },
+    {
+      "implementation": "before",
+      "phase": "warm",
+      "inspect_ms": 43.92958300013561,
+      "json_ms": 79.14995800092584,
+      "total_ms": 123.07954100106144,
+      "bytes": 5608270
+    },
+    {
+      "implementation": "after",
+      "phase": "warm",
+      "inspect_ms": 2.42029199944227,
+      "json_ms": 70.92287499835948,
+      "total_ms": 73.34316699780175,
+      "bytes": 5608270
+    }
+  ],
+  "wire_bytes_identical": true,
+  "sha256": "bbe28cc5a4ca4f742d17d76a7f05d057b3fa70d22c4e1990900a9c408a9d8a18",
+  "limits": "Includes inspect and JSON encoding; excludes pipe I/O, Rust and WebView rendering"
+}

@@ -1,0 +1,65 @@
+@font-face {
+  font-family: "ARP Seven Segment";
+  src: url("../../assets/fonts/dseg7/DSEG7Classic-Bold.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
+.manual-current-controls {
+  --manual-current-color: #a85108;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dark .manual-current-controls {
+  --manual-current-color: #ffad32;
+}
+
+.manual-current-controls .manual-current-controls__digit {
+  color: var(--manual-current-color);
+  font-family: "ARP Seven Segment", monospace;
+  font-size: 1.125rem;
+  font-weight: 700;
+  font-synthesis: none;
+  line-height: 1.5;
+}
+
+.manual-current-controls .manual-current-controls__input {
+  text-align: right;
+}
+
+.dark .manual-current-controls__digit {
+  text-shadow: 0 0 4px rgb(255 173 50 / 16%);
+}
+
+.manual-current-controls .manual-current-controls__digit:disabled,
+.manual-current-controls .manual-current-controls__digit[data-available="false"] {
+  color: var(--muted-foreground);
+  text-shadow: none;
+}
+
+.manual-current-controls__readout {
+  display: flex;
+  height: 2.25rem;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-content: center;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.125rem 0.25rem;
+  line-height: 1;
+}
+
+.manual-current-controls__measurement {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+
+.manual-current-controls__measurement .manual-current-controls__digit {
+  line-height: 1.1;
+}

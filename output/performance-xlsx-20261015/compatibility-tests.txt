@@ -1,0 +1,15 @@
+test_data_browser_reuses_numeric_column_coordinates (tests.test_xlsx_reader.NumericCoordinateRegression.test_data_browser_reuses_numeric_column_coordinates) ... ok
+test_all_cell_types_styles_and_date_epochs (tests.test_xlsx_reader.XlsxReaderCompatibility.test_all_cell_types_styles_and_date_epochs) ... ok
+test_coordinates_rows_dimensions_and_unused_invalid_cells (tests.test_xlsx_reader.XlsxReaderCompatibility.test_coordinates_rows_dimensions_and_unused_invalid_cells) ... ok
+test_damaged_archive_and_xml_errors (tests.test_xlsx_reader.XlsxReaderCompatibility.test_damaged_archive_and_xml_errors) ... ok
+test_index_error_records_filters_refresh_and_repair_match (tests.test_xlsx_reader.XlsxReaderCompatibility.test_index_error_records_filters_refresh_and_repair_match) ... ok
+test_native_legacy_sparse_and_hidden_metadata (tests.test_xlsx_reader.XlsxReaderCompatibility.test_native_legacy_sparse_and_hidden_metadata) ... ok
+test_numeric_lexemes_and_cached_formulas (tests.test_xlsx_reader.XlsxReaderCompatibility.test_numeric_lexemes_and_cached_formulas) ... ok
+test_seeded_cell_combinations_match_original_parser (tests.test_xlsx_reader.XlsxReaderCompatibility.test_seeded_cell_combinations_match_original_parser) ... ok
+test_shared_strings_inline_strings_and_writer_modes (tests.test_xlsx_reader.XlsxReaderCompatibility.test_shared_strings_inline_strings_and_writer_modes) ... ok
+test_unsupported_versions_and_custom_sheets_use_original_iterator (tests.test_xlsx_reader.XlsxReaderCompatibility.test_unsupported_versions_and_custom_sheets_use_original_iterator) ... ok
+
+----------------------------------------------------------------------
+Ran 10 tests in 1.214s
+
+OK

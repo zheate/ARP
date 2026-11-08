@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN" class="dark" data-theme="dark" data-accent="orange" style="background: #0f1112; color-scheme: dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0f1112" />
+    <title>Power Test</title>
+    <script type="module" crossorigin src="/assets/index-Dd9n7iAC.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/tauri-vendor-BvoPdSUf.js">
+    <link rel="stylesheet" crossorigin href="/assets/index-CL5FyPyY.css">
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script>
+      (() => {
+        try {
+          const storedTheme = localStorage.getItem("power-test.theme")
+          const theme = storedTheme === "light" || storedTheme === "dark" ? storedTheme : "dark"
+          const root = document.documentElement
+          root.classList.toggle("dark", theme === "dark")
+          root.dataset.theme = theme
+          const storedAccent = localStorage.getItem("power-test.accent-theme")
+          root.dataset.accent = ["orange", "blue", "green", "purple", "rose", "graphite"].includes(storedAccent) ? storedAccent : "orange"
+          root.style.background = theme === "dark" ? "#0f1112" : "#f4f6f8"
+          root.style.colorScheme = theme
+          document.querySelector('meta[name="theme-color"]')?.setAttribute("content", root.style.background)
+        } catch {
+          // Use the dark default when local storage is unavailable.
+        }
+      })()
+    </script>
+  </body>
+</html>

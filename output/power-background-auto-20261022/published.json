@@ -1,0 +1,12 @@
+{
+  "commit": "f114934bc8c52864e584bf3eda095e56d5540d2d",
+  "remoteCommit": "f114934bc8c52864e584bf3eda095e56d5540d2d",
+  "branch": "audit/arp-ui-final-20260914",
+  "reviewedFiles": 10,
+  "pythonTests": 261,
+  "frontendTests": 32,
+  "build": "passed",
+  "browser": "3 sizes x 3 dialogs passed",
+  "hardware": "not tested",
+  "windowsTauri": "not tested"
+}

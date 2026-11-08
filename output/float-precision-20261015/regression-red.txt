@@ -1,0 +1,21 @@
+   Compiling tauri-ui v0.1.2 (/Users/zh/Documents/test/ARP/tauri-ui/src-tauri)
+    Finished `release` profile [optimized] target(s) in 4.32s
+     Running unittests src/lib.rs (tauri-ui/src-tauri/target/release/deps/tauri_ui_lib-b45f485fb370f0c3)
+
+running 1 test
+
+thread 'float_precision_benchmark::python_response_float_bits_are_preserved' (1049049) panicked at src/float_precision_benchmark.rs:28:9:
+assertion `left == right` failed: 100.10484927916119
+  left: 4636744669466738795
+ right: 4636744669466738794
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test float_precision_benchmark::python_response_float_bits_are_preserved ... FAILED
+
+failures:
+
+failures:
+    float_precision_benchmark::python_response_float_bits_are_preserved
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`

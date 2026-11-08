@@ -1,0 +1,13 @@
+F
+======================================================================
+FAIL: test_large_spectrum_cache_retains_compact_data_and_returns_isolated_lists (tests.test_data_browser.DataBrowserTests.test_large_spectrum_cache_retains_compact_data_and_returns_isolated_lists)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/zh/Documents/test/ARP/tests/test_data_browser.py", line 83, in test_large_spectrum_cache_retains_compact_data_and_returns_isolated_lists
+    self.assertLess(retained_size(browser._DETAILS, set()), numeric_bytes * 1.5)
+AssertionError: 2113633 not less than 786432.0
+
+----------------------------------------------------------------------
+Ran 1 test in 0.042s
+
+FAILED (failures=1)

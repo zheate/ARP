@@ -1,0 +1,24 @@
+   Compiling serde_json v1.0.150
+   Compiling jsonptr v0.6.3
+   Compiling serialize-to-javascript v0.1.2
+   Compiling json-patch v3.0.1
+   Compiling tauri-utils v2.9.3
+   Compiling tauri-runtime v2.11.3
+   Compiling tauri-runtime-wry v2.11.4
+   Compiling tauri v2.11.5
+   Compiling tauri-plugin-fs v2.5.1
+   Compiling tauri-plugin-opener v2.5.4
+   Compiling tauri-plugin-single-instance v2.4.3
+   Compiling tauri-plugin-dialog v2.7.2
+   Compiling tauri-ui v0.1.2 (/Users/zh/Documents/test/ARP/tauri-ui/src-tauri)
+    Finished `release` profile [optimized] target(s) in 14.14s
+     Running unittests src/lib.rs (tauri-ui/src-tauri/target/release/deps/tauri_ui_lib-6863212a5cf34ed6)
+
+running 4 tests
+test float_precision_benchmark::benchmark_float_precision_parse ... ignored, explicit frozen precision fixture/output paths required; no hardware
+test float_precision_benchmark::replay_python_float_precision ... ignored, explicit precision fixture/output paths required; no hardware
+test float_precision_benchmark::python_response_float_bits_are_preserved ... ok
+test float_precision_benchmark::float_parser_preserves_control_protocol_types_and_errors ... ok
+
+test result: ok. 2 passed; 0 failed; 2 ignored; 0 measured; 25 filtered out; finished in 0.00s
+

@@ -1,0 +1,289 @@
+{
+  "geometry": [
+    {
+      "applied": true,
+      "apply": {
+        "height": 32,
+        "width": 80,
+        "x": 303,
+        "y": 235.421875
+      },
+      "cards": [
+        {
+          "height": 294.421875,
+          "width": 319.328125,
+          "x": 176,
+          "y": 112
+        },
+        {
+          "height": 294.421875,
+          "width": 319.3359375,
+          "x": 507.328125,
+          "y": 112
+        },
+        {
+          "height": 294.421875,
+          "width": 319.3359375,
+          "x": 838.6640625,
+          "y": 112
+        }
+      ],
+      "footer": [
+        {
+          "clipped": false,
+          "disabled": false,
+          "height": 36,
+          "text": "断开连接",
+          "width": 91.109375,
+          "x": 191,
+          "y": 345.421875
+        },
+        {
+          "clipped": false,
+          "disabled": false,
+          "height": 36,
+          "text": "开启输出",
+          "width": 91.109375,
+          "x": 290.109375,
+          "y": 345.421875
+        },
+        {
+          "clipped": false,
+          "disabled": false,
+          "height": 36,
+          "text": "归零&关闭",
+          "width": 91.109375,
+          "x": 389.21875,
+          "y": 345.421875
+        }
+      ],
+      "input": {
+        "height": 32,
+        "width": 104,
+        "x": 191,
+        "y": 235.421875
+      },
+      "overflow": false,
+      "viewport": [
+        1180,
+        720
+      ]
+    },
+    {
+      "applied": true,
+      "apply": {
+        "height": 32,
+        "width": 80,
+        "x": 331,
+        "y": 235.421875
+      },
+      "cards": [
+        {
+          "height": 294.421875,
+          "width": 556.6640625,
+          "x": 204,
+          "y": 112
+        },
+        {
+          "height": 294.421875,
+          "width": 556.6640625,
+          "x": 772.6640625,
+          "y": 112
+        },
+        {
+          "height": 294.421875,
+          "width": 556.671875,
+          "x": 1341.328125,
+          "y": 112
+        }
+      ],
+      "footer": [
+        {
+          "clipped": false,
+          "disabled": false,
+          "height": 36,
+          "text": "断开连接",
+          "width": 170.21875,
+          "x": 219,
+          "y": 345.421875
+        },
+        {
+          "clipped": false,
+          "disabled": false,
+          "height": 36,
+          "text": "开启输出",
+          "width": 170.21875,
+          "x": 397.21875,
+          "y": 345.421875
+        },
+        {
+          "clipped": false,
+          "disabled": false,
+          "height": 36,
+          "text": "归零&关闭",
+          "width": 170.2265625,
+          "x": 575.4375,
+          "y": 345.421875
+        }
+      ],
+      "input": {
+        "height": 32,
+        "width": 104,
+        "x": 219,
+        "y": 235.421875
+      },
+      "overflow": false,
+      "viewport": [
+        1920,
+        1080
+      ]
+    },
+    {
+      "applied": true,
+      "apply": {
+        "height": 32,
+        "width": 80,
+        "x": 303,
+        "y": 235.421875
+      },
+      "cards": [
+        {
+          "height": 294.421875,
+          "width": 319.328125,
+          "x": 176,
+          "y": 112
+        },
+        {
+          "height": 294.421875,
+          "width": 319.3359375,
+          "x": 507.328125,
+          "y": 112
+        },
+        {
+          "height": 294.421875,
+          "width": 319.3359375,
+          "x": 838.6640625,
+          "y": 112
+        }
+      ],
+      "footer": [
+        {
+          "clipped": false,
+          "disabled": false,
+          "height": 36,
+          "text": "断开连接",
+          "width": 91.109375,
+          "x": 191,
+          "y": 345.421875
+        },
+        {
+          "clipped": false,
+          "disabled": false,
+          "height": 36,
+          "text": "开启输出",
+          "width": 91.109375,
+          "x": 290.109375,
+          "y": 345.421875
+        },
+        {
+          "clipped": false,
+          "disabled": false,
+          "height": 36,
+          "text": "归零&关闭",
+          "width": 91.109375,
+          "x": 389.21875,
+          "y": 345.421875
+        }
+      ],
+      "input": {
+        "height": 32,
+        "width": 104,
+        "x": 191,
+        "y": 235.421875
+      },
+      "overflow": false,
+      "viewport": [
+        1180,
+        720
+      ]
+    },
+    {
+      "applied": true,
+      "apply": {
+        "height": 32,
+        "width": 80,
+        "x": 315.796875,
+        "y": 235.421875
+      },
+      "cards": [
+        {
+          "height": 294.421875,
+          "width": 403.734375,
+          "x": 188.796875,
+          "y": 112
+        },
+        {
+          "height": 294.421875,
+          "width": 403.734375,
+          "x": 604.53125,
+          "y": 112
+        },
+        {
+          "height": 294.421875,
+          "width": 403.734375,
+          "x": 1020.265625,
+          "y": 112
+        }
+      ],
+      "footer": [
+        {
+          "clipped": false,
+          "disabled": false,
+          "height": 36,
+          "text": "断开连接",
+          "width": 119.2421875,
+          "x": 203.796875,
+          "y": 345.421875
+        },
+        {
+          "clipped": false,
+          "disabled": false,
+          "height": 36,
+          "text": "开启输出",
+          "width": 119.2421875,
+          "x": 331.0390625,
+          "y": 345.421875
+        },
+        {
+          "clipped": false,
+          "disabled": false,
+          "height": 36,
+          "text": "归零&关闭",
+          "width": 119.2421875,
+          "x": 458.28125,
+          "y": 345.421875
+        }
+      ],
+      "input": {
+        "height": 32,
+        "width": 104,
+        "x": 203.796875,
+        "y": 235.421875
+      },
+      "overflow": false,
+      "viewport": [
+        1440,
+        900
+      ]
+    }
+  ],
+  "interactions": {
+    "draftAndArrowStep": "12.3 -> 12.4, applied stayed 0 A",
+    "enablePreservedDraft": true,
+    "apply": "12.4 A",
+    "close": "0 A, still connected",
+    "disconnect": "disconnected; connect TDK available",
+    "reconnect": true
+  },
+  "consoleErrors": []
+}

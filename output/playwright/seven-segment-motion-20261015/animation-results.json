@@ -1,0 +1,79 @@
+{
+  "on": {
+    "maxRunning": 22,
+    "durations": [
+      80,
+      100
+    ],
+    "final": [
+      "10.03",
+      "2.03"
+    ],
+    "reduced": false,
+    "enabled": true,
+    "fonts": [
+      "\"ARP Seven Segment\", monospace",
+      "\"ARP Seven Segment\", monospace"
+    ],
+    "residualRunning": 0
+  },
+  "off": {
+    "maxRunning": 0,
+    "durations": [],
+    "final": [
+      "10.03",
+      "2.03"
+    ],
+    "reduced": false,
+    "enabled": false,
+    "fonts": [
+      "\"ARP Seven Segment\", monospace",
+      "\"ARP Seven Segment\", monospace"
+    ],
+    "residualRunning": 0
+  },
+  "reduced": {
+    "maxRunning": 0,
+    "durations": [],
+    "final": [
+      "10.03",
+      "2.03"
+    ],
+    "reduced": true,
+    "enabled": true,
+    "fonts": [
+      "\"ARP Seven Segment\", monospace",
+      "\"ARP Seven Segment\", monospace"
+    ],
+    "residualRunning": 0
+  },
+  "layout1180": {
+    "cards": [
+      {
+        "height": 308.421875,
+        "top": 120,
+        "width": 372.6640625
+      },
+      {
+        "height": 308.421875,
+        "top": 120,
+        "width": 372.6640625
+      },
+      {
+        "height": 308.421875,
+        "top": 120,
+        "width": 372.6640625
+      }
+    ],
+    "readouts": [
+      {
+        "inside": true,
+        "width": 167.328125
+      },
+      {
+        "inside": true,
+        "width": 167.3359375
+      }
+    ]
+  }
+}

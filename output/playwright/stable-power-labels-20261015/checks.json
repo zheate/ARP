@@ -1,0 +1,43 @@
+{
+  "six": [
+    {
+      "measurementWidth": 88,
+      "overflow": false,
+      "readout": "--\nV",
+      "text": "输出电压：",
+      "width": 55,
+      "x": 237.6640625,
+      "y": 327.921875
+    },
+    {
+      "measurementWidth": 88,
+      "overflow": false,
+      "readout": "A",
+      "text": "输出电流：",
+      "width": 55,
+      "x": 428.53125,
+      "y": 327.921875
+    }
+  ],
+  "fourteen": [
+    {
+      "measurementWidth": 88,
+      "overflow": false,
+      "readout": "--\nV",
+      "text": "输出电压：",
+      "width": 55,
+      "x": 237.6640625,
+      "y": 327.921875
+    },
+    {
+      "measurementWidth": 88,
+      "overflow": false,
+      "readout": "A",
+      "text": "输出电流：",
+      "width": 55,
+      "x": 428.53125,
+      "y": 327.921875
+    }
+  ],
+  "stationary": true
+}

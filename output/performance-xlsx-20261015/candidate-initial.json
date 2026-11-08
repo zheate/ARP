@@ -1,0 +1,14 @@
+[
+  {
+    "max_col": 9,
+    "before_ms": 525.7097290013917,
+    "candidate_ms": 475.08025000206544,
+    "rows_equal": true
+  },
+  {
+    "max_col": 58,
+    "before_ms": 537.9761460026202,
+    "candidate_ms": 490.67822950019035,
+    "rows_equal": true
+  }
+]

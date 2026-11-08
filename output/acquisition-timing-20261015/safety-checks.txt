@@ -1,0 +1,20 @@
+test_concurrent_waiters_recheck_the_interval_before_each_write (tests.test_ch341_command_wait.Ch341CommandWaitTests.test_concurrent_waiters_recheck_the_interval_before_each_write) ... ok
+test_disconnect_during_wait_does_not_send_to_old_or_replacement_controller (tests.test_ch341_command_wait.Ch341CommandWaitTests.test_disconnect_during_wait_does_not_send_to_old_or_replacement_controller) ... ok
+test_emergency_stop_cancels_the_waiting_current (tests.test_ch341_command_wait.Ch341CommandWaitTests.test_emergency_stop_cancels_the_waiting_current) ... ok
+test_live_reading_and_snapshot_continue_during_automatic_current_wait (tests.test_ch341_command_wait.Ch341CommandWaitTests.test_live_reading_and_snapshot_continue_during_automatic_current_wait) ... ok
+test_manual_command_still_rejects_an_occupied_slot (tests.test_ch341_command_wait.Ch341CommandWaitTests.test_manual_command_still_rejects_an_occupied_slot) ... ok
+test_next_point_waits_for_actual_journal_fsync (tests.test_ch341_command_wait.Ch341CommandWaitTests.test_next_point_waits_for_actual_journal_fsync) ... ok
+test_voltage_and_record_wait_for_five_continuous_stable_seconds (tests.test_station_runtime.StationRuntimeTests.test_voltage_and_record_wait_for_five_continuous_stable_seconds) ... ok
+test_final_point_waits_ten_seconds_and_reports_the_matching_target (tests.test_station_runtime.StationRuntimeTests.test_final_point_waits_ten_seconds_and_reports_the_matching_target) ... ok
+test_final_point_instability_restarts_the_full_ten_seconds (tests.test_station_runtime.StationRuntimeTests.test_final_point_instability_restarts_the_full_ten_seconds) ... ok
+test_instability_during_hold_restarts_the_full_five_seconds (tests.test_station_runtime.StationRuntimeTests.test_instability_during_hold_restarts_the_full_five_seconds) ... ok
+test_sampling_gap_during_hold_restarts_confirmation (tests.test_station_runtime.StationRuntimeTests.test_sampling_gap_during_hold_restarts_confirmation) ... ok
+test_wavelength_instability_also_restarts_confirmation (tests.test_station_runtime.StationRuntimeTests.test_wavelength_instability_also_restarts_confirmation) ... ok
+test_custom_dwell_must_finish_as_well_as_stability_confirmation (tests.test_station_runtime.StationRuntimeTests.test_custom_dwell_must_finish_as_well_as_stability_confirmation) ... ok
+test_pause_requires_a_new_stable_interval_after_resume (tests.test_station_runtime.StationRuntimeTests.test_pause_requires_a_new_stable_interval_after_resume) ... ok
+test_confirmation_honors_stop_and_times_out_without_new_samples (tests.test_station_runtime.StationRuntimeTests.test_confirmation_honors_stop_and_times_out_without_new_samples) ... ok
+
+----------------------------------------------------------------------
+Ran 15 tests in 4.632s
+
+OK

@@ -1,0 +1,677 @@
+{
+  "environment": {
+    "platform": "macOS-27.2-arm64-arm-64bit",
+    "python": "3.11.15",
+    "native": {
+      "available": true,
+      "reason": "available",
+      "abiVersion": 2,
+      "library": "libarp_realtime_core.dylib",
+      "disabled": false
+    },
+    "native_after_run": {
+      "available": true,
+      "reason": "available",
+      "abiVersion": 2,
+      "library": "libarp_realtime_core.dylib",
+      "disabled": false
+    }
+  },
+  "scope": "production methods; SIMULATED instruments; real clocks/waits/fsync/Excel; no WebView",
+  "constants": {
+    "ch341_minimum_s": 1.1,
+    "ordinary_hold_s": 5.0,
+    "final_hold_s": 10.0
+  },
+  "analysis": [
+    {
+      "points": 3648,
+      "average_frames": 1,
+      "frame_equal": true,
+      "stages": {
+        "spectrum.analysis_total": {
+          "wall": {
+            "count": 100,
+            "median_ms": 2.6305829999999997,
+            "p95_ms": 4.78472945,
+            "max_ms": 7.456125,
+            "total_ms": 299.53204400000004
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 0.0812085,
+            "p95_ms": 0.16529574999999988,
+            "max_ms": 0.293127,
+            "total_ms": 9.648914
+          }
+        },
+        "spectrum.annotations": {
+          "wall": {
+            "count": 100,
+            "median_ms": 0.43914600000000004,
+            "p95_ms": 0.8623621499999999,
+            "max_ms": 1.978708,
+            "total_ms": 50.858584
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 0.43914600000000004,
+            "p95_ms": 0.8623621499999999,
+            "max_ms": 1.978708,
+            "total_ms": 50.858584
+          }
+        },
+        "spectrum.average": {
+          "wall": {
+            "count": 100,
+            "median_ms": 0.328771,
+            "p95_ms": 0.5301058999999997,
+            "max_ms": 0.93825,
+            "total_ms": 37.002962000000004
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 0.328771,
+            "p95_ms": 0.5301058999999997,
+            "max_ms": 0.93825,
+            "total_ms": 37.002962000000004
+          }
+        },
+        "spectrum.copy_to_mailbox": {
+          "wall": {
+            "count": 100,
+            "median_ms": 0.019729,
+            "p95_ms": 0.03804759999999997,
+            "max_ms": 0.09925,
+            "total_ms": 2.2978760000000005
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 0.019729,
+            "p95_ms": 0.03804759999999997,
+            "max_ms": 0.09925,
+            "total_ms": 2.2978760000000005
+          }
+        },
+        "spectrum.pib": {
+          "wall": {
+            "count": 100,
+            "median_ms": 0.315354,
+            "p95_ms": 0.59522225,
+            "max_ms": 0.897583,
+            "total_ms": 34.831751999999994
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 0.315354,
+            "p95_ms": 0.59522225,
+            "max_ms": 0.897583,
+            "total_ms": 34.831751999999994
+          }
+        },
+        "spectrum.saturation": {
+          "wall": {
+            "count": 200,
+            "median_ms": 0.1082085,
+            "p95_ms": 0.19784104999999994,
+            "max_ms": 0.355917,
+            "total_ms": 24.273670999999997
+          },
+          "exclusive": {
+            "count": 200,
+            "median_ms": 0.1082085,
+            "p95_ms": 0.19784104999999994,
+            "max_ms": 0.355917,
+            "total_ms": 24.273670999999997
+          }
+        },
+        "spectrum.smsr": {
+          "wall": {
+            "count": 100,
+            "median_ms": 0.7251045,
+            "p95_ms": 1.35808065,
+            "max_ms": 2.114208,
+            "total_ms": 83.42266399999997
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 0.7251045,
+            "p95_ms": 1.35808065,
+            "max_ms": 2.114208,
+            "total_ms": 83.42266399999997
+          }
+        },
+        "spectrum.stats": {
+          "wall": {
+            "count": 100,
+            "median_ms": 0.500771,
+            "p95_ms": 0.9293856999999995,
+            "max_ms": 1.642041,
+            "total_ms": 57.195621
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 0.500771,
+            "p95_ms": 0.9293856999999995,
+            "max_ms": 1.642041,
+            "total_ms": 57.195621
+          }
+        }
+      },
+      "recording_overhead_probe": {
+        "unrecorded": {
+          "count": 100,
+          "median_ms": 2.6255005000000002,
+          "p95_ms": 5.116824999999999,
+          "max_ms": 14.17525,
+          "total_ms": 314.06929499999995
+        },
+        "recorded": {
+          "count": 100,
+          "median_ms": 2.635854,
+          "p95_ms": 4.7921895999999995,
+          "max_ms": 7.462625,
+          "total_ms": 300.14337400000005
+        }
+      }
+    },
+    {
+      "points": 3648,
+      "average_frames": 5,
+      "frame_equal": true,
+      "stages": {
+        "spectrum.analysis_total": {
+          "wall": {
+            "count": 100,
+            "median_ms": 2.6623335,
+            "p95_ms": 2.85039165,
+            "max_ms": 5.233625,
+            "total_ms": 270.26950000000005
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 0.08060300000000001,
+            "p95_ms": 0.09106389999999999,
+            "max_ms": 0.130666,
+            "total_ms": 8.220661999999995
+          }
+        },
+        "spectrum.annotations": {
+          "wall": {
+            "count": 100,
+            "median_ms": 0.451083,
+            "p95_ms": 0.48786845,
+            "max_ms": 0.559167,
+            "total_ms": 45.48899999999999
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 0.451083,
+            "p95_ms": 0.48786845,
+            "max_ms": 0.559167,
+            "total_ms": 45.48899999999999
+          }
+        },
+        "spectrum.average": {
+          "wall": {
+            "count": 100,
+            "median_ms": 0.3375625,
+            "p95_ms": 0.35668750000000005,
+            "max_ms": 1.691791,
+            "total_ms": 35.142293000000016
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 0.3375625,
+            "p95_ms": 0.35668750000000005,
+            "max_ms": 1.691791,
+            "total_ms": 35.142293000000016
+          }
+        },
+        "spectrum.copy_to_mailbox": {
+          "wall": {
+            "count": 100,
+            "median_ms": 0.0196455,
+            "p95_ms": 0.024379150000000002,
+            "max_ms": 0.027042,
+            "total_ms": 2.0134589999999997
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 0.0196455,
+            "p95_ms": 0.024379150000000002,
+            "max_ms": 0.027042,
+            "total_ms": 2.0134589999999997
+          }
+        },
+        "spectrum.pib": {
+          "wall": {
+            "count": 100,
+            "median_ms": 0.31429149999999995,
+            "p95_ms": 0.34116634999999995,
+            "max_ms": 0.605417,
+            "total_ms": 31.725375000000003
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 0.31429149999999995,
+            "p95_ms": 0.34116634999999995,
+            "max_ms": 0.605417,
+            "total_ms": 31.725375000000003
+          }
+        },
+        "spectrum.saturation": {
+          "wall": {
+            "count": 200,
+            "median_ms": 0.1101255,
+            "p95_ms": 0.1210431,
+            "max_ms": 0.491333,
+            "total_ms": 22.747199
+          },
+          "exclusive": {
+            "count": 200,
+            "median_ms": 0.1101255,
+            "p95_ms": 0.1210431,
+            "max_ms": 0.491333,
+            "total_ms": 22.747199
+          }
+        },
+        "spectrum.smsr": {
+          "wall": {
+            "count": 100,
+            "median_ms": 0.730417,
+            "p95_ms": 0.8341419999999999,
+            "max_ms": 1.018084,
+            "total_ms": 74.23154899999997
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 0.730417,
+            "p95_ms": 0.8341419999999999,
+            "max_ms": 1.018084,
+            "total_ms": 74.23154899999997
+          }
+        },
+        "spectrum.stats": {
+          "wall": {
+            "count": 100,
+            "median_ms": 0.497333,
+            "p95_ms": 0.5764020999999999,
+            "max_ms": 0.853208,
+            "total_ms": 50.699963
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 0.497333,
+            "p95_ms": 0.5764020999999999,
+            "max_ms": 0.853208,
+            "total_ms": 50.699963
+          }
+        }
+      },
+      "recording_overhead_probe": {
+        "unrecorded": {
+          "count": 100,
+          "median_ms": 2.6520205,
+          "p95_ms": 2.95413575,
+          "max_ms": 3.837542,
+          "total_ms": 270.11399999999986
+        },
+        "recorded": {
+          "count": 100,
+          "median_ms": 2.667666,
+          "p95_ms": 2.85680385,
+          "max_ms": 5.250917,
+          "total_ms": 270.84091800000016
+        }
+      }
+    },
+    {
+      "points": 8192,
+      "average_frames": 1,
+      "frame_equal": true,
+      "stages": {
+        "spectrum.analysis_total": {
+          "wall": {
+            "count": 100,
+            "median_ms": 6.072604500000001,
+            "p95_ms": 6.52207645,
+            "max_ms": 8.446417,
+            "total_ms": 611.4668679999996
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 0.1703125,
+            "p95_ms": 0.19522104999999998,
+            "max_ms": 0.247124,
+            "total_ms": 17.352635000000006
+          }
+        },
+        "spectrum.annotations": {
+          "wall": {
+            "count": 100,
+            "median_ms": 0.98575,
+            "p95_ms": 1.0633393,
+            "max_ms": 1.164334,
+            "total_ms": 98.92025
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 0.98575,
+            "p95_ms": 1.0633393,
+            "max_ms": 1.164334,
+            "total_ms": 98.92025
+          }
+        },
+        "spectrum.average": {
+          "wall": {
+            "count": 100,
+            "median_ms": 0.7524165,
+            "p95_ms": 0.8114476,
+            "max_ms": 1.144792,
+            "total_ms": 75.88716700000005
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 0.7524165,
+            "p95_ms": 0.8114476,
+            "max_ms": 1.144792,
+            "total_ms": 75.88716700000005
+          }
+        },
+        "spectrum.copy_to_mailbox": {
+          "wall": {
+            "count": 100,
+            "median_ms": 0.045917,
+            "p95_ms": 0.05552085,
+            "max_ms": 0.082333,
+            "total_ms": 4.583537
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 0.045917,
+            "p95_ms": 0.05552085,
+            "max_ms": 0.082333,
+            "total_ms": 4.583537
+          }
+        },
+        "spectrum.pib": {
+          "wall": {
+            "count": 100,
+            "median_ms": 0.6956665,
+            "p95_ms": 0.7671625,
+            "max_ms": 1.133375,
+            "total_ms": 70.30424299999999
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 0.6956665,
+            "p95_ms": 0.7671625,
+            "max_ms": 1.133375,
+            "total_ms": 70.30424299999999
+          }
+        },
+        "spectrum.saturation": {
+          "wall": {
+            "count": 200,
+            "median_ms": 0.24277100000000001,
+            "p95_ms": 0.26075414999999996,
+            "max_ms": 0.372625,
+            "total_ms": 49.064372
+          },
+          "exclusive": {
+            "count": 200,
+            "median_ms": 0.24277100000000001,
+            "p95_ms": 0.26075414999999996,
+            "max_ms": 0.372625,
+            "total_ms": 49.064372
+          }
+        },
+        "spectrum.smsr": {
+          "wall": {
+            "count": 100,
+            "median_ms": 1.7996455,
+            "p95_ms": 2.02795595,
+            "max_ms": 4.112959,
+            "total_ms": 184.36524799999998
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 1.7996455,
+            "p95_ms": 2.02795595,
+            "max_ms": 4.112959,
+            "total_ms": 184.36524799999998
+          }
+        },
+        "spectrum.stats": {
+          "wall": {
+            "count": 100,
+            "median_ms": 1.084771,
+            "p95_ms": 1.26990625,
+            "max_ms": 1.463833,
+            "total_ms": 110.98941600000002
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 1.084771,
+            "p95_ms": 1.26990625,
+            "max_ms": 1.463833,
+            "total_ms": 110.98941600000002
+          }
+        }
+      },
+      "recording_overhead_probe": {
+        "unrecorded": {
+          "count": 100,
+          "median_ms": 6.037479,
+          "p95_ms": 6.57366075,
+          "max_ms": 7.397167,
+          "total_ms": 608.8095469999997
+        },
+        "recorded": {
+          "count": 100,
+          "median_ms": 6.083958,
+          "p95_ms": 6.53354375,
+          "max_ms": 8.458458,
+          "total_ms": 612.6689559999998
+        }
+      }
+    },
+    {
+      "points": 8192,
+      "average_frames": 5,
+      "frame_equal": true,
+      "stages": {
+        "spectrum.analysis_total": {
+          "wall": {
+            "count": 100,
+            "median_ms": 6.124791500000001,
+            "p95_ms": 10.6696149,
+            "max_ms": 17.091041,
+            "total_ms": 685.8004609999999
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 0.172854,
+            "p95_ms": 0.24148904999999998,
+            "max_ms": 0.617583,
+            "total_ms": 18.55737
+          }
+        },
+        "spectrum.annotations": {
+          "wall": {
+            "count": 100,
+            "median_ms": 0.977687,
+            "p95_ms": 1.5187502999999989,
+            "max_ms": 3.089167,
+            "total_ms": 107.63933400000009
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 0.977687,
+            "p95_ms": 1.5187502999999989,
+            "max_ms": 3.089167,
+            "total_ms": 107.63933400000009
+          }
+        },
+        "spectrum.average": {
+          "wall": {
+            "count": 100,
+            "median_ms": 0.7667085,
+            "p95_ms": 2.3114624999999998,
+            "max_ms": 3.330625,
+            "total_ms": 92.69150299999997
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 0.7667085,
+            "p95_ms": 2.3114624999999998,
+            "max_ms": 3.330625,
+            "total_ms": 92.69150299999997
+          }
+        },
+        "spectrum.copy_to_mailbox": {
+          "wall": {
+            "count": 100,
+            "median_ms": 0.0495,
+            "p95_ms": 0.11779134999999998,
+            "max_ms": 1.122875,
+            "total_ms": 6.324960999999999
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 0.0495,
+            "p95_ms": 0.11779134999999998,
+            "max_ms": 1.122875,
+            "total_ms": 6.324960999999999
+          }
+        },
+        "spectrum.pib": {
+          "wall": {
+            "count": 100,
+            "median_ms": 0.6990624999999999,
+            "p95_ms": 0.8112895499999999,
+            "max_ms": 2.85375,
+            "total_ms": 74.83395899999998
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 0.6990624999999999,
+            "p95_ms": 0.8112895499999999,
+            "max_ms": 2.85375,
+            "total_ms": 74.83395899999998
+          }
+        },
+        "spectrum.saturation": {
+          "wall": {
+            "count": 200,
+            "median_ms": 0.24356250000000002,
+            "p95_ms": 0.5862913499999994,
+            "max_ms": 1.023875,
+            "total_ms": 55.23337600000001
+          },
+          "exclusive": {
+            "count": 200,
+            "median_ms": 0.24356250000000002,
+            "p95_ms": 0.5862913499999994,
+            "max_ms": 1.023875,
+            "total_ms": 55.23337600000001
+          }
+        },
+        "spectrum.smsr": {
+          "wall": {
+            "count": 100,
+            "median_ms": 1.8344165,
+            "p95_ms": 4.33368545,
+            "max_ms": 6.388375,
+            "total_ms": 207.12487700000005
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 1.8344165,
+            "p95_ms": 4.33368545,
+            "max_ms": 6.388375,
+            "total_ms": 207.12487700000005
+          }
+        },
+        "spectrum.stats": {
+          "wall": {
+            "count": 100,
+            "median_ms": 1.100917,
+            "p95_ms": 2.12951635,
+            "max_ms": 3.516583,
+            "total_ms": 123.39508099999999
+          },
+          "exclusive": {
+            "count": 100,
+            "median_ms": 1.100917,
+            "p95_ms": 2.12951635,
+            "max_ms": 3.516583,
+            "total_ms": 123.39508099999999
+          }
+        }
+      },
+      "recording_overhead_probe": {
+        "unrecorded": {
+          "count": 100,
+          "median_ms": 6.079021,
+          "p95_ms": 9.620264599999997,
+          "max_ms": 17.821666,
+          "total_ms": 659.5492089999999
+        },
+        "recorded": {
+          "count": 100,
+          "median_ms": 6.1366245,
+          "p95_ms": 10.69836075,
+          "max_ms": 17.124292,
+          "total_ms": 687.1360820000004
+        }
+      }
+    }
+  ],
+  "source_hashes": {
+    "combined_test/__init__.py": "11a42ad41da96e15c95b60bcd4b2db1baafe555c7fe819e286bc1e38945b31f6",
+    "combined_test/automatic_samples.py": "60e8ebd0c68af5570af377ac7a6b3dda29d7a7175350d54d0d884b5493d31b89",
+    "combined_test/automation.py": "f6b6bdb31b1c70e0203c15e448f0a75e0e06817ebe3a96182109e123f9973f04",
+    "combined_test/ch341_ports.py": "57f8c4e9c4c4dcf6255ff2e12879c198db15e49d908fcada337490faad82c107",
+    "combined_test/concurrency.py": "6554b2d36fcd53a2731d9ac9666e5f4014a4e357f27fefc52d1b0f5677606195",
+    "combined_test/core.py": "0757cdbb43e26fc80ffc48f0613199632e63e09b0faafdc6adb7392719d28706",
+    "combined_test/data_browser.py": "70027a400643427c87f1fa32bc4ef832ed38c1e0e7d7ead74e6ddf6017f5fa95",
+    "combined_test/data_library.py": "165cbe85b3298606528e9f52fb65d25569dd9d5ac5833d4b1f95a5fe8b44906e",
+    "combined_test/device_interfaces.py": "c48af60d5e700101c226900b1abf23625ea9b2269691db3ef656dfa9c92c315a",
+    "combined_test/devices.py": "291db782a051142ac2dbde370068867922ca6f8587dd56981b9b244c56c3cf0f",
+    "combined_test/excel_export.py": "67dc46d2317dc6da33880d5e3c4adb42307f1c2de8e5dcf27ca6ef8d1ab708e3",
+    "combined_test/models.py": "fc824945a567784a2f2280c30eb713b841775679600ec64f90351fbacdfe87cd",
+    "combined_test/native_realtime.py": "396feecd931e312669d9fa7e9cbcf9510ee80ed6d410f9336a1b7c06c38a3e08",
+    "combined_test/ocean_direct_adapter.py": "5d0242cf624a96990e027a21d42b7147a7f2fd8b881a9ed2adbf77c51e9df9e6",
+    "combined_test/persistence.py": "9f7ac09e9ee7886c09237cbcd0cdf9a41e6c0c220d8ffd79eea52fc451a67ed5",
+    "combined_test/record_store.py": "ac357e649f8cabfe861f1de599be7f752c9e89c78e4d02faa1345d23b42684bc",
+    "combined_test/runtime_logging.py": "4919254531e2a307126f26ac54b1e592db68842bfcda4a37b4ba7ea8394b6123",
+    "combined_test/session_journal.py": "19a1533805df8495ef2d36ac8281a5c0d6e96e5cd953b16a526fb2073437f43d",
+    "combined_test/shipping_report.py": "47ef37a47a68b8ba009114a80db8daf11a3bde4934d89f963706ad01e6a05936",
+    "combined_test/shipping_report_headless.py": "062a3ca43675a085521560738a2777c9efbaabc99c19513540706fe32f742e3c",
+    "combined_test/spectrum.py": "734695b26f3189f614cc6d6f330b2702396b09f726f447c997c953bdf5eb047a",
+    "combined_test/spectrum_math.py": "0dfd3b601985113326527c65fb208e1359346c7c70ef545c5ce0cc189905bfe8",
+    "combined_test/tdk_power_supply.py": "4ef6de1c5cb8eb9bcdeb2236b1e5033de725e9f0ec6e79f74e88aa0c6f575936",
+    "combined_test/test_history.py": "cc34496d170cf4b541b8971777182b0ba1bd392d151d816a7f347b72b6317c88",
+    "tauri_bridge/__init__.py": "c40684a35ef482c766e1ed91b2a32641ecabad00ce3100af973addd2e17afa09",
+    "tauri_bridge/__main__.py": "6aaa46c673b929b5fb0f258dde50e5f492fe4f939abb0e92851f1b0fde646550",
+    "tauri_bridge/backend_dispatch.py": "56497dd1a0510864ec3ce878ff66bb5e83537c5f54acb5797a6e9621fa838f90",
+    "tauri_bridge/command_safety.py": "5d9d211bd09624561978c9016fe1541c83c2b19f9c4c1ff993fd0569bf0fd229",
+    "tauri_bridge/device_discovery.py": "68d7cd8247173e9e5467c7ff33f711c116539966f21925236289657f8e3f05b7",
+    "tauri_bridge/errors.py": "5a76261f24c68ca5f029daeee404946ca4f4aeecdcfe3e666f1068b288afc07d",
+    "tauri_bridge/export_queue.py": "d552e07a931a8030e68e26990aabda2fcc4de9763c2e41d508d982784df7f7a9",
+    "tauri_bridge/headless_backend.py": "d12e9dc06f44a1560e97a2435f67f5937b7e05a30150889259d26fa67789f273",
+    "tauri_bridge/json_codec.py": "5724f0c69aa4b1d25956599a846c06fe55c13abb88997e959c47c35747132091",
+    "tauri_bridge/power_meter_profiles.py": "7606127ae825f3d62f2f65a85af8293ad80374d11a2c0ceebc8f718a842484f9",
+    "tauri_bridge/protocol.py": "cdf965fbd27aebed46a6bb5d8d8084f2e338585248790e5c0e1418ca3955ee8d",
+    "tauri_bridge/service.py": "6363de8491dcb399f8577f1bd88c73e9bfb51ebb0e968026fd72baf90d16d521",
+    "tauri_bridge/settings.py": "2606b5411c8842e60529c447fda7b7a09f684502bb3f5299493dde1a74fc467a",
+    "tauri_bridge/snapshot_builder.py": "f5b11387060d8aa875c5c8c9f7998b4e08911c29217b2fee2a85707444d0aea3",
+    "tauri_bridge/station_automatic.py": "7b446e6a3ecc7319c8c60a38d5bd5c99b67107b85af0b374f7ba89cc1dd5d931",
+    "tauri_bridge/station_runtime.py": "c41a6bb7774ebd59c9f1f6b0f71d89d72b0ada87407db72f2649876f779410ea",
+    "tauri_bridge/station_support.py": "7da7c265be2a6ea06c1fac9df06db90c88570159d45b92baf7675e142984516a",
+    "tauri_bridge/test_script_presets.py": "1ca8f6c17796c1fad261cbeaf590870c1d002551bd60ef123bf3b7a9962b20ee"
+  },
+  "python_product_sources_unchanged": true
+}

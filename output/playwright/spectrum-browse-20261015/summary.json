@@ -1,0 +1,170 @@
+{
+  "baseline": {
+    "commit": "0c152d67c2fab7e3a153c1e9ddbefe51884f6dae",
+    "dirtyBefore": true,
+    "sourceSnapshot": "source-before/data_browser.py; source-before/canvas-line-chart.tsx"
+  },
+  "workload": {
+    "source": "synthetic XLSX copies; no user file modification; no hardware",
+    "files": 36,
+    "currents": 24,
+    "pixels": 8192,
+    "xlsx_bytes_each": 1817835
+  },
+  "python": {
+    "all36ResultHashesEqual": true,
+    "before": {
+      "startRssMiB": 52.578125,
+      "peakRssMiB": 572.109375,
+      "afterClearRssMiB": 260.578125,
+      "warmMedianMs": 95.20625000004657,
+      "retainedEntries": 32,
+      "recentFileReads": 0,
+      "cacheOwnedBytes": null
+    },
+    "after": {
+      "startRssMiB": 52.5,
+      "peakRssMiB": 131.015625,
+      "afterClearRssMiB": 131.109375,
+      "warmMedianMs": 4.481333002331667,
+      "retainedEntries": 32,
+      "recentFileReads": 0,
+      "cacheOwnedBytes": 53291136
+    }
+  },
+  "protocol": {
+    "cold": {
+      "before": {
+        "inspect_ms": 655.5015419980919,
+        "json_ms": 79.16250000198488,
+        "total_ms": 734.4281249970663
+      },
+      "after": {
+        "inspect_ms": 678.9122499976656,
+        "json_ms": 71.58566699945368,
+        "total_ms": 750.3033749999304
+      }
+    },
+    "warm": {
+      "before": {
+        "inspect_ms": 44.73141600101371,
+        "json_ms": 78.59858299707412,
+        "total_ms": 123.07954100106144
+      },
+      "after": {
+        "inspect_ms": 2.42029199944227,
+        "json_ms": 70.94904099722044,
+        "total_ms": 73.68795799993677
+      }
+    },
+    "wireBytesIdentical": true
+  },
+  "browser": {
+    "before": {
+      "switchMedianMs": 194,
+      "recentSwitchMedianMs": 200.0,
+      "maxGcHeapMiB": 29.724658966064453
+    },
+    "after": {
+      "switchMedianMs": 144,
+      "recentSwitchMedianMs": 144.0,
+      "maxGcHeapMiB": 29.67880630493164
+    },
+    "sameCanvas": true,
+    "sameSelectionAndRequestState": true
+  },
+  "largeOverlay": {
+    "choices": 24,
+    "selected": 24,
+    "lines": 196599,
+    "errors": []
+  },
+  "chartRegression": {
+    "mountRectReads": 0,
+    "hoverBaseDraws": 0,
+    "changedFrameDraws": 2,
+    "hiddenFrameDraws": 2,
+    "tooltipAndCrosshair": true,
+    "pointerLeaveClears": true,
+    "sizes": [
+      {
+        "ratio": 1,
+        "correct": true
+      },
+      {
+        "ratio": 1.5,
+        "correct": true
+      },
+      {
+        "ratio": 2,
+        "correct": true
+      }
+    ],
+    "themeRepaint": true
+  },
+  "realWorkbookParity": [
+    {
+      "recordIndex": 0,
+      "includeSpectra": false,
+      "samePublicJson": true,
+      "points": 4,
+      "spectra": 0,
+      "samples": 0
+    },
+    {
+      "recordIndex": 0,
+      "includeSpectra": true,
+      "samePublicJson": true,
+      "points": 4,
+      "spectra": 4,
+      "samples": 14592
+    },
+    {
+      "recordIndex": 1,
+      "includeSpectra": false,
+      "samePublicJson": true,
+      "points": 1,
+      "spectra": 0,
+      "samples": 0
+    },
+    {
+      "recordIndex": 1,
+      "includeSpectra": true,
+      "samePublicJson": true,
+      "points": 1,
+      "spectra": 1,
+      "samples": 3648
+    },
+    {
+      "recordIndex": 2,
+      "includeSpectra": false,
+      "samePublicJson": true,
+      "points": 4,
+      "spectra": 0,
+      "samples": 0
+    },
+    {
+      "recordIndex": 2,
+      "includeSpectra": true,
+      "samePublicJson": true,
+      "points": 4,
+      "spectra": 4,
+      "samples": 14592
+    }
+  ],
+  "validation": {
+    "pythonTests": 28,
+    "frontendTests": 41,
+    "build": true,
+    "fullSuite": false,
+    "hardware": false,
+    "nativeTauri": false
+  },
+  "limits": [
+    "Local synthetic XLSX benchmark and browser mock transport; not Windows native Tauri acceptance",
+    "Browser timings exclude Python/pipe/Rust work and must not be added to protocol timings",
+    "Cache budget applies to retained detail objects, not total RSS or active output lists",
+    "OS allocators can retain RSS after cache clear; no long-run leak conclusion",
+    "Paired cold reads did not improve; do not attribute separate-process cold timing differences to this change"
+  ]
+}

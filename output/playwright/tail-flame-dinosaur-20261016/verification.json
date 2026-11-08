@@ -1,0 +1,14 @@
+{
+  "asset": "tauri-ui/public/chart-markers/dino-red-tail-flame-aligned-four-frames-b7fb24b7b24a.png",
+  "builtinImagegen": true,
+  "distinctSourceFrames": 4,
+  "distinctRenderedFrames": 4,
+  "durationMs": 500,
+  "fps": 8,
+  "browser": "localhost:1420 demo settings; 1280x720",
+  "buildAssetMatchesSource": true,
+  "appearanceTests": 5,
+  "build": "passed",
+  "committed": false,
+  "pushed": false
+}

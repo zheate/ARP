@@ -1,0 +1,23 @@
+[
+  {
+    "file": "done.png",
+    "state": "done",
+    "size": "1180x720",
+    "zoom": 1,
+    "issues": []
+  },
+  {
+    "file": "running.png",
+    "state": "running",
+    "size": "1180x720",
+    "zoom": 1,
+    "issues": []
+  },
+  {
+    "file": "uncertain.png",
+    "state": "uncertain",
+    "size": "1180x720",
+    "zoom": 1,
+    "issues": []
+  }
+]

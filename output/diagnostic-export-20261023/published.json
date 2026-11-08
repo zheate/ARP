@@ -1,0 +1,14 @@
+{
+  "commit": "43d04a60dbbd4ca95539882d6f4f3b40d60ea54a",
+  "remoteCommit": "43d04a60dbbd4ca95539882d6f4f3b40d60ea54a",
+  "branch": "audit/arp-ui-final-20260914",
+  "files": 35,
+  "pythonTests": 303,
+  "frontendTests": 46,
+  "rustTests": 2,
+  "frontendBuild": "passed",
+  "ui": "4 widths, success/failure/partial/duplicate/stale/unmounted checks passed",
+  "sourceStableDuringVerification": true,
+  "windowsTauri": "not tested",
+  "realDevices": "not connected"
+}

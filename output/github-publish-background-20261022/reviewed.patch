@@ -1,0 +1,2323 @@
+diff --git a/combined_test/devices.py b/combined_test/devices.py
+index 9c763c5b..aad9697c 100644
+--- a/combined_test/devices.py
++++ b/combined_test/devices.py
+@@ -612,6 +612,7 @@ class PowerMeterReaderThread(WorkerThread):
+                 absolute_floor_w=absolute_floor_w,
+             )
+             start = time.monotonic()
++            connection_generation = 0
+             poll_interval_s = self.settings.interval_ms / 1000.0
+             next_poll_at = start
+             while not self._stop_requested.is_set():
+@@ -636,7 +637,8 @@ class PowerMeterReaderThread(WorkerThread):
+                     detector.stability_limit_percent = stability_limit_percent
+                     detector.absolute_span_limit_w = absolute_span_limit_w
+                     detector.absolute_floor_w = absolute_floor_w
+-                elapsed = time.monotonic() - start
++                transaction_started = time.monotonic()
++                elapsed = transaction_started - start
+                 try:
+                     power_w = meter.read_power_w() * self.settings.software_gain
+                 except Exception as exc:
+@@ -670,6 +672,8 @@ class PowerMeterReaderThread(WorkerThread):
+                             last_error = reconnect_exc
+                             continue
+                         self.status.emit("功率计自动重连成功，继续采集")
++                        connection_generation += 1
++                        self.reset_stability_window()
+                         detector = PowerStabilityDetector(
+                             stable_window_s,
+                             stability_limit_percent,
+@@ -687,6 +691,9 @@ class PowerMeterReaderThread(WorkerThread):
+                 if self._stop_requested.is_set():
+                     break
+                 stability = detector.add_sample(elapsed, power_w)
++                instrument_token = getattr(meter, "measurement_configuration_token", "")
++                if not isinstance(instrument_token, str):
++                    instrument_token = ""
+                 self.reading.emit(
+                     PowerMeterReading(
+                         elapsed_s=elapsed,
+@@ -704,6 +711,9 @@ class PowerMeterReaderThread(WorkerThread):
+                         stability_drift_limit_w=stability.drift_limit_w,
+                         stability_drift_exceeded=stability.drift_exceeded,
+                         stability_two_sigma_w=stability.two_sigma_w,
++                        connection_generation=connection_generation,
++                        transaction_started_monotonic_s=transaction_started,
++                        instrument_configuration_token=instrument_token,
+                     )
+                 )
+                 next_poll_at += poll_interval_s
+diff --git a/combined_test/models.py b/combined_test/models.py
+index 51c9aefe..8e5bc6b0 100644
+--- a/combined_test/models.py
++++ b/combined_test/models.py
+@@ -103,6 +103,9 @@ class PowerMeterReading:
+     stability_drift_limit_w: float = math.nan
+     stability_drift_exceeded: bool = False
+     stability_two_sigma_w: float = math.nan
++    connection_generation: int = 0
++    transaction_started_monotonic_s: float = 0.0
++    instrument_configuration_token: str = ""
+ 
+ 
+ @dataclass(frozen=True)
+diff --git a/combined_test/power_stability.py b/combined_test/power_stability.py
+new file mode 100644
+index 00000000..6dba6cdd
+--- /dev/null
++++ b/combined_test/power_stability.py
+@@ -0,0 +1,248 @@
++"""Replayable background learning and dual-window power stability, in W and s.
++
++The empirical guards are engineering bounds, not confidence intervals. Neither
++quantization nor correlated noise is divided by sqrt(sample count).
++"""
++
++from __future__ import annotations
++
++import math
++from collections import deque
++from dataclasses import asdict, dataclass
++from statistics import median
++
++
++ALGORITHM_VERSION = "background-dual-window-v1"
++SHORT_WINDOW_S = 5.0
++LONG_WINDOW_S = 20.0
++LEARNING_DURATION_S = 180.0
++
++
++@dataclass(frozen=True)
++class StabilityPolicy:
++    quantization_w: float
++    absolute_drift_w: float = 0.0
++    relative_drift_percent: float = 0.0
++    reference_s: float = 20.0
++    extra_noise_percent: float = 0.0
++    response_s: float = 0.0
++    parameters_confirmed: bool = False
++    gap_s: float = 1.0
++
++    def __post_init__(self) -> None:
++        for name, value in asdict(self).items():
++            if name == "parameters_confirmed":
++                if not isinstance(value, bool):
++                    raise ValueError("判稳参数确认必须是布尔值")
++                continue
++            if isinstance(value, bool) or not math.isfinite(value) or value < 0:
++                raise ValueError(f"{name} 必须是非负有限数值")
++        if self.reference_s <= 0 or not 0 < self.gap_s <= SHORT_WINDOW_S:
++            raise ValueError("参考时间必须大于零，最大采样间隔不得超过短窗口")
++
++    @property
++    def ready(self) -> bool:
++        return (self.parameters_confirmed and self.quantization_w > 0
++                and self.response_s > 0
++                and max(self.absolute_drift_w, self.relative_drift_percent) > 0)
++
++
++@dataclass(frozen=True)
++class WindowMetrics:
++    mean_w: float
++    median_w: float
++    span_w: float
++    residual_sigma_w: float
++    block_shift_w: float
++    slope_w_s: float
++    covered_s: float
++    sample_count: int
++
++
++def fitted_line(samples: list[tuple[float, float]]) -> tuple[float, float]:
++    center_t = math.fsum(t for t, _ in samples) / len(samples)
++    center_p = math.fsum(p for _, p in samples) / len(samples)
++    denominator = math.fsum((t - center_t) ** 2 for t, _ in samples)
++    slope = (math.fsum((t - center_t) * (p - center_p) for t, p in samples)
++             / denominator if denominator else 0.0)
++    sigma = math.sqrt(math.fsum((p - center_p - slope * (t - center_t)) ** 2
++                               for t, p in samples) / len(samples))
++    return slope, sigma
++
++
++def window_metrics(samples: list[tuple[float, float]], gap_s: float) -> WindowMetrics | None:
++    if len(samples) < 10 or samples[-1][0] - samples[0][0] < LONG_WINDOW_S:
++        return None
++    if any(not math.isfinite(t) or not math.isfinite(p) for t, p in samples):
++        return None
++    if any(not 0 < b[0] - a[0] <= gap_s for a, b in zip(samples, samples[1:])):
++        return None
++    end = samples[-1][0]
++    # A boundary observation is retained for coverage only. No observation is
++    # shared between the four non-overlapping time bins.
++    blocks = [[p for t, p in samples
++               if end - LONG_WINDOW_S + i * SHORT_WINDOW_S < t
++               <= end - LONG_WINDOW_S + (i + 1) * SHORT_WINDOW_S]
++              for i in range(4)]
++    if any(len(block) < 2 for block in blocks):
++        return None
++    short = [(t, p) for t, p in samples if t > end - SHORT_WINDOW_S]
++    _, sigma = fitted_line(short)
++    slope, _ = fitted_line(samples)
++    powers = [p for _, p in samples]
++    means = [math.fsum(block) / len(block) for block in blocks]
++    return WindowMetrics(math.fsum(powers) / len(powers), median(powers),
++                         max(powers) - min(powers), sigma, max(means) - min(means),
++                         slope, samples[-1][0] - samples[0][0], len(samples))
++
++
++class PowerWindow:
++    """Keep a bounded, continuous window; duplicate transactions never add time."""
++
++    def __init__(self, gap_s: float) -> None:
++        self.gap_s = gap_s
++        self.samples: deque[tuple[float, float]] = deque()
++
++    def add(self, timestamp: float, power_w: float) -> WindowMetrics | None:
++        if not math.isfinite(timestamp) or not math.isfinite(power_w):
++            self.samples.clear()
++            return None
++        if self.samples:
++            difference = timestamp - self.samples[-1][0]
++            if difference == 0:
++                return None
++            if difference < 0 or difference > self.gap_s:
++                self.samples.clear()
++        self.samples.append((timestamp, power_w))
++        while len(self.samples) > 1 and self.samples[1][0] <= timestamp - LONG_WINDOW_S:
++            self.samples.popleft()
++        # Bound memory even for a faulty source that floods timestamps.
++        if len(self.samples) > 20_000:
++            self.samples.clear()
++            return None
++        return window_metrics(list(self.samples), self.gap_s)
++
++
++@dataclass(frozen=True)
++class BackgroundModel:
++    model_id: str
++    identity: str
++    created_at: str
++    quantization_w: float
++    center_w: float
++    noise_sigma_w: float
++    shift_guard_w: float
++    slope_guard_w_s: float
++    sample_count: int
++    duration_s: float
++    algorithm: str = ALGORITHM_VERSION
++
++    @classmethod
++    def from_dict(cls, value: dict) -> BackgroundModel:
++        model = cls(**value)
++        if model.algorithm != ALGORITHM_VERSION:
++            raise ValueError("本底算法版本不匹配")
++        if not all(isinstance(item, str) and item for item in
++                   (model.model_id, model.identity, model.created_at)):
++            raise ValueError("本底身份不完整")
++        for name in ("quantization_w", "center_w", "noise_sigma_w", "shift_guard_w",
++                     "slope_guard_w_s", "duration_s", "sample_count"):
++            number = getattr(model, name)
++            if isinstance(number, bool) or not isinstance(number, (int, float)) or not math.isfinite(number):
++                raise ValueError("本底指标无效")
++            if name != "center_w" and number < 0:
++                raise ValueError("本底指标不得为负")
++        if model.quantization_w <= 0 or model.duration_s < LEARNING_DURATION_S or model.sample_count < 10:
++            raise ValueError("本底数据不足")
++        if model.shift_guard_w < model.quantization_w or model.slope_guard_w_s < model.quantization_w / LONG_WINDOW_S:
++            raise ValueError("本底量化保护量不完整")
++        return model
++
++
++def percentile95(values: list[float]) -> float:
++    return sorted(values)[max(0, math.ceil(len(values) * 0.95) - 1)]
++
++
++def learn_background(samples: list[tuple[float, float]], *, identity: str,
++                     model_id: str, created_at: str, policy: StabilityPolicy) -> BackgroundModel:
++    if policy.quantization_w <= 0:
++        raise ValueError("请填写当前探头经增益换算后的量化步进 (W)")
++    if not samples or samples[-1][0] - samples[0][0] < LEARNING_DURATION_S:
++        raise ValueError("本底采集至少需要 180 秒")
++    if any(not math.isfinite(t) or not math.isfinite(p) for t, p in samples):
++        raise ValueError("本底包含无效读数")
++    if any(not 0 < b[0] - a[0] <= policy.gap_s for a, b in zip(samples, samples[1:])):
++        raise ValueError("本底采样中断或时间戳重复，请重新学习")
++    duration = samples[-1][0] - samples[0][0]
++    slope, _ = fitted_line(samples)
++    # A fixed quantization-based gate precedes noise estimation. A cooling
++    # trend must never train itself into a larger permissible noise envelope.
++    quarter_means = []
++    for index in range(4):
++        values = [p for t, p in samples
++                  if samples[0][0] + duration * index / 4 <= t
++                  <= samples[0][0] + duration * (index + 1) / 4]
++        quarter_means.append(math.fsum(values) / len(values))
++    if (abs(slope) * duration > policy.quantization_w
++            or max(quarter_means) - min(quarter_means) > policy.quantization_w):
++        raise ValueError("本底尚未稳定：存在持续漂移，请等待探头冷却后重新学习")
++    window = PowerWindow(policy.gap_s)
++    metrics = []
++    last_replay = -math.inf
++    for timestamp, power in samples:
++        result = window.add(timestamp, power)
++        if result is not None and timestamp - last_replay >= SHORT_WINDOW_S:
++            metrics.append(result)
++            last_replay = timestamp
++    if len(metrics) < 20:
++        raise ValueError("本底有效窗口不足")
++    return BackgroundModel(
++        model_id, identity, created_at, policy.quantization_w,
++        median(p for _, p in samples),
++        max(policy.quantization_w / 2, percentile95([m.residual_sigma_w for m in metrics])),
++        max(policy.quantization_w, percentile95([m.block_shift_w for m in metrics])),
++        max(policy.quantization_w / LONG_WINDOW_S, percentile95([abs(m.slope_w_s) for m in metrics])),
++        len(samples), duration,
++    )
++
++
++@dataclass(frozen=True)
++class StabilityDecision:
++    stable: bool
++    reason: str
++    metrics: WindowMetrics | None = None
++    tolerance_w: float | None = None
++    noise_limit_w: float | None = None
++    guarded_shift_w: float | None = None
++    guarded_drift_w: float | None = None
++    code: str = "waiting"
++
++
++def evaluate_stability(metrics: WindowMetrics | None, model: BackgroundModel | None,
++                       policy: StabilityPolicy, *, identity: str) -> StabilityDecision:
++    if model is None or model.identity != identity or model.quantization_w != policy.quantization_w:
++        return StabilityDecision(False, "本底无效，请学习或重新复核", metrics, code="background_invalid")
++    if metrics is None:
++        return StabilityDecision(False, "正在建立 20 秒连续功率窗口")
++    tolerance = max(policy.absolute_drift_w, abs(metrics.mean_w) * policy.relative_drift_percent / 100)
++    noise_limit = model.noise_sigma_w + abs(metrics.mean_w) * policy.extra_noise_percent / 200
++    shift = metrics.block_shift_w + model.shift_guard_w
++    drift = (abs(metrics.slope_w_s) + model.slope_guard_w_s) * policy.reference_s
++    args = (metrics, tolerance, noise_limit, shift, drift)
++    if not policy.ready:
++        return StabilityDecision(False, "响应时间与漂移容差待确认（仅诊断）", *args, code="unconfigured")
++    if max(model.shift_guard_w, model.slope_guard_w_s * policy.reference_s) > tolerance:
++        return StabilityDecision(False, "测量能力不足：本底保护量超过目标容差", *args, code="capability_insufficient")
++    if metrics.residual_sigma_w > noise_limit + 1e-12:
++        return StabilityDecision(False, "波动超出本底范围", *args, code="noise_exceeded")
++    if max(shift, drift) > tolerance + 1e-12:
++        direction = "上升" if metrics.slope_w_s > 0 else "下降"
++        return StabilityDecision(False, f"功率仍在变化（趋势{direction}或窗口均值移动超限）", *args, code="drift_exceeded")
++    return StabilityDecision(True, "功率满足本底、噪声及漂移条件", *args, code="stable")
++
++
++def verify_background(metrics: WindowMetrics | None, model: BackgroundModel) -> bool:
++    return bool(metrics and abs(metrics.mean_w - model.center_w) <= model.shift_guard_w
++                and metrics.block_shift_w <= model.shift_guard_w + 1e-12
++                and abs(metrics.slope_w_s) <= model.slope_guard_w_s + 1e-12
++                and metrics.residual_sigma_w <= model.noise_sigma_w + 1e-12)
+diff --git a/combined_test/record_store.py b/combined_test/record_store.py
+index 0468b76f..6edb190d 100644
+--- a/combined_test/record_store.py
++++ b/combined_test/record_store.py
+@@ -95,6 +95,7 @@ class MeasurementAttempt:
+     stable_window_s: float
+     integration_time_us: int | None
+     spectrum_path: str = ""
++    power_stability: Mapping[str, Any] | None = None
+ 
+ 
+ def utc_now_iso() -> str:
+@@ -318,6 +319,7 @@ class SessionRecordStore:
+         stability_limit_percent: float = math.nan,
+         stable_window_s: float = math.nan,
+         integration_time_us: int | None = None,
++        power_stability: Mapping[str, Any] | None = None,
+     ) -> None:
+         session = self.current_session
+         if session is None:
+@@ -352,6 +354,7 @@ class SessionRecordStore:
+             stability_limit_percent=stability_limit_percent,
+             stable_window_s=stable_window_s,
+             integration_time_us=integration_time_us,
++            power_stability=power_stability,
+         )
+         if self._journal is not None:
+             self._journal.append(
+@@ -367,6 +370,12 @@ class SessionRecordStore:
+         self.recorded_currents.add(current)
+         self.exported_currents.discard(current)
+ 
++    def record_stability_diagnostic(self, current_a: float, diagnostic: Mapping[str, Any]) -> None:
++        """Persist decisions from the automation worker, never the reader callback."""
++        if self._journal is not None and self.current_session is not None:
++            self._journal.append({"type": "power_stability", "current_a": current_a,
++                                  "created_at_utc": utc_now_iso(), "diagnostic": diagnostic})
++
+     def record_invalid_attempt(
+         self,
+         current_a: float,
+diff --git a/docs/superpowers/specs/2026-10-22-background-dual-window.md b/docs/superpowers/specs/2026-10-22-background-dual-window.md
+new file mode 100644
+index 00000000..49388197
+--- /dev/null
++++ b/docs/superpowers/specs/2026-10-22-background-dual-window.md
+@@ -0,0 +1,44 @@
++# 功率本底与双窗口判稳：第一版
++
++基于 `ca30ac89` 实现。算法版本为 `background-dual-window-v1`。当前默认使用旁路模式：新算法记录诊断，原有策略控制升流。响应时间、建立时间、回读容差和漂移容差尚无实测值，默认保留为 0，参数未确认。
++
++## 操作顺序
++
++1. 在功率计设置中选择「旁路验证」，展开「本底与判稳参数」。填写当前探头经软件增益换算后的量化步进，以及仪器量程、滤波和采样设置。对话中提到的 0.15 W 只适用于对应探头；若它是仪器原始读数的步进、软件增益为 1.04，应填写 0.156 W。若 0.15 W 已是 ARP 显示的步进，则直接填写 0.15 W，不重复乘增益。
++2. 保存设置，启动现有功率采集。在确认 0 A、无光输出且探头冷却后，勾选确认并点击「学习本底」。学习至少需要 180 秒；没有新增一条功率计轮询通路。学习时不能施加电流、修改测量配置或开始自动测试。
++3. 学习通过后，同一探头、相同设置、连接和采集连续且没有异常时，后续各轮直接复用本底，不再每轮复核，也没有 60 秒启动期限。重新连接、软件重启、采样中断或无效读数后，需在 0 A 复核 20 秒；复核通过后可继续连续复用。进入每轮测试时冻结模型，不随激光功率变化自动学习或放宽阈值。
++4. 保持「旁路验证」收集诊断。响应时间、电流建立时间、电流回读容差、绝对/相对漂移容差、漂移参考时间及额外波动容差，必须用探头响应实测和测试规范确定。未知值不能勾选为已确认。
++5. 完成低、中、高功率的现场验证后，才选择「本底与双窗口控制」。新策略缺少参数、匹配本底，或重连及异常后尚未复核时会拒绝开始，不会静默回退。可显式选择「原有策略」恢复原有判稳行为。
++
++第一轮用于收集数据时，学习完成后保持功率采集，关闭设置弹窗即可。在测试脚本中可选择「增加停留点」，使用原方案中允许持续保持的低、中、高电流点，各停留 60 秒，确保有超过 20 秒的连续窗口可供分析。电流值和设备允许的持续测试条件沿用现场已确认的方案。完成后保留 Excel、本底及会话诊断记录。
++
++参数确认由后端绑定到探头、系数版本、实际 LaserPoint 量程、仪器设置、采样间隔、电源类型和相关参数。换探头、换量程、修改参数后，旧确认不能继续使用。配置字段不能伪造后端签名。
++
++## 判稳条件
++
++短窗口为 5 秒，长窗口为 20 秒。短窗口拟合线性趋势后计算残差标准差；长窗口计算四个互不重叠的 5 秒区间均值差和拟合斜率。原始峰峰值、中位数及均值全部保留，不删除尖峰，不从测量功率中扣除本底。
++
++漂移限值为 `max(绝对漂移容差, abs(平均功率) × 相对漂移容差 / 100)`。区间均值差加本底保护量后、绝对斜率加本底保护量再乘参考时间后，都必须满足限值。短窗口残差标准差不得超过本底残差保护量加有光时的额外允许波动（`abs(平均功率) × 额外 2σ 百分比 / 200`）。
++
++本底用相同窗口和算法每 5 秒回放一次。均值差保护量至少为一个量化步进；斜率保护量至少为量化步进除以 20 秒。保护量采用回放指标的经验第 95 百分位及量化下限，不是 95% 置信区间，不按样本数量平方根缩小。180 秒整体拟合漂移或四分段均值移动超过一个量化步进时，拒绝学习，防止将冷却趋势学成正常噪声。
++
++本底保护量已超过目标容差时返回「测量能力不足」，不会用继续等待或放宽容差掩盖问题。任何有限时间窗口均不能证明激光器未来不会继续热漂移；探头最短响应时间必须来自完整响应数据。
++
++新控制策略先等待实测建立时间。TDK/RU 还要求现有实时电流回读新鲜且落在显式配置的回读容差内。随后等待探头响应，再只用新电流点的新事务建立窗口。候选判稳后普通点连续确认 5 秒、末点 10 秒；原有策略的控制器专用节拍保持不变。判稳、连续确认和电压读取共享本点超时预算，自定义停留时间单独计入预算。
++
++读取电压期间仍复核功率和光谱新鲜度。发生功率失稳，候选点作废并重新连续确认；记录前再复核一次。保留记录成功后才推进电流点的流程，以及原始读数上的功率骤降保护和现有安全下电路径。AU 定时老化流程不使用新判稳控制。
++
++## 记录与失效条件
++
++- `settings.json` 的 `runtime/powerBackgrounds` 原子保存模型、原始本底序列及配置身份。会话配置保存冻结模型和参数；每个已记录点保存判稳诊断；自动测试等待期间约每秒向会话 JSONL 追加诊断和原始功率。诊断写盘在自动测试工作线程中执行，不在功率读取回调中逐点写盘。
++- 连接重建、功率采样中断、实际 LaserPoint 量程变化会取消候选和复核资格。量程标记复用驱动现有 `X1D`/`FSWX1` 结果，不增加查询。新控制模式需结束测试并回到 0 A 复核。
++- 软件增益、探头 SN、系数版本、波长、采样间隔、声明的仪器设置都属于本底身份。对未暴露实时量程/滤波状态的驱动，操作者必须在改变仪器设置后更新配置并重新学习；软件不能自动发现所有面板操作。
++- 相同功率值来自不同软件读取事务时正常计数。重复的软件事务不累计覆盖时间；事务开始时间排除响应等待前已经发起的读取。当前驱动没有统一的仪器原生样本编号，因此无法仅凭相同数值区分仪器内部缓存与真实量化平台。这一边界必须现场确认。
++
++## 离线回放与验收
++
++`python -m tools.power_stability_replay --help` 提供不加载驱动的 CSV 回放。输入列为 `elapsed_s,power_w`；本底和信号必须来自相同探头、量程、滤波、单位和增益。输出 JSONL 文件使用新建模式，避免覆盖已有数据。未提供 `--confirmed` 或响应时间、容差尚未配置时只输出诊断，不宣称稳定。
++
++自动化覆盖正常量化平台、量化前加入的正负漂移、周期振荡、先升后降、慢热长尾、数据间断、旧事务、重连、实际量程切换、能力不足、本底冻结和持久化，以及电压读取期间失稳、连续确认、共享超时和停止取消。界面使用生产弹窗组件的隔离页面检查 1440、1180、760 像素宽度，覆盖三类设备下拉框、识别、Escape 和弹窗布局稳定性。
++
++当前证据不包括真实 0 A 原始数据回放、低中高功率长时间保持、Windows Tauri/WebView 或真实设备。构建和模拟通过不能替代这些验收。GitHub 同步仅交付源码，不代表已完成 Windows 打包或实机验收；现场运行版本需由操作者更新并启动。
+diff --git a/tauri-ui/scripts/fixtures/power-background.html b/tauri-ui/scripts/fixtures/power-background.html
+new file mode 100644
+index 00000000..051767cf
+--- /dev/null
++++ b/tauri-ui/scripts/fixtures/power-background.html
+@@ -0,0 +1,2 @@
++<!doctype html>
++<html lang="zh-CN"><head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1.0" /><title>ARP 本底判稳界面验证</title></head><body><div id="root"></div><script type="module" src="./power-background.tsx"></script></body></html>
+diff --git a/tauri-ui/scripts/fixtures/power-background.tsx b/tauri-ui/scripts/fixtures/power-background.tsx
+new file mode 100644
+index 00000000..900f0ee0
+--- /dev/null
++++ b/tauri-ui/scripts/fixtures/power-background.tsx
+@@ -0,0 +1,51 @@
++// Production dialogs with isolated example state. No bridge/device access.
++import { useState } from "react"
++import { createRoot } from "react-dom/client"
++import { DeviceSettingsDialog, type DeviceSettingsKind } from "../../src/features/devices/settings"
++import { emptyConfig } from "../../src/features/configuration/model"
++import { DEMO_SNAPSHOT } from "../../src/lib/demo-snapshot"
++import type { AppConfiguration, BackendSnapshot } from "../../src/lib/backend"
++import type { RunCommand } from "../../src/lib/command-contract"
++import "../../src/index.css"
++import "../../src/workbench-appearance.css"
++
++function Fixture() {
++  const [kind, setKind] = useState<DeviceSettingsKind | null>(null)
++  const [config, setConfig] = useState<AppConfiguration>({ ...emptyConfig, ...DEMO_SNAPSHOT.configuration!, setCurrentA: 0 })
++  const [snapshot, setSnapshot] = useState<BackendSnapshot>({ ...DEMO_SNAPSHOT,
++    devices: { ...DEMO_SNAPSHOT.devices,
++      powerSupply: { ...DEMO_SNAPSHOT.devices.powerSupply, connected: false, outputEnabled: false },
++      powerMeter: { ...DEMO_SNAPSHOT.devices.powerMeter, running: false, powerBackground: {
++        mode: "shadow", algorithm: "background-dual-window-v1", state: "尚未学习本底", job: null,
++        parametersConfirmed: false, model: null, decision: { stable: false, reason: "参数待确认（仅诊断）",
++          metrics: null, tolerance_w: null, noise_limit_w: null, guarded_shift_w: null, guarded_drift_w: null },
++      } },
++      spectrometer: { ...DEMO_SNAPSHOT.devices.spectrometer, running: false },
++    }, automaticTest: { ...DEMO_SNAPSHOT.automaticTest, state: "idle" },
++  })
++  const run: RunCommand = async (method, params) => {
++    if (method === "device.refresh") {
++      const device = (params as { device: keyof BackendSnapshot["devices"] }).device
++      setSnapshot(s => ({ ...s, devices: { ...s.devices, [device]: { ...s.devices[device], detecting: true } } }))
++      await new Promise(resolve => setTimeout(resolve, 600))
++      setSnapshot(s => ({ ...s, devices: { ...s.devices, [device]: { ...s.devices[device], detecting: false } } }))
++    } else if (method === "powerMeter.start" || method === "powerMeter.stop") {
++      setSnapshot(s => ({ ...s, devices: { ...s.devices, powerMeter: { ...s.devices.powerMeter, running: method === "powerMeter.start" } } }))
++    } else if (method.startsWith("powerMeter.background.")) {
++      setSnapshot(s => ({ ...s, devices: { ...s.devices, powerMeter: { ...s.devices.powerMeter,
++        powerBackground: { ...s.devices.powerMeter.powerBackground!,
++          state: method.endsWith("cancel") ? "本底任务已取消" : "学习本底 0.0 / 180 秒",
++          job: method.endsWith("cancel") ? null : "learn" },
++      } } }))
++    }
++  }
++  return <main style={{ padding: 24, minHeight: "110vh" }}>
++    <p>本地界面验证：示例状态，无真实设备命令。</p>
++    <div style={{ display: "flex", gap: 16 }} data-testid="cards">
++      {(["powerSupply", "powerMeter", "spectrometer"] as const).map((device, index) => <button style={{ width: 200, height: 100, border: "1px solid #ccc" }} key={device} onClick={() => setKind(device)}>{["电源设置", "功率计设置", "光谱仪设置"][index]}</button>)}
++    </div>
++    {kind && <DeviceSettingsDialog kind={kind} open onClose={() => setKind(null)} onSave={async () => {}} snapshot={snapshot} config={config}
++      update={(key, value) => setConfig(c => ({ ...c, [key]: value }))} active pending={false} run={run} />}
++  </main>
++}
++createRoot(document.getElementById("root")!).render(<Fixture />)
+diff --git a/tauri-ui/scripts/verify-power-background.cjs b/tauri-ui/scripts/verify-power-background.cjs
+new file mode 100644
+index 00000000..086a21c8
+--- /dev/null
++++ b/tauri-ui/scripts/verify-power-background.cjs
+@@ -0,0 +1,70 @@
++// Run via playwright-cli run-code --filename against the isolated fixture.
++async (page) => {
++  await page.goto('http://127.0.0.1:1420/scripts/fixtures/power-background.html');
++  await page.emulateMedia({ reducedMotion: 'reduce' });
++  await page.evaluate(() => document.fonts.ready);
++  const report = [];
++  async function box(locator) { return locator.boundingBox(); }
++  function same(a, b) { return a && b && ['x', 'y', 'width', 'height'].every(key => Math.abs(a[key] - b[key]) < 0.5); }
++  for (const width of [1440, 1180, 760]) {
++    await page.setViewportSize({ width, height: width === 760 ? 600 : 900 });
++    const cards = await box(page.getByTestId('cards'));
++    for (const name of ['电源设置', '功率计设置', '光谱仪设置']) {
++      await page.getByRole('button', { name, exact: true }).click();
++      const dialog = page.getByRole('dialog');
++      const before = await box(dialog);
++      if (!same(cards, await box(page.getByTestId('cards')))) throw Error(`Background cards shifted on open: ${JSON.stringify({width,name,cards,after:await box(page.getByTestId('cards'))})}`);
++      const selects = await dialog.getByRole('combobox').all();
++      let checked = 0;
++      for (const select of selects) {
++        if (!await select.isEnabled()) continue;
++        await select.scrollIntoViewIfNeeded();
++        const bounds = await box(dialog);
++        await select.click();
++        await dialog.getByRole('listbox').waitFor();
++        if (!same(bounds, await box(dialog))) throw Error(`${name} dropdown changed dialog size`);
++        await page.keyboard.press('Escape');
++        if (await dialog.getByRole('listbox').count()) throw Error('Escape did not close dropdown');
++        if (await dialog.count() !== 1) throw Error('Dropdown Escape closed dialog');
++        await select.click();
++        const selected = dialog.getByRole('option', { selected: true });
++        const option = await selected.count() ? selected.first() : dialog.getByRole('option').first();
++        await option.click();
++        if (await dialog.getByRole('listbox').count() || await dialog.count() !== 1) throw Error('Option did not close only dropdown');
++        checked++;
++      }
++      if (!checked) throw Error(`${name} had no usable selectors`);
++      if (name === '功率计设置') {
++        const footer = dialog.locator('.device-settings-dialog__footer');
++        const footerBefore = await footer.evaluate(el => ({ text: el.textContent, box: el.getBoundingClientRect().toJSON(),
++          buttons: [...el.querySelectorAll('button')].map(b => ({ text: b.textContent, color: getComputedStyle(b).backgroundColor, box: b.getBoundingClientRect().toJSON() })) }));
++        await dialog.getByRole('button', { name: '识别', exact: true }).click();
++        const footerDuring = await footer.evaluate(el => ({ text: el.textContent, box: el.getBoundingClientRect().toJSON(),
++          buttons: [...el.querySelectorAll('button')].map(b => ({ text: b.textContent, color: getComputedStyle(b).backgroundColor, box: b.getBoundingClientRect().toJSON() })) }));
++        if (JSON.stringify(footerBefore) !== JSON.stringify(footerDuring)) throw Error('Detection changed footer');
++        await page.waitForTimeout(700);
++        await dialog.getByText('本底与判稳参数', { exact: true }).click();
++        await dialog.getByLabel('仪器量程、滤波及采样设置').fill('固定量程；滤波关闭（界面验证示例）');
++        await dialog.getByLabel('已用响应实测和测试规范确认上述参数').scrollIntoViewIfNeeded();
++        if (await dialog.getByLabel('已用响应实测和测试规范确认上述参数').isChecked()) throw Error('Unknown parameters were confirmed');
++        await page.screenshot({ path: `output/playwright/power-background-20261022/parameters-${width}.png` });
++        await dialog.getByText('本底与判稳参数', { exact: true }).click();
++        await dialog.getByRole('button', { name: '开始采集', exact: true }).click();
++        await dialog.getByLabel('已确认 0 A、无光输出且探头已冷却').check();
++        await dialog.getByRole('button', { name: '学习本底 (180 s)', exact: true }).click();
++        await dialog.getByRole('button', { name: '取消本底任务', exact: true }).waitFor();
++        await page.screenshot({ path: `output/playwright/power-background-20261022/learning-${width}.png` });
++        await dialog.getByRole('button', { name: '取消本底任务', exact: true }).click();
++        await dialog.getByRole('button', { name: '停止采集', exact: true }).click();
++      }
++      if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw Error('Page horizontal overflow');
++      const clipping = await dialog.evaluate(el => el.getBoundingClientRect().left < 0 || el.getBoundingClientRect().right > innerWidth || el.getBoundingClientRect().bottom > innerHeight);
++      if (clipping) throw Error(`${name} clipped at ${width}`);
++      await page.keyboard.press('Escape');
++      if (await dialog.count()) throw Error('Escape did not close dialog');
++      if (!same(cards, await box(page.getByTestId('cards')))) throw Error('Background cards shifted after close');
++      report.push({ width, name, selectors: checked, aligned: true, before });
++    }
++  }
++  return report;
++}
+diff --git a/tauri-ui/src/features/configuration/model.tsx b/tauri-ui/src/features/configuration/model.tsx
+index b6359951..d25b23c6 100644
+--- a/tauri-ui/src/features/configuration/model.tsx
++++ b/tauri-ui/src/features/configuration/model.tsx
+@@ -47,6 +47,17 @@ export const emptyConfig: AppConfiguration = {
+   stableWindowS: 3,
+   stabilityLimitPercent: 0.2,
+   powerStabilityAbsoluteFloorW: 0.2,
++  powerStabilityMode: "shadow",
++  powerStabilityQuantizationW: 0,
++  powerStabilityInstrumentSettings: "",
++  powerStabilityAbsoluteDriftW: 0,
++  powerStabilityRelativeDriftPercent: 0,
++  powerStabilityReferenceS: 20,
++  powerStabilityExtraNoisePercent: 0,
++  powerStabilityResponseS: 0,
++  powerStabilitySettleS: 0,
++  powerStabilityCurrentToleranceA: 0,
++  powerStabilityParametersConfirmed: false,
+   initialCurrentA: 1,
+   targetCurrentA: 20,
+   currentStepA: 3,
+diff --git a/tauri-ui/src/features/devices/settings.tsx b/tauri-ui/src/features/devices/settings.tsx
+index d11f9088..e94d2ce2 100644
+--- a/tauri-ui/src/features/devices/settings.tsx
++++ b/tauri-ui/src/features/devices/settings.tsx
+@@ -720,6 +720,76 @@ export function PowerMeterProfileEditor({ snapshot, config, active, pending, run
+   )
+ }
+ 
++function PowerBackgroundSettings({ snapshot, config, update, active, pending, run }: {
++  snapshot: BackendSnapshot | null; config: AppConfiguration; update: UpdateConfig; active: boolean; pending: boolean; run: RunCommand
++}) {
++  const meter = snapshot?.devices.powerMeter
++  const background = meter?.powerBackground
++  const [confirmedDark, setConfirmedDark] = useState(false)
++  const [commandBusy, setCommandBusy] = useState(false)
++  const commandLock = useRef(false)
++  const [error, setError] = useState("")
++  const selectedMode = config.powerStabilityMode ?? "shadow"
++  const taskRunning = Boolean(background?.job)
++  const disabled = !active || pending || taskRunning
++  const numericFields: Array<[keyof AppConfiguration, string, number]> = [
++    ["powerStabilityQuantizationW", "量化步进 (W，含软件增益)", 0.01],
++    ["powerStabilityAbsoluteDriftW", "绝对漂移容差 (W)", 0.01],
++    ["powerStabilityRelativeDriftPercent", "相对漂移容差 (%)", 0.01],
++    ["powerStabilityReferenceS", "漂移参考时间 (s)", 1],
++    ["powerStabilityExtraNoisePercent", "额外 2σ 波动容差 (%)", 0.01],
++    ["powerStabilitySettleS", "电流最短建立时间 (s)", 0.1],
++    ["powerStabilityCurrentToleranceA", "电流回读容差 (A)", 0.01],
++    ["powerStabilityResponseS", "探头最短响应时间 (s)", 0.1],
++  ]
++  useEffect(() => { setConfirmedDark(false) }, [config.powerMeterResource, config.powerMeterSerialNumber])
++  async function backgroundCommand(method: "powerMeter.background.learn" | "powerMeter.background.verify" | "powerMeter.background.cancel") {
++    if (commandLock.current) return
++    commandLock.current = true
++    setCommandBusy(true)
++    setError("")
++    try {
++      if (method === "powerMeter.background.cancel") await run(method, {}, false)
++      else await run(method, { confirmedDark }, true)
++      setConfirmedDark(false)
++    } catch (failure) {
++      setError(failure instanceof Error ? failure.message : String(failure))
++    } finally {
++      commandLock.current = false
++      setCommandBusy(false)
++    }
++  }
++  return <section className="space-y-3" aria-label="功率本底与判稳">
++    <Field label="自动功率判稳策略">
++      <NativeSelect aria-label="自动功率判稳策略" disabled={disabled} value={selectedMode} onChange={(value) => update("powerStabilityMode", value as "legacy" | "shadow" | "dual")}>
++        <option value="legacy">原有策略</option><option value="shadow">旁路验证（原有策略控制）</option><option value="dual">本底与双窗口控制</option>
++      </NativeSelect>
++    </Field>
++    {selectedMode !== "legacy" && <>
++      <p className="text-xs text-muted-foreground">{selectedMode === "shadow" ? "新算法只计算并记录诊断，升流仍由原有策略控制。" : "参数已确认且本底有效时，可直接开始自动测试。"}同一探头、设置和连接未变时直接复用；重连或采样异常后才需复核。未知参数保持 0；不会自动放宽容差。</p>
++      <details className="space-y-3">
++        <summary className="cursor-pointer text-sm">本底与判稳参数</summary>
++        <Field label="仪器量程、滤波及采样设置">
++          <Input aria-label="仪器量程、滤波及采样设置" disabled={disabled || meter?.running} value={config.powerStabilityInstrumentSettings ?? ""} placeholder="填写当前仪器设置；更改后须重新学习" onChange={(event) => { update("powerStabilityParametersConfirmed", false); update("powerStabilityInstrumentSettings", event.target.value) }} />
++        </Field>
++        <ControlGrid>{numericFields.map(([key, label, step]) => <NumberField key={key} disabled={disabled || meter?.running} label={label} min={key === "powerStabilityReferenceS" ? 0.1 : 0} step={String(step)} value={Number(config[key] ?? 0)} onChange={(value) => { update("powerStabilityParametersConfirmed", false); update(key, value) }} />)}</ControlGrid>
++        <p className="text-xs text-muted-foreground">5 s / 20 s 双窗口；本底学习至少 180 s，复核 20 s。0.15 W 仅适用于对应探头，需乘以当前软件增益。漂移限值取绝对与相对容差较大值；噪声与漂移分开检查。仪器内部量程或滤波变化须停止采集并更新上述设置。</p>
++        <label className="device-settings-checkbox"><input type="checkbox" disabled={disabled || meter?.running} checked={config.powerStabilityParametersConfirmed ?? false} onChange={(event) => update("powerStabilityParametersConfirmed", event.target.checked)} />已用响应实测和测试规范确认上述参数</label>
++      </details>
++      <p role="status" className="text-xs text-muted-foreground">{background?.state ?? "尚未学习本底"}{background?.model ? ` · 模型 ${background.model.model_id.slice(0, 8)}` : ""}</p>
++      {background?.model && <p className="text-xs text-muted-foreground">零点 {formatNumber(background.model.center_w, " W", 4)} · 均值差保护量 {formatNumber(background.model.shift_guard_w, " W", 4)} · 斜率保护量 {formatNumber(background.model.slope_guard_w_s, " W/s", 5)}</p>}
++      <label className="device-settings-checkbox"><input type="checkbox" disabled={disabled} checked={confirmedDark} onChange={(event) => setConfirmedDark(event.target.checked)} />已确认 0 A、无光输出且探头已冷却</label>
++      <ControlGrid>
++        <Button variant="outline" disabled={!active || !meter?.running || !confirmedDark || taskRunning} aria-disabled={commandBusy || undefined} onClick={() => void backgroundCommand("powerMeter.background.learn")}>学习本底 (180 s)</Button>
++        <Button variant="outline" disabled={!active || !meter?.running || !confirmedDark || !background?.model || taskRunning} aria-disabled={commandBusy || undefined} onClick={() => void backgroundCommand("powerMeter.background.verify")}>复核本底 (20 s)</Button>
++      </ControlGrid>
++      {taskRunning && <Button variant="outline" aria-disabled={commandBusy || undefined} onClick={() => void backgroundCommand("powerMeter.background.cancel")}>取消本底任务</Button>}
++      {selectedMode === "shadow" && background?.decision.metrics && <p className="text-xs text-muted-foreground">旁路：{background.decision.reason} · 短窗残差 σ {formatNumber(background.decision.metrics.residual_sigma_w, " W", 4)} · 长窗均值差 {formatNumber(background.decision.metrics.block_shift_w, " W", 4)}</p>}
++      {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
++    </>}
++  </section>
++}
++
+ export function PowerMeterSettingsForm({ snapshot, config, update, active, pending, run, mode = "auto" }: {
+   snapshot: BackendSnapshot | null; config: AppConfiguration; update: UpdateConfig; active: boolean; pending: boolean; run: RunCommand
+   mode?: "auto" | "manual"
+@@ -751,6 +821,7 @@ export function PowerMeterSettingsForm({ snapshot, config, update, active, pendi
+         </ControlRow>
+       </Field>
+       <PowerMeterProfileEditor active={active} config={config} pending={pending} run={run} snapshot={snapshot} />
++      {mode === "auto" && <PowerBackgroundSettings snapshot={snapshot} config={config} update={update} active={active} pending={pending} run={run} />}
+       {config.powerMeterDriverKind === "laserpoint" && (
+         <div className="space-y-2">
+           <NumberField disabled={!active || pending || meter?.running} label="判稳绝对下限 (W)" min={0} step="0.01" value={config.powerStabilityAbsoluteFloorW ?? 0.2} onChange={(value) => update("powerStabilityAbsoluteFloorW", value)} />
+diff --git a/tauri-ui/src/lib/automatic-presentation.test.ts b/tauri-ui/src/lib/automatic-presentation.test.ts
+index 9ea1adf5..c7cbb735 100644
+--- a/tauri-ui/src/lib/automatic-presentation.test.ts
++++ b/tauri-ui/src/lib/automatic-presentation.test.ts
+@@ -37,6 +37,23 @@ const stability: NonNullable<Automatic["stability"]> = {
+   wavelengthRequired: false, wavelengthStable: false,
+ }
+ 
++test("dual-window presentation preserves diagnostic reasons, hold, freshness and pause states", () => {
++  const background = {
++    mode: "dual" as const, algorithm: "background-dual-window-v1", state: "本底已复核", job: null,
++    parametersConfirmed: true, model: null,
++    decision: { stable: false, reason: "测量能力不足：本底保护量超过目标容差", metrics: null,
++      tolerance_w: 0.1, noise_limit_w: 0.075, guarded_shift_w: 0.15, guarded_drift_w: 0.15 },
++  }
++  const dual = { ...stability, background }
++  assert.match(automaticStabilityPresentation(auto({ state: "waiting_stable", stability: dual })).label, /测量能力不足/)
++  assert.equal(automaticStabilityPresentation(auto({ state: "waiting_stable", stability: { ...dual, quality: "stale" } })).label, "等待有效采样")
++  assert.equal(automaticStabilityPresentation(auto({ state: "paused", stability: dual })).label, "已暂停")
++  assert.equal(automaticStabilityPresentation(auto({ state: "completed", stability: dual })).label, "判稳已结束")
++  assert.equal(automaticStabilityPresentation(auto({ state: "waiting_voltage", stability: { ...dual, powerStable: true, holdElapsedS: 3.2 } })).time, "3.2 / 5.0 秒")
++  const shadow = { ...dual, background: { ...background, mode: "shadow" as const } }
++  assert.match(automaticStabilityPresentation(auto({ state: "waiting_stable", stability: shadow })).detail, /旁路诊断/)
++})
++
+ test("confirmation starts only after stability and completes after five seconds", () => {
+   const pending = automaticStabilityPresentation(auto({ state: "waiting_stable", stability }))
+   assert.equal(pending.label, "判稳中")
+diff --git a/tauri-ui/src/lib/automatic-presentation.ts b/tauri-ui/src/lib/automatic-presentation.ts
+index f375d2ea..4288f26b 100644
+--- a/tauri-ui/src/lib/automatic-presentation.ts
++++ b/tauri-ui/src/lib/automatic-presentation.ts
+@@ -114,7 +114,12 @@ export function powerStabilityPresentation(meter: DeviceSnapshot | undefined) {
+ export function automaticStabilityPresentation(auto: Automatic | undefined, meter?: DeviceSnapshot) {
+   const stability = auto?.stability
+   const state = auto?.state ?? "idle"
+-  const result = (label: string, tone = "normal", time = "—", detail = "功率连续满足波动条件的时间") => ({ label, tone, time, detail })
++  const result = (label: string, tone = "normal", time = "—", detail = "功率连续满足波动条件的时间") => ({
++    label, tone, time,
++    detail: stability?.background?.mode === "shadow"
++      ? `${detail} 旁路诊断：${stability.background.decision.reason}；升流由原有策略控制。`
++      : detail,
++  })
+   if (state === "idle") return result("未开始")
+   if (auto?.runContext?.selectedScriptId === "aging") return result("定时老化", "normal", "—", "老化测试按设定时长运行")
+   if (!stability) {
+@@ -132,6 +137,21 @@ export function automaticStabilityPresentation(auto: Automatic | undefined, mete
+   const usable = stability.hasReading && (!sampling || stability.quality === "live") && !preparing
+   const elapsed = usable && stability.powerStable ? Math.min(required, Math.max(0, holdElapsed)) : 0
+   const time = required === 0 ? "—" : `${elapsed.toFixed(1)} / ${required.toFixed(1)} 秒`
++  const background = stability.background
++  if (background?.mode === "dual" && !preparing) {
++    if (sampling && !usable) return result("等待有效采样", "warning", time, "功率数据已过期或中断，必须重新判稳。")
++    const decision = background.decision
++    const metrics = decision.metrics
++    const evidence = metrics
++      ? `残差 σ ${metrics.residual_sigma_w.toFixed(4)} W；窗口均值差 ${metrics.block_shift_w.toFixed(4)} W；斜率 ${metrics.slope_w_s.toFixed(5)} W/s。`
++      : "短窗口 5 秒，长窗口 20 秒。"
++    const detail = `${decision.reason}。${evidence}限值含本底保护量；原始功率与 LIV 中位数不作本底扣减。`
++    if (state === "paused") return result("已暂停", "warning", time, detail)
++    if (["completed", "ramping_down"].includes(state)) return result("判稳已结束", "normal", time, detail)
++    if (!stability.powerStable) return result(decision.reason, "warning", time, detail)
++    if (stability.wavelengthRequired && !stability.wavelengthStable) return result("等待波长稳定", "warning", time, detail)
++    return result(elapsed < required ? "连续确认" : "保持完成", "success", time, detail)
++  }
+   const floor = stability.absoluteFloorW ?? 0
+   const floorActive = stability.spanLimitW === null && floor > 0
+   const criterion = stability.spanLimitW === null
+diff --git a/tauri-ui/src/lib/backend.ts b/tauri-ui/src/lib/backend.ts
+index 2b14ac0e..543caae4 100644
+--- a/tauri-ui/src/lib/backend.ts
++++ b/tauri-ui/src/lib/backend.ts
+@@ -50,6 +50,7 @@ export interface Ch341State {
+ }
+ 
+ export interface DeviceSnapshot {
++  powerBackground?: PowerBackgroundSnapshot
+   state: DeviceConnectionState
+   label: string
+   detail: string
+@@ -176,6 +177,18 @@ export interface AppConfiguration {
+   stableWindowS: number
+   stabilityLimitPercent: number
+   powerStabilityAbsoluteFloorW?: number
++  powerStabilityMode?: "legacy" | "shadow" | "dual"
++  powerStabilityQuantizationW?: number
++  powerStabilityInstrumentSettings?: string
++  powerStabilityAbsoluteDriftW?: number
++  powerStabilityRelativeDriftPercent?: number
++  powerStabilityReferenceS?: number
++  powerStabilityExtraNoisePercent?: number
++  powerStabilityResponseS?: number
++  powerStabilitySettleS?: number
++  powerStabilityCurrentToleranceA?: number
++  powerStabilityParametersConfirmed?: boolean
++  powerStabilityConfirmedSignature?: string
+   initialCurrentA: number
+   targetCurrentA: number
+   currentStepA: number
+@@ -263,6 +276,7 @@ export interface BackendSnapshot {
+     elapsedS?: number | null
+     runContext?: Pick<AppConfiguration, "sn" | "station" | "testTemperatureC" | "selectedScriptId"> | null
+     stability?: {
++      background?: PowerBackgroundSnapshot
+       powerStable: boolean
+       /** Continuous qualifying sample coverage, computed by the backend. */
+       elapsedS: number
+@@ -369,6 +383,25 @@ export interface BackendSnapshot {
+   status?: { message: string }
+ }
+ 
++export interface PowerBackgroundSnapshot {
++  mode: "legacy" | "shadow" | "dual"
++  algorithm: string
++  state: string
++  job: "learn" | "verify" | "saving" | null
++  parametersConfirmed: boolean
++  model: { model_id: string; center_w: number; quantization_w: number; noise_sigma_w: number; shift_guard_w: number; slope_guard_w_s: number; created_at: string } | null
++  decision: {
++    code?: string
++    stable: boolean
++    reason: string
++    tolerance_w: number | null
++    noise_limit_w: number | null
++    guarded_shift_w: number | null
++    guarded_drift_w: number | null
++    metrics: { mean_w: number; median_w: number; span_w: number; residual_sigma_w: number; block_shift_w: number; slope_w_s: number; covered_s: number; sample_count: number } | null
++  }
++}
++
+ export type BackendSnapshotPatch = Omit<BackendSnapshot, "measurements" | "pd"> & {
+   measurements?: Omit<Partial<NonNullable<BackendSnapshot["measurements"]>>, "spectrum"> & {
+     spectrum?: SpectrumColumnsPatch
+diff --git a/tauri-ui/src/lib/command-contract.ts b/tauri-ui/src/lib/command-contract.ts
+index c585728e..721b27b9 100644
+--- a/tauri-ui/src/lib/command-contract.ts
++++ b/tauri-ui/src/lib/command-contract.ts
+@@ -30,6 +30,9 @@ export interface CommandMap {
+   "powerMeter.start": Entry<{}>
+   "powerMeter.stop": Entry<{}>
+   "powerMeter.setRelativeZero": Entry<{ enabled: boolean }>
++  "powerMeter.background.learn": Entry<{ confirmedDark: boolean }>
++  "powerMeter.background.verify": Entry<{ confirmedDark: boolean }>
++  "powerMeter.background.cancel": Entry<{}>
+   "powerMeter.profile.create": Entry<Profile>
+   "powerMeter.profile.save": Entry<Profile>
+   "powerMeter.profile.select": Entry<Profile>
+diff --git a/tauri-ui/src/lib/power-meter-configuration.ts b/tauri-ui/src/lib/power-meter-configuration.ts
+index ab994055..e8a4fe98 100644
+--- a/tauri-ui/src/lib/power-meter-configuration.ts
++++ b/tauri-ui/src/lib/power-meter-configuration.ts
+@@ -11,6 +11,7 @@ export const powerMeterDerivedConfigurationKeys = [
+   "powerMeterProfileVersion",
+   "powerMeterProfileNotes",
+   "powerMeterProfileWavelengthPending",
++  "powerStabilityConfirmedSignature",
+ ] as const satisfies ReadonlyArray<keyof AppConfiguration>
+ 
+ export function mergeAuthoritativePowerMeterConfiguration(
+diff --git a/tauri_bridge/backend_dispatch.py b/tauri_bridge/backend_dispatch.py
+index 3c8edab1..06426808 100644
+--- a/tauri_bridge/backend_dispatch.py
++++ b/tauri_bridge/backend_dispatch.py
+@@ -36,6 +36,13 @@ class BackendDispatcher:
+         backend = self._backend
+         st = backend.runtime
+ 
++        if st.power_stability.job and (
++            method == "automatic.start" or method.startswith("powerMeter.profile.")
++            or method in {"powerSupply.setCurrent", "powerSupply.setVoltage", "powerMeter.setRelativeZero"}
++            or (method == "powerSupply.setOutput" and params.get("enabled") is True)
++        ):
++            raise CommandRejected("control_conflict", "本底任务进行中，请先完成或取消")
++
+         if method in MANUAL_CONTROL_METHODS and not st.manual_controls_allowed():
+             raise CommandRejected(
+                 "control_conflict", "硬件控制权由自动测试持有；请先结束并安全下电"
+@@ -54,6 +61,9 @@ class BackendDispatcher:
+             "powerMeter.start": lambda _p: st.start_power_meter(),
+             "powerMeter.stop": lambda _p: st.stop_power_meter(),
+             "powerMeter.setRelativeZero": lambda p: st.set_relative_zero(p),
++            "powerMeter.background.learn": lambda p: st.power_stability.start_background(p),
++            "powerMeter.background.verify": lambda p: st.power_stability.start_background(p, verify=True),
++            "powerMeter.background.cancel": lambda _p: st.power_stability.cancel_background(),
+             "manual.saveExcel": lambda _p: st.save_manual_records(),
+             "spectrometer.start": lambda _p: st.start_spectrometer(),
+             "spectrometer.stop": lambda _p: st.stop_spectrometer(),
+diff --git a/tauri_bridge/power_stability_runtime.py b/tauri_bridge/power_stability_runtime.py
+new file mode 100644
+index 00000000..68096e3a
+--- /dev/null
++++ b/tauri_bridge/power_stability_runtime.py
+@@ -0,0 +1,353 @@
++"""Probe-bound background lifecycle fed exclusively by the existing reader."""
++
++from __future__ import annotations
++
++import hashlib
++import json
++import math
++import threading
++import time
++import uuid
++from dataclasses import asdict, replace
++from datetime import datetime, timezone
++from typing import Any
++
++from combined_test.power_stability import (
++    ALGORITHM_VERSION, LEARNING_DURATION_S, LONG_WINDOW_S, BackgroundModel,
++    PowerWindow, StabilityDecision, StabilityPolicy, evaluate_stability,
++    learn_background, verify_background,
++)
++
++
++IDENTITY_KEYS = (
++    "powerMeterDriverKind", "powerMeterSerialNumber", "softwareGain",
++    "powerMeterWavelengthNm", "powerMeterProfileId", "powerMeterProfileVersion",
++    "powerMeterIntervalMs", "powerStabilityQuantizationW", "powerStabilityInstrumentSettings",
++)
++POLICY_KEYS = (
++    "powerStabilityMode", "powerStabilityAbsoluteDriftW", "powerStabilityRelativeDriftPercent",
++    "powerStabilityReferenceS", "powerStabilityExtraNoisePercent", "powerStabilityResponseS",
++    "powerStabilityParametersConfirmed", "powerStabilitySettleS",
++    "powerStabilityCurrentToleranceA",
++    "powerSupplyKind",
++)
++
++
++class PowerStabilityRuntime:
++    def __init__(self, station: Any) -> None:
++        self.station = station
++        self.model: BackgroundModel | None = None
++        self.frozen_model: BackgroundModel | None = None
++        self.job: str | None = None
++        self.job_epoch = 0
++        self.samples: list[tuple[float, float]] = []
++        self.job_connection: tuple | None = None
++        self.connection: tuple | None = None
++        self.instrument_token = ""
++        self.verified_connection: tuple | None = None
++        self.verified_at: float | None = None
++        self.last_received: float | None = None
++        self.last_sample: float | None = None
++        self.window = PowerWindow(1.0)
++        self.expected_generation: int | None = None
++        self.accept_after = math.inf
++        self.state = "尚未学习本底"
++        self.decision = StabilityDecision(False, self.state)
++        self.last_journal_at = -math.inf
++        self.trace_revision = 0
++        self.failure_revision = 0
++        self._load_model()
++
++    def identity(self, config: dict | None = None) -> str:
++        config = self.station.configuration if config is None else config
++        value = {key: config.get(key) for key in IDENTITY_KEYS}
++        value["algorithm"] = ALGORITHM_VERSION
++        value["instrumentToken"] = self.instrument_token
++        zero_versions = self.station.backend.settings.get("runtime/powerBackgroundZeroVersions", {})
++        value["zeroVersion"] = zero_versions.get(self._probe_key(config), 0) if isinstance(zero_versions, dict) else 0
++        return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
++
++    @staticmethod
++    def _probe_key(config: dict) -> str:
++        return f"{config.get('powerMeterDriverKind', '')}:{config.get('powerMeterSerialNumber', '')}"
++
++    def before_zero_command(self) -> None:
++        """Durably retire old models before a possibly partially applied zero command."""
++        versions = self.station.backend.settings.get("runtime/powerBackgroundZeroVersions", {})
++        if not isinstance(versions, dict):
++            versions = {}
++        key = self._probe_key(self.station.configuration)
++        versions[key] = int(versions.get(key, 0)) + 1
++        self.station.backend.settings.set("runtime/powerBackgroundZeroVersions", versions)
++        self.invalidate("已开始调零操作，旧本底失效，请重新学习")
++        self.model = None
++
++    def policy(self) -> StabilityPolicy:
++        c = self.station.configuration
++        return StabilityPolicy(
++            quantization_w=float(c["powerStabilityQuantizationW"]),
++            absolute_drift_w=float(c["powerStabilityAbsoluteDriftW"]),
++            relative_drift_percent=float(c["powerStabilityRelativeDriftPercent"]),
++            reference_s=float(c["powerStabilityReferenceS"]),
++            extra_noise_percent=float(c["powerStabilityExtraNoisePercent"]),
++            response_s=float(c["powerStabilityResponseS"]),
++            parameters_confirmed=(bool(c["powerStabilityParametersConfirmed"])
++                                  and c.get("powerStabilityConfirmedSignature") == self.confirmation_signature()),
++            gap_s=min(5.0, max(1.0, float(c["powerMeterIntervalMs"]) * 0.003)),
++        )
++
++    def confirmation_signature(self, config: dict | None = None) -> str:
++        config = self.station.configuration if config is None else config
++        values = {key: config.get(key) for key in POLICY_KEYS
++                  if key not in {"powerStabilityMode", "powerStabilityParametersConfirmed"}}
++        values["identity"] = self.identity(config)
++        return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
++
++    @property
++    def mode(self) -> str:
++        return str(self.station.configuration["powerStabilityMode"])
++
++    @property
++    def controls(self) -> bool:
++        return self.mode == "dual" and not self.station._aging_test_selected()
++
++    def _load_model(self) -> None:
++        saved = self.station.backend.settings.get("runtime/powerBackgrounds", {})
++        raw = saved.get(self.identity()) if isinstance(saved, dict) else None
++        self.model = None
++        if isinstance(raw, dict):
++            try:
++                self.model = BackgroundModel.from_dict(raw["model"])
++            except (KeyError, TypeError, ValueError):
++                self.state = "已保存本底无效，请重新学习"
++            else:
++                self.state = "本底已保存，连接恢复后请复核 20 秒；通过后可连续复用"
++
++    def invalidate(self, reason: str) -> None:
++        self.verified_at = None
++        self.verified_connection = None
++        self.window = PowerWindow(self.policy().gap_s)
++        self.decision = StabilityDecision(False, reason)
++        self.state = reason
++        self.job_epoch += 1
++        self.job = None
++        self.samples = []
++
++    def configure(self, old: dict, new: dict) -> None:
++        if self.identity(old) != self.identity(new):
++            self.invalidate("判稳配置已改变，请重新复核本底")
++            self._load_model()
++        elif any(old.get(k) != new.get(k) for k in POLICY_KEYS):
++            # Changing a decision policy does not alter measured background.
++            # Parameter confirmation remains bound separately to the new policy.
++            self.window = PowerWindow(self.policy().gap_s)
++            self.decision = StabilityDecision(False, "判稳策略已更新，等待新窗口")
++
++    def start_background(self, params: dict, *, verify: bool = False) -> None:
++        st = self.station
++        with st._lock:
++            if not st.manual_controls_allowed() or st.manual_current_request_a is not None:
++                raise ValueError("请先结束测试并将输出电流归零")
++            if self.job is not None:
++                raise ValueError("本底任务已在运行")
++            if params.get("confirmedDark") is not True:
++                raise ValueError("请确认 0 A、无光输出且探头已冷却")
++            if abs(float(st.active_current_a or 0)) > 0.005:
++                raise ValueError("学习或复核本底前必须先将输出电流归零")
++            if (st.record_store.current_session is not None
++                    and st.record_store.current_session.mode == "manual"
++                    and st.record_store.unsaved_records()):
++                raise ValueError("请先保存未落盘的手动测试点")
++            if st.power_meter_reader is None or not st.power_meter_reader.is_ready:
++                raise ValueError("请先启动功率采集")
++            if self.connection is None or st.latest_power is None:
++                raise ValueError("请等待首个有效功率读数后再开始本底任务")
++            if st.power_supply_kind in {"tdk", "ru"} and st.power_supply_controller is not None:
++                if (not st._refresh_live_power_supply_current(force=True)
++                        or st.latest_power_supply_output_current_a is None
++                        or abs(st.latest_power_supply_output_current_a) > 0.005):
++                    raise ValueError("电源实际电流尚未确认归零")
++            if not str(st.configuration["powerMeterSerialNumber"]).strip():
++                raise ValueError("本底必须绑定已验证的探头 SN")
++            if not str(st.configuration["powerStabilityInstrumentSettings"]).strip():
++                raise ValueError("请填写并确认当前仪器量程和滤波设置")
++            policy = self.policy()
++            if policy.quantization_w <= 0:
++                raise ValueError("请填写经软件增益换算后的量化步进 (W)")
++            if verify and (self.model is None or self.model.identity != self.identity()):
++                raise ValueError("没有匹配本底，请先学习本底")
++            self.invalidate("正在复核本底" if verify else "正在学习 0 A 本底")
++            self.job = "verify" if verify else "learn"
++            self.job_connection = self.connection
++            self.accept_after = time.monotonic()
++            self.window = PowerWindow(policy.gap_s)
++
++    def cancel_background(self) -> None:
++        with self.station._lock:
++            self.invalidate("本底任务已取消；已保存模型保留，使用前须复核")
++
++    def blocker(self) -> str | None:
++        if self.job:
++            return "本底任务进行中，请完成或取消后再开始测试"
++        if not self.controls:
++            return None
++        if (not self.policy().ready or float(self.station.configuration["powerStabilitySettleS"]) <= 0
++                or float(self.station.configuration["powerStabilityCurrentToleranceA"]) <= 0):
++            return "新判稳策略的响应时间、电流建立时间和漂移容差尚未确认"
++        if self.model is None or self.model.identity != self.identity():
++            return "新判稳策略需要匹配的 0 A 本底"
++        if (self.verified_at is None or self.verified_connection is None
++                or self.verified_connection != self.connection):
++            return "连接或本底状态已改变，请在 0 A 复核 20 秒；通过后可连续复用"
++        if self.last_received is None or not 0 <= time.monotonic() - self.last_received <= self.policy().gap_s:
++            return "功率采样中断，请恢复采集后在 0 A 复核本底"
++        return None
++
++    def freeze(self) -> None:
++        error = self.blocker()
++        if error:
++            raise ValueError(error)
++        self.frozen_model = self.model
++        # Freezing a run must not consume trust in an unchanged connection.
++        # Reconnects, configuration changes and acquisition failures invalidate it.
++        self.last_journal_at = -math.inf
++
++    def begin_point(self, generation: int, *, response_start: float | None = None) -> None:
++        self.expected_generation = generation
++        self.window = PowerWindow(self.policy().gap_s)
++        self.accept_after = (time.monotonic() if response_start is None else response_start) + self.policy().response_s
++        self.decision = StabilityDecision(False, "等待探头响应")
++
++    def _finish_learning(self, epoch: int, samples: list, identity: str, policy: StabilityPolicy) -> None:
++        try:
++            model = learn_background(samples, identity=identity, model_id=str(uuid.uuid4()),
++                                     created_at=datetime.now(timezone.utc).isoformat(), policy=policy)
++            with self.station._lock:
++                if epoch != self.job_epoch or identity != self.identity():
++                    return
++                saved = self.station.backend.settings.get("runtime/powerBackgrounds", {})
++                if not isinstance(saved, dict):
++                    saved = {}
++                saved[identity] = {"model": asdict(model), "samples": samples,
++                                   "instrument": {key: self.station.configuration.get(key) for key in IDENTITY_KEYS}}
++                self.station.backend.settings.set("runtime/powerBackgrounds", saved)
++                self.model = model
++                self.job = None
++                self.samples = []
++                if self.connection is not None and self.job_connection == self.connection:
++                    self.verified_connection = self.connection
++                    self.verified_at = self.last_received
++                    self.state = "本底学习完成，当前连接可直接复用；重连或异常后需复核"
++                else:
++                    self.state = "本底已保存，使用前请在当前连接复核 20 秒"
++        except Exception as exc:
++            with self.station._lock:
++                if epoch == self.job_epoch:
++                    self.invalidate(f"本底学习失败：{exc}")
++
++    def observe(self, reading: Any, received_at: float) -> Any:
++        st = self.station
++        connection = (id(st.power_meter_reader), reading.connection_generation, reading.instrument_configuration_token)
++        if connection != self.connection:
++            self.connection = connection
++            self.instrument_token = reading.instrument_configuration_token
++            self.invalidate("功率计连接或量程已改变，请重新复核本底")
++            self._load_model()
++        policy = self.policy()
++        gap = self.last_received is not None and received_at - self.last_received > policy.gap_s
++        self.last_received = received_at
++        # Only a completed hardware transaction can enter this method. Identical
++        # values from different transactions remain valid quantized observations.
++        if self.last_sample is not None and reading.elapsed_s == self.last_sample:
++            self.failure_revision += 1
++            self.decision = StabilityDecision(False, "重复采样事务，等待新样本")
++            return replace(reading, stable=False) if self.controls else reading
++        self.last_sample = reading.elapsed_s
++        if gap or not math.isfinite(reading.power_w) or not math.isfinite(reading.elapsed_s):
++            self.invalidate("功率采样中断或无效，请重新建立窗口和本底复核")
++        if self.job in {"learn", "verify"}:
++            if (connection != self.job_connection or abs(float(st.active_current_a or 0)) > 0.005
++                    or not st.manual_controls_allowed()):
++                self.invalidate("本底条件改变，任务已取消")
++            elif reading.transaction_started_monotonic_s >= self.accept_after:
++                if self.samples and not 0 < reading.elapsed_s - self.samples[-1][0] <= policy.gap_s:
++                    self.invalidate("本底采样中断，请重新开始")
++                else:
++                    self.samples.append((reading.elapsed_s, reading.power_w))
++                    metrics = self.window.add(reading.elapsed_s, reading.power_w)
++                    duration = self.samples[-1][0] - self.samples[0][0]
++                    required = LEARNING_DURATION_S if self.job == "learn" else LONG_WINDOW_S
++                    self.state = f"{'学习' if self.job == 'learn' else '复核'}本底 {min(duration, required):.1f} / {required:g} 秒"
++                    if len(self.samples) > 200_000:
++                        self.invalidate("本底样本过多，请检查采样设置")
++                    elif duration >= required:
++                        if self.job == "verify":
++                            if verify_background(metrics, self.model):
++                                self.verified_connection = connection
++                                self.verified_at = received_at
++                                self.job = None
++                                self.samples = []
++                                self.state = "本底复核通过，当前连接可连续复用；重连或异常后需复核"
++                            else:
++                                self.invalidate("本底复核未通过，请检查冷却、零点或重新学习")
++                        else:
++                            self.job = "saving"
++                            self.state = "正在校验并保存本底"
++                            threading.Thread(target=self._finish_learning,
++                                             args=(self.job_epoch, list(self.samples), self.identity(), policy),
++                                             name="power-background-learning", daemon=True).start()
++        active = not st.manual_controls_allowed() and not st._aging_test_selected()
++        if not active or self.mode == "legacy":
++            return reading
++        if reading.stability_generation != self.expected_generation:
++            return replace(reading, stable=False) if self.controls else reading
++        # Elapsed time in the source is the read's START, before any blocking IO.
++        # The monotonic transaction boundary excludes in-flight, pre-delay reads.
++        if reading.transaction_started_monotonic_s < self.accept_after:
++            self.decision = StabilityDecision(False, "等待探头响应")
++        elif self.connection != self.verified_connection:
++            self.decision = StabilityDecision(False, "连接或采样已中断，必须结束测试并在 0 A 复核本底", code="background_invalid")
++        else:
++            metrics = self.window.add(reading.elapsed_s, reading.power_w)
++            self.decision = evaluate_stability(metrics, self.frozen_model, policy, identity=self.identity())
++        self.trace_revision += 1
++        if not self.decision.stable:
++            self.failure_revision += 1
++        if not self.controls:
++            return reading
++        result = self.decision
++        metrics = result.metrics
++        return replace(reading, stable=result.stable,
++                       stable_window_s=0.0 if metrics is None else metrics.covered_s,
++                       stable_duration_s=0.0 if metrics is None else metrics.covered_s,
++                       stable_median_w=math.nan if metrics is None else metrics.median_w,
++                       stable_span_w=math.nan if metrics is None else metrics.span_w)
++
++    def snapshot(self) -> dict:
++        return {"mode": self.mode, "algorithm": ALGORITHM_VERSION,
++                "state": self.state, "job": self.job,
++                "parametersConfirmed": self.policy().ready,
++                "model": None if self.model is None else asdict(self.model),
++                "decision": asdict(self.decision)}
++
++    def session_metadata(self) -> dict:
++        return {"mode": self.mode, "algorithm": ALGORITHM_VERSION,
++                "legacyAlgorithm": "relative-or-span-v1",
++                "policy": asdict(self.policy()),
++                "identity": {key: self.station.configuration.get(key) for key in IDENTITY_KEYS},
++                "instrumentToken": self.instrument_token,
++                "background": None if self.frozen_model is None else asdict(self.frozen_model)}
++
++    def journal_diagnostic(self, current_a: float, *, force: bool = False) -> None:
++        if self.mode == "legacy" or self.station._aging_test_selected():
++            return
++        now = time.monotonic()
++        if force or now - self.last_journal_at >= 1.0:
++            with self.station._lock:
++                diagnostic = self.snapshot()
++                reading = self.station.latest_power
++                diagnostic["rawPowerW"] = None if reading is None else reading.power_w
++                diagnostic["sampleS"] = None if reading is None else reading.elapsed_s
++                diagnostic["connection"] = None if reading is None else reading.connection_generation
++            self.station.record_store.record_stability_diagnostic(current_a, diagnostic)
++            self.last_journal_at = now
+diff --git a/tauri_bridge/snapshot_builder.py b/tauri_bridge/snapshot_builder.py
+index 2560ddbc..934206ef 100644
+--- a/tauri_bridge/snapshot_builder.py
++++ b/tauri_bridge/snapshot_builder.py
+@@ -142,6 +142,8 @@ class SnapshotBuilder:
+             active_st.configuration["stableWindowS"],
+             active_st.automatic.current_a,
+         )
++        if active_st.power_stability.controls:
++            stability_window_s = 20.0
+         stability_quality = (
+             power_freshness["quality"]
+             if stability_reading is active_st.latest_power else "stale"
+@@ -153,7 +155,10 @@ class SnapshotBuilder:
+             if 0 <= active_st.automatic.current_index < len(active_st.automatic.currents)
+             else 0.0 if active_st.power_supply_kind in {"tdk", "ru"} else ORDINARY_AUTO_POST_STABLE_DELAY_S
+         )
++        if active_st.power_stability.controls and active_st.automatic.currents:
++            hold_required_s = 10.0 if active_st.automatic.current_index == len(active_st.automatic.currents) - 1 else 5.0
+         automatic_stability = {
++            "background": active_st.power_stability.snapshot(),
+             "powerStable": bool(stability_reading and stability_reading.stable),
+             "elapsedS": (
+                 stability_window_s if stability_reading and stability_reading.stable else
+@@ -167,7 +172,7 @@ class SnapshotBuilder:
+             ),
+             "holdRequiredS": hold_required_s,
+             "spanW": finite(stability_reading.stable_span_w) if stability_reading else None,
+-            "spanLimitW": automatic_power_stability_span_limit_w(
++            "spanLimitW": None if active_st.power_stability.controls else automatic_power_stability_span_limit_w(
+                 active_st.automatic.current_a,
+                 str(active_st.configuration.get("powerMeterDriverKind", "")),
+             ),
+@@ -175,7 +180,7 @@ class SnapshotBuilder:
+             "limitPercent": float(active_st.configuration["stabilityLimitPercent"]),
+             "absoluteFloorW": (
+                 float(active_st.configuration["powerStabilityAbsoluteFloorW"])
+-                if active_st.configuration.get("powerMeterDriverKind") == "laserpoint"
++                if not active_st.power_stability.controls and active_st.configuration.get("powerMeterDriverKind") == "laserpoint"
+                 and automatic_power_stability_span_limit_w(active_st.automatic.current_a, "laserpoint") is None
+                 else 0.0
+             ),
+@@ -369,6 +374,7 @@ class SnapshotBuilder:
+                     "stabilityLimitPercent": float(
+                         active_st.configuration["stabilityLimitPercent"]
+                     ),
++                    "powerBackground": active_st.power_stability.snapshot(),
+                     **power_freshness,
+                     "resources": [item.label() for item in power_meter_options],
+                     "coefficientLibrary": backend.power_meter_profiles.library(),
+diff --git a/tauri_bridge/station_automatic.py b/tauri_bridge/station_automatic.py
+index 7cba2a6d..3a6fbe4a 100644
+--- a/tauri_bridge/station_automatic.py
++++ b/tauri_bridge/station_automatic.py
+@@ -129,7 +129,7 @@ class StationAutomaticMixin:
+             mode="automatic",
+             product_model=str(self.configuration.get("productModel", "")),
+             batch=str(self.configuration.get("batch", "")),
+-            settings=dict(self.configuration),
++            settings={**self.configuration, "powerStability": self.power_stability.session_metadata()},
+             devices=self._device_snapshots(),
+         )
+         self.record_store.configure_sequence(self.automatic.currents)
+@@ -631,6 +631,10 @@ class StationAutomaticMixin:
+         def block(code: str, message: str) -> None:
+             blockers.append({"code": code, "message": message})
+ 
++        stability_blocker = self.power_stability.blocker()
++        if stability_blocker:
++            block("power_background_not_ready", stability_blocker)
++
+         if self.automatic.state not in {
+             AutomaticTestState.IDLE,
+             AutomaticTestState.COMPLETED,
+@@ -700,6 +704,7 @@ class StationAutomaticMixin:
+         if not aging_test:
+             self._select_latest_test_reference(params)
+         settings = self._require_automatic_ready()
++        self.power_stability.freeze()
+         self.reset_charts()
+         self.automatic.start(
+             settings,
+@@ -823,6 +828,7 @@ class StationAutomaticMixin:
+         )
+         stability_generation = reader.reset_stability_window()
+         with self._lock:
++            self.power_stability.begin_point(stability_generation)
+             self.automatic_stability_generation = stability_generation
+             self.automatic_stability_reading = None
+             self.automatic_stable_hold_elapsed_s = 0.0
+@@ -872,6 +878,9 @@ class StationAutomaticMixin:
+             and (power_received_at is None or power_received_at < minimum_received_monotonic_s)
+         ):
+             return None
++        if (self.power_stability.controls and minimum_received_monotonic_s is not None
++                and reading.transaction_started_monotonic_s < minimum_received_monotonic_s):
++            return None
+         if not use_spectrometer:
+             return reading, None
+         if (
+@@ -912,7 +921,10 @@ class StationAutomaticMixin:
+         self.automatic_detail = (
+             f"{retry_reason}，正在重新判稳" if retry_reason else f"正在等待 {current_a:g} A 稳定"
+         )
+-        point_deadline = time.monotonic() + settings.point_timeout_s
++        point_deadline = (
++            self._power_point_deadline if self.power_stability.controls
++            else time.monotonic() + settings.point_timeout_s
++        )
+         while time.monotonic() < point_deadline:
+             if self._automatic_stop.is_set():
+                 raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
+@@ -920,6 +932,14 @@ class StationAutomaticMixin:
+             if paused_duration is None:
+                 raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
+             point_deadline += paused_duration
++            if self.power_stability.controls:
++                self._power_point_deadline = point_deadline
++            self.power_stability.journal_diagnostic(current_a)
++            if self.power_stability.controls:
++                reason = self.power_stability.decision.reason
++                self.automatic_detail = reason
++                if self.power_stability.decision.code in {"capability_insufficient", "background_invalid"}:
++                    raise ValueError(reason)
+             measurement = self._fresh_automatic_measurement(
+                 stability_generation=stability_generation,
+                 spectrum_revision=spectrum_revision,
+@@ -941,12 +961,17 @@ class StationAutomaticMixin:
+         spectrum_revision: int,
+     ) -> tuple[PowerMeterReading, Any]:
+         """Respect explicit dwell and controller-specific confirmation before reading."""
+-        required_s = automatic_voltage_read_delay_s(self.power_supply_kind, index, len(self.automatic.currents))
++        required_s = (
++            automatic_post_stable_delay_s(index, len(self.automatic.currents))
++            if self.power_stability.controls else
++            automatic_voltage_read_delay_s(self.power_supply_kind, index, len(self.automatic.currents))
++        )
+         dwell_s = self.automatic.current_dwell_s
+         timer = StableHoldTimer(required_s, max(1.0, float(self.configuration["powerMeterIntervalMs"]) * 3.0 / 1000.0))
+         started_at = time.monotonic()
+         self.automatic_hold_started_at = started_at
+-        deadline = started_at + dwell_s + settings.point_timeout_s
++        deadline = (self._power_point_deadline + dwell_s if self.power_stability.controls
++                    else started_at + dwell_s + settings.point_timeout_s)
+         next_sample_s = 1.0
+         while True:
+             paused_s = self._await_automatic_resume()
+@@ -957,6 +982,9 @@ class StationAutomaticMixin:
+                 started_at += paused_s
+                 deadline += paused_s
+                 self.automatic_hold_started_at = started_at
++                if self.power_stability.controls:
++                    self._power_point_deadline += paused_s
++            self.power_stability.journal_diagnostic(current_a)
+             with self._lock:
+                 now = time.monotonic()
+                 if self._automatic_stop.is_set():
+@@ -995,6 +1023,7 @@ class StationAutomaticMixin:
+                         self.efficiency_points.pop(current_a, None)
+                         self.series_revisions["stable"] += 1
+                     if elapsed_s >= required_s and now - started_at >= dwell_s:
++                        self._power_candidate_failure_revision = self.power_stability.failure_revision
+                         return reading, frame
+             if now >= deadline:
+                 raise TimeoutError(
+@@ -1100,6 +1129,7 @@ class StationAutomaticMixin:
+         settings: AutomaticTestSettings,
+     ) -> None:
+         self._wait_for_automatic_acquisition()
++        self._power_point_deadline = time.monotonic() + settings.point_timeout_s
+         self.automatic.set_state(AutomaticTestState.SETTING_CURRENT)
+         self.automatic_detail = f"正在设置 {current_a:g} A"
+         if settings.custom_hold_ramp_enabled:
+@@ -1114,6 +1144,31 @@ class StationAutomaticMixin:
+         else:
+             self._set_automatic_current(current_a)
+ 
++        if self.power_stability.controls:
++            # The measured settling interval is a minimum. Serial supplies must
++            # additionally provide a fresh, on-target actual-current readback.
++            settled_after = time.monotonic() + float(self.configuration["powerStabilitySettleS"])
++            while True:
++                paused_s = self._await_automatic_resume()
++                if paused_s is None or self._automatic_stop.is_set():
++                    raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
++                self._power_point_deadline += paused_s
++                settled_after += paused_s
++                now = time.monotonic()
++                if now >= self._power_point_deadline:
++                    raise TimeoutError("电流建立超时，未开始功率判稳")
++                ready = now >= settled_after
++                if ready and self.power_supply_kind in {"tdk", "ru"}:
++                    measured = self.latest_power_supply_output_current_a
++                    read_at = self._last_live_current_read_at
++                    ready = (measured is not None and read_at is not None and 0 <= now - read_at <= 1
++                             and abs(measured - current_a) <= float(self.configuration["powerStabilityCurrentToleranceA"]))
++                if ready:
++                    break
++                self.automatic_detail = "等待电流建立与实际电流到位"
++                if self._automatic_stop.wait(0.05):
++                    raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
++
+         (
+             stable_reading,
+             stable_frame,
+@@ -1126,13 +1181,45 @@ class StationAutomaticMixin:
+             settings, current_a, index, stability_generation, spectrum_revision,
+         )
+ 
+-        self._validate_automatic_spectrum(stable_frame)
++        while True:
++            self._validate_automatic_spectrum(stable_frame)
++            failure_revision = (self._power_candidate_failure_revision if self.power_stability.controls
++                                else self.power_stability.failure_revision)
++            voltage_started = time.monotonic()
++            with self._supply_io_lock:
++                self._tdk_voltage_burst_stop.set()
++                self._reserve_power_supply_command(wait=True)
++                raw_voltage_v = self._require_power_supply().read_output_voltage()
++                self.latest_power_supply_output_voltage_v = float(raw_voltage_v)
++            if not self.power_stability.controls:
++                break
++            # A candidate cannot survive an unstable sample during voltage IO.
++            # Require a fresh transaction/frame after that IO began, then use
++            # the latest median while preserving the LIV median convention.
++            fresh = None
++            while time.monotonic() < self._power_point_deadline + dwell_s:
++                if self._automatic_stop.is_set():
++                    raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
++                if failure_revision != self.power_stability.failure_revision:
++                    break
++                fresh = self._fresh_automatic_measurement(
++                    stability_generation=stability_generation, spectrum_revision=spectrum_revision,
++                    use_spectrometer=settings.use_spectrometer,
++                    minimum_received_monotonic_s=voltage_started, require_live=True,
++                )
++                if fresh is not None:
++                    break
++                self._automatic_stop.wait(0.05)
++            if fresh is not None and failure_revision == self.power_stability.failure_revision:
++                stable_reading, stable_frame = fresh
++                self._validate_automatic_spectrum(stable_frame)
++                break
++            if time.monotonic() >= self._power_point_deadline + dwell_s:
++                raise TimeoutError("采集期间未能保持功率稳定，当前候选点已作废")
++            stable_reading, stable_frame = self._wait_for_automatic_stable_hold(
++                settings, current_a, index, stability_generation, spectrum_revision,
++            )
+         stable_power_w = self._stable_power_w(stable_reading)
+-        with self._supply_io_lock:
+-            self._tdk_voltage_burst_stop.set()
+-            self._reserve_power_supply_command(wait=True)
+-            raw_voltage_v = self._require_power_supply().read_output_voltage()
+-            self.latest_power_supply_output_voltage_v = float(raw_voltage_v)
+         voltage_v = (
+             compensate_tdk_output_voltage(raw_voltage_v, current_a)
+             if self.power_supply_kind == "tdk"
+@@ -1176,6 +1263,17 @@ class StationAutomaticMixin:
+         )
+         self.automatic.set_state(AutomaticTestState.SAVING_POINT)
+         with self._lock:
++            if self._automatic_stop.is_set():
++                raise RuntimeError(self.automatic_terminal_reason or "自动测试已停止")
++            if self.power_stability.controls and (
++                self.power_stability.failure_revision != failure_revision
++                or self._fresh_automatic_measurement(
++                    stability_generation=stability_generation, spectrum_revision=spectrum_revision,
++                    use_spectrometer=settings.use_spectrometer, require_live=True,
++                ) is None
++                or time.monotonic() >= self._power_point_deadline + dwell_s
++            ):
++                raise TimeoutError("采集期间功率失稳、采样中断或超时，候选点未写入")
+             self.automatic_stability_reading = stable_reading
+         while True:
+             try:
+@@ -1188,6 +1286,7 @@ class StationAutomaticMixin:
+                     stability_percent=stable_reading.stability_percent,
+                     stability_limit_percent=float(self.configuration["stabilityLimitPercent"]),
+                     integration_time_us=int(self.configuration["integrationTimeUs"]),
++                    power_stability=self.power_stability.snapshot(),
+                 )
+                 break
+             except SessionJournalError as exc:
+diff --git a/tauri_bridge/station_runtime.py b/tauri_bridge/station_runtime.py
+index bbddcc31..5bb4a3e1 100644
+--- a/tauri_bridge/station_runtime.py
++++ b/tauri_bridge/station_runtime.py
+@@ -61,6 +61,7 @@ from .workflow_access import WorkflowAccess
+ from .command_safety import CommandSafetyGate, finite_number
+ from .test_script_presets import normalize_script_presets
+ from .station_automatic import StationAutomaticMixin
++from .power_stability_runtime import IDENTITY_KEYS, POLICY_KEYS, PowerStabilityRuntime
+ from .power_meter_profiles import MEASUREMENT_CONFIGURATION_KEYS
+ from .station_support import (
+     AGING_TEST_SCRIPT_ID,
+@@ -106,6 +107,7 @@ class StationRuntime(StationAutomaticMixin):
+         self.power_meter_configuration_migrated = _normalize_power_meter_configuration(
+             self.configuration
+         )
++        self.power_stability = PowerStabilityRuntime(self)
+ 
+         if str(self.configuration.get("selectedScriptId", "standard")) == AGING_TEST_SCRIPT_ID:
+             if str(self.configuration.get("powerSupplyKind", "ch341")).lower() == "ch341":
+@@ -536,6 +538,19 @@ class StationRuntime(StationAutomaticMixin):
+         with self._lock:
+             params = self.backend.power_meter_profiles.protect_configuration(dict(params))
+             candidate = dict(self.configuration)
++            protected = (*IDENTITY_KEYS, *POLICY_KEYS, "powerMeterResource")
++            if any(key in params and params[key] != candidate.get(key) for key in protected):
++                if not self.manual_controls_allowed() or self.power_stability.job:
++                    raise ValueError("测试或本底任务期间不能修改功率判稳和测量配置")
++                if self.power_meter_reader is not None and any(
++                    key in params and params[key] != candidate.get(key)
++                    for key in (*IDENTITY_KEYS, "powerMeterResource")
++                ):
++                    raise ValueError("请先停止功率采集，再修改本底绑定的测量配置")
++                if (self.record_store.current_session is not None
++                        and self.record_store.current_session.mode == "manual"
++                        and self.record_store.unsaved_records()):
++                    raise ValueError("请先保存手动测试点，再修改判稳配置")
+             kind = str(params.get("powerSupplyKind", candidate["powerSupplyKind"])).lower()
+             if kind not in {"ch341", "tdk", "ru"}:
+                 raise ValueError("powerSupplyKind must be ch341, tdk or ru")
+@@ -590,7 +605,7 @@ class StationRuntime(StationAutomaticMixin):
+                 params["testTemperatureC"] = str(params["testTemperatureC"] or "").strip()
+ 
+             for key in DEFAULT_CONFIGURATION:
+-                if key in params:
++                if key in params and key != "powerStabilityConfirmedSignature":
+                     candidate[key] = params[key]
+             if selected_script_id == AGING_TEST_SCRIPT_ID:
+                 _apply_aging_script_configuration(candidate)
+@@ -626,17 +641,23 @@ class StationRuntime(StationAutomaticMixin):
+             candidate["currentPlanMode"] = mode
+             self.backend.power_meter_profiles.resolve_configuration(candidate, self.configuration)
+             self._validate_configuration(candidate)
++            if candidate["powerStabilityParametersConfirmed"] and not self.configuration["powerStabilityParametersConfirmed"]:
++                candidate["powerStabilityConfirmedSignature"] = self.power_stability.confirmation_signature(candidate)
+             if self.power_meter_reader is not None:
+                 self.power_meter_reader.update_stability_settings(
+                     candidate["stableWindowS"], candidate["stabilityLimitPercent"],
+                     **({"absolute_floor_w": candidate["powerStabilityAbsoluteFloorW"]}
+                        if candidate.get("powerMeterDriverKind") == "laserpoint" else {}),
+                 )
++            old_configuration = self.configuration
+             self.configuration = candidate
++            self.power_stability.configure(old_configuration, candidate)
+             self.power_supply_kind = kind
+ 
+     @staticmethod
+     def _validate_configuration(candidate: dict[str, Any]) -> None:
++        if candidate["powerStabilityMode"] not in {"legacy", "shadow", "dual"}:
++            raise ValueError("未知功率判稳策略")
+         positive = {
+             "powerMeterWavelengthNm", "softwareGain", "powerMeterIntervalMs", "integrationTimeUs",
+             "spectrometerIntervalMs", "spectrumAverageFrames", "pibCenterWavelengthNm", "pibHalfRangeNm",
+@@ -674,6 +695,18 @@ class StationRuntime(StationAutomaticMixin):
+                 "dwellS": finite_number(point.get("dwellS", 0), "dwellS"),
+             })
+         candidate["customCurrentPoints"] = cleaned_points
++        if candidate["powerStabilityReferenceS"] <= 0:
++            raise ValueError("漂移参考时间必须大于 0 秒")
++        if not isinstance(candidate["powerStabilityInstrumentSettings"], str):
++            raise ValueError("仪器量程和滤波设置必须是文本")
++        if candidate["powerStabilityParametersConfirmed"] and (
++            candidate["powerStabilityResponseS"] <= 0
++            or candidate["powerStabilitySettleS"] <= 0
++            or candidate["powerStabilityCurrentToleranceA"] <= 0
++            or candidate["powerStabilityQuantizationW"] <= 0
++            or max(candidate["powerStabilityAbsoluteDriftW"], candidate["powerStabilityRelativeDriftPercent"]) <= 0
++        ):
++            raise ValueError("确认判稳参数前，请填写响应时间、电流建立时间、量化步进和漂移容差")
+         if candidate["ruBaudRate"] not in RU_BAUD_RATES:
+             raise ValueError("RU 波特率不在手册支持范围内")
+         if not 1 <= candidate["ruAddress"] <= 255:
+@@ -1161,6 +1194,7 @@ class StationRuntime(StationAutomaticMixin):
+     def _on_power_reading(self, reading: PowerMeterReading) -> None:
+         with self._lock:
+             received_at = time.monotonic()
++            reading = self.power_stability.observe(reading, received_at)
+             previous = self.latest_power
+             # Count only observed, consecutive stable samples in the same
+             # measurement window. Snapshot refreshes never advance this clock.
+@@ -1474,6 +1508,7 @@ class StationRuntime(StationAutomaticMixin):
+ 
+     def _on_power_failed(self, message: str) -> None:
+         with self._lock:
++            self.power_stability.invalidate("功率计通信失败，请重新复核本底")
+             self.power_stable_started_elapsed_s = None
+             self.power_stable_elapsed_s = None
+         self._invalidate_manual_power_capture()
+@@ -1495,6 +1530,7 @@ class StationRuntime(StationAutomaticMixin):
+ 
+     def _on_power_finished(self) -> None:
+         with self._lock:
++            self.power_stability.invalidate("功率计采集已停止，请重新复核本底")
+             self.power_stable_started_elapsed_s = None
+             self.power_stable_elapsed_s = None
+         self._invalidate_manual_power_capture()
+@@ -1536,6 +1572,7 @@ class StationRuntime(StationAutomaticMixin):
+         meter_class = CoherentPowerMeter if driver_kind == "coherent" else CaihuangPowerMeter
+         meter = meter_class(resource)
+         try:
++            self.power_stability.before_zero_command()
+             meter.set_relative_zero(enabled)
+         finally:
+             meter.close()
+@@ -1615,6 +1652,10 @@ class StationRuntime(StationAutomaticMixin):
+                 saturated = bool(frame.saturation and frame.saturation.saturated)
+             else:
+                 saturated = False
++            if (self.power_stability.controls and self.automatic.settings is not None
++                    and self.automatic.settings.use_spectrometer
++                    and (frame is None or saturated or not self.latest_wavelength_stable)):
++                self.power_stability.failure_revision += 1
+         if (
+             saturated
+             and self.automatic.settings is not None
+diff --git a/tauri_bridge/station_support.py b/tauri_bridge/station_support.py
+index 3d8c19fa..b20f6b55 100644
+--- a/tauri_bridge/station_support.py
++++ b/tauri_bridge/station_support.py
+@@ -28,6 +28,9 @@ MANUAL_CONTROL_METHODS = frozenset(
+         "powerMeter.start",
+         "powerMeter.stop",
+         "powerMeter.setRelativeZero",
++        "powerMeter.background.learn",
++        "powerMeter.background.verify",
++        "powerMeter.background.cancel",
+         "manual.saveExcel",
+         "spectrometer.start",
+         "spectrometer.stop",
+@@ -129,6 +132,18 @@ DEFAULT_CONFIGURATION: dict[str, Any] = {
+     "stableWindowS": 3.0,
+     "stabilityLimitPercent": 0.2,
+     "powerStabilityAbsoluteFloorW": 0.2,
++    "powerStabilityMode": "shadow",
++    "powerStabilityQuantizationW": 0.0,
++    "powerStabilityInstrumentSettings": "",
++    "powerStabilityAbsoluteDriftW": 0.0,
++    "powerStabilityRelativeDriftPercent": 0.0,
++    "powerStabilityReferenceS": 20.0,
++    "powerStabilityExtraNoisePercent": 0.0,
++    "powerStabilityResponseS": 0.0,
++    "powerStabilitySettleS": 0.0,
++    "powerStabilityCurrentToleranceA": 0.0,
++    "powerStabilityParametersConfirmed": False,
++    "powerStabilityConfirmedSignature": "",
+     "initialCurrentA": 1.0,
+     "targetCurrentA": 20.0,
+     "currentStepA": 3.0,
+diff --git a/tests/test_coherent_power_meter.py b/tests/test_coherent_power_meter.py
+index f1c601a9..2d80da4a 100644
+--- a/tests/test_coherent_power_meter.py
++++ b/tests/test_coherent_power_meter.py
+@@ -187,6 +187,7 @@ class CoherentPowerMeterTests(unittest.TestCase):
+         ):
+             meter = power_meter_mvp.LaserPointPowerMeter("COM9")
+             self.assertTrue(math.isclose(meter.read_power_w(), 0.86))
++            self.assertEqual(meter.measurement_configuration_token, "laserpoint:2:1:0.001")
+             self.assertTrue(math.isclose(meter.read_power_w(), 0.86))
+             meter.close()
+ 
+diff --git a/tests/test_power_stability.py b/tests/test_power_stability.py
+new file mode 100644
+index 00000000..adae0d4e
+--- /dev/null
++++ b/tests/test_power_stability.py
+@@ -0,0 +1,132 @@
++"""Offline acceptance for the background/dual-window engineering criterion."""
++
++import math
++import random
++import unittest
++from dataclasses import asdict, replace
++
++from combined_test.power_stability import (
++    BackgroundModel, PowerWindow, StabilityPolicy, evaluate_stability,
++    learn_background, verify_background,
++)
++
++
++def quantized_trace(function, duration=180, interval=0.1, seed=17):
++    rng = random.Random(seed)
++    return [(index * interval, round((function(index * interval) + rng.uniform(-0.09, 0.09)) / 0.15) * 0.15)
++            for index in range(round(duration / interval) + 1)]
++
++
++def metrics_for(samples):
++    window = PowerWindow(1.0)
++    for timestamp, power in samples:
++        result = window.add(timestamp, power)
++    return result
++
++
++class BackgroundDualWindowTests(unittest.TestCase):
++    @classmethod
++    def setUpClass(cls):
++        cls.policy = StabilityPolicy(0.15, absolute_drift_w=0.35, reference_s=20,
++                                     response_s=2, parameters_confirmed=True)
++        cls.samples = quantized_trace(lambda t: 0.0)
++        cls.model = learn_background(cls.samples, identity="probe-A", model_id="test-model",
++                                    created_at="2026-10-22", policy=cls.policy)
++
++    def evaluate(self, function, **kwargs):
++        metrics = metrics_for(quantized_trace(function, duration=20, **kwargs))
++        return evaluate_stability(metrics, self.model, self.policy, identity="probe-A")
++
++    def test_quantization_before_measurement_allows_constant_power_without_offset_subtraction(self):
++        result = self.evaluate(lambda t: 32.5)
++        self.assertTrue(result.stable, result)
++        self.assertGreaterEqual(result.metrics.median_w, 32.4)
++        self.assertGreater(result.metrics.span_w, 0)
++        self.assertLessEqual(result.metrics.residual_sigma_w, result.noise_limit_w)
++
++    def test_positive_and_negative_drift_fail_even_with_small_short_window_noise(self):
++        for direction in (-1, 1):
++            with self.subTest(direction=direction):
++                result = self.evaluate(lambda t: 32.5 + direction * 0.04 * t)
++                self.assertFalse(result.stable)
++                self.assertGreater(max(result.guarded_shift_w, result.guarded_drift_w), result.tolerance_w)
++
++    def test_symmetric_bump_and_oscillation_do_not_hide_behind_zero_net_slope(self):
++        for function in (lambda t: 32.5 + 0.8 * math.sin(math.pi * t / 20),
++                         lambda t: 32.5 + 0.8 * math.cos(2 * math.pi * t / 20),
++                         lambda t: 32.5 + 0.8 * math.sin(2 * math.pi * t)):
++            with self.subTest(function=function):
++                self.assertFalse(self.evaluate(function).stable)
++
++    def test_unresolved_tolerance_is_explicit_measurement_capability_failure(self):
++        metrics = metrics_for(quantized_trace(lambda t: 32.5, duration=20))
++        result = evaluate_stability(metrics, self.model, replace(self.policy, absolute_drift_w=0.1), identity="probe-A")
++        self.assertFalse(result.stable)
++        self.assertIn("测量能力不足", result.reason)
++
++    def test_no_confirmation_no_model_or_wrong_probe_never_passes(self):
++        metrics = metrics_for(quantized_trace(lambda t: 32.5, duration=20))
++        for model, policy, identity in (
++            (None, self.policy, "probe-A"), (self.model, self.policy, "probe-B"),
++            (self.model, replace(self.policy, parameters_confirmed=False), "probe-A"),
++        ):
++            self.assertFalse(evaluate_stability(metrics, model, policy, identity=identity).stable)
++
++    def test_drifting_background_cannot_train_itself_into_loose_thresholds(self):
++        for function in (lambda t: 0.005 * t, lambda t: -0.005 * t,
++                         lambda t: 0 if t < 60 else 0.5):
++            with self.subTest(function=function), self.assertRaisesRegex(ValueError, "本底尚未稳定"):
++                learn_background(quantized_trace(function), identity="a", model_id="a", created_at="now", policy=self.policy)
++
++    def test_short_plateau_and_thermal_tail_need_the_full_window(self):
++        samples = quantized_trace(lambda t: 32.5 + 3 * math.exp(-t / 50), duration=100)
++        window = PowerWindow(1)
++        for timestamp, power in samples:
++            metrics = window.add(timestamp, power)
++            decision = evaluate_stability(metrics, self.model, self.policy, identity="probe-A")
++            if timestamp < 20:
++                self.assertFalse(decision.stable)
++            if 20 <= timestamp <= 40:
++                self.assertFalse(decision.stable)
++
++    def test_gaps_invalid_values_and_clock_restarts_reset_coverage(self):
++        for timestamp, power in ((23, 32.5), (20.1, math.nan), (-1, 32.5)):
++            window = PowerWindow(1)
++            for t, p in quantized_trace(lambda t: 32.5, duration=20):
++                result = window.add(t, p)
++            self.assertIsNotNone(result)
++            self.assertIsNone(window.add(timestamp, power))
++
++    def test_same_value_is_valid_but_same_transaction_does_not_add_coverage(self):
++        window = PowerWindow(1)
++        for index in range(201):
++            result = window.add(index / 10, 32.5)
++        self.assertIsNotNone(result)
++        count = len(window.samples)
++        self.assertIsNone(window.add(20, 32.5))
++        self.assertEqual(len(window.samples), count)
++
++    def test_recheck_rejects_center_shift_or_drift(self):
++        self.assertTrue(verify_background(metrics_for(self.samples[-201:]), self.model))
++        self.assertFalse(verify_background(metrics_for(quantized_trace(lambda t: 0.5, duration=20)), self.model))
++
++    def test_model_roundtrip_and_guards_never_shrink_with_sample_count(self):
++        self.assertEqual(BackgroundModel.from_dict(asdict(self.model)), self.model)
++        self.assertGreaterEqual(self.model.shift_guard_w, 0.15)
++        self.assertGreaterEqual(self.model.slope_guard_w_s, 0.15 / 20)
++        damaged = asdict(self.model)
++        damaged["shift_guard_w"] = 0.001
++        with self.assertRaises(ValueError):
++            BackgroundModel.from_dict(damaged)
++
++    def test_background_rejects_missing_data_and_invalid_policy(self):
++        for samples in (self.samples[:100], self.samples[:50] + self.samples[80:], [(0, math.nan)] * 1801):
++            with self.assertRaises(ValueError):
++                learn_background(samples, identity="a", model_id="a", created_at="now", policy=self.policy)
++        for kwargs in ({"quantization_w": math.nan}, {"reference_s": 0}, {"response_s": -1}):
++            with self.assertRaises(ValueError):
++                StabilityPolicy(**{"quantization_w": 0.15, **kwargs})
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tests/test_power_stability_runtime.py b/tests/test_power_stability_runtime.py
+new file mode 100644
+index 00000000..b17dac2f
+--- /dev/null
++++ b/tests/test_power_stability_runtime.py
+@@ -0,0 +1,422 @@
++"""Hardware-free lifecycle, ownership and persistence acceptance."""
++
++import json
++import math
++import tempfile
++import threading
++import unittest
++from datetime import datetime
++from pathlib import Path
++from types import SimpleNamespace
++from unittest.mock import patch
++
++from combined_test.automation import AutomaticTestSettings, AutomaticTestState
++from combined_test.excel_export import ExcelTestRecord
++from combined_test.models import PowerMeterReading
++from combined_test.power_stability import learn_background
++from tauri_bridge.headless_backend import HeadlessBackend
++from tauri_bridge.errors import CommandRejected
++from tauri_bridge.settings import JsonSettings
++
++
++class PowerStabilityRuntimeTests(unittest.TestCase):
++    def setUp(self):
++        self.directory = tempfile.TemporaryDirectory()
++        self.backend = HeadlessBackend(JsonSettings(Path(self.directory.name) / "settings.json"))
++        self.station = self.backend.runtime
++        self.clock = [1000.0]
++        self.time_patch = patch("tauri_bridge.power_stability_runtime.time.monotonic", side_effect=lambda: self.clock[0])
++        self.time_patch.start()
++        self.station.configuration.update({
++            "powerMeterDriverKind": "laserpoint", "powerMeterSerialNumber": "head-A",
++            "powerMeterResource": "ASRL1::INSTR", "powerStabilityQuantizationW": 0.15,
++            "powerStabilityInstrumentSettings": "100 W range; filter off; fixed range",
++            "powerStabilityResponseS": 2, "powerStabilitySettleS": 1,
++            "powerStabilityCurrentToleranceA": 0.01,
++            "powerStabilityAbsoluteDriftW": 0.35, "powerStabilityParametersConfirmed": True,
++        })
++        self.station._validate_configuration(self.station.configuration)
++        self.station.power_meter_reader = SimpleNamespace(is_ready=True, isRunning=lambda: True,
++                                                         update_stability_settings=lambda *args, **kwargs: None)
++        self.manager = self.station.power_stability
++        self.station.configuration["powerStabilityConfirmedSignature"] = self.manager.confirmation_signature()
++        self.publish(0, 0)
++
++    def tearDown(self):
++        self.time_patch.stop()
++        self.backend.export_worker.graceful_stop(timeout_s=5)
++        self.directory.cleanup()
++
++    def publish(self, seconds, power=32.5, *, connection=0, generation=7, stable=False, transaction=None):
++        self.clock[0] = 1000 + seconds
++        reading = PowerMeterReading(seconds, power, stable, 0.15, 5, power,
++                                    stability_generation=generation, connection_generation=connection,
++                                    transaction_started_monotonic_s=self.clock[0] if transaction is None else transaction)
++        self.station._on_power_reading(reading)
++        return self.station.latest_power
++
++    def install_model(self):
++        samples = [(i * 0.5, 0.15 if i % 2 else 0) for i in range(361)]
++        self.manager.model = learn_background(samples, identity=self.manager.identity(), model_id="runtime-model",
++                                              created_at="2026-10-22", policy=self.manager.policy())
++        return samples
++
++    def verify(self):
++        self.manager.start_background({"confirmedDark": True}, verify=True)
++        started = self.clock[0] - 1000
++        for i in range(1, 42):
++            self.publish(started + i * 0.5, 0.15 if i % 2 else 0)
++        self.assertIsNone(self.manager.blocker())
++        self.assertIn("复核通过", self.manager.state)
++
++    def activate_dual(self):
++        self.station.configuration["powerStabilityMode"] = "dual"
++        self.install_model()
++        self.verify()
++        self.manager.freeze()
++        self.station.automatic.state = AutomaticTestState.WAITING_STABLE
++        self.station.automatic_stability_generation = 7
++        self.station.automatic.currents = (1, 2)
++        self.station.automatic.current_index = 0
++        self.manager.begin_point(7)
++
++    def test_unknown_parameters_block_dual_but_do_not_take_over_shadow(self):
++        self.station.configuration.update({"powerStabilityMode": "dual", "powerStabilityParametersConfirmed": False})
++        self.assertIn("尚未确认", self.manager.blocker())
++        self.station.configuration["powerStabilityMode"] = "shadow"
++        self.assertIsNone(self.manager.blocker())
++        self.station.automatic.state = AutomaticTestState.WAITING_STABLE
++        self.manager.begin_point(7)
++        self.assertTrue(self.publish(1, stable=True).stable)
++        self.assertFalse(self.manager.decision.stable)
++
++    def test_zero_current_dark_confirmation_and_ownership_are_required(self):
++        for params in ({}, {"confirmedDark": False}, {"confirmedDark": "yes"}):
++            with self.assertRaises(ValueError):
++                self.manager.start_background(params)
++        self.station.active_current_a = 1
++        with self.assertRaisesRegex(ValueError, "归零"):
++            self.manager.start_background({"confirmedDark": True})
++        self.station.active_current_a = 0
++        self.manager.start_background({"confirmedDark": True})
++        with self.assertRaisesRegex(CommandRejected, "本底任务进行中"):
++            self.backend.dispatch("powerSupply.setCurrent", {"currentA": 1})
++        with self.assertRaisesRegex(ValueError, "本底任务"):
++            self.station.configure({"powerStabilityAbsoluteDriftW": 0.5})
++        self.backend.dispatch("powerMeter.background.cancel", {})
++        self.assertIsNone(self.manager.job)
++
++    def test_background_model_and_raw_learning_samples_are_persisted_atomically(self):
++        samples = self.install_model()
++        self.manager._finish_learning(self.manager.job_epoch, samples, self.manager.identity(), self.manager.policy())
++        saved = self.backend.settings.get("runtime/powerBackgrounds")[self.manager.identity()]
++        self.assertEqual(saved["samples"], samples)
++        self.manager.model = None
++        self.manager._load_model()
++        self.assertEqual(self.manager.model.model_id, saved["model"]["model_id"])
++        self.assertIsNone(self.manager.verified_at)
++        self.assertEqual(len(json.loads(self.backend.settings.path.read_text())["runtime/powerBackgrounds"]), 1)
++
++    def test_cancelled_learning_worker_cannot_replace_saved_model(self):
++        samples = self.install_model()
++        original = self.manager.model
++        epoch = self.manager.job_epoch
++        self.manager.cancel_background()
++        self.manager._finish_learning(epoch, samples, self.manager.identity(), self.manager.policy())
++        self.assertIs(self.manager.model, original)
++        self.assertIsNone(self.backend.settings.get("runtime/powerBackgrounds"))
++
++    def test_response_boundary_and_full_window_override_legacy_result_only_in_dual(self):
++        self.activate_dual()
++        start = self.clock[0] - 1000
++        for i in range(1, 44):
++            reading = self.publish(start + i * 0.5, 32.4 + (0.15 if i % 2 else 0), stable=True)
++            self.assertFalse(reading.stable)
++        reading = self.publish(start + 22, 32.4, stable=False)
++        self.assertTrue(reading.stable, self.manager.decision)
++        self.assertEqual(reading.power_w, 32.4)
++        self.assertEqual(reading.stable_median_w, 32.4)
++        snapshot = self.backend.snapshot()
++        self.assertEqual(snapshot["automaticTest"]["stability"]["requiredS"], 20)
++        self.assertEqual(snapshot["automaticTest"]["stability"]["holdRequiredS"], 5)
++        self.assertEqual(snapshot["devices"]["powerMeter"]["powerBackground"]["algorithm"], "background-dual-window-v1")
++
++    def test_old_inflight_transactions_and_generation_never_enter_new_window(self):
++        self.activate_dual()
++        start = self.clock[0] - 1000
++        for i in range(1, 50):
++            reading = self.publish(start + i * 0.5, stable=True, generation=6)
++            self.assertFalse(reading.stable)
++        self.assertEqual(len(self.manager.window.samples), 0)
++        reading = self.publish(start + 25, stable=True, transaction=1000)
++        self.assertFalse(reading.stable)
++        self.assertEqual(len(self.manager.window.samples), 0)
++
++    def test_reconnect_and_sampling_gap_cancel_candidate_and_require_zero_recheck(self):
++        for reconnect in (True, False):
++            with self.subTest(reconnect=reconnect):
++                self.station.automatic.state = AutomaticTestState.IDLE
++                self.station.configuration["powerStabilityMode"] = "dual"
++                self.manager.last_received = None
++                self.manager.last_sample = None
++                self.clock[0] = 1000
++                self.publish(0, 0)
++                self.install_model()
++                self.verify()
++                self.manager.freeze()
++                self.station.automatic.state = AutomaticTestState.WAITING_STABLE
++                self.manager.begin_point(7)
++                start = self.clock[0] - 1000
++                for i in range(1, 50):
++                    self.publish(start + i * 0.5)
++                self.assertTrue(self.station.latest_power.stable)
++                reading = self.publish(start + (25 if reconnect else 28), connection=1 if reconnect else 0, stable=True)
++                self.assertFalse(reading.stable)
++                self.assertIsNone(self.manager.verified_connection)
++
++    def test_probe_gain_interval_profile_and_range_filter_bind_model_identity(self):
++        self.install_model()
++        identity = self.manager.identity()
++        for key, value in (("softwareGain", 1.04), ("powerMeterSerialNumber", "other"),
++                           ("powerMeterProfileVersion", 2), ("powerMeterIntervalMs", 200),
++                           ("powerStabilityInstrumentSettings", "different range")):
++            with self.subTest(key=key):
++                self.assertNotEqual(self.manager.identity({**self.station.configuration, key: value}), identity)
++
++    def test_parameter_confirmation_cannot_be_reused_for_another_probe_range_or_controller(self):
++        self.assertTrue(self.manager.policy().ready)
++        for key, value in (("powerMeterSerialNumber", "head-B"), ("powerSupplyKind", "ru"),
++                           ("powerStabilityResponseS", 3), ("powerStabilityAbsoluteDriftW", 0.5)):
++            previous = self.station.configuration[key]
++            self.station.configuration[key] = value
++            self.assertFalse(self.manager.policy().ready, key)
++            self.station.configuration[key] = previous
++        self.manager.instrument_token = "new range"
++        self.assertFalse(self.manager.policy().ready)
++
++    def test_confirming_valid_parameters_creates_a_backend_owned_signature(self):
++        self.station.power_meter_reader = None
++        self.station.configure({"powerStabilityParametersConfirmed": False})
++        self.station.configure({"powerStabilityParametersConfirmed": True, "powerStabilityConfirmedSignature": "client-forged"})
++        self.assertTrue(self.manager.policy().ready)
++        self.assertEqual(self.station.configuration["powerStabilityConfirmedSignature"], self.manager.confirmation_signature())
++        self.assertNotEqual(self.station.configuration["powerStabilityConfirmedSignature"], "client-forged")
++
++    def test_actual_laserpoint_range_change_invalidates_the_learned_model(self):
++        self.activate_dual()
++        old_identity = self.manager.identity()
++        old_model = self.manager.model
++        self.clock[0] += 0.5
++        reading = PowerMeterReading(self.clock[0] - 1000, 32.5, True, 0, 5, 32.5,
++                                    stability_generation=7, instrument_configuration_token="laserpoint:2:1:0.001",
++                                    transaction_started_monotonic_s=self.clock[0])
++        self.station._on_power_reading(reading)
++        self.assertFalse(self.station.latest_power.stable)
++        self.assertNotEqual(self.manager.identity(), old_identity)
++        self.assertIsNone(self.manager.verified_connection)
++        self.assertIsNone(self.manager.model)
++        self.assertIs(self.manager.frozen_model, old_model)
++
++    def test_zero_command_retires_saved_models_across_restart_without_deleting_raw_data(self):
++        samples = self.install_model()
++        self.manager._finish_learning(self.manager.job_epoch, samples, self.manager.identity(), self.manager.policy())
++        identity = self.manager.identity()
++        self.manager.before_zero_command()
++        self.assertNotEqual(identity, self.manager.identity())
++        self.assertIsNone(self.manager.model)
++        self.manager._load_model()
++        self.assertIsNone(self.manager.model)
++        saved = self.backend.settings.get("runtime/powerBackgrounds")
++        self.assertEqual(saved[identity]["samples"], samples)
++
++    def test_freeze_preserves_recheck_for_next_run_and_parameters_cannot_change_midrun(self):
++        self.activate_dual()
++        verified_at = self.manager.verified_at
++        model = self.manager.frozen_model
++        with self.assertRaisesRegex(ValueError, "期间不能修改"):
++            self.station.configure({"powerStabilityAbsoluteDriftW": 0.5})
++        for state in (AutomaticTestState.COMPLETED, AutomaticTestState.IDLE):
++            self.station.automatic.state = state
++            self.assertIsNone(self.manager.blocker())
++            self.manager.freeze()
++            self.assertEqual(self.manager.verified_at, verified_at)
++            self.assertIs(self.manager.frozen_model, model)
++
++    def test_continuous_unchanged_acquisition_has_no_sixty_second_expiry(self):
++        self.activate_dual()
++        verified_at = self.manager.verified_at
++        self.station.automatic.state = AutomaticTestState.COMPLETED
++        start = self.clock[0] - 1000
++        for i in range(1, 242):
++            self.publish(start + i * 0.5, 0.15 if i % 2 else 0)
++        self.assertGreater(self.clock[0] - verified_at, 120)
++        self.assertIsNone(self.manager.blocker())
++        self.manager.freeze()
++        self.assertEqual(self.manager.verified_at, verified_at)
++
++    def test_switching_shadow_to_dual_does_not_require_an_extra_background_check(self):
++        self.install_model()
++        self.verify()
++        verified_at = self.manager.verified_at
++        self.station.configure({"powerStabilityMode": "dual"})
++        self.assertTrue(self.manager.policy().ready)
++        self.assertEqual(self.manager.verified_at, verified_at)
++        self.assertIsNone(self.manager.blocker())
++
++    def test_hung_or_invalid_acquisition_still_requires_recheck(self):
++        self.activate_dual()
++        self.station.automatic.state = AutomaticTestState.IDLE
++        self.clock[0] += self.manager.policy().gap_s + 0.1
++        self.assertIn("采样中断", self.manager.blocker())
++        self.publish(self.clock[0] - 1000 + 0.1)
++        self.assertIsNone(self.manager.verified_connection)
++        self.assertIsNotNone(self.manager.blocker())
++        self.verify()
++        self.assertIsNone(self.manager.blocker())
++        self.publish(self.clock[0] - 1000 + 0.1, math.nan)
++        self.assertIsNone(self.manager.verified_connection)
++        self.assertIsNotNone(self.manager.blocker())
++
++    def test_reconnect_reuses_saved_model_only_after_recheck_and_then_allows_further_runs(self):
++        samples = self.install_model()
++        self.manager._finish_learning(self.manager.job_epoch, samples, self.manager.identity(), self.manager.policy())
++        self.station.configuration["powerStabilityMode"] = "dual"
++        self.verify()
++        model_id = self.manager.model.model_id
++        self.manager.freeze()
++        self.publish(self.clock[0] - 1000 + 0.5, 0, connection=1)
++        self.assertEqual(self.manager.model.model_id, model_id)
++        self.assertIsNotNone(self.manager.blocker())
++        self.manager.start_background({"confirmedDark": True}, verify=True)
++        start = self.clock[0] - 1000
++        for i in range(1, 42):
++            self.publish(start + i * 0.5, 0.15 if i % 2 else 0, connection=1)
++        self.assertIsNone(self.manager.blocker())
++        for _ in range(3):
++            self.manager.freeze()
++            self.assertEqual(self.manager.model.model_id, model_id)
++            self.assertIsNone(self.manager.blocker())
++
++    def test_saved_model_does_not_persist_connection_verification_across_runtime_restart(self):
++        from tauri_bridge.power_stability_runtime import PowerStabilityRuntime
++
++        samples = self.install_model()
++        self.manager._finish_learning(self.manager.job_epoch, samples, self.manager.identity(), self.manager.policy())
++        self.station.configuration["powerStabilityMode"] = "dual"
++        self.verify()
++        restarted = PowerStabilityRuntime(self.station)
++        self.assertEqual(restarted.model.model_id, self.manager.model.model_id)
++        self.assertIsNone(restarted.verified_connection)
++        self.assertIsNotNone(restarted.blocker())
++
++    def test_point_journal_contains_frozen_model_and_separate_metrics(self):
++        self.install_model()
++        self.manager.freeze()
++        store = self.station.record_store
++        store.begin_session(Path(self.directory.name), "SN", datetime.now(), mode="automatic",
++                            settings={"powerStability": self.manager.session_metadata()})
++        record = ExcelTestRecord(1, 12, 32.5, 0.1, 976, 976, 0.4, 0.99, [], [])
++        store.queue(record, power_stability=self.manager.snapshot())
++        self.manager.journal_diagnostic(1, force=True)
++        events = [json.loads(line) for line in store.journal_path.read_text().splitlines()]
++        self.assertEqual(events[0]["session"]["settings"]["powerStability"]["background"]["model_id"], "runtime-model")
++        self.assertIn("power_stability", events[1]["attempt"])
++        self.assertEqual(events[-1]["type"], "power_stability")
++
++    def simulate_controlled_point(self, *, break_during_voltage=False, timeout=120, stop_at=None):
++        self.activate_dual()
++        st = self.station
++        st.power_meter_reader.update_stability_settings = lambda *args, **kwargs: None
++        st.power_meter_reader.reset_stability_window = lambda: 7
++        self.manager.connection = (id(st.power_meter_reader), 0, "")
++        st.automatic.dwell_times_s = (0, 0)
++        settings = AutomaticTestSettings(use_spectrometer=False, point_timeout_s=timeout)
++        st.automatic.settings = settings
++        clock_start = self.clock[0]
++        voltage_times = []
++        last_published = [self.clock[0]]
++
++        def advance(seconds):
++            self.clock[0] = round(self.clock[0] + seconds, 6)
++            if stop_at is not None and self.clock[0] - clock_start >= stop_at:
++                st._automatic_stop.set()
++                return True
++            if self.clock[0] - last_published[0] >= 0.099:
++                last_published[0] = self.clock[0]
++                tick = round((self.clock[0] - clock_start) * 10)
++                self.publish(self.clock[0] - 1000, 32.4 + (0.15 if tick % 2 else 0))
++            return False
++
++        def voltage():
++            voltage_times.append(self.clock[0] - clock_start)
++            if break_during_voltage and len(voltage_times) == 1:
++                self.publish(self.clock[0] - 1000 + 0.1, 34.0)
++            else:
++                advance(0.1)
++            return 12.0
++
++        supply = SimpleNamespace(read_output_voltage=voltage)
++        with (patch.object(st, "_wait_for_automatic_acquisition"),
++              patch.object(st, "_set_automatic_current", side_effect=lambda current: setattr(st, "active_current_a", current)),
++              patch.object(st, "_await_automatic_resume", return_value=0),
++              patch.object(st, "_reserve_power_supply_command"),
++              patch.object(st, "_require_power_supply", return_value=supply),
++              patch.object(st.record_store, "queue") as queue,
++              patch.object(st.record_store, "record_stability_diagnostic"),
++              patch.object(st._automatic_stop, "wait", side_effect=advance),
++              patch("tauri_bridge.station_automatic.time.sleep", side_effect=advance)):
++            self.last_queue = queue
++            st._run_automatic_point(0, 1, settings)
++        return voltage_times, queue
++
++    def test_controlled_point_waits_for_settling_response_window_and_five_second_confirmation(self):
++        voltages, queue = self.simulate_controlled_point()
++        self.assertGreaterEqual(voltages[0], 1 + 2 + 20 + 5)
++        self.assertEqual(len(voltages), 1)
++        queue.assert_called_once()
++        record = queue.call_args.args[0]
++        self.assertIn(record.power_w, (32.4, 32.55))
++        self.assertEqual(queue.call_args.kwargs["power_stability"]["mode"], "dual")
++
++    def test_instability_during_voltage_invalidates_candidate_and_repeats_full_confirmation(self):
++        voltages, queue = self.simulate_controlled_point(break_during_voltage=True)
++        self.assertEqual(len(voltages), 2)
++        self.assertGreaterEqual(voltages[1] - voltages[0], 5)
++        queue.assert_called_once()
++
++    def test_point_timeout_is_shared_by_window_and_confirmation(self):
++        with self.assertRaises(TimeoutError):
++            self.simulate_controlled_point(timeout=26)
++        self.assertLess(self.clock[0], 1000 + 20.5 + 27)
++        self.last_queue.assert_not_called()
++
++    def test_operator_stop_cancels_response_window_or_confirmation_without_queueing(self):
++        with self.assertRaisesRegex(RuntimeError, "自动测试已停止"):
++            self.simulate_controlled_point(stop_at=25)
++        self.last_queue.assert_not_called()
++
++    def test_learning_job_uses_existing_reader_stream_and_saves_after_180_seconds(self):
++        finished = threading.Event()
++        original = self.manager._finish_learning
++
++        def finish(*args):
++            try:
++                original(*args)
++            finally:
++                finished.set()
++
++        with patch.object(self.manager, "_finish_learning", side_effect=finish):
++            self.manager.start_background({"confirmedDark": True})
++            for i in range(1, 362):
++                self.publish(i * 0.5, 0.15 if i % 2 else 0)
++            self.assertTrue(finished.wait(2), "background learning worker did not finish")
++        self.assertIsNotNone(self.manager.model)
++        self.assertEqual(self.manager.model.sample_count, 361)
++        self.assertIsNotNone(self.manager.verified_at)
++        self.assertEqual(self.manager.verified_connection, self.manager.connection)
++        self.station.configuration["powerStabilityMode"] = "dual"
++        self.assertIsNone(self.manager.blocker())
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tools/power_meter_mvp.py b/tools/power_meter_mvp.py
+index 81e50e67..d14bbc01 100644
+--- a/tools/power_meter_mvp.py
++++ b/tools/power_meter_mvp.py
+@@ -598,6 +598,7 @@ class LaserPointPowerMeter:
+         self.inst = None
+         self.probe_serial_number = ""
+         self._power_ranges_to_w: dict[int, tuple[float, float]] = {}
++        self.measurement_configuration_token = ""
+         try:
+             self.inst = self.rm.open_resource(self.resource)
+             configure_laserpoint(self.inst)
+@@ -696,6 +697,7 @@ class LaserPointPowerMeter:
+             # on a 3,000 W scale. Retry instead of publishing that sample.
+             if abs(power_w) > full_scale_w * 1.05:
+                 continue
++            self.measurement_configuration_token = f"laserpoint:{gain_after}:{full_scale_w:.17g}:{scale_to_w:.17g}"
+             return power_w
+ 
+         raise RuntimeError("LaserPoint 自动量程切换期间未获得一致功率读数")
+diff --git a/tools/power_stability_replay.py b/tools/power_stability_replay.py
+new file mode 100644
+index 00000000..4670b1d2
+--- /dev/null
++++ b/tools/power_stability_replay.py
+@@ -0,0 +1,60 @@
++"""Offline CSV replay; imports no device drivers and never opens hardware."""
++
++from __future__ import annotations
++
++import argparse
++import csv
++import json
++import sys
++from dataclasses import asdict
++from datetime import datetime, timezone
++from pathlib import Path
++
++from combined_test.power_stability import PowerWindow, StabilityPolicy, evaluate_stability, learn_background
++
++
++def read_samples(path: Path) -> list[tuple[float, float]]:
++    with path.open(encoding="utf-8-sig", newline="") as stream:
++        reader = csv.DictReader(stream)
++        if not {"elapsed_s", "power_w"}.issubset(reader.fieldnames or ()):
++            raise ValueError(f"{path}: CSV 需要 elapsed_s,power_w 列；功率必须已换算为 W 并应用同一软件增益")
++        return [(float(row["elapsed_s"]), float(row["power_w"])) for row in reader]
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("--background", type=Path, required=True, help="至少 180 秒的 0 A CSV")
++    parser.add_argument("--samples", type=Path, required=True, help="同一探头、量程、滤波和增益的功率 CSV")
++    parser.add_argument("--quantization-w", type=float, required=True)
++    parser.add_argument("--absolute-drift-w", type=float, default=0)
++    parser.add_argument("--relative-drift-percent", type=float, default=0)
++    parser.add_argument("--reference-s", type=float, default=20)
++    parser.add_argument("--extra-noise-percent", type=float, default=0)
++    parser.add_argument("--response-s", type=float, default=0)
++    parser.add_argument("--gap-s", type=float, default=1)
++    parser.add_argument("--confirmed", action="store_true", help="仅在响应实测与测试规范已确认后设置")
++    parser.add_argument("--output", type=Path, help="新建 JSONL；已有文件不会覆盖")
++    args = parser.parse_args()
++    policy = StabilityPolicy(args.quantization_w, args.absolute_drift_w, args.relative_drift_percent,
++                             args.reference_s, args.extra_noise_percent, args.response_s, args.confirmed, args.gap_s)
++    model = learn_background(read_samples(args.background), identity="offline-same-configuration",
++                            model_id="offline-replay", created_at=datetime.now(timezone.utc).isoformat(), policy=policy)
++    window = PowerWindow(policy.gap_s)
++    samples = read_samples(args.samples)
++    started = samples[0][0] if samples else 0
++    stream = args.output.open("x", encoding="utf-8") if args.output else sys.stdout
++    try:
++        stream.write(json.dumps({"background": asdict(model), "policy": asdict(policy)}, ensure_ascii=False) + "\n")
++        for timestamp, power in samples:
++            if timestamp < started + policy.response_s:
++                continue
++            decision = evaluate_stability(window.add(timestamp, power), model, policy, identity=model.identity)
++            stream.write(json.dumps({"elapsed_s": timestamp, "power_w": power, "decision": asdict(decision)}, ensure_ascii=False, allow_nan=False) + "\n")
++    finally:
++        if args.output:
++            stream.close()
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())

@@ -1,0 +1,42 @@
+{
+  "normal": [
+    "http://localhost:1424/assets/index-DWXwHEcx.js",
+    "http://localhost:1424/assets/tauri-vendor-BvoPdSUf.js"
+  ],
+  "demo": [
+    "http://localhost:1424/assets/tauri-vendor-BvoPdSUf.js",
+    "http://localhost:1424/assets/index-DWXwHEcx.js",
+    "http://localhost:1424/assets/demo-snapshot-rWwGwtJ2.js",
+    "http://localhost:1424/assets/demo-run-C3Iqv7fR.js"
+  ],
+  "demoStartStop": true,
+  "settings": {
+    "theme": true,
+    "lineStyle": true,
+    "context": true,
+    "reset": true,
+    "localError": "Cannot read properties of undefined (reading 'invoke')"
+  },
+  "buttons": [
+    "急停",
+    "自动测试",
+    "手动配置",
+    "PD 采集",
+    "数据浏览",
+    "出货报告",
+    "系统设置",
+    "",
+    "详情",
+    "查看数据",
+    "下一颗",
+    "电源TDK在线电压 12 V · 电流 2 → 12 A · 步进 2 A",
+    "功率计Caihuang CHLP-P在线976nm 生产光路 · v2 / 系数 ×1.018 · 976 nm",
+    "光谱仪Ocean Insight在线中心波长 976 nm · FWHM ≤ 0.6 nm",
+    "开始",
+    "停止",
+    "中心波长达标nm",
+    "FWHM超限nm",
+    "PIB达标%"
+  ],
+  "errors": []
+}

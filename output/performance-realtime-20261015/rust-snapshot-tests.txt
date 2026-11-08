@@ -1,0 +1,17 @@
+   Compiling tauri-ui v0.1.2 (/Users/zh/Documents/test/ARP/tauri-ui/src-tauri)
+    Finished `release` profile [optimized] target(s) in 3.37s
+     Running unittests src/lib.rs (tauri-ui/src-tauri/target/release/deps/tauri_ui_lib-b45f485fb370f0c3)
+
+running 9 tests
+test snapshot_stream::tests::cancelling_during_request_drops_the_late_response ... ok
+test snapshot_stream::tests::repeated_timeouts_back_off_with_a_cap_and_cancel_without_an_extra_request ... ok
+test snapshot_stream::tests::fatal_transport_or_backend_errors_are_not_retried ... ok
+test snapshot_stream::tests::a_successful_recovery_resets_the_next_timeout_delay ... ok
+test tests::snapshot_intervals_keep_shipping_and_pd_at_500_ms ... ok
+test tests::snapshot_state_fingerprint_ignores_transport_only_changes ... ok
+test snapshot_stream::tests::timeout_recovers_with_full_snapshot_even_when_state_has_not_changed ... ok
+test tests::snapshot_fingerprint_preserves_all_non_history_fields ... ok
+test snapshot_stream::tests::stream_moves_complete_owned_spectrum_into_message ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 16 filtered out; finished in 0.00s
+

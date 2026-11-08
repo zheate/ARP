@@ -1,0 +1,2 @@
+### Error
+Error: Sparse spectra still scan empty series cells: {"reads":20054016,"lines":196599,"errors":[],"selected":24}

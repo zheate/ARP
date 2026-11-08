@@ -1,0 +1,25 @@
+{
+  "build": "passed; Vite emitted a chunk-size advisory",
+  "focusedNodeTests": {
+    "passed": 17,
+    "failed": 0
+  },
+  "uiReview": {
+    "passed": 152,
+    "failed": 0,
+    "captures": 63,
+    "errors": []
+  },
+  "dialogQA": {
+    "passed": 294,
+    "failed": [
+      "1920x1080-dpr1-shutdown-pending-all-actions-disabled",
+      "1366x768-dpr1-shutdown-pending-all-actions-disabled",
+      "960x540-dpr2-shutdown-pending-all-actions-disabled"
+    ],
+    "captures": 54,
+    "errors": []
+  },
+  "baselineReproduction": "HEAD ui-dialog-qa.mjs reproduces shutdown-pending-all-actions-disabled at 1920x1080; unchanged assertion inspects native disabled while unchanged dialog uses aria-disabled and handler guards",
+  "boundaries": "browser demo and inert callbacks only; no native Windows, hardware, full suites or packaging"
+}

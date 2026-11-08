@@ -1,0 +1,7 @@
+
+running 1 test
+[{"bytes":529485,"iterations":60,"median_ms":0.68675,"name":"real-0-full","p95_ms":0.712209},{"bytes":136465,"iterations":60,"median_ms":0.17858300000000002,"name":"real-1-full","p95_ms":0.192083},{"bytes":531183,"iterations":60,"median_ms":0.678833,"name":"real-2-full","p95_ms":0.704542},{"bytes":298167,"iterations":60,"median_ms":0.44783399999999995,"name":"8192-dense-live-delta","p95_ms":0.46900000000000003},{"bytes":7155942,"iterations":60,"median_ms":10.891917,"name":"24x8192-full-spectra","p95_ms":11.2}]
+test float_precision_benchmark::benchmark_float_precision_parse ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 28 filtered out; finished in 0.84s
+

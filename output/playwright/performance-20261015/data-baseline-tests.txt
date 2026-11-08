@@ -1,0 +1,21 @@
+✔ comparison aligns shared measured currents and computes signed difference (1.095125ms)
+✔ duplicate normalized currents are explicit and invalid values are not paired (1.691916ms)
+✔ large duplicate-current groups preserve ambiguity and do not mutate input (30.078958ms)
+✔ chart retains both original curves including duplicate currents (0.147708ms)
+✔ late requests and invalidated page owners cannot publish results (0.078208ms)
+✔ dates use local natural days with an exclusive end (1.29025ms)
+✔ missing values remain missing and negative zero is display-only (0.076625ms)
+✔ a record without a status or timestamp never renders undefined placeholders (0.193333ms)
+✔ extractSummaryMetrics finds maximum power point, peak efficiency, and primary wavelength (0.12875ms)
+✔ extractComparisonSummary calculates delta Pmax, percentage, and shared point count (0.160417ms)
+✔ five curves preserve each selected parameter even when power is missing (0.23575ms)
+✔ parameter deltas never interpolate, invent missing values or match duplicate currents (0.1345ms)
+✔ wavelength and efficiency axes resolve measured differences without changing power zero reference (0.138ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 13
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 132.400667

@@ -1,0 +1,42 @@
+{
+  "visibility": {
+    "bodyOverflow": "hidden",
+    "hidden": [
+      {
+        "name": "chart-character-frames",
+        "state": "paused"
+      },
+      {
+        "name": "chart-character-flame-sway",
+        "state": "paused"
+      },
+      {
+        "name": "chart-character-frames",
+        "state": "paused"
+      }
+    ],
+    "restored": [
+      {
+        "name": "chart-character-frames",
+        "state": "running"
+      },
+      {
+        "name": "chart-character-flame-sway",
+        "state": "running"
+      },
+      {
+        "name": "chart-character-frames",
+        "state": "running"
+      }
+    ],
+    "rootOverflow": "visible"
+  },
+  "reduced": {
+    "activeAnimations": 0,
+    "names": [
+      "none",
+      "none",
+      "none"
+    ]
+  }
+}

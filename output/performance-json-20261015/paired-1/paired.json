@@ -1,0 +1,207 @@
+{
+  "environment": {
+    "platform": "macOS-27.2-arm64-arm-64bit",
+    "python": "3.11.15",
+    "orjson": "3.13.0"
+  },
+  "baseline_source_sha256": "908578476295e67ae3a08523e0f3cb41e66fb4e8d77cf5ef8e77b1abb25ff90d",
+  "workload": "same-process alternating original/current production writers; fixed synthetic data; includes compatibility guard; OS pipe has a hash-checking drain thread; no devices or WebView",
+  "results": [
+    {
+      "scenario": "8192-live_full",
+      "iterations_per_version": 60,
+      "native_eligible": true,
+      "bytes": 254880,
+      "sha256": "c2db4c6cc377a3d71a6d13f9d6f1c88d1d1165a389d37f91c798e8c4d1474bbd",
+      "writer_to_sink": {
+        "before": {
+          "median_ms": 3.103125,
+          "p95_ms": 3.196958
+        },
+        "after": {
+          "median_ms": 1.3205,
+          "p95_ms": 1.79775
+        }
+      },
+      "writer_to_os_pipe": {
+        "before": {
+          "median_ms": 3.212375,
+          "p95_ms": 3.5245
+        },
+        "after": {
+          "median_ms": 1.403375,
+          "p95_ms": 1.531833
+        }
+      },
+      "all_wire_bytes_equal": true
+    },
+    {
+      "scenario": "8192-live_delta",
+      "iterations_per_version": 60,
+      "native_eligible": true,
+      "bytes": 60026,
+      "sha256": "3d4aa15c1c42305faad9137808574face04e7cdb30b43ee4d07a59dc6bbcc80d",
+      "writer_to_sink": {
+        "before": {
+          "median_ms": 0.607708,
+          "p95_ms": 0.645208
+        },
+        "after": {
+          "median_ms": 0.409417,
+          "p95_ms": 0.426583
+        }
+      },
+      "writer_to_os_pipe": {
+        "before": {
+          "median_ms": 0.639,
+          "p95_ms": 0.687875
+        },
+        "after": {
+          "median_ms": 0.430458,
+          "p95_ms": 0.467542
+        }
+      },
+      "all_wire_bytes_equal": true
+    },
+    {
+      "scenario": "8192-live_unchanged",
+      "iterations_per_version": 60,
+      "native_eligible": false,
+      "bytes": 4963,
+      "sha256": "c653cced7ad7404163b9d2f39feab332032315a032f68ee6c8a12d37b1da6352",
+      "writer_to_sink": {
+        "before": {
+          "median_ms": 0.027917,
+          "p95_ms": 0.033542
+        },
+        "after": {
+          "median_ms": 0.028333,
+          "p95_ms": 0.032833
+        }
+      },
+      "writer_to_os_pipe": {
+        "before": {
+          "median_ms": 0.034084,
+          "p95_ms": 0.045083
+        },
+        "after": {
+          "median_ms": 0.034042,
+          "p95_ms": 0.052542
+        }
+      },
+      "all_wire_bytes_equal": true
+    },
+    {
+      "scenario": "8192-pd_full",
+      "iterations_per_version": 60,
+      "native_eligible": false,
+      "bytes": 481439,
+      "sha256": "c2f4169507251b2db01521825bfe64595c5f7d33a18c585ba685955e18adbba1",
+      "writer_to_sink": {
+        "before": {
+          "median_ms": 5.988709,
+          "p95_ms": 6.230583
+        },
+        "after": {
+          "median_ms": 6.032625,
+          "p95_ms": 6.597625
+        }
+      },
+      "writer_to_os_pipe": {
+        "before": {
+          "median_ms": 6.181917,
+          "p95_ms": 6.360625
+        },
+        "after": {
+          "median_ms": 6.185375,
+          "p95_ms": 6.351084
+        }
+      },
+      "all_wire_bytes_equal": true
+    },
+    {
+      "scenario": "8192-pd_delta",
+      "iterations_per_version": 60,
+      "native_eligible": false,
+      "bytes": 5363,
+      "sha256": "9e928b2ca5806f6ebd9b7900dd42a832b0fab60c377681470a444f64b1381ee1",
+      "writer_to_sink": {
+        "before": {
+          "median_ms": 0.032458,
+          "p95_ms": 0.03875
+        },
+        "after": {
+          "median_ms": 0.032917,
+          "p95_ms": 0.035916
+        }
+      },
+      "writer_to_os_pipe": {
+        "before": {
+          "median_ms": 0.036916,
+          "p95_ms": 0.044417
+        },
+        "after": {
+          "median_ms": 0.039,
+          "p95_ms": 0.049833
+        }
+      },
+      "all_wire_bytes_equal": true
+    },
+    {
+      "scenario": "8192-dense-live-delta",
+      "iterations_per_version": 60,
+      "native_eligible": true,
+      "bytes": 155391,
+      "sha256": "f357810a01e383e8444f576dcee09d1674847156062ff254a7bef55f7a64e64b",
+      "writer_to_sink": {
+        "before": {
+          "median_ms": 2.015625,
+          "p95_ms": 2.110917
+        },
+        "after": {
+          "median_ms": 0.426125,
+          "p95_ms": 0.481042
+        }
+      },
+      "writer_to_os_pipe": {
+        "before": {
+          "median_ms": 2.063958,
+          "p95_ms": 2.122833
+        },
+        "after": {
+          "median_ms": 0.485209,
+          "p95_ms": 0.530709
+        }
+      },
+      "all_wire_bytes_equal": true
+    },
+    {
+      "scenario": "24x8192-full-spectra",
+      "iterations_per_version": 12,
+      "native_eligible": true,
+      "bytes": 7155936,
+      "sha256": "e813bf30585b34a56b2ec3e82ac6e0ee28b8fbef649c2c20b766575eed6650ec",
+      "writer_to_sink": {
+        "before": {
+          "median_ms": 96.658583,
+          "p95_ms": 96.92925
+        },
+        "after": {
+          "median_ms": 20.177916,
+          "p95_ms": 20.923167
+        }
+      },
+      "writer_to_os_pipe": {
+        "before": {
+          "median_ms": 99.695625,
+          "p95_ms": 100.718209
+        },
+        "after": {
+          "median_ms": 22.9085,
+          "p95_ms": 24.785083
+        }
+      },
+      "all_wire_bytes_equal": true
+    }
+  ]
+}

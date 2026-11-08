@@ -1,0 +1,826 @@
+{
+  "project": "/Users/zh/Documents/test/ARP",
+  "head": "cf6406218ab64272c104f96b57063f2886940925",
+  "scope": "Replace all product native selects with existing themed NativeSelect",
+  "modifiedFiles": [
+    {
+      "path": "/Users/zh/Documents/test/ARP/tauri-ui/src/components/native-select.tsx",
+      "sha256": "e805290cfb36216fcbdf902690ce9a0cdca5fc4081ec8774b933edbb7378cc47",
+      "modifiedBeforeBuildCompleted": true
+    },
+    {
+      "path": "/Users/zh/Documents/test/ARP/tauri-ui/src/components/appearance-controls.tsx",
+      "sha256": "a5615d4d2319e41a0f6169387ec22ab924000ef3fc4274709fc65122e939c513",
+      "modifiedBeforeBuildCompleted": true
+    },
+    {
+      "path": "/Users/zh/Documents/test/ARP/tauri-ui/src/components/data-browser-page.tsx",
+      "sha256": "ddc47db77ed9a3956cf837127d135cf75a67f7b5e634f981f42922652ac8fa7a",
+      "modifiedBeforeBuildCompleted": true
+    },
+    {
+      "path": "/Users/zh/Documents/test/ARP/tauri-ui/src/components/data-browser-history.tsx",
+      "sha256": "8d20e869c32ddfb80a57519695a18c49ccba18c32db96d54d4adb64f710c4739",
+      "modifiedBeforeBuildCompleted": true
+    },
+    {
+      "path": "/Users/zh/Documents/test/ARP/tauri-ui/src/components/data-browser-characterization.tsx",
+      "sha256": "28fbf53e757ed31d047ebea8c4091c56e209a7b7a6f0cd47abdb7e6cab64be79",
+      "modifiedBeforeBuildCompleted": true
+    },
+    {
+      "path": "/Users/zh/Documents/test/ARP/tauri-ui/src/components/data-browser.css",
+      "sha256": "b16e40073223d0ccea675b26c8fb745531d172ed94701239bb1d8b6b88634d19",
+      "modifiedBeforeBuildCompleted": true
+    },
+    {
+      "path": "/Users/zh/Documents/test/ARP/tauri-ui/src/workbench-appearance.css",
+      "sha256": "181d26c5c55c856063c344602d40f57a384a4726a5ae3546dede835604903b87",
+      "modifiedBeforeBuildCompleted": true
+    }
+  ],
+  "nativeSelectsRemainingInProduct": [],
+  "build": "passed: npm run build --prefix tauri-ui",
+  "buildWarnings": [
+    "Vite chunk size warning"
+  ],
+  "runtime": "isolated Chromium browser demo at http://127.0.0.1:1429/?demo=1",
+  "viewports": [
+    [
+      1920,
+      1080
+    ],
+    [
+      1366,
+      768
+    ]
+  ],
+  "checks": [
+    {
+      "suite": "settings",
+      "name": "1920-深色-自动测试功率实时曲线末端样式-options",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1920-深色-menu-in-viewport",
+      "pass": true,
+      "detail": {
+        "x": 901.75,
+        "y": 707.90625,
+        "width": 160,
+        "height": 224
+      }
+    },
+    {
+      "suite": "settings",
+      "name": "1920-深色-trigger-stable",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1920-深色-自动测试功率实时曲线线型-options",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1920-深色-menu-in-viewport",
+      "pass": true,
+      "detail": {
+        "x": 767.203125,
+        "y": 707.90625,
+        "width": 160,
+        "height": 118
+      }
+    },
+    {
+      "suite": "settings",
+      "name": "1920-深色-trigger-stable",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1920-深色-尾迹时长-options",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1920-深色-menu-in-viewport",
+      "pass": true,
+      "detail": {
+        "x": 632.65625,
+        "y": 707.90625,
+        "width": 160,
+        "height": 154
+      }
+    },
+    {
+      "suite": "settings",
+      "name": "1920-深色-trigger-stable",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1920-深色-keyboard-selection",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1920-深色-last-option-visible",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1920-深色-outside-click-closes",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1920-深色-no-page-overflow",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1920-浅色-自动测试功率实时曲线末端样式-options",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1920-浅色-menu-in-viewport",
+      "pass": true,
+      "detail": {
+        "x": 901.75,
+        "y": 707.90625,
+        "width": 160,
+        "height": 224
+      }
+    },
+    {
+      "suite": "settings",
+      "name": "1920-浅色-trigger-stable",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1920-浅色-自动测试功率实时曲线线型-options",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1920-浅色-menu-in-viewport",
+      "pass": true,
+      "detail": {
+        "x": 767.203125,
+        "y": 707.90625,
+        "width": 160,
+        "height": 118
+      }
+    },
+    {
+      "suite": "settings",
+      "name": "1920-浅色-trigger-stable",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1920-浅色-尾迹时长-options",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1920-浅色-menu-in-viewport",
+      "pass": true,
+      "detail": {
+        "x": 632.65625,
+        "y": 707.90625,
+        "width": 160,
+        "height": 154
+      }
+    },
+    {
+      "suite": "settings",
+      "name": "1920-浅色-trigger-stable",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1920-浅色-keyboard-selection",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1920-浅色-last-option-visible",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1920-浅色-outside-click-closes",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1920-浅色-no-page-overflow",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1366-深色-自动测试功率实时曲线末端样式-options",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1366-深色-menu-in-viewport",
+      "pass": true,
+      "detail": {
+        "x": 603.234375,
+        "y": 449.59375,
+        "width": 160,
+        "height": 224
+      }
+    },
+    {
+      "suite": "settings",
+      "name": "1366-深色-trigger-stable",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1366-深色-自动测试功率实时曲线线型-options",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1366-深色-menu-in-viewport",
+      "pass": true,
+      "detail": {
+        "x": 505.078125,
+        "y": 555.59375,
+        "width": 160,
+        "height": 118
+      }
+    },
+    {
+      "suite": "settings",
+      "name": "1366-深色-trigger-stable",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1366-深色-尾迹时长-options",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1366-深色-menu-in-viewport",
+      "pass": true,
+      "detail": {
+        "x": 406.921875,
+        "y": 519.59375,
+        "width": 160,
+        "height": 154
+      }
+    },
+    {
+      "suite": "settings",
+      "name": "1366-深色-trigger-stable",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1366-深色-keyboard-selection",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1366-深色-last-option-visible",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1366-深色-outside-click-closes",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1366-深色-no-page-overflow",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1366-浅色-自动测试功率实时曲线末端样式-options",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1366-浅色-menu-in-viewport",
+      "pass": true,
+      "detail": {
+        "x": 603.234375,
+        "y": 449.59375,
+        "width": 160,
+        "height": 224
+      }
+    },
+    {
+      "suite": "settings",
+      "name": "1366-浅色-trigger-stable",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1366-浅色-自动测试功率实时曲线线型-options",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1366-浅色-menu-in-viewport",
+      "pass": true,
+      "detail": {
+        "x": 505.078125,
+        "y": 555.59375,
+        "width": 160,
+        "height": 118
+      }
+    },
+    {
+      "suite": "settings",
+      "name": "1366-浅色-trigger-stable",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1366-浅色-尾迹时长-options",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1366-浅色-menu-in-viewport",
+      "pass": true,
+      "detail": {
+        "x": 406.921875,
+        "y": 519.59375,
+        "width": 160,
+        "height": 154
+      }
+    },
+    {
+      "suite": "settings",
+      "name": "1366-浅色-trigger-stable",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1366-浅色-keyboard-selection",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1366-浅色-last-option-visible",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1366-浅色-outside-click-closes",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "1366-浅色-no-page-overflow",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "trail-disabled",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "settings-persisted",
+      "pass": true,
+      "detail": {
+        "power-test.automatic-curve-line-style": "dashed",
+        "power-test.latest-point-marker": "dinosaur"
+      }
+    },
+    {
+      "suite": "settings",
+      "name": "theme-极光蓝",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "theme-森林绿",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "theme-鸢尾紫",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "theme-玫瑰",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "theme-石墨",
+      "pass": true
+    },
+    {
+      "suite": "settings",
+      "name": "theme-经典橙",
+      "pass": true
+    },
+    {
+      "suite": "data",
+      "name": "fragment options preserved",
+      "pass": true,
+      "detail": [
+        "指标曲线",
+        "单电流光谱",
+        "多电流光谱",
+        "光谱随电流变化"
+      ]
+    },
+    {
+      "suite": "data",
+      "name": "曲线内容 selection",
+      "pass": true
+    },
+    {
+      "suite": "data",
+      "name": "分析指标 selection",
+      "pass": true
+    },
+    {
+      "suite": "data",
+      "name": "当前测试点 selection",
+      "pass": true
+    },
+    {
+      "suite": "data",
+      "name": "numeric point updates",
+      "pass": true
+    },
+    {
+      "suite": "data",
+      "name": "当前激活游标 selection",
+      "pass": true
+    },
+    {
+      "suite": "data",
+      "name": "游标 A 测试点 selection",
+      "pass": true
+    },
+    {
+      "suite": "data",
+      "name": "cursor auto advance preserved",
+      "pass": true
+    },
+    {
+      "suite": "data",
+      "name": "游标 B 测试点 selection",
+      "pass": true
+    },
+    {
+      "suite": "data",
+      "name": "履历指标 selection",
+      "pass": true
+    },
+    {
+      "suite": "data",
+      "name": "履历比较电流 selection",
+      "pass": true
+    },
+    {
+      "suite": "data",
+      "name": "测试站别筛选 selection",
+      "pass": true
+    },
+    {
+      "suite": "data",
+      "name": "implicit station values preserved",
+      "pass": true
+    },
+    {
+      "suite": "data",
+      "name": "测试站别筛选 selection",
+      "pass": true
+    },
+    {
+      "suite": "data",
+      "name": "日期范围 selection",
+      "pass": true
+    },
+    {
+      "suite": "data",
+      "name": "日期范围 selection",
+      "pass": true
+    },
+    {
+      "suite": "data",
+      "name": "test modes preserved",
+      "pass": true,
+      "detail": [
+        "全部类型",
+        "自动测试",
+        "手动测试",
+        "未记录"
+      ]
+    },
+    {
+      "suite": "comparison",
+      "name": "Excel status options",
+      "pass": true,
+      "detail": [
+        "全部状态",
+        "读取失败"
+      ]
+    },
+    {
+      "suite": "comparison",
+      "name": "error status selection",
+      "pass": true
+    },
+    {
+      "suite": "comparison",
+      "name": "empty results remain usable",
+      "pass": true
+    },
+    {
+      "suite": "comparison",
+      "name": "baseline selection",
+      "pass": true
+    },
+    {
+      "suite": "comparison",
+      "name": "zero index preserved",
+      "pass": true
+    },
+    {
+      "suite": "comparison",
+      "name": "1920-baseline-visible",
+      "pass": true,
+      "detail": {
+        "x": 1693,
+        "y": 355,
+        "width": 192,
+        "height": 122
+      }
+    },
+    {
+      "suite": "comparison",
+      "name": "1920-no-overflow",
+      "pass": true
+    },
+    {
+      "suite": "comparison",
+      "name": "1366-baseline-visible",
+      "pass": true,
+      "detail": {
+        "x": 1139,
+        "y": 355,
+        "width": 192,
+        "height": 122
+      }
+    },
+    {
+      "suite": "comparison",
+      "name": "1366-no-overflow",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1920-电源-anchored-menu",
+      "pass": true,
+      "detail": {
+        "x": 456,
+        "y": 575.5,
+        "width": 369,
+        "height": 90
+      }
+    },
+    {
+      "suite": "dialogs",
+      "name": "1920-电源-stable-dialog",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1920-电源-escape-dropdown-first",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1920-电源-selection-keeps-dialog",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1920-电源-escape-dialog-second",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1920-功率计-anchored-menu",
+      "pass": true,
+      "detail": {
+        "x": 648,
+        "y": 334.40625,
+        "width": 516,
+        "height": 130
+      }
+    },
+    {
+      "suite": "dialogs",
+      "name": "1920-功率计-stable-dialog",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1920-功率计-escape-dropdown-first",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1920-功率计-selection-keeps-dialog",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1920-功率计-escape-dialog-second",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1920-光谱仪-anchored-menu",
+      "pass": true,
+      "detail": {
+        "x": 648,
+        "y": 403,
+        "width": 516,
+        "height": 90
+      }
+    },
+    {
+      "suite": "dialogs",
+      "name": "1920-光谱仪-stable-dialog",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1920-光谱仪-escape-dropdown-first",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1920-光谱仪-selection-keeps-dialog",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1920-光谱仪-escape-dialog-second",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1366-电源-anchored-menu",
+      "pass": true,
+      "detail": {
+        "x": 179,
+        "y": 419.5,
+        "width": 369,
+        "height": 90
+      }
+    },
+    {
+      "suite": "dialogs",
+      "name": "1366-电源-stable-dialog",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1366-电源-escape-dropdown-first",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1366-电源-selection-keeps-dialog",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1366-电源-refresh-footer-stable",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1366-电源-save-label-stable",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1366-电源-escape-dialog-second",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1366-功率计-anchored-menu",
+      "pass": true,
+      "detail": {
+        "x": 371,
+        "y": 211,
+        "width": 516,
+        "height": 130
+      }
+    },
+    {
+      "suite": "dialogs",
+      "name": "1366-功率计-stable-dialog",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1366-功率计-escape-dropdown-first",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1366-功率计-selection-keeps-dialog",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1366-功率计-refresh-footer-stable",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1366-功率计-save-label-stable",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1366-功率计-escape-dialog-second",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1366-光谱仪-anchored-menu",
+      "pass": true,
+      "detail": {
+        "x": 371,
+        "y": 247,
+        "width": 516,
+        "height": 90
+      }
+    },
+    {
+      "suite": "dialogs",
+      "name": "1366-光谱仪-stable-dialog",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1366-光谱仪-escape-dropdown-first",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1366-光谱仪-selection-keeps-dialog",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1366-光谱仪-refresh-footer-stable",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1366-光谱仪-save-label-stable",
+      "pass": true
+    },
+    {
+      "suite": "dialogs",
+      "name": "1366-光谱仪-escape-dialog-second",
+      "pass": true
+    },
+    {
+      "suite": "keyboard",
+      "name": "typeahead focuses Flappy Bird",
+      "pass": true
+    },
+    {
+      "suite": "keyboard",
+      "name": "Escape restores focus synchronously",
+      "pass": true
+    }
+  ],
+  "allChecksPassed": true,
+  "hardwareConnected": false,
+  "windowsTauriVerified": false,
+  "committed": false,
+  "pushed": false,
+  "originalFileBackup": "/Users/zh/Documents/test/ARP/output/playwright/all-dropdowns-20261016/originals"
+}

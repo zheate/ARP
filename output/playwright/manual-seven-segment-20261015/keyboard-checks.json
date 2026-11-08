@@ -1,0 +1,54 @@
+{
+  "keys": [
+    {
+      "key": "ArrowUp",
+      "expected": "9.35",
+      "actual": "9.35",
+      "passed": true
+    },
+    {
+      "key": "ArrowDown",
+      "expected": "8.35",
+      "actual": "8.35",
+      "passed": true
+    },
+    {
+      "key": "ArrowLeft",
+      "expected": "8.25",
+      "actual": "8.25",
+      "passed": true
+    },
+    {
+      "key": "ArrowRight",
+      "expected": "8.35",
+      "actual": "8.35",
+      "passed": true
+    },
+    {
+      "key": "Shift+ArrowLeft",
+      "expected": "8.35",
+      "actual": "8.35",
+      "passed": true
+    },
+    {
+      "key": "ArrowDown",
+      "atMinimum": true,
+      "expected": "0",
+      "actual": "0",
+      "passed": true
+    },
+    {
+      "key": "ArrowLeft",
+      "atMinimum": true,
+      "expected": "0",
+      "actual": "0",
+      "passed": true
+    }
+  ],
+  "mouseArrows": {
+    "upClick": "2.25",
+    "downClick": "1.25"
+  },
+  "feedback": "当前电流：0A",
+  "consoleErrors": []
+}

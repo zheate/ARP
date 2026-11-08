@@ -1,0 +1,12 @@
+{
+  "combined_test/power_stability.py": "7457d299bb5d0e63e12a89f2ee394f9d1c9105768b503856972f984bb412d1de",
+  "docs/superpowers/specs/2026-10-22-background-dual-window.md": "55aaff84dde204a0b4b391231477d44c980f5a02bf06dc0734e9a38e93ed975b",
+  "tauri-ui/scripts/fixtures/power-background.tsx": "4401858edc13aae0d28dc3f5a4bac3f75a9319d6e730ca53b909fd6a0bee11bf",
+  "tauri-ui/scripts/verify-power-background.cjs": "114957ba997c6ef8055d6cf8d8ab531cac8c99d28cb96e4d19c8b0d68510905b",
+  "tauri-ui/src/features/devices/settings.tsx": "914f7f5098dd271bbf3252297d4e6cbe9c6470cbfc84209f242c113c98eb5a17",
+  "tauri-ui/src/lib/backend.ts": "980ebac6c3ddad44962fd16aced8e02f1648749a0df93fcf32b6bf7a2b029d19",
+  "tauri_bridge/power_stability_runtime.py": "c12dbbe6234a4d79b74f28e72d008677a9eb74e859d5c8db31930ffc7260fd3f",
+  "tests/test_power_stability.py": "35f5309e4e2cde51e655f3710cb0a772ff9cad117cf1c6c68a6bb12b0d19e944",
+  "tests/test_power_stability_runtime.py": "c222a9a246358bb505538d80dbaf8e53b22f0605d2a106384652ef2cd09c9274",
+  "tools/power_stability_replay.py": "a873a16905290103e2fcdd02e82d856092ded027f3321ef459c7808a7bfb9b2a"
+}

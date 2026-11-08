@@ -1,0 +1,315 @@
+--- before/src/App.tsx
++++ after/src/App.tsx
+@@ -14,7 +14,7 @@
+ import { AppearanceProvider } from "@/hooks/use-appearance"
+ import { useBackendSnapshot } from "@/hooks/use-backend-snapshot"
+ import { useConfigurationEditor } from "@/hooks/use-configuration-editor"
+-import { ACCENT_THEMES, type AccentTheme, type CurveLineStyle, type LatestPointMarkerStyle, type Theme } from "@/lib/appearance"
++import { ACCENT_THEMES, normalizeLatestPointMarkerStyle, type AccentTheme, type CurveLineStyle, type LatestPointMarkerStyle, type Theme } from "@/lib/appearance"
+ import { automaticPauseCommand } from "@/lib/automatic-pause"
+ import { sendBackendRequest, type AutomaticPauseAction, type SnapshotView } from "@/lib/backend"
+ import { getLicenseStatus, installLicense, licenseReasonLabels, type LicenseStatus } from "@/lib/license"
+@@ -133,8 +133,7 @@
+ function getStoredLatestPointMarkerStyle(): LatestPointMarkerStyle {
+   if (typeof window === "undefined") return "point"
+   try {
+-    const storedStyle = window.localStorage.getItem(LATEST_POINT_MARKER_STORAGE_KEY)
+-    if (storedStyle === "point" || storedStyle === "paper-plane" || storedStyle === "paw" || storedStyle === "comet" || storedStyle === "ecg" || storedStyle === "flappy-bird") return storedStyle
++    return normalizeLatestPointMarkerStyle(window.localStorage.getItem(LATEST_POINT_MARKER_STORAGE_KEY))
+   } catch {
+     // Use the original point marker if storage is unavailable.
+   }
+--- before/src/components/appearance-controls.tsx
++++ after/src/components/appearance-controls.tsx
+@@ -5,7 +5,7 @@
+ import { CanvasLineChart } from "@/components/canvas-line-chart"
+ import { NumericReadout } from "@/components/numeric-readout"
+ import { useAppearance } from "@/hooks/use-appearance"
+-import { ACCENT_THEMES, CHART_CANVASES, DEFAULT_APPEARANCE, INTERFACE_DENSITIES, type AccentTheme, type AppearancePreferences, type CurveLineStyle, type InterfaceDensity, type LatestPointMarkerStyle, type Theme } from "@/lib/appearance"
++import { ACCENT_THEMES, CHART_CANVASES, DEFAULT_APPEARANCE, INTERFACE_DENSITIES, LATEST_POINT_MARKER_OPTIONS, type AccentTheme, type AppearancePreferences, type CurveLineStyle, type InterfaceDensity, type LatestPointMarkerStyle, type Theme } from "@/lib/appearance"
+ 
+ const PREVIEW_DATA = Array.from({ length: 181 }, (_, index) => ({
+   elapsedS: index / 3,
+@@ -150,7 +150,7 @@
+         <div className="appearance-chart-options">
+           <label>尾迹时长<select aria-label="尾迹时长" disabled={!appearance.trailEnabled} value={appearance.trailSeconds} onChange={(event) => updateAppearance({ trailSeconds: Number(event.target.value) })}>{[3, 5, 10, 15].map((seconds) => <option value={seconds} key={seconds}>{seconds} 秒</option>)}</select></label>
+           <label>曲线线型<select aria-label="自动测试功率实时曲线线型" value={curveLineStyle} onChange={(event) => onCurveLineStyleChange(event.target.value as CurveLineStyle)}><option value="solid">实线</option><option value="dashed">虚线</option><option value="dotted">点线</option></select></label>
+-          <label>末端样式<select aria-label="自动测试功率实时曲线末端样式" value={latestPointMarkerStyle} onChange={(event) => onLatestPointMarkerStyleChange(event.target.value as LatestPointMarkerStyle)}><option value="point">圆点</option><option value="paper-plane">纸飞机</option><option value="paw">爪印</option><option value="comet">彗星</option><option value="ecg">心电图</option><option value="flappy-bird">Flappy Bird 小鸟</option></select></label>
++          <label>末端样式<select aria-label="自动测试功率实时曲线末端样式" value={latestPointMarkerStyle} onChange={(event) => onLatestPointMarkerStyleChange(event.target.value as LatestPointMarkerStyle)}>{LATEST_POINT_MARKER_OPTIONS.map((marker) => <option value={marker.id} key={marker.id}>{marker.label}</option>)}</select></label>
+         </div>
+       </div>
+ 
+--- before/src/components/canvas-line-chart.tsx
++++ after/src/components/canvas-line-chart.tsx
+@@ -1,8 +1,9 @@
+ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
+ import { traceMonotoneCurve, type CurvePoint } from "@/lib/monotone-curve"
+ import { useAppearance } from "@/hooks/use-appearance"
+-import { chartTrailBoundary, type AppearancePreferences, type LatestPointMarkerStyle } from "@/lib/appearance"
++import { chartTrailBoundary, isAnimatedLatestPointMarker, latestPointMarkerSize, type AppearancePreferences, type LatestPointMarkerStyle } from "@/lib/appearance"
+ import { FlappyBirdMarker } from "./flappy-bird-marker"
++import { CharacterSpriteMarker } from "./character-sprite-marker"
+ import { sparseChartIndex } from "@/lib/sparse-chart-index"
+ import { curveRevealFrame, retargetCurveReveal, traceRevealedCurve, type CurveRevealMotion } from "@/lib/chart-curve-reveal"
+ 
+@@ -78,7 +79,7 @@
+ }
+ 
+ type ChartSize = { width: number; height: number }
+-type BirdMarkerPosition = { key: string; x: number; y: number; size: number }
++type AnimatedMarkerPosition = { key: string; x: number; y: number; size: number; height: number }
+ const CHART_FONT = "12px 'ARP Interface', 'DIN', 'MiSans', sans-serif"
+ type HoverState = { index: number } | null
+ type PendingHover = { index: number; pointerX: number; pointerY: number } | null
+@@ -279,11 +280,18 @@
+ ): ChartLayout {
+   const hasRightAxis = lines.some((line) => line.yAxisId === "right")
+   const left = tightInsets ? 52 : 64
+-  // The 24 px sprite needs a little room beyond its half-width, including
+-  // fractional CSS widths at the rightmost sample.
+-  const birdGutter = lines.some((line) => line.showLatestPoint && !line.showPoints && line.latestPointStyle === "flappy-bird") ? 14 : 0
+-  const right = Math.max(birdGutter, hasRightAxis ? (tightInsets ? 48 : 60) : (tightInsets ? 12 : 20))
+-  const top = yLabel ? 28 : (tightInsets ? 8 : 12)
++  // DOM sprites may extend beyond the clipped curve, including its top/right edges.
++  let markerRightGutter = 0
++  let markerTopGutter = 0
++  for (const line of lines) {
++    if (line.showPoints || !line.showLatestPoint || !isAnimatedLatestPointMarker(line.latestPointStyle)) continue
++    const markerSize = line.pointSize ?? latestPointMarkerSize(line.latestPointStyle)
++    const markerHeight = line.latestPointStyle === "flappy-bird" ? markerSize * 2 / 3 : markerSize
++    markerRightGutter = Math.max(markerRightGutter, markerSize / 2 + 2)
++    markerTopGutter = Math.max(markerTopGutter, markerHeight / 2 + 2)
++  }
++  const right = Math.max(markerRightGutter, hasRightAxis ? (tightInsets ? 48 : 60) : (tightInsets ? 12 : 20))
++  const top = Math.max(markerTopGutter, yLabel ? 28 : (tightInsets ? 8 : 12))
+   const bottom = xLabel ? (tightInsets ? 34 : 44) : (tightInsets ? 20 : 30)
+   const plotHeight = Math.max(1, size.height - top - bottom)
+   const verticalTickTarget = Math.min(5, Math.max(2, Math.floor(plotHeight / 36)))
+@@ -590,10 +598,10 @@
+   appearance?: AppearancePreferences,
+   xValueFormatter?: (value: number) => string,
+   revealX?: number,
+-): BirdMarkerPosition[] {
++): AnimatedMarkerPosition[] {
+   const context = prepareCanvas(canvas, size)
+   if (!context) return []
+-  const birdMarkers: BirdMarkerPosition[] = []
++  const animatedMarkers: AnimatedMarkerPosition[] = []
+   const styles = getComputedStyle(container)
+   lines = lines.map((line) => ({
+     ...line,
+@@ -710,9 +718,9 @@
+     context.lineCap = "round"
+     let drawing = false
+     let latestX: number | null = null
+-    const bird = !line.showPoints && line.showLatestPoint && line.latestPointStyle === "flappy-bird"
+-    const revealing = bird && line.animateLatestPoint && revealX !== undefined
+-    const curvePoints: (CurvePoint | null)[] | null = line.interpolation === "monotone" || bird ? [] : null
++    const animated = !line.showPoints && line.showLatestPoint && isAnimatedLatestPointMarker(line.latestPointStyle)
++    const revealing = animated && line.animateLatestPoint && revealX !== undefined
++    const curvePoints: (CurvePoint | null)[] | null = line.interpolation === "monotone" || animated ? [] : null
+     for (const index of lineIndexes) {
+       if (visibleMask && !visibleMask[index]) continue
+       const xValue = data.valueAt(index, xKey)
+@@ -739,10 +747,14 @@
+       else context.moveTo(x, y)
+       drawing = true
+     }
+-    if (curvePoints && bird) {
++    if (curvePoints && animated) {
+       const cutoff = line.animateLatestPoint && revealX !== undefined ? mapX(revealX, layout) : Infinity
+       const endpoint = traceRevealedCurve(context, curvePoints, line.interpolation === "monotone", cutoff)
+-      if (endpoint) birdMarkers.push({ key: line.key, ...endpoint, size: line.pointSize ?? 24 })
++      if (endpoint) {
++        const markerSize = line.pointSize ?? latestPointMarkerSize(line.latestPointStyle)
++        const markerHeight = line.latestPointStyle === "flappy-bird" ? markerSize * 2 / 3 : markerSize
++        animatedMarkers.push({ key: line.key, ...endpoint, size: markerSize, height: markerHeight })
++      }
+       if (line.animateLatestPoint && revealX !== undefined && latestX !== null) latestX = Math.min(latestX, revealX)
+     } else if (curvePoints) traceMonotoneCurve(context, curvePoints)
+     const tailBoundary = line.trail && appearance?.trailEnabled
+@@ -823,7 +835,7 @@
+   // The line stays clipped to the plotting area, while the marker can use the
+   // chart gutter that is already reserved for axis labels.
+   for (const line of lines) {
+-    if (line.showPoints || !line.showLatestPoint || line.latestPointStyle === "flappy-bird") continue
++    if (line.showPoints || !line.showLatestPoint || isAnimatedLatestPointMarker(line.latestPointStyle)) continue
+     const scale = line.yAxisId === "right" && layout.rightY ? layout.rightY : layout.leftY
+     let latestPoint: { x: number; y: number } | null = null
+     let previousPoint: { x: number; y: number } | null = null
+@@ -868,7 +880,7 @@
+     }
+   }
+ 
+-  return birdMarkers
++  return animatedMarkers
+ }
+ 
+ function nearestRowIndex(data: ChartData, xKey: string, target: number): number {
+@@ -943,7 +955,7 @@
+   const chartAppearance = useMemo(() => appearanceOverride ? { ...appearance, ...appearanceOverride } : appearance, [appearance, appearanceOverride])
+   const containerRef = useRef<HTMLDivElement>(null)
+   const baseCanvasRef = useRef<HTMLCanvasElement>(null)
+-  const birdMarkerElementsRef = useRef(new Map<string, HTMLDivElement>())
++  const animatedMarkerElementsRef = useRef(new Map<string, HTMLDivElement>())
+   const hoverCanvasRef = useRef<HTMLCanvasElement>(null)
+   const tooltipRef = useRef<HTMLDivElement>(null)
+   const hoverFrameRef = useRef<number | null>(null)
+@@ -969,10 +981,10 @@
+     () => buildLayout(chartData, xKey, lines, size, xDomain, xTicks, yDomain, yMinimumLimit, rightYDomain, xLabel, yLabel, tightInsets),
+     [chartData, lines, rightYDomain, size, tightInsets, xDomain, xKey, xLabel, xTicks, yDomain, yLabel, yMinimumLimit],
+   )
+-  const birdLines = useMemo(() => lines.filter((line) => !line.showPoints && line.showLatestPoint && line.latestPointStyle === "flappy-bird"), [lines])
++  const animatedLines = useMemo(() => lines.filter((line) => !line.showPoints && line.showLatestPoint && isAnimatedLatestPointMarker(line.latestPointStyle)), [lines])
+   const latestRevealX = useMemo(() => {
+     let latest: number | null = null
+-    for (const line of birdLines) {
++    for (const line of animatedLines) {
+       if (!line.animateLatestPoint) continue
+       for (let index = chartData.length - 1; index >= 0; index -= 1) {
+         const x = chartData.valueAt(index, xKey)
+@@ -983,7 +995,7 @@
+       }
+     }
+     return latest
+-  }, [birdLines, chartData, layout, size, xKey])
++  }, [animatedLines, chartData, layout, size, xKey])
+   const visibleIndexes = useMemo(
+     () => {
+       const indexes: number[] = []
+@@ -1057,14 +1069,14 @@
+     const drawLayout = frame?.active && revealFromLayoutRef.current
+       ? interpolateChartLayout(revealFromLayoutRef.current, args.layout, frame.progress) : args.layout
+     presentedLayoutRef.current = drawLayout
+-    const birdMarkers = drawBaseChart(canvas, container, args.size, drawLayout, args.chartData, args.displayIndexes, args.xKey, args.lines, args.annotations, args.xLabel, args.xTickSuffix, args.yLabel, args.appearance, args.xValueFormatter, frame?.x)
++    const animatedMarkers = drawBaseChart(canvas, container, args.size, drawLayout, args.chartData, args.displayIndexes, args.xKey, args.lines, args.annotations, args.xLabel, args.xTickSuffix, args.yLabel, args.appearance, args.xValueFormatter, frame?.x)
+     // Publish the curve and its DOM markers together, using the same snapshot.
+     // Keep nodes mounted for empty data so hiding also waits for the curve draw.
+-    for (const element of birdMarkerElementsRef.current.values()) element.style.visibility = "hidden"
+-    for (const marker of birdMarkers) {
+-      const element = birdMarkerElementsRef.current.get(marker.key)
++    for (const element of animatedMarkerElementsRef.current.values()) element.style.visibility = "hidden"
++    for (const marker of animatedMarkers) {
++      const element = animatedMarkerElementsRef.current.get(marker.key)
+       if (!element) continue
+-      element.style.transform = `translate(${marker.x - marker.size / 2}px, ${marker.y - marker.size / 3}px)`
++      element.style.transform = `translate(${marker.x - marker.size / 2}px, ${marker.y - marker.height / 2}px)`
+       element.style.visibility = "visible"
+     }
+     // Hover continues to show actual samples, mapped through the displayed axes.
+@@ -1214,10 +1226,16 @@
+       ref={containerRef}
+     >
+       <canvas aria-label={ariaLabel} className="absolute inset-0 size-full" ref={baseCanvasRef} role="img" />
+-      {birdLines.map((line) => <FlappyBirdMarker key={line.key} size={line.pointSize ?? 24} ref={(element) => {
+-        if (element) birdMarkerElementsRef.current.set(line.key, element)
+-        else birdMarkerElementsRef.current.delete(line.key)
+-      }} />)}
++      {animatedLines.map((line) => {
++        const markerSize = line.pointSize ?? latestPointMarkerSize(line.latestPointStyle)
++        const setMarkerRef = (element: HTMLDivElement | null) => {
++          if (element) animatedMarkerElementsRef.current.set(line.key, element)
++          else animatedMarkerElementsRef.current.delete(line.key)
++        }
++        return line.latestPointStyle === "bee" || line.latestPointStyle === "dinosaur"
++          ? <CharacterSpriteMarker key={line.key} style={line.latestPointStyle} size={markerSize} ref={setMarkerRef} />
++          : <FlappyBirdMarker key={line.key} size={markerSize} ref={setMarkerRef} />
++      })}
+       <canvas aria-hidden="true" className="pointer-events-none absolute inset-0 size-full" ref={hoverCanvasRef} />
+       {selectedPoints && size.width > 0 && size.height > 0 && <svg aria-label="实测点游标" className="pointer-events-none absolute inset-0 size-full" viewBox={`0 0 ${size.width} ${size.height}`}>
+         {selectedPoints.filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y) && p.x >= layout.x.min && p.x <= layout.x.max).map((point, index) => {
+--- before/src/features/charts/realtime.tsx
++++ after/src/features/charts/realtime.tsx
+@@ -2,7 +2,7 @@
+ import { Card, CardContent, CardHeader } from "@/components/ui/card"
+ import { sameNumberArray, sameRows } from "@/features/shared/snapshot-equality"
+ import { useAppearance } from "@/hooks/use-appearance"
+-import { type CurveLineStyle, type LatestPointMarkerStyle } from "@/lib/appearance"
++import { isAnimatedLatestPointMarker, type CurveLineStyle, type LatestPointMarkerStyle } from "@/lib/appearance"
+ import { type BackendSnapshot } from "@/lib/backend"
+ import { spectrumPeakAnnotations, spectrumPeakLegend } from "@/lib/spectrum-annotations"
+ import { memo, type ReactNode, useMemo, useRef } from "react"
+@@ -268,7 +268,7 @@
+       ? [row.powerW]
+       : []
+   )))
+-  const lines: CanvasChartLine[] = [{ key: "powerW", label: "实时功率", color: powerStabilityColor, interpolation: smoothing ? "monotone" : "linear", dash: curveLineDash(curveLineStyle), showLatestPoint: true, latestPointStyle: latestPointMarkerStyle, trail: automatic, animateLatestPoint: automatic && latestPointMarkerStyle === "flappy-bird" }]
++  const lines: CanvasChartLine[] = [{ key: "powerW", label: "实时功率", color: powerStabilityColor, interpolation: smoothing ? "monotone" : "linear", dash: curveLineDash(curveLineStyle), showLatestPoint: true, latestPointStyle: latestPointMarkerStyle, trail: automatic, animateLatestPoint: automatic && isAnimatedLatestPointMarker(latestPointMarkerStyle) }]
+ 
+   return (
+     <div className={`automatic-power-chart ${stretch ? "h-full" : ""}`}>
+--- before/src/lib/appearance.ts
++++ after/src/lib/appearance.ts
+@@ -10,7 +10,30 @@
+ export type AccentTheme = typeof ACCENT_THEMES[number]["id"]
+ export type Theme = "dark" | "light"
+ export type CurveLineStyle = "solid" | "dashed" | "dotted"
+-export type LatestPointMarkerStyle = "point" | "paper-plane" | "paw" | "comet" | "ecg" | "flappy-bird"
++export const LATEST_POINT_MARKER_OPTIONS = [
++  { id: "point", label: "圆点" },
++  { id: "paper-plane", label: "纸飞机" },
++  { id: "paw", label: "爪印" },
++  { id: "comet", label: "彗星" },
++  { id: "ecg", label: "心电图" },
++  { id: "flappy-bird", label: "Flappy Bird 小鸟" },
++  { id: "bee", label: "小蜜蜂" },
++  { id: "dinosaur", label: "小恐龙" },
++] as const
++export type LatestPointMarkerStyle = typeof LATEST_POINT_MARKER_OPTIONS[number]["id"]
++export type AnimatedLatestPointMarkerStyle = "flappy-bird" | "bee" | "dinosaur"
++
++export function normalizeLatestPointMarkerStyle(value: unknown): LatestPointMarkerStyle {
++  return LATEST_POINT_MARKER_OPTIONS.find((option) => option.id === value)?.id ?? "point"
++}
++
++export function isAnimatedLatestPointMarker(style: LatestPointMarkerStyle | undefined): style is AnimatedLatestPointMarkerStyle {
++  return style === "flappy-bird" || style === "bee" || style === "dinosaur"
++}
++
++export function latestPointMarkerSize(style: LatestPointMarkerStyle | undefined): number {
++  return style === "bee" || style === "dinosaur" ? 32 : 24
++}
+ export type ChartCanvasStyle = "clean" | "fine" | "engineering"
+ export type InterfaceDensity = "compact" | "comfortable" | "distant"
+ 
+--- before/src/lib/appearance.test.ts
++++ after/src/lib/appearance.test.ts
+@@ -1,6 +1,27 @@
+ import assert from "node:assert/strict"
+ import test from "node:test"
+-import { chartTrailBoundary, DEFAULT_APPEARANCE, normalizeAppearance } from "./appearance.ts"
++import { chartTrailBoundary, DEFAULT_APPEARANCE, isAnimatedLatestPointMarker, LATEST_POINT_MARKER_OPTIONS, latestPointMarkerSize, normalizeAppearance, normalizeLatestPointMarkerStyle } from "./appearance.ts"
++
++test("stored endpoint styles restore both approved characters and all existing choices", () => {
++  const existing = ["point", "paper-plane", "paw", "comet", "ecg", "flappy-bird"]
++  for (const id of [...existing, "bee", "dinosaur"]) {
++    assert.equal(normalizeLatestPointMarkerStyle(JSON.parse(JSON.stringify(id))), id)
++    assert.ok(LATEST_POINT_MARKER_OPTIONS.some((option) => option.id === id))
++  }
++  for (const invalid of [null, undefined, "fish", "gecko", "dino", {}, 1]) {
++    assert.equal(normalizeLatestPointMarkerStyle(invalid), "point")
++  }
++})
++
++test("only animated endpoint styles opt into shared curve reveal", () => {
++  for (const option of LATEST_POINT_MARKER_OPTIONS) {
++    assert.equal(isAnimatedLatestPointMarker(option.id), ["flappy-bird", "bee", "dinosaur"].includes(option.id))
++  }
++  assert.equal(isAnimatedLatestPointMarker(undefined), false)
++  assert.equal(latestPointMarkerSize("bee"), 32)
++  assert.equal(latestPointMarkerSize("dinosaur"), 32)
++  assert.equal(latestPointMarkerSize("flappy-bird"), 24)
++})
+ 
+ test("invalid stored appearance falls back safely and numeric ranges stay bounded", () => {
+   for (const value of [null, [], "dark", undefined]) assert.deepEqual(normalizeAppearance(value), DEFAULT_APPEARANCE)
+--- before/src/index.css
++++ after/src/index.css
+@@ -539,6 +539,7 @@
+ 
+ .automatic-power-chart .automatic-power-chart__reading {
+   position: absolute;
++  z-index: 1;
+   isolation: isolate;
+   top: 0.5rem;
+   right: 1rem;

@@ -1,0 +1,1208 @@
+{
+  "browserOnly": true,
+  "hardwareConnected": false,
+  "checks": [
+    {
+      "name": "baseline-initial-disabled",
+      "passed": true
+    },
+    {
+      "name": "baseline-callback-same-task-0-start",
+      "passed": true,
+      "detail": {
+        "ms": 0.5999999940395355,
+        "count": 1
+      }
+    },
+    {
+      "name": "baseline-callback-same-task-0-stop",
+      "passed": true,
+      "detail": {
+        "ms": 0,
+        "count": 1
+      }
+    },
+    {
+      "name": "baseline-callback-same-task-1-start",
+      "passed": true,
+      "detail": {
+        "ms": 0.09999999403953552,
+        "count": 1
+      }
+    },
+    {
+      "name": "baseline-callback-same-task-1-stop",
+      "passed": true,
+      "detail": {
+        "ms": 0.10000000894069672,
+        "count": 1
+      }
+    },
+    {
+      "name": "baseline-callback-same-task-2-start",
+      "passed": true,
+      "detail": {
+        "ms": 0,
+        "count": 1
+      }
+    },
+    {
+      "name": "baseline-callback-same-task-2-stop",
+      "passed": true,
+      "detail": {
+        "ms": 0.09999999403953552,
+        "count": 1
+      }
+    },
+    {
+      "name": "baseline-callback-same-task-3-start",
+      "passed": true,
+      "detail": {
+        "ms": 0.19999998807907104,
+        "count": 1
+      }
+    },
+    {
+      "name": "baseline-callback-same-task-3-stop",
+      "passed": true,
+      "detail": {
+        "ms": 0,
+        "count": 1
+      }
+    },
+    {
+      "name": "baseline-command-order",
+      "passed": true
+    },
+    {
+      "name": "baseline-powerSupply-inert",
+      "passed": true
+    },
+    {
+      "name": "baseline-powerSupply-escape-menu",
+      "passed": true
+    },
+    {
+      "name": "baseline-powerSupply-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "baseline-powerMeter-inert",
+      "passed": true
+    },
+    {
+      "name": "baseline-identify-stable",
+      "passed": true,
+      "detail": {
+        "before": {
+          "x": 932,
+          "y": 204.40625,
+          "width": 100,
+          "height": 36
+        },
+        "after": {
+          "x": 932,
+          "y": 204.40625,
+          "width": 100,
+          "height": 36
+        }
+      }
+    },
+    {
+      "name": "baseline-powerMeter-escape-menu",
+      "passed": true
+    },
+    {
+      "name": "baseline-powerMeter-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "baseline-spectrometer-inert",
+      "passed": true
+    },
+    {
+      "name": "baseline-spectrometer-escape-menu",
+      "passed": true
+    },
+    {
+      "name": "baseline-spectrometer-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "enabled-initial-disabled",
+      "passed": true
+    },
+    {
+      "name": "enabled-callback-same-task-0-start",
+      "passed": true,
+      "detail": {
+        "ms": 0.09999999403953552,
+        "count": 1
+      }
+    },
+    {
+      "name": "enabled-callback-same-task-0-stop",
+      "passed": true,
+      "detail": {
+        "ms": 0.09999999403953552,
+        "count": 1
+      }
+    },
+    {
+      "name": "enabled-callback-same-task-1-start",
+      "passed": true,
+      "detail": {
+        "ms": 0,
+        "count": 1
+      }
+    },
+    {
+      "name": "enabled-callback-same-task-1-stop",
+      "passed": true,
+      "detail": {
+        "ms": 0,
+        "count": 1
+      }
+    },
+    {
+      "name": "enabled-callback-same-task-2-start",
+      "passed": true,
+      "detail": {
+        "ms": 0.09999999403953552,
+        "count": 1
+      }
+    },
+    {
+      "name": "enabled-callback-same-task-2-stop",
+      "passed": true,
+      "detail": {
+        "ms": 0.10000000894069672,
+        "count": 1
+      }
+    },
+    {
+      "name": "enabled-callback-same-task-3-start",
+      "passed": true,
+      "detail": {
+        "ms": 0,
+        "count": 1
+      }
+    },
+    {
+      "name": "enabled-callback-same-task-3-stop",
+      "passed": true,
+      "detail": {
+        "ms": 0,
+        "count": 1
+      }
+    },
+    {
+      "name": "enabled-command-order",
+      "passed": true
+    },
+    {
+      "name": "command-feedback-plm-150ms",
+      "passed": true
+    },
+    {
+      "name": "enabled-powerSupply-inert",
+      "passed": true
+    },
+    {
+      "name": "powerSupply-menu-one-animation",
+      "passed": true
+    },
+    {
+      "name": "enabled-powerSupply-escape-menu",
+      "passed": true
+    },
+    {
+      "name": "enabled-powerSupply-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "enabled-powerMeter-inert",
+      "passed": true
+    },
+    {
+      "name": "enabled-identify-stable",
+      "passed": true,
+      "detail": {
+        "before": {
+          "x": 932,
+          "y": 204.40625,
+          "width": 100,
+          "height": 36
+        },
+        "after": {
+          "x": 932,
+          "y": 204.40625,
+          "width": 100,
+          "height": 36
+        }
+      }
+    },
+    {
+      "name": "powerMeter-menu-one-animation",
+      "passed": true
+    },
+    {
+      "name": "enabled-powerMeter-escape-menu",
+      "passed": true
+    },
+    {
+      "name": "enabled-powerMeter-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "enabled-spectrometer-inert",
+      "passed": true
+    },
+    {
+      "name": "spectrometer-menu-one-animation",
+      "passed": true
+    },
+    {
+      "name": "enabled-spectrometer-escape-menu",
+      "passed": true
+    },
+    {
+      "name": "enabled-spectrometer-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "raw-samples-revisions-verdict-saved-bytes-command-sequence-equal",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dark-motion-single-140ms",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dark-motion-bounded",
+      "passed": true,
+      "detail": {
+        "x": 416,
+        "y": 231.5,
+        "width": 1088,
+        "height": 617
+      }
+    },
+    {
+      "name": "1920x1080-dark-motion-focus-contained",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dark-motion-target-stable",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dark-motion-radix-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dark-motion-protection-immediate",
+      "passed": true,
+      "detail": {
+        "animation": "none",
+        "duration": "0s",
+        "transition": "0s",
+        "opacity": "1",
+        "transform": "none"
+      }
+    },
+    {
+      "name": "1920x1080-dark-motion-shutdown-immediate",
+      "passed": true,
+      "detail": {
+        "animation": "none",
+        "duration": "0s",
+        "transition": "0s",
+        "opacity": "1",
+        "transform": "none"
+      }
+    },
+    {
+      "name": "1920x1080-dark-reduced-no-animation",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dark-reduced-bounded",
+      "passed": true,
+      "detail": {
+        "x": 416,
+        "y": 231.5,
+        "width": 1088,
+        "height": 617
+      }
+    },
+    {
+      "name": "1920x1080-dark-reduced-focus-contained",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dark-reduced-target-stable",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dark-reduced-radix-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-dark-reduced-protection-immediate",
+      "passed": true,
+      "detail": {
+        "animation": "none",
+        "duration": "0.001s",
+        "transition": "0.001s",
+        "opacity": "1",
+        "transform": "none"
+      }
+    },
+    {
+      "name": "1920x1080-dark-reduced-shutdown-immediate",
+      "passed": true,
+      "detail": {
+        "animation": "none",
+        "duration": "0.001s",
+        "transition": "0.001s",
+        "opacity": "1",
+        "transform": "none"
+      }
+    },
+    {
+      "name": "1920x1080-light-motion-single-140ms",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-light-motion-bounded",
+      "passed": true,
+      "detail": {
+        "x": 416,
+        "y": 231.5,
+        "width": 1088,
+        "height": 617
+      }
+    },
+    {
+      "name": "1920x1080-light-motion-focus-contained",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-light-motion-target-stable",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-light-motion-radix-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-light-motion-protection-immediate",
+      "passed": true,
+      "detail": {
+        "animation": "none",
+        "duration": "0s",
+        "transition": "0s",
+        "opacity": "1",
+        "transform": "none"
+      }
+    },
+    {
+      "name": "1920x1080-light-motion-shutdown-immediate",
+      "passed": true,
+      "detail": {
+        "animation": "none",
+        "duration": "0s",
+        "transition": "0s",
+        "opacity": "1",
+        "transform": "none"
+      }
+    },
+    {
+      "name": "1920x1080-light-reduced-no-animation",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-light-reduced-bounded",
+      "passed": true,
+      "detail": {
+        "x": 416,
+        "y": 231.5,
+        "width": 1088,
+        "height": 617
+      }
+    },
+    {
+      "name": "1920x1080-light-reduced-focus-contained",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-light-reduced-target-stable",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-light-reduced-radix-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "1920x1080-light-reduced-protection-immediate",
+      "passed": true,
+      "detail": {
+        "animation": "none",
+        "duration": "0.001s",
+        "transition": "0.001s",
+        "opacity": "1",
+        "transform": "none"
+      }
+    },
+    {
+      "name": "1920x1080-light-reduced-shutdown-immediate",
+      "passed": true,
+      "detail": {
+        "animation": "none",
+        "duration": "0.001s",
+        "transition": "0.001s",
+        "opacity": "1",
+        "transform": "none"
+      }
+    },
+    {
+      "name": "1366x768-dark-motion-single-140ms",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dark-motion-bounded",
+      "passed": true,
+      "detail": {
+        "x": 139,
+        "y": 75.5,
+        "width": 1088,
+        "height": 617
+      }
+    },
+    {
+      "name": "1366x768-dark-motion-focus-contained",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dark-motion-target-stable",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dark-motion-radix-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dark-motion-protection-immediate",
+      "passed": true,
+      "detail": {
+        "animation": "none",
+        "duration": "0s",
+        "transition": "0s",
+        "opacity": "1",
+        "transform": "none"
+      }
+    },
+    {
+      "name": "1366x768-dark-motion-shutdown-immediate",
+      "passed": true,
+      "detail": {
+        "animation": "none",
+        "duration": "0s",
+        "transition": "0s",
+        "opacity": "1",
+        "transform": "none"
+      }
+    },
+    {
+      "name": "1366x768-dark-reduced-no-animation",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dark-reduced-bounded",
+      "passed": true,
+      "detail": {
+        "x": 139,
+        "y": 75.5,
+        "width": 1088,
+        "height": 617
+      }
+    },
+    {
+      "name": "1366x768-dark-reduced-focus-contained",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dark-reduced-target-stable",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dark-reduced-radix-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "1366x768-dark-reduced-protection-immediate",
+      "passed": true,
+      "detail": {
+        "animation": "none",
+        "duration": "0.001s",
+        "transition": "0.001s",
+        "opacity": "1",
+        "transform": "none"
+      }
+    },
+    {
+      "name": "1366x768-dark-reduced-shutdown-immediate",
+      "passed": true,
+      "detail": {
+        "animation": "none",
+        "duration": "0.001s",
+        "transition": "0.001s",
+        "opacity": "1",
+        "transform": "none"
+      }
+    },
+    {
+      "name": "1366x768-light-motion-single-140ms",
+      "passed": true
+    },
+    {
+      "name": "1366x768-light-motion-bounded",
+      "passed": true,
+      "detail": {
+        "x": 139,
+        "y": 75.5,
+        "width": 1088,
+        "height": 617
+      }
+    },
+    {
+      "name": "1366x768-light-motion-focus-contained",
+      "passed": true
+    },
+    {
+      "name": "1366x768-light-motion-target-stable",
+      "passed": true
+    },
+    {
+      "name": "1366x768-light-motion-radix-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "1366x768-light-motion-protection-immediate",
+      "passed": true,
+      "detail": {
+        "animation": "none",
+        "duration": "0s",
+        "transition": "0s",
+        "opacity": "1",
+        "transform": "none"
+      }
+    },
+    {
+      "name": "1366x768-light-motion-shutdown-immediate",
+      "passed": true,
+      "detail": {
+        "animation": "none",
+        "duration": "0s",
+        "transition": "0s",
+        "opacity": "1",
+        "transform": "none"
+      }
+    },
+    {
+      "name": "1366x768-light-reduced-no-animation",
+      "passed": true
+    },
+    {
+      "name": "1366x768-light-reduced-bounded",
+      "passed": true,
+      "detail": {
+        "x": 139,
+        "y": 75.5,
+        "width": 1088,
+        "height": 617
+      }
+    },
+    {
+      "name": "1366x768-light-reduced-focus-contained",
+      "passed": true
+    },
+    {
+      "name": "1366x768-light-reduced-target-stable",
+      "passed": true
+    },
+    {
+      "name": "1366x768-light-reduced-radix-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "1366x768-light-reduced-protection-immediate",
+      "passed": true,
+      "detail": {
+        "animation": "none",
+        "duration": "0.001s",
+        "transition": "0.001s",
+        "opacity": "1",
+        "transform": "none"
+      }
+    },
+    {
+      "name": "1366x768-light-reduced-shutdown-immediate",
+      "passed": true,
+      "detail": {
+        "animation": "none",
+        "duration": "0.001s",
+        "transition": "0.001s",
+        "opacity": "1",
+        "transform": "none"
+      }
+    },
+    {
+      "name": "960x540-dark-motion-single-140ms",
+      "passed": true
+    },
+    {
+      "name": "960x540-dark-motion-bounded",
+      "passed": true,
+      "detail": {
+        "x": 16,
+        "y": 16,
+        "width": 928,
+        "height": 508
+      }
+    },
+    {
+      "name": "960x540-dark-motion-focus-contained",
+      "passed": true
+    },
+    {
+      "name": "960x540-dark-motion-target-stable",
+      "passed": true
+    },
+    {
+      "name": "960x540-dark-motion-radix-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "960x540-dark-motion-protection-immediate",
+      "passed": true,
+      "detail": {
+        "animation": "none",
+        "duration": "0s",
+        "transition": "0s",
+        "opacity": "1",
+        "transform": "none"
+      }
+    },
+    {
+      "name": "960x540-dark-motion-shutdown-immediate",
+      "passed": true,
+      "detail": {
+        "animation": "none",
+        "duration": "0s",
+        "transition": "0s",
+        "opacity": "1",
+        "transform": "none"
+      }
+    },
+    {
+      "name": "960x540-dark-reduced-no-animation",
+      "passed": true
+    },
+    {
+      "name": "960x540-dark-reduced-bounded",
+      "passed": true,
+      "detail": {
+        "x": 16,
+        "y": 16,
+        "width": 928,
+        "height": 508
+      }
+    },
+    {
+      "name": "960x540-dark-reduced-focus-contained",
+      "passed": true
+    },
+    {
+      "name": "960x540-dark-reduced-target-stable",
+      "passed": true
+    },
+    {
+      "name": "960x540-dark-reduced-radix-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "960x540-dark-reduced-protection-immediate",
+      "passed": true,
+      "detail": {
+        "animation": "none",
+        "duration": "0.001s",
+        "transition": "0.001s",
+        "opacity": "1",
+        "transform": "none"
+      }
+    },
+    {
+      "name": "960x540-dark-reduced-shutdown-immediate",
+      "passed": true,
+      "detail": {
+        "animation": "none",
+        "duration": "0.001s",
+        "transition": "0.001s",
+        "opacity": "1",
+        "transform": "none"
+      }
+    },
+    {
+      "name": "960x540-light-motion-single-140ms",
+      "passed": true
+    },
+    {
+      "name": "960x540-light-motion-bounded",
+      "passed": true,
+      "detail": {
+        "x": 16,
+        "y": 16,
+        "width": 928,
+        "height": 508
+      }
+    },
+    {
+      "name": "960x540-light-motion-focus-contained",
+      "passed": true
+    },
+    {
+      "name": "960x540-light-motion-target-stable",
+      "passed": true
+    },
+    {
+      "name": "960x540-light-motion-radix-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "960x540-light-motion-protection-immediate",
+      "passed": true,
+      "detail": {
+        "animation": "none",
+        "duration": "0s",
+        "transition": "0s",
+        "opacity": "1",
+        "transform": "none"
+      }
+    },
+    {
+      "name": "960x540-light-motion-shutdown-immediate",
+      "passed": true,
+      "detail": {
+        "animation": "none",
+        "duration": "0s",
+        "transition": "0s",
+        "opacity": "1",
+        "transform": "none"
+      }
+    },
+    {
+      "name": "960x540-light-reduced-no-animation",
+      "passed": true
+    },
+    {
+      "name": "960x540-light-reduced-bounded",
+      "passed": true,
+      "detail": {
+        "x": 16,
+        "y": 16,
+        "width": 928,
+        "height": 508
+      }
+    },
+    {
+      "name": "960x540-light-reduced-focus-contained",
+      "passed": true
+    },
+    {
+      "name": "960x540-light-reduced-target-stable",
+      "passed": true
+    },
+    {
+      "name": "960x540-light-reduced-radix-focus-restored",
+      "passed": true
+    },
+    {
+      "name": "960x540-light-reduced-protection-immediate",
+      "passed": true,
+      "detail": {
+        "animation": "none",
+        "duration": "0.001s",
+        "transition": "0.001s",
+        "opacity": "1",
+        "transform": "none"
+      }
+    },
+    {
+      "name": "960x540-light-reduced-shutdown-immediate",
+      "passed": true,
+      "detail": {
+        "animation": "none",
+        "duration": "0.001s",
+        "transition": "0.001s",
+        "opacity": "1",
+        "transform": "none"
+      }
+    },
+    {
+      "name": "navigation-baseline-0-0-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 11.299999997019768,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-baseline-0-1-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 17.400000005960464,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-baseline-0-2-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 7.0999999940395355,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-baseline-0-3-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 5.5999999940395355,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-baseline-0-4-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 10.400000005960464,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-baseline-0-5-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 16.600000008940697,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-baseline-1-0-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 9.600000008940697,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-baseline-1-1-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 14.899999991059303,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-baseline-1-2-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 7.600000008940697,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-baseline-1-3-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 5.200000002980232,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-baseline-1-4-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 8.700000002980232,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-baseline-1-5-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 13.900000005960464,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-baseline-2-0-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 12.199999988079071,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-baseline-2-1-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 14.600000008940697,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-baseline-2-2-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 12.200000002980232,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-baseline-2-3-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 14.799999997019768,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-baseline-2-4-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 12.699999988079071,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-baseline-2-5-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 14.799999997019768,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-enabled-0-0-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 2.5,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-enabled-0-1-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 20.799999997019768,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-enabled-0-2-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 11.5,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-enabled-0-3-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 13.299999997019768,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-enabled-0-4-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 13.400000005960464,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-enabled-0-5-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 13.899999991059303,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-enabled-1-0-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 13.200000002980232,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-enabled-1-1-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 14.599999994039536,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-enabled-1-2-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 12.600000008940697,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-enabled-1-3-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 14.100000008940697,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-enabled-1-4-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 12.900000005960464,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-enabled-1-5-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 13.299999997019768,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-enabled-2-0-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 13.700000002980232,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-enabled-2-1-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 14.200000002980232,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-enabled-2-2-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 12.200000002980232,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-enabled-2-3-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 14.399999991059303,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-enabled-2-4-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 13.600000008940697,
+        "current": "page"
+      }
+    },
+    {
+      "name": "navigation-enabled-2-5-current-next-frame",
+      "passed": true,
+      "detail": {
+        "ms": 13.700000002980232,
+        "current": "page"
+      }
+    },
+    {
+      "name": "no-waiting-page-entrance",
+      "passed": true
+    },
+    {
+      "name": "no-browser-errors",
+      "passed": true,
+      "detail": []
+    }
+  ],
+  "errors": [],
+  "performance": [
+    {
+      "mode": "baseline",
+      "callback": {
+        "count": 8,
+        "medianMs": 0.09999999403953552,
+        "p95Ms": 0.5999999940395355,
+        "maxMs": 0.5999999940395355
+      }
+    },
+    {
+      "mode": "baseline",
+      "render": {
+        "count": 101,
+        "medianMs": 0.6000000089406967,
+        "p95Ms": 1.5,
+        "maxMs": 2.300000011920929
+      }
+    },
+    {
+      "mode": "enabled",
+      "callback": {
+        "count": 8,
+        "medianMs": 0.09999999403953552,
+        "p95Ms": 0.10000000894069672,
+        "maxMs": 0.10000000894069672
+      }
+    },
+    {
+      "mode": "enabled",
+      "render": {
+        "count": 101,
+        "medianMs": 0.7000000029802322,
+        "p95Ms": 1.5,
+        "maxMs": 1.9000000059604645
+      }
+    },
+    {
+      "mode": "baseline-actual-app-navigation",
+      "nextFrame": {
+        "count": 18,
+        "medianMs": 12.200000002980232,
+        "p95Ms": 17.400000005960464,
+        "maxMs": 17.400000005960464
+      }
+    },
+    {
+      "mode": "enabled-actual-app-navigation",
+      "nextFrame": {
+        "count": 18,
+        "medianMs": 13.600000008940697,
+        "p95Ms": 20.799999997019768,
+        "maxMs": 20.799999997019768
+      }
+    }
+  ]
+}

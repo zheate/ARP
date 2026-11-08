@@ -1,0 +1,48 @@
+{
+  "green": {
+    "animations": [
+      {
+        "duration": 500,
+        "name": "chart-character-frames",
+        "state": "running"
+      }
+    ],
+    "canvases": 1,
+    "distinctFrames": 4,
+    "flameLayers": 0,
+    "frameDuration": "0.5s",
+    "label": "小恐龙",
+    "ready": "true",
+    "selected": "green-dinosaur",
+    "stored": "green-dinosaur",
+    "style": "green-dinosaur"
+  },
+  "fire": {
+    "animations": [
+      {
+        "duration": 500,
+        "name": "chart-character-frames",
+        "state": "running"
+      },
+      {
+        "duration": 1000,
+        "name": "chart-character-flame-sway",
+        "state": "running"
+      },
+      {
+        "duration": 500,
+        "name": "chart-character-frames",
+        "state": "running"
+      }
+    ],
+    "canvases": 2,
+    "distinctFrames": 4,
+    "flameLayers": 1,
+    "frameDuration": "0.5s",
+    "label": "小火龙",
+    "ready": "true",
+    "selected": "dinosaur",
+    "stored": "dinosaur",
+    "style": "dinosaur"
+  }
+}

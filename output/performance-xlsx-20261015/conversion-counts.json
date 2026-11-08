@@ -1,0 +1,15 @@
+{
+  "original": {
+    "general_coordinate_conversions": 393506,
+    "numeric_conversions": 393432,
+    "output_float_bits_sha256": "12287137de2f9c9f7a9c07a2a6ef350a2239782fafa857d33358a105bfc41a67"
+  },
+  "optimized": {
+    "general_coordinate_conversions": 74,
+    "numeric_conversions": 393432,
+    "output_float_bits_sha256": "12287137de2f9c9f7a9c07a2a6ef350a2239782fafa857d33358a105bfc41a67",
+    "column_cache_entries": 57,
+    "style_cache_entries": 6,
+    "additional_cache_shallow_and_items_bytes": 6859
+  }
+}

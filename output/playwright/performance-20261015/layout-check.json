@@ -1,0 +1,114 @@
+[
+  {
+    "theme": "dark",
+    "width": 1440,
+    "page": "automatic",
+    "equal": true,
+    "count": 5
+  },
+  {
+    "theme": "dark",
+    "width": 1440,
+    "page": "manual",
+    "equal": true,
+    "count": 6
+  },
+  {
+    "theme": "dark",
+    "width": 1440,
+    "page": "settings",
+    "equal": true,
+    "count": 3
+  },
+  {
+    "theme": "dark",
+    "width": 1440,
+    "page": "data",
+    "equal": true,
+    "count": 0
+  },
+  {
+    "theme": "dark",
+    "width": 1180,
+    "page": "automatic",
+    "equal": true,
+    "count": 5
+  },
+  {
+    "theme": "dark",
+    "width": 1180,
+    "page": "manual",
+    "equal": true,
+    "count": 6
+  },
+  {
+    "theme": "dark",
+    "width": 1180,
+    "page": "settings",
+    "equal": true,
+    "count": 3
+  },
+  {
+    "theme": "dark",
+    "width": 1180,
+    "page": "data",
+    "equal": true,
+    "count": 0
+  },
+  {
+    "theme": "light",
+    "width": 1440,
+    "page": "automatic",
+    "equal": true,
+    "count": 5
+  },
+  {
+    "theme": "light",
+    "width": 1440,
+    "page": "manual",
+    "equal": true,
+    "count": 6
+  },
+  {
+    "theme": "light",
+    "width": 1440,
+    "page": "settings",
+    "equal": true,
+    "count": 3
+  },
+  {
+    "theme": "light",
+    "width": 1440,
+    "page": "data",
+    "equal": true,
+    "count": 0
+  },
+  {
+    "theme": "light",
+    "width": 1180,
+    "page": "automatic",
+    "equal": true,
+    "count": 5
+  },
+  {
+    "theme": "light",
+    "width": 1180,
+    "page": "manual",
+    "equal": true,
+    "count": 6
+  },
+  {
+    "theme": "light",
+    "width": 1180,
+    "page": "settings",
+    "equal": true,
+    "count": 3
+  },
+  {
+    "theme": "light",
+    "width": 1180,
+    "page": "data",
+    "equal": true,
+    "count": 0
+  }
+]

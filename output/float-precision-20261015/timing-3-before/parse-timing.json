@@ -1,0 +1,37 @@
+[
+  {
+    "bytes": 529485,
+    "iterations": 60,
+    "median_ms": 0.622916,
+    "name": "real-0-full",
+    "p95_ms": 0.6685000000000001
+  },
+  {
+    "bytes": 136465,
+    "iterations": 60,
+    "median_ms": 0.167583,
+    "name": "real-1-full",
+    "p95_ms": 0.187416
+  },
+  {
+    "bytes": 531183,
+    "iterations": 60,
+    "median_ms": 0.6194580000000001,
+    "name": "real-2-full",
+    "p95_ms": 0.642625
+  },
+  {
+    "bytes": 298167,
+    "iterations": 60,
+    "median_ms": 0.332125,
+    "name": "8192-dense-live-delta",
+    "p95_ms": 0.3565
+  },
+  {
+    "bytes": 7155942,
+    "iterations": 60,
+    "median_ms": 8.076082999999999,
+    "name": "24x8192-full-spectra",
+    "p95_ms": 8.293541
+  }
+]

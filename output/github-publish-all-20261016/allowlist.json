@@ -1,0 +1,54 @@
+[
+  {
+    "path": "tauri-ui/src/components/appearance-controls.tsx",
+    "sha256": "a5615d4d2319e41a0f6169387ec22ab924000ef3fc4274709fc65122e939c513"
+  },
+  {
+    "path": "tauri-ui/src/components/canvas-line-chart.tsx",
+    "sha256": "f34e0f20581e0677ca40b686d96a772bdc67846c104abb28a7a0d8e836c325f9"
+  },
+  {
+    "path": "tauri-ui/src/components/character-sprite-marker.tsx",
+    "sha256": "44ac581465fd186bc4d0ceb57defe355354390794d7cd9597a10ef819e793d8d"
+  },
+  {
+    "path": "tauri-ui/src/components/data-browser-characterization.tsx",
+    "sha256": "28fbf53e757ed31d047ebea8c4091c56e209a7b7a6f0cd47abdb7e6cab64be79"
+  },
+  {
+    "path": "tauri-ui/src/components/data-browser-history.tsx",
+    "sha256": "8d20e869c32ddfb80a57519695a18c49ccba18c32db96d54d4adb64f710c4739"
+  },
+  {
+    "path": "tauri-ui/src/components/data-browser-page.tsx",
+    "sha256": "ddc47db77ed9a3956cf837127d135cf75a67f7b5e634f981f42922652ac8fa7a"
+  },
+  {
+    "path": "tauri-ui/src/components/data-browser.css",
+    "sha256": "b16e40073223d0ccea675b26c8fb745531d172ed94701239bb1d8b6b88634d19"
+  },
+  {
+    "path": "tauri-ui/src/components/native-select.tsx",
+    "sha256": "e805290cfb36216fcbdf902690ce9a0cdca5fc4081ec8774b933edbb7378cc47"
+  },
+  {
+    "path": "tauri-ui/src/features/manual/page.tsx",
+    "sha256": "1fe65421ad9b382a577fa41ab1759147801d4e3e3aa2faf003888056f966e35e"
+  },
+  {
+    "path": "tauri-ui/src/index.css",
+    "sha256": "9ab63c130b02e2827dc2ff6327433253074f18682b8249dfb438cc661bbc81e4"
+  },
+  {
+    "path": "tauri-ui/src/lib/appearance.test.ts",
+    "sha256": "6dcc6cae5d19575cf54c7b3bcb6630db9cd144b53ea6a5681a9a09bbedb4891b"
+  },
+  {
+    "path": "tauri-ui/src/lib/appearance.ts",
+    "sha256": "372c2b206aea9013ed5a7596bdf7960e3f7db37f18258048d1ff7a3465af04f4"
+  },
+  {
+    "path": "tauri-ui/src/workbench-appearance.css",
+    "sha256": "181d26c5c55c856063c344602d40f57a384a4726a5ae3546dede835604903b87"
+  }
+]

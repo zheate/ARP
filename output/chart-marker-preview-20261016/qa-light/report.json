@@ -1,0 +1,25 @@
+[
+  {
+    "file": "page-1440x960.png",
+    "state": null,
+    "size": "1440x960",
+    "zoom": 1,
+    "issues": [
+      "加载错误：Failed to load resource: the server responded with a status of 404 (File not found) http://127.0.0.1:8767/favicon.ico"
+    ]
+  },
+  {
+    "file": "page-900x1000.png",
+    "state": null,
+    "size": "900x1000",
+    "zoom": 1,
+    "issues": []
+  },
+  {
+    "file": "page-390x844.png",
+    "state": null,
+    "size": "390x844",
+    "zoom": 1,
+    "issues": []
+  }
+]

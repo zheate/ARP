@@ -1,0 +1,784 @@
+diff --git a/tauri-ui/src/components/appearance-controls.tsx b/tauri-ui/src/components/appearance-controls.tsx
+index 69cb8eb5..49b9677c 100644
+--- a/tauri-ui/src/components/appearance-controls.tsx
++++ b/tauri-ui/src/components/appearance-controls.tsx
+@@ -1,3 +1,4 @@
++import { NativeSelect } from "@/components/native-select"
+ import { useEffect, useState } from "react"
+ import { Check, ChevronDown, Eye, Monitor, Moon, PanelTop, PanelTopDashed, RotateCcw, Settings, Sun } from "lucide-react"
+ import { DropdownMenu } from "radix-ui"
+@@ -148,9 +149,9 @@ export function AppearanceSettings({ theme, accentTheme, curveLineStyle, latestP
+       <div className="appearance-section appearance-trail-section">
+         <div className="appearance-option-row"><div><h2>曲线尾迹</h2><p className="appearance-help">自动测试最近 {appearance.trailSeconds} 秒提亮，保留完整历史曲线。</p></div><AppearanceSwitch checked={appearance.trailEnabled} label="曲线尾迹" onChange={(trailEnabled) => updateAppearance({ trailEnabled })} /></div>
+         <div className="appearance-chart-options">
+-          <label>尾迹时长<select aria-label="尾迹时长" disabled={!appearance.trailEnabled} value={appearance.trailSeconds} onChange={(event) => updateAppearance({ trailSeconds: Number(event.target.value) })}>{[3, 5, 10, 15].map((seconds) => <option value={seconds} key={seconds}>{seconds} 秒</option>)}</select></label>
+-          <label>曲线线型<select aria-label="自动测试功率实时曲线线型" value={curveLineStyle} onChange={(event) => onCurveLineStyleChange(event.target.value as CurveLineStyle)}><option value="solid">实线</option><option value="dashed">虚线</option><option value="dotted">点线</option></select></label>
+-          <label>末端样式<select aria-label="自动测试功率实时曲线末端样式" value={latestPointMarkerStyle} onChange={(event) => onLatestPointMarkerStyleChange(event.target.value as LatestPointMarkerStyle)}>{LATEST_POINT_MARKER_OPTIONS.map((marker) => <option value={marker.id} key={marker.id}>{marker.label}</option>)}</select></label>
++          <label>尾迹时长<NativeSelect aria-label="尾迹时长" disabled={!appearance.trailEnabled} value={appearance.trailSeconds} onChange={(value) => updateAppearance({ trailSeconds: Number(value) })}>{[3, 5, 10, 15].map((seconds) => <option value={seconds} key={seconds}>{seconds} 秒</option>)}</NativeSelect></label>
++          <label>曲线线型<NativeSelect aria-label="自动测试功率实时曲线线型" value={curveLineStyle} onChange={(value) => onCurveLineStyleChange(value as CurveLineStyle)}><option value="solid">实线</option><option value="dashed">虚线</option><option value="dotted">点线</option></NativeSelect></label>
++          <label>末端样式<NativeSelect aria-label="自动测试功率实时曲线末端样式" value={latestPointMarkerStyle} onChange={(value) => onLatestPointMarkerStyleChange(value as LatestPointMarkerStyle)}>{LATEST_POINT_MARKER_OPTIONS.map((marker) => <option value={marker.id} key={marker.id}>{marker.label}</option>)}</NativeSelect></label>
+         </div>
+       </div>
+ 
+diff --git a/tauri-ui/src/components/canvas-line-chart.tsx b/tauri-ui/src/components/canvas-line-chart.tsx
+index 7125506a..400ca7d5 100644
+--- a/tauri-ui/src/components/canvas-line-chart.tsx
++++ b/tauri-ui/src/components/canvas-line-chart.tsx
+@@ -3,7 +3,7 @@ import { traceMonotoneCurve, type CurvePoint } from "@/lib/monotone-curve"
+ import { useAppearance } from "@/hooks/use-appearance"
+ import { chartTrailBoundary, isAnimatedLatestPointMarker, latestPointMarkerSize, type AppearancePreferences, type LatestPointMarkerStyle } from "@/lib/appearance"
+ import { FlappyBirdMarker } from "./flappy-bird-marker"
+-import { CharacterSpriteMarker } from "./character-sprite-marker"
++import { CharacterSpriteMarker, DINOSAUR_FOOT_BASELINE } from "./character-sprite-marker"
+ import { sparseChartIndex } from "@/lib/sparse-chart-index"
+ import { curveRevealFrame, retargetCurveReveal, traceRevealedCurve, type CurveRevealMotion } from "@/lib/chart-curve-reveal"
+ 
+@@ -79,7 +79,11 @@ type CanvasLineChartProps = {
+ }
+ 
+ type ChartSize = { width: number; height: number }
+-type AnimatedMarkerPosition = { key: string; x: number; y: number; size: number; height: number }
++type AnimatedMarkerPosition = { key: string; x: number; y: number; size: number; anchorY: number }
++
++function latestPointMarkerAnchorY(style: LatestPointMarkerStyle | undefined, height: number): number {
++  return height * (style === "dinosaur" || style === "green-dinosaur" ? DINOSAUR_FOOT_BASELINE : 0.5)
++}
+ const CHART_FONT = "12px 'ARP Interface', 'DIN', 'MiSans', sans-serif"
+ type HoverState = { index: number } | null
+ type PendingHover = { index: number; pointerX: number; pointerY: number } | null
+@@ -288,7 +292,7 @@ function buildLayout(
+     const markerSize = line.pointSize ?? latestPointMarkerSize(line.latestPointStyle)
+     const markerHeight = line.latestPointStyle === "flappy-bird" ? markerSize * 2 / 3 : markerSize
+     markerRightGutter = Math.max(markerRightGutter, markerSize / 2 + 2)
+-    markerTopGutter = Math.max(markerTopGutter, markerHeight / 2 + 2)
++    markerTopGutter = Math.max(markerTopGutter, latestPointMarkerAnchorY(line.latestPointStyle, markerHeight) + 2)
+   }
+   const right = Math.max(markerRightGutter, hasRightAxis ? (tightInsets ? 48 : 60) : (tightInsets ? 12 : 20))
+   const top = Math.max(markerTopGutter, yLabel ? 28 : (tightInsets ? 8 : 12))
+@@ -753,7 +757,7 @@ function drawBaseChart(
+       if (endpoint) {
+         const markerSize = line.pointSize ?? latestPointMarkerSize(line.latestPointStyle)
+         const markerHeight = line.latestPointStyle === "flappy-bird" ? markerSize * 2 / 3 : markerSize
+-        animatedMarkers.push({ key: line.key, ...endpoint, size: markerSize, height: markerHeight })
++        animatedMarkers.push({ key: line.key, ...endpoint, size: markerSize, anchorY: latestPointMarkerAnchorY(line.latestPointStyle, markerHeight) })
+       }
+       if (line.animateLatestPoint && revealX !== undefined && latestX !== null) latestX = Math.min(latestX, revealX)
+     } else if (curvePoints) traceMonotoneCurve(context, curvePoints)
+@@ -1076,7 +1080,7 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
+     for (const marker of animatedMarkers) {
+       const element = animatedMarkerElementsRef.current.get(marker.key)
+       if (!element) continue
+-      element.style.transform = `translate(${marker.x - marker.size / 2}px, ${marker.y - marker.height / 2}px)`
++      element.style.transform = `translate(${marker.x - marker.size / 2}px, ${marker.y - marker.anchorY}px)`
+       element.style.visibility = "visible"
+     }
+     // Hover continues to show actual samples, mapped through the displayed axes.
+@@ -1232,7 +1236,7 @@ export function CanvasLineChart({ data = EMPTY_ROWS, columns, xKey, lines, xDoma
+           if (element) animatedMarkerElementsRef.current.set(line.key, element)
+           else animatedMarkerElementsRef.current.delete(line.key)
+         }
+-        return line.latestPointStyle === "bee" || line.latestPointStyle === "dinosaur"
++        return line.latestPointStyle === "bee" || line.latestPointStyle === "dinosaur" || line.latestPointStyle === "green-dinosaur"
+           ? <CharacterSpriteMarker key={line.key} style={line.latestPointStyle} size={markerSize} ref={setMarkerRef} />
+           : <FlappyBirdMarker key={line.key} size={markerSize} ref={setMarkerRef} />
+       })}
+diff --git a/tauri-ui/src/components/character-sprite-marker.tsx b/tauri-ui/src/components/character-sprite-marker.tsx
+index 78fe04da..aca12430 100644
+--- a/tauri-ui/src/components/character-sprite-marker.tsx
++++ b/tauri-ui/src/components/character-sprite-marker.tsx
+@@ -1,10 +1,13 @@
+ import { memo, useImperativeHandle, useLayoutEffect, useRef, type Ref } from "react"
+ import "./character-sprite-marker.css"
+ 
+-type CharacterStyle = "bee" | "dinosaur"
++type CharacterStyle = "bee" | "dinosaur" | "green-dinosaur"
+ type FrameRect = readonly [x: number, y: number, width: number, height: number]
+ const FRAME_COUNT = 4
+ const SHEET_SIZE = 1254
++const DINOSAUR_FRAMES: readonly FrameRect[] = [[8, 496, 310, 310], [320, 496, 310, 310], [636, 496, 310, 310], [947, 496, 310, 310]]
++// The four source frames share a foot baseline at row 305 of the 310 px crop.
++export const DINOSAUR_FOOT_BASELINE = 305 / 310
+ // Flame bounds and tail-tip pivot in the approved 310 px dinosaur frame.
+ const DINOSAUR_FLAME = { width: 76, height: 169, pivotX: 35, frameSize: 310 }
+ 
+@@ -25,7 +28,12 @@ const CHARACTERS: Record<CharacterStyle, {
+   dinosaur: {
+     source: "/chart-markers/dino-red-tail-flame-aligned-four-frames-b7fb24b7b24a.png",
+     fps: 8,
+-    frames: [[8, 496, 310, 310], [320, 496, 310, 310], [636, 496, 310, 310], [947, 496, 310, 310]],
++    frames: DINOSAUR_FRAMES,
++  },
++  "green-dinosaur": {
++    source: "/chart-markers/dino-walk-four-frames-9f95d27db3c1.png",
++    fps: 8,
++    frames: DINOSAUR_FRAMES,
+   },
+ }
+ 
+@@ -148,7 +156,7 @@ export const CharacterSpriteMarker = memo(function CharacterSpriteMarker({ style
+ 
+   return <div aria-hidden="true" className="chart-character-marker" data-marker-style={style} ref={markerRef}
+     style={{ visibility: "hidden", width: size, height: size }}>
+-    <span className="chart-character-marker__fallback" />
++    <span className="chart-character-marker__fallback" style={style === "dinosaur" || style === "green-dinosaur" ? { top: `${DINOSAUR_FOOT_BASELINE * 100}%` } : undefined} />
+     <div className="chart-character-marker__body">
+       <canvas key={style} className="chart-character-marker__frames" ref={canvasRef}
+         style={{ width: size * FRAME_COUNT, height: size, animationDuration: `${FRAME_COUNT / CHARACTERS[style].fps}s`, animationPlayState: "paused" }} />
+diff --git a/tauri-ui/src/components/data-browser-characterization.tsx b/tauri-ui/src/components/data-browser-characterization.tsx
+index e1782f9f..f0ecfae6 100644
+--- a/tauri-ui/src/components/data-browser-characterization.tsx
++++ b/tauri-ui/src/components/data-browser-characterization.tsx
+@@ -1,3 +1,4 @@
++import { NativeSelect } from "@/components/native-select"
+ import { useMemo, useState } from "react"
+ import { Button } from "@/components/ui/button"
+ import {
+@@ -153,14 +154,14 @@ export function Characterization({
+               <>
+                 <label>
+                   点击移动
+-                  <select
++                  <NativeSelect
+                     aria-label="当前激活游标"
+                     value={state.active}
+-                    onChange={(e) => update({ active: e.target.value as Cursor })}
++                    onChange={(value) => update({ active: value as Cursor })}
+                   >
+                     <option value="A">游标 A</option>
+                     <option value="B">游标 B</option>
+-                  </select>
++                  </NativeSelect>
+                 </label>
+                 <Button
+                   variant="outline"
+@@ -190,11 +191,11 @@ export function Characterization({
+                     <div className="db-cursor-row" key={cursor}>
+                       <label>
+                         游标 {cursor}
+-                        <select
++                        <NativeSelect
+                           aria-label={`游标 ${cursor} 测试点`}
+                           value={point?.rowId ?? ""}
+                           onFocus={() => update({ active: cursor })}
+-                          onChange={(e) => select(cursor, Number(e.target.value))}
++                          onChange={(value) => select(cursor, Number(value))}
+                         >
+                           <option value="" disabled>
+                             选择实测点
+@@ -204,7 +205,7 @@ export function Characterization({
+                               #{i + 1} · {numberText(p.currentA, 6)} A
+                             </option>
+                           ))}
+-                        </select>
++                        </NativeSelect>
+                       </label>
+                       <Button
+                         size="sm"
+diff --git a/tauri-ui/src/components/data-browser-history.tsx b/tauri-ui/src/components/data-browser-history.tsx
+index 3ef9e355..7714632a 100644
+--- a/tauri-ui/src/components/data-browser-history.tsx
++++ b/tauri-ui/src/components/data-browser-history.tsx
+@@ -1,3 +1,4 @@
++import { NativeSelect } from "@/components/native-select"
+ import { CanvasLineChart } from "@/components/canvas-line-chart"
+ import { TestConditionDiff } from "@/components/data-browser-conditions"
+ import { Button } from "@/components/ui/button"
+@@ -204,10 +205,10 @@ export function ProductHistory({
+       <div className="db-chart-toolbar">
+         <label>
+           履历指标
+-          <select
++          <NativeSelect
+             aria-label="履历指标"
+             value={metric}
+-            onChange={(e) => setMetric(e.target.value as HistoryMetric)}
++            onChange={(value) => setMetric(value as HistoryMetric)}
+           >
+             <option value="maxPower">最大实测功率</option>
+             {DATA_METRICS.map((m) => (
+@@ -215,15 +216,15 @@ export function ProductHistory({
+                 {m.label} @ 共同电流 ({m.unit})
+               </option>
+             ))}
+-          </select>
++          </NativeSelect>
+         </label>
+         <label>
+           比较电流
+-          <select
++          <NativeSelect
+             aria-label="履历比较电流"
+             value={current ?? ""}
+             disabled={!currents.length}
+-            onChange={(e) => setSelectedCurrent(Number(e.target.value))}
++            onChange={(value) => setSelectedCurrent(Number(value))}
+           >
+             {!currents.length && <option value="">无共同实测电流</option>}
+             {currents.map((value) => (
+@@ -231,7 +232,7 @@ export function ProductHistory({
+                 {numberText(value, 6)} A
+               </option>
+             ))}
+-          </select>
++          </NativeSelect>
+         </label>
+       </div>
+       <p className="db-help">
+diff --git a/tauri-ui/src/components/data-browser-page.tsx b/tauri-ui/src/components/data-browser-page.tsx
+index f1888735..29fa94ed 100644
+--- a/tauri-ui/src/components/data-browser-page.tsx
++++ b/tauri-ui/src/components/data-browser-page.tsx
+@@ -1,3 +1,4 @@
++import { NativeSelect } from "@/components/native-select"
+ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react"
+ import {
+   ArrowLeftRight,
+@@ -137,18 +138,18 @@ function PointNavigator({
+       >
+         <ChevronRight size={15} />
+       </Button>
+-      <select
++      <NativeSelect
+         aria-label={label}
+         value={Math.max(0, index)}
+         disabled={!values.length}
+-        onChange={(event) => onChange(Number(event.target.value))}
++        onChange={(value) => onChange(Number(value))}
+       >
+         {values.map((current, position) => (
+           <option key={position} value={position}>
+             #{position + 1} · {numberText(current, comparing ? 6 : 3)} A
+           </option>
+         ))}
+-      </select>
++      </NativeSelect>
+       <span className="db-point-count">
+         {values.length ? index + 1 : 0} / {values.length}
+       </span>
+@@ -1034,28 +1035,28 @@ export const DataBrowserPage = memo(function DataBrowserPage({
+           </div>
+           <label>
+             时间
+-            <select
++            <NativeSelect
+               aria-label="日期范围"
+               value={dateMode}
+               disabled={!enabled}
+-              onChange={(event) =>
+-                filter(() => setDateMode(event.target.value))
++              onChange={(value) =>
++                filter(() => setDateMode(value))
+               }
+             >
+               <option value="all">全部时间</option>
+               <option value="today">今天</option>
+               <option value="week">最近 7 天</option>
+               <option value="custom">自定义</option>
+-            </select>
++            </NativeSelect>
+           </label>
+           <label>
+             测试类型
+-            <select
++            <NativeSelect
+               aria-label="测试类型筛选"
+               value={testMode}
+               disabled={!enabled}
+-              onChange={(event) =>
+-                filter(() => setTestMode(event.target.value))
++              onChange={(value) =>
++                filter(() => setTestMode(value))
+               }
+             >
+               <option value="">全部类型</option>
+@@ -1065,7 +1066,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
+                 </option>
+               ))}
+               <option value="unrecorded">未记录</option>
+-            </select>
++            </NativeSelect>
+           </label>
+           <Button
+             variant="outline"
+@@ -1189,29 +1190,29 @@ export const DataBrowserPage = memo(function DataBrowserPage({
+               </div>
+               <label>
+                 站别
+-                <select
++                <NativeSelect
+                   aria-label="测试站别筛选"
+                   value={station}
+                   disabled={!enabled}
+-                  onChange={(event) =>
+-                    filter(() => setStation(event.target.value))
++                  onChange={(value) =>
++                    filter(() => setStation(value))
+                   }
+                 >
+                   <option value="">全部站别</option>
+                   {listing?.stations.map((item) => (
+                     <option key={item}>{item}</option>
+                   ))}
+-                </select>
++                </NativeSelect>
+               </label>
+               {source === "excel" && (
+                 <label>
+                   流程状态
+-                  <select
++                  <NativeSelect
+                     aria-label="记录状态筛选"
+                     value={status}
+                     disabled={!enabled}
+-                    onChange={(event) =>
+-                      filter(() => setStatus(event.target.value))
++                    onChange={(value) =>
++                      filter(() => setStatus(value))
+                     }
+                   >
+                     <option value="">全部状态</option>
+@@ -1221,7 +1222,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
+                       </option>
+                     ))}
+                     <option value="read_error">读取失败</option>
+-                  </select>
++                  </NativeSelect>
+                 </label>
+               )}
+             </div>
+@@ -1604,11 +1605,11 @@ export const DataBrowserPage = memo(function DataBrowserPage({
+                     <strong>{details.length} 条记录比较</strong>
+                     <label>
+                       基准记录
+-                      <select
++                      <NativeSelect
+                         aria-label="基准记录"
+                         value={baseId ?? ""}
+-                        onChange={(event) =>
+-                          setBaselineRecordId(event.target.value)
++                        onChange={(value) =>
++                          setBaselineRecordId(value)
+                         }
+                       >
+                         {details.map((item) => (
+@@ -1616,7 +1617,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
+                             {labels.get(item.record.id)}
+                           </option>
+                         ))}
+-                      </select>
++                      </NativeSelect>
+                     </label>
+                   </div>
+                 )}
+@@ -1656,11 +1657,11 @@ export const DataBrowserPage = memo(function DataBrowserPage({
+                     {tab === "curves" && (
+                       <label>
+                         曲线内容
+-                        <select
++                        <NativeSelect
+                           aria-label="曲线内容"
+                           value={curveView}
+-                          onChange={(event) =>
+-                            setCurveView(event.target.value as CurveView)
++                          onChange={(value) =>
++                            setCurveView(value as CurveView)
+                           }
+                         >
+                           <option value="metrics">指标曲线</option>
+@@ -1673,18 +1674,18 @@ export const DataBrowserPage = memo(function DataBrowserPage({
+                               <option value="evolution">光谱随电流变化</option>
+                             </>
+                           )}
+-                        </select>
++                        </NativeSelect>
+                       </label>
+                     )}
+                     {(tab === "points" || curveView === "metrics") && (
+                       <label>
+                         指标
+-                        <select
++                        <NativeSelect
+                           aria-label="分析指标"
+                           value={metricKey}
+                           disabled={!availableMetrics.length}
+-                          onChange={(event) =>
+-                            changeMetric(event.target.value as DataMetricKey)
++                          onChange={(value) =>
++                            changeMetric(value as DataMetricKey)
+                           }
+                         >
+                           {!availableMetrics.length && (
+@@ -1695,7 +1696,7 @@ export const DataBrowserPage = memo(function DataBrowserPage({
+                               {item.label} ({item.unit})
+                             </option>
+                           ))}
+-                        </select>
++                        </NativeSelect>
+                       </label>
+                     )}
+                   </div>
+diff --git a/tauri-ui/src/components/data-browser.css b/tauri-ui/src/components/data-browser.css
+index 72962582..b5d6ebbd 100644
+--- a/tauri-ui/src/components/data-browser.css
++++ b/tauri-ui/src/components/data-browser.css
+@@ -32,13 +32,12 @@
+ }
+ .data-browser button:focus-visible,
+ .data-browser input:focus-visible,
+-.data-browser select:focus-visible,
+ .data-browser summary:focus-visible {
+   outline: 2px solid var(--primary);
+   outline-offset: 2px;
+ }
+ .data-browser input:not([type="checkbox"]),
+-.data-browser select {
++.data-browser .native-select > button {
+   background: var(--background);
+   border: 1px solid var(--border);
+   color: var(--foreground);
+@@ -48,6 +47,19 @@
+   font-size: 14px;
+   min-width: 0;
+ }
++.data-browser .native-select {
++  width: 12rem;
++  max-width: 100%;
++  min-width: 0;
++}
++.data-browser .native-select > button {
++  width: 100%;
++  gap: 8px;
++}
++.data-browser .native-select__list {
++  font-size: 14px;
++  font-weight: 400;
++}
+ .data-browser input[type="checkbox"] {
+   accent-color: var(--primary);
+   width: 16px;
+@@ -496,7 +508,7 @@
+ .db-comparison-heading label {
+   flex: 0 1 auto;
+ }
+-.db-comparison-heading select {
++.db-comparison-heading .native-select {
+   max-width: 350px;
+   flex: 1;
+ }
+@@ -766,7 +778,7 @@
+   .db-record-bottom {
+     gap: 0 8px;
+   }
+-  .db-comparison-heading select {
++  .db-comparison-heading .native-select {
+     max-width: 300px;
+   }
+ }
+@@ -827,10 +839,12 @@
+   background: transparent;
+   cursor: pointer;
+ }
+-.data-browser .db-point-navigator select {
+-  font-size: 12px;
++.data-browser .db-point-navigator .native-select {
+   max-width: 180px;
+ }
++.data-browser .db-point-navigator .native-select > button {
++  font-size: 12px;
++}
+ .db-point-count {
+   min-width: 40px;
+   text-align: right;
+@@ -915,7 +929,7 @@
+   gap: 4px 8px;
+ }
+ .db-cursor-row label { min-width: 260px; }
+-.db-cursor-row select { flex: 1; }
++.db-cursor-row .native-select { flex: 1; }
+ .db-cursor-row output { margin-left: auto; }
+ .db-fit-result { display: grid; gap: 8px; }
+ .db-fit-legend::before {
+diff --git a/tauri-ui/src/components/native-select.tsx b/tauri-ui/src/components/native-select.tsx
+index 58c45b99..fa67559f 100644
+--- a/tauri-ui/src/components/native-select.tsx
++++ b/tauri-ui/src/components/native-select.tsx
+@@ -1,10 +1,29 @@
+-import { Children, isValidElement, useEffect, useId, useLayoutEffect, useRef, useState, type ReactElement, type ReactNode } from "react"
++import { Children, Fragment, isValidElement, useEffect, useId, useLayoutEffect, useRef, useState, type FocusEventHandler, type ReactElement, type ReactNode } from "react"
+ import { ChevronDown } from "lucide-react"
+ import { useFieldLabel } from "@/components/field"
+ 
+-export function NativeSelect({ value, onChange, children, disabled, ariaLabel, "aria-label": accessibleLabel }: {
+-  value: string
++type SelectOption = ReactElement<{ value?: string | number; children?: ReactNode; disabled?: boolean }>
++
++function selectOptions(children: ReactNode): SelectOption[] {
++  return Children.toArray(children).flatMap((child) => {
++    if (!isValidElement<{ children?: ReactNode }>(child)) return []
++    if (child.type === Fragment) return selectOptions(child.props.children)
++    return child.type === "option" ? [child as SelectOption] : []
++  })
++}
++
++function optionText(children: ReactNode): string {
++  return Children.toArray(children).map((child) => typeof child === "string" || typeof child === "number" ? String(child) : "").join("")
++}
++
++function optionValue(option: SelectOption): string {
++  return String(option.props.value ?? optionText(option.props.children))
++}
++
++export function NativeSelect({ value, onChange, onFocus, children, disabled, ariaLabel, "aria-label": accessibleLabel }: {
++  value: string | number
+   onChange: (value: string) => void
++  onFocus?: FocusEventHandler<HTMLButtonElement>
+   children: ReactNode
+   disabled?: boolean
+   ariaLabel?: string
+@@ -13,15 +32,16 @@ export function NativeSelect({ value, onChange, children, disabled, ariaLabel, "
+   const labelId = useFieldLabel()
+   const listId = useId()
+   const [placement, setPlacement] = useState({ above: false, height: 224 })
+-  const emptyValue = "__empty__"
+-  const options = Children.toArray(children).filter((child): child is ReactElement<{ value?: string; children?: ReactNode; disabled?: boolean }> => isValidElement(child))
++  const options = selectOptions(children)
+   const [open, setOpen] = useState(false)
+   const rootRef = useRef<HTMLDivElement>(null)
+   const triggerRef = useRef<HTMLButtonElement>(null)
++  const restoringFocusRef = useRef(false)
+   const optionRefs = useRef<Array<HTMLButtonElement | null>>([])
+-  const selectedValue = value || emptyValue
+-  const selectedOption = options.find((option) => (String(option.props.value ?? "") || emptyValue) === selectedValue)
+-  const selectedIndex = options.findIndex((option) => (String(option.props.value ?? "") || emptyValue) === selectedValue)
++  const searchRef = useRef({ text: "", time: 0 })
++  const selectedValue = String(value)
++  const selectedOption = options.find((option) => optionValue(option) === selectedValue)
++  const selectedIndex = options.findIndex((option) => optionValue(option) === selectedValue)
+   const displayValue = selectedOption?.props.children ?? (value || "请选择")
+ 
+   useEffect(() => {
+@@ -38,7 +58,7 @@ export function NativeSelect({ value, onChange, children, disabled, ariaLabel, "
+     const initialIndex = selectedIndex >= 0 && !options[selectedIndex]?.props.disabled
+       ? selectedIndex
+       : options.findIndex((option) => !option.props.disabled)
+-    const frame = window.requestAnimationFrame(() => optionRefs.current[Math.max(0, initialIndex)]?.focus())
++    const frame = window.requestAnimationFrame(() => focusOption(initialIndex))
+     return () => window.cancelAnimationFrame(frame)
+   }, [open, options.length, selectedIndex])
+ 
+@@ -76,14 +96,30 @@ export function NativeSelect({ value, onChange, children, disabled, ariaLabel, "
+ 
+   const closeAndRestoreFocus = () => {
+     setOpen(false)
+-    window.requestAnimationFrame(() => triggerRef.current?.focus())
++    // Restore synchronously so a delayed callback cannot steal focus from the
++    // next control. This is not a new field visit (e.g. activating a cursor).
++    restoringFocusRef.current = true
++    triggerRef.current?.focus({ preventScroll: true })
++    restoringFocusRef.current = false
++  }
++
++  // Scroll only the menu; focusing a late option must not move the workbench.
++  const focusOption = (index: number) => {
++    const option = optionRefs.current[index]
++    const list = option?.parentElement
++    if (!option || !list) return
++    option.focus({ preventScroll: true })
++    if (option.offsetTop < list.scrollTop) list.scrollTop = option.offsetTop
++    else if (option.offsetTop + option.offsetHeight > list.scrollTop + list.clientHeight) {
++      list.scrollTop = option.offsetTop + option.offsetHeight - list.clientHeight
++    }
+   }
+ 
+   const moveOptionFocus = (currentIndex: number, offset: number) => {
+     for (let distance = 1; distance <= options.length; distance += 1) {
+       const nextIndex = (currentIndex + offset * distance + options.length) % options.length
+       if (!options[nextIndex]?.props.disabled) {
+-        optionRefs.current[nextIndex]?.focus()
++        focusOption(nextIndex)
+         return
+       }
+     }
+@@ -93,7 +129,7 @@ export function NativeSelect({ value, onChange, children, disabled, ariaLabel, "
+     const indices = options.map((_option, index) => index)
+     if (fromEnd) indices.reverse()
+     const index = indices.find((candidate) => !options[candidate]?.props.disabled)
+-    if (index !== undefined) optionRefs.current[index]?.focus()
++    if (index !== undefined) focusOption(index)
+   }
+ 
+   return (
+@@ -108,6 +144,7 @@ export function NativeSelect({ value, onChange, children, disabled, ariaLabel, "
+         aria-controls={open ? listId : undefined}
+         className="flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-input bg-background px-3 text-left text-sm outline-none transition-[color,background-color,border-color,box-shadow] duration-150 hover:border-[var(--app-border-strong)] hover:bg-muted/25 focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 disabled:cursor-not-allowed disabled:border-border disabled:bg-muted/30 disabled:text-muted-foreground/55"
+         disabled={disabled}
++        onFocus={(event) => { if (!restoringFocusRef.current) onFocus?.(event) }}
+         onClick={() => setOpen((current) => !current)}
+         onKeyDown={(event) => {
+           if (event.key === "Escape" && open) {
+@@ -128,17 +165,17 @@ export function NativeSelect({ value, onChange, children, disabled, ariaLabel, "
+       </button>
+       {open && <div aria-label={accessibleLabel ?? ariaLabel} aria-labelledby={accessibleLabel || ariaLabel ? undefined : labelId} className="native-select__list absolute left-0 z-[80] w-full overflow-y-auto border border-[var(--plm-flat-border-strong)] bg-popover p-1" id={listId} style={{ maxHeight: placement.height, ...(placement.above ? { bottom: "calc(100% + 4px)" } : { top: "calc(100% + 4px)" }) }} role="listbox">
+         {options.map((option, index) => {
+-          const optionValue = String(option.props.value ?? "") || emptyValue
+-          const selected = optionValue === selectedValue
++          const nextValue = optionValue(option)
++          const selected = nextValue === selectedValue
+           const optionDisabled = Boolean(option.props.disabled)
+           return <button
+             aria-disabled={optionDisabled}
+             aria-selected={selected}
+             className={`relative flex w-full min-w-0 break-all items-center rounded-md px-3 py-2 text-left text-sm outline-none transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-45 ${optionDisabled ? "" : "hover:bg-[var(--plm-flat-hover)] hover:text-foreground focus-visible:bg-[var(--plm-flat-hover)] focus-visible:text-foreground"} ${selected ? "bg-[var(--app-selected-soft)] pl-4 text-foreground before:absolute before:inset-y-2 before:left-1.5 before:w-0.5 before:rounded-full before:bg-primary" : "text-muted-foreground"}`}
+             disabled={optionDisabled}
+-            key={`${optionValue}-${index}`}
++            key={`${nextValue}-${index}`}
+             onClick={() => {
+-              onChange(optionValue === emptyValue ? "" : optionValue)
++              onChange(nextValue)
+               closeAndRestoreFocus()
+             }}
+             onKeyDown={(event) => {
+@@ -158,6 +195,20 @@ export function NativeSelect({ value, onChange, children, disabled, ariaLabel, "
+                 event.stopPropagation()
+                 event.preventDefault()
+                 closeAndRestoreFocus()
++              } else if (event.key.length === 1 && event.key !== " " && !event.ctrlKey && !event.metaKey && !event.altKey) {
++                event.preventDefault()
++                const now = performance.now()
++                const previous = now - searchRef.current.time < 700 ? searchRef.current.text : ""
++                const text = previous === event.key ? event.key : previous + event.key
++                searchRef.current = { text, time: now }
++                for (let distance = 1; distance <= options.length; distance += 1) {
++                  const nextIndex = (index + distance) % options.length
++                  const candidate = options[nextIndex]
++                  if (!candidate.props.disabled && optionText(candidate.props.children).trim().toLocaleLowerCase().startsWith(text.toLocaleLowerCase())) {
++                    focusOption(nextIndex)
++                    break
++                  }
++                }
+               }
+             }}
+             ref={(element) => { optionRefs.current[index] = element }}
+diff --git a/tauri-ui/src/features/manual/page.tsx b/tauri-ui/src/features/manual/page.tsx
+index b9dc834f..4627c357 100644
+--- a/tauri-ui/src/features/manual/page.tsx
++++ b/tauri-ui/src/features/manual/page.tsx
+@@ -354,7 +354,7 @@ export const ManualPage = memo(function ManualPage({
+           </CardContent>
+         </Card>
+ 
+-        <Card size="sm" className="manual-device-card shadow-none">
++        <Card size="sm" className="manual-device-card manual-device-card--acquisition shadow-none">
+           <CardHeader
+             aria-disabled={!active || !manualControlsAllowed || pending}
+             className="manual-device-card__header flex flex-row items-center justify-between"
+@@ -458,7 +458,7 @@ export const ManualPage = memo(function ManualPage({
+           </CardContent>
+         </Card>
+ 
+-        <Card size="sm" className="manual-device-card shadow-none">
++        <Card size="sm" className="manual-device-card manual-device-card--acquisition shadow-none">
+           <CardHeader
+             aria-disabled={!active || !manualControlsAllowed || pending}
+             className="manual-device-card__header flex flex-row items-center justify-between"
+diff --git a/tauri-ui/src/index.css b/tauri-ui/src/index.css
+index 558946b2..43044db3 100644
+--- a/tauri-ui/src/index.css
++++ b/tauri-ui/src/index.css
+@@ -830,6 +830,10 @@ textarea,
+   gap: 0.5rem;
+ }
+ 
++.manual-device-card--acquisition .manual-device-card__body {
++  display: contents;
++}
++
+ .manual-device-card__footer {
+   display: flex;
+   align-items: center;
+@@ -838,6 +842,11 @@ textarea,
+   padding-top: 0.25rem;
+ }
+ 
++.manual-device-card--acquisition .manual-device-card__footer {
++  margin-top: 0;
++  padding-top: 0;
++}
++
+ .manual-power-source-grid {
+   display: grid;
+   grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+diff --git a/tauri-ui/src/lib/appearance.test.ts b/tauri-ui/src/lib/appearance.test.ts
+index 5858312c..ade0505f 100644
+--- a/tauri-ui/src/lib/appearance.test.ts
++++ b/tauri-ui/src/lib/appearance.test.ts
+@@ -4,7 +4,7 @@ import { chartTrailBoundary, DEFAULT_APPEARANCE, isAnimatedLatestPointMarker, LA
+ 
+ test("stored endpoint styles restore both approved characters and all existing choices", () => {
+   const existing = ["point", "paper-plane", "paw", "comet", "ecg", "flappy-bird"]
+-  for (const id of [...existing, "bee", "dinosaur"]) {
++  for (const id of [...existing, "bee", "dinosaur", "green-dinosaur"]) {
+     assert.equal(normalizeLatestPointMarkerStyle(JSON.parse(JSON.stringify(id))), id)
+     assert.ok(LATEST_POINT_MARKER_OPTIONS.some((option) => option.id === id))
+   }
+@@ -15,11 +15,12 @@ test("stored endpoint styles restore both approved characters and all existing c
+ 
+ test("only animated endpoint styles opt into shared curve reveal", () => {
+   for (const option of LATEST_POINT_MARKER_OPTIONS) {
+-    assert.equal(isAnimatedLatestPointMarker(option.id), ["flappy-bird", "bee", "dinosaur"].includes(option.id))
++    assert.equal(isAnimatedLatestPointMarker(option.id), ["flappy-bird", "bee", "dinosaur", "green-dinosaur"].includes(option.id))
+   }
+   assert.equal(isAnimatedLatestPointMarker(undefined), false)
+   assert.equal(latestPointMarkerSize("bee"), 32)
+   assert.equal(latestPointMarkerSize("dinosaur"), 32)
++  assert.equal(latestPointMarkerSize("green-dinosaur"), 32)
+   assert.equal(latestPointMarkerSize("flappy-bird"), 24)
+ })
+ 
+diff --git a/tauri-ui/src/lib/appearance.ts b/tauri-ui/src/lib/appearance.ts
+index 8aca5489..debcadda 100644
+--- a/tauri-ui/src/lib/appearance.ts
++++ b/tauri-ui/src/lib/appearance.ts
+@@ -18,21 +18,22 @@ export const LATEST_POINT_MARKER_OPTIONS = [
+   { id: "ecg", label: "心电图" },
+   { id: "flappy-bird", label: "Flappy Bird 小鸟" },
+   { id: "bee", label: "小蜜蜂" },
+-  { id: "dinosaur", label: "小恐龙" },
++  { id: "green-dinosaur", label: "小恐龙" },
++  { id: "dinosaur", label: "小火龙" },
+ ] as const
+ export type LatestPointMarkerStyle = typeof LATEST_POINT_MARKER_OPTIONS[number]["id"]
+-export type AnimatedLatestPointMarkerStyle = "flappy-bird" | "bee" | "dinosaur"
++export type AnimatedLatestPointMarkerStyle = "flappy-bird" | "bee" | "dinosaur" | "green-dinosaur"
+ 
+ export function normalizeLatestPointMarkerStyle(value: unknown): LatestPointMarkerStyle {
+   return LATEST_POINT_MARKER_OPTIONS.find((option) => option.id === value)?.id ?? "point"
+ }
+ 
+ export function isAnimatedLatestPointMarker(style: LatestPointMarkerStyle | undefined): style is AnimatedLatestPointMarkerStyle {
+-  return style === "flappy-bird" || style === "bee" || style === "dinosaur"
++  return style === "flappy-bird" || style === "bee" || style === "dinosaur" || style === "green-dinosaur"
+ }
+ 
+ export function latestPointMarkerSize(style: LatestPointMarkerStyle | undefined): number {
+-  return style === "bee" || style === "dinosaur" ? 32 : 24
++  return style === "bee" || style === "dinosaur" || style === "green-dinosaur" ? 32 : 24
+ }
+ export type ChartCanvasStyle = "clean" | "fine" | "engineering"
+ export type InterfaceDensity = "compact" | "comfortable" | "distant"
+diff --git a/tauri-ui/src/workbench-appearance.css b/tauri-ui/src/workbench-appearance.css
+index b63bdfeb..ba76fe45 100644
+--- a/tauri-ui/src/workbench-appearance.css
++++ b/tauri-ui/src/workbench-appearance.css
+@@ -289,8 +289,9 @@ fieldset.appearance-section .appearance-help { clear: both; }
+ .appearance-option-row .theme-switch { flex-shrink: 0; }
+ .appearance-chart-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.65rem; margin-top: 0.75rem; }
+ .appearance-chart-options label { display: flex; min-width: 0; flex-direction: column; gap: 0.35rem; font-size: 0.7rem; color: var(--muted-foreground); }
+-.appearance-chart-options select { width: 100%; min-width: 0; height: 2rem; padding-inline: 0.5rem; background: var(--background); border: 1px solid var(--border); border-radius: 0.35rem; color: var(--foreground); font-family: inherit; font-size: 0.8rem; }
+-.appearance-chart-options select:disabled { opacity: 0.4; }
++.appearance-chart-options .native-select > button { width: 100%; min-width: 0; height: 2rem; padding-inline: 0.5rem; background: var(--background); border: 1px solid var(--border); border-radius: 0.35rem; color: var(--foreground); font-family: inherit; font-size: 0.8rem; }
++.appearance-chart-options .native-select > button:disabled { opacity: 0.4; }
++.appearance-chart-options .native-select__list { left: auto; right: 0; min-width: 10rem; }
+ .appearance-density { border: 0; margin: 0; padding: 0; }
+ .appearance-density__choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.65rem; margin-top: 0.75rem; }
+ .appearance-density__sample { display: flex; align-items: center; justify-content: center; gap: 0.5rem; min-height: 4rem; padding: 0.4rem; }
