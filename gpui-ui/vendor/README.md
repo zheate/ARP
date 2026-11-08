@@ -1,0 +1,1 @@
+gpui-pre-macos 0.3.11 is vendored from crates.io. Three Option::map_or_default calls in src/window.rs use the stable, behavior-equivalent map_or_else(Default::default, ...) form so this release builds on stable Rust 1.95. All other source is unchanged. Upstream: https://github.com/zed-industries/zed. Remove this override when an upstream stable-compatible release is selected.

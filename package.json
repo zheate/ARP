@@ -2,17 +2,15 @@
   "name": "arp",
   "private": true,
   "scripts": {
-    "start": "npm --prefix tauri-ui start",
+    "start": "cargo run --manifest-path gpui-ui/Cargo.toml --locked --",
+    "demo": "cargo run --manifest-path gpui-ui/Cargo.toml --locked -- --demo",
     "test:python": "conda run -n sth_eb314 python -m unittest discover -v",
-    "test:frontend": "npm --prefix tauri-ui test",
-    "test:tauri": "cargo test --manifest-path tauri-ui/src-tauri/Cargo.toml",
+    "test:gpui": "cargo test --manifest-path gpui-ui/Cargo.toml --locked --no-default-features --lib",
     "test:realtime": "cargo test --manifest-path rust-realtime-core/Cargo.toml",
     "license:generate": "node scripts/generate-license.mjs",
-    "test": "npm run test:python && npm run test:frontend && npm run test:tauri && npm run test:realtime",
-    "build": "npm --prefix tauri-ui run build",
+    "test": "npm run test:python && npm run test:gpui && npm run test:realtime",
+    "build": "cargo build --manifest-path gpui-ui/Cargo.toml --locked",
     "check": "npm run test && npm run build",
-    "check:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File ./packaging/check_windows_build.ps1",
-    "build:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File ./packaging/build_tauri_windows.ps1",
-    "build:windows:full": "powershell -NoProfile -ExecutionPolicy Bypass -File ./packaging/build_full_windows.ps1"
+    "build:windows": "powershell -NoProfile -ExecutionPolicy Bypass -File ./packaging/build_gpui_windows.ps1"
   }
 }

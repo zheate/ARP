@@ -58,3 +58,5 @@ output/playwright/ui-stack-optimization/build-before/
 
 # Disposable browser profiles contain local cookies and caches.
 output/**/electron-user-data/
+
+gpui-ui/target/

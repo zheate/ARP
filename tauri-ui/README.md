@@ -1,3 +1,5 @@
+> Historical migration reference on `codex/gpui`. The product entry point is `npm start` at the repository root, which launches `gpui-ui`. The instructions below describe the preserved Tauri baseline and are not the supported launcher on this branch.
+
 # Power Test Tauri UI
 
 Power Test 程序的桌面界面，技术栈为 Tauri 2、React、TypeScript、Vite、Tailwind CSS 和 shadcn/ui。

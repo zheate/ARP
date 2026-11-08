@@ -1,0 +1,831 @@
+{
+  "capturedAt": "2026-07-19T12:00:00.000Z",
+  "seriesRevisions": {
+    "power": 1,
+    "stable": 1,
+    "aging": 1,
+    "spectrum": 1,
+    "pd": 0
+  },
+  "backend": {
+    "connected": true,
+    "mode": "active",
+    "protocolVersion": 2,
+    "pythonVersion": "demo-preview",
+    "notices": [
+      {
+        "level": "info",
+        "title": "示例数据",
+        "message": "当前显示的是图表预览数据，不会连接真实仪器。"
+      }
+    ]
+  },
+  "configuration": {
+    "sn": "DEMO-001",
+    "productModel": "Power Test Demo",
+    "batch": "DEMO",
+    "station": "站别 1",
+    "testTemperatureC": "水冷25°C",
+    "outputDir": "/data/test/DEMO-001",
+    "powerSupplyKind": "tdk",
+    "ch341SelectedLocationPath": "",
+    "ch341PortBindings": [],
+    "ruResource": "",
+    "ruBaudRate": 9600,
+    "ruAddress": 1,
+    "ruVoltageV": 12,
+    "tdkResource": "TDK RS232",
+    "setCurrentA": 8,
+    "tdkVoltageV": 12,
+    "powerMeterResource": "ASRL3::INSTR",
+    "powerMeterSerialNumber": "W500-DEMO-001",
+    "powerMeterDriverKind": "caihuang",
+    "powerMeterWavelengthNm": 976,
+    "softwareGain": 1.018,
+    "powerMeterProfileId": "demo-976-production",
+    "powerMeterProfileName": "976nm 生产光路",
+    "powerMeterProfileVersion": 2,
+    "powerMeterProfileNotes": "标准夹具，常温",
+    "powerMeterProfileWavelengthPending": false,
+    "powerMeterIntervalMs": 100,
+    "powerSmoothing": true,
+    "spectrometerResource": "",
+    "spectrometerSerialNumber": "",
+    "integrationTimeUs": 10000,
+    "autoIntegration": false,
+    "spectrometerIntervalMs": 100,
+    "spectrumAverageFrames": 5,
+    "spectrumSmoothing": true,
+    "pibCenterWavelengthNm": 976,
+    "pibHalfRangeNm": 1.5,
+    "centerWavelengthSpecNm": 976,
+    "centerWavelengthToleranceNm": 1.5,
+    "fwhmMaximumNm": 0.6,
+    "pibMinimumPercent": 95,
+    "stableWindowS": 3,
+    "stabilityLimitPercent": 0.2,
+    "initialCurrentA": 2,
+    "targetCurrentA": 12,
+    "currentStepA": 2,
+    "selectedScriptId": "standard",
+    "currentPlanMode": "range",
+    "customCurrentPoints": [
+      {
+        "currentA": 3,
+        "dwellS": 300
+      },
+      {
+        "currentA": 5,
+        "dwellS": 300
+      }
+    ],
+    "pointTimeoutS": 120,
+    "rampDownStepA": 5,
+    "rampDownIntervalS": 1.1,
+    "pauseRampDownTimeoutS": 30
+  },
+  "testScripts": [
+    {
+      "id": "standard",
+      "name": "标准测试",
+      "builtin": true,
+      "currentPlanMode": "range"
+    },
+    {
+      "id": "hold-points",
+      "name": "增加停留点",
+      "builtin": true,
+      "currentPlanMode": "custom"
+    },
+    {
+      "id": "aging",
+      "name": "AU 老化测试",
+      "builtin": true,
+      "currentPlanMode": "custom",
+      "powerSupplyKinds": [
+        "ch341"
+      ]
+    }
+  ],
+  "devices": {
+    "powerSupply": {
+      "state": "connected",
+      "label": "电源",
+      "detail": "TDK RS232 · 示例",
+      "connected": true,
+      "outputEnabled": true,
+      "activeCurrentA": 8,
+      "outputCurrentA": 8,
+      "ch341": {
+        "discoveryState": "ready",
+        "error": "",
+        "ports": [
+          {
+            "locationPath": "PCIROOT(0)#USB(1)",
+            "name": "1号工位",
+            "online": true,
+            "deviceIndex": 0
+          }
+        ],
+        "connectedPort": {
+          "locationPath": "PCIROOT(0)#USB(1)",
+          "name": "1号工位",
+          "deviceIndex": 0
+        }
+      }
+    },
+    "powerMeter": {
+      "state": "connected",
+      "label": "功率计",
+      "detail": "彩煌功率计 (ASRL3::INSTR)",
+      "connected": true,
+      "running": true,
+      "ready": true,
+      "stable": true,
+      "stableElapsedS": 8,
+      "powerW": 0.86,
+      "sampledAt": "2026-07-19T12:00:00.000Z",
+      "ageMs": 0,
+      "quality": "live",
+      "resources": [
+        "Caihuang CHLP-P | ASRL3::INSTR | 探头 SN W500-DEMO-001",
+        "Coherent PowerMax | ASRL4::INSTR | 探头 SN PM-DEMO-2048"
+      ],
+      "coefficientLibrary": {
+        "driverKind": "caihuang",
+        "serialNumber": "W500-DEMO-001",
+        "selectedProfileId": "demo-976-production",
+        "selectedVersion": 2,
+        "profiles": [
+          {
+            "id": "demo-976-production",
+            "versions": [
+              {
+                "version": 1,
+                "name": "976nm 生产光路",
+                "softwareGain": 1.02,
+                "wavelengthNm": 976,
+                "notes": "标准夹具，常温",
+                "operator": "张工",
+                "reason": "首次标定",
+                "createdAt": "2026-07-18T02:10:00.000Z"
+              },
+              {
+                "version": 2,
+                "name": "976nm 生产光路",
+                "softwareGain": 1.018,
+                "wavelengthNm": 976,
+                "notes": "标准夹具，常温",
+                "operator": "李工",
+                "reason": "复核参考功率计",
+                "createdAt": "2026-07-19T03:20:00.000Z"
+              }
+            ]
+          },
+          {
+            "id": "demo-980-lab",
+            "versions": [
+              {
+                "version": 1,
+                "name": "980nm 实验光路",
+                "softwareGain": 0.986,
+                "wavelengthNm": 980,
+                "notes": "实验室积分球",
+                "operator": "王工",
+                "reason": "新增光路",
+                "createdAt": "2026-07-19T06:00:00.000Z"
+              }
+            ]
+          }
+        ]
+      },
+      "resourceProfiles": [
+        {
+          "resource": "ASRL3::INSTR",
+          "driverKind": "caihuang",
+          "serialNumber": "W500-DEMO-001",
+          "softwareGain": 1.018,
+          "coefficientLibrary": {
+            "driverKind": "caihuang",
+            "serialNumber": "W500-DEMO-001",
+            "selectedProfileId": "demo-976-production",
+            "selectedVersion": 2,
+            "profiles": [
+              {
+                "id": "demo-976-production",
+                "versions": [
+                  {
+                    "version": 1,
+                    "name": "976nm 生产光路",
+                    "softwareGain": 1.02,
+                    "wavelengthNm": 976,
+                    "notes": "标准夹具，常温",
+                    "operator": "张工",
+                    "reason": "首次标定",
+                    "createdAt": "2026-07-18T02:10:00.000Z"
+                  },
+                  {
+                    "version": 2,
+                    "name": "976nm 生产光路",
+                    "softwareGain": 1.018,
+                    "wavelengthNm": 976,
+                    "notes": "标准夹具，常温",
+                    "operator": "李工",
+                    "reason": "复核参考功率计",
+                    "createdAt": "2026-07-19T03:20:00.000Z"
+                  }
+                ]
+              },
+              {
+                "id": "demo-980-lab",
+                "versions": [
+                  {
+                    "version": 1,
+                    "name": "980nm 实验光路",
+                    "softwareGain": 0.986,
+                    "wavelengthNm": 980,
+                    "notes": "实验室积分球",
+                    "operator": "王工",
+                    "reason": "新增光路",
+                    "createdAt": "2026-07-19T06:00:00.000Z"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "resource": "ASRL4::INSTR",
+          "driverKind": "coherent",
+          "serialNumber": "PM-DEMO-2048",
+          "softwareGain": 1.004,
+          "coefficientLibrary": {
+            "driverKind": "coherent",
+            "serialNumber": "PM-DEMO-2048",
+            "selectedProfileId": "demo-coherent-976",
+            "selectedVersion": 1,
+            "profiles": [
+              {
+                "id": "demo-coherent-976",
+                "versions": [
+                  {
+                    "version": 1,
+                    "name": "Coherent 标准",
+                    "softwareGain": 1.004,
+                    "wavelengthNm": 976,
+                    "notes": "备用表头",
+                    "operator": "",
+                    "reason": "",
+                    "createdAt": "2026-07-17T01:00:00.000Z"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "spectrometer": {
+      "state": "connected",
+      "label": "光谱仪",
+      "detail": "Ocean Insight · 示例",
+      "connected": true,
+      "running": true,
+      "ready": true,
+      "resources": [
+        "自动选择第一台 Ocean Insight"
+      ],
+      "peakWavelengthNm": 976.2,
+      "centroidNm": 976.2,
+      "fwhmNm": 0.776,
+      "pib": 96.85,
+      "smsrDb": null,
+      "sampledAt": "2026-07-19T12:00:00.000Z",
+      "ageMs": 0,
+      "quality": "live",
+      "spectrumWindow": {
+        "centerNm": 976.2,
+        "halfRangeNm": 6.2
+      }
+    }
+  },
+  "automaticTest": {
+    "state": "waiting_stable",
+    "detail": "示例数据预览",
+    "stability": {
+      "powerStable": true,
+      "elapsedS": 5,
+      "requiredS": 5,
+      "spanW": 0.003,
+      "spanLimitW": null,
+      "holdElapsedS": 0,
+      "holdRequiredS": 5,
+      "percent": 0.15,
+      "limitPercent": 0.2,
+      "quality": "live",
+      "hasReading": true,
+      "wavelengthRequired": true,
+      "wavelengthStable": false
+    },
+    "controlsEnabled": false,
+    "canStart": false,
+    "canEnd": true,
+    "currents": [
+      2,
+      4,
+      6,
+      8,
+      10,
+      12
+    ],
+    "dwellTimesS": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "currentIndex": 3,
+    "currentA": 8,
+    "currentDwellS": 0,
+    "currentDwellElapsedS": null,
+    "samplePath": "",
+    "progress": 0.67,
+    "elapsedS": 156,
+    "savedPointCount": 3,
+    "journalPath": "/preview/test-records/DEMO-001.jsonl",
+    "exportStatus": "recording",
+    "runContext": {
+      "sn": "DEMO-001",
+      "station": "站别 1",
+      "testTemperatureC": "水冷25°C",
+      "selectedScriptId": "standard"
+    },
+    "reference": {
+      "sourcePath": "/preview/DEMO-001/老化站 1/2026_07_18_14_30.xlsx",
+      "station": "老化站 1",
+      "startedAtUtc": "2026-07-18T06:30:00.000Z",
+      "modifiedAtMs": 1752810600000,
+      "pointCount": 6,
+      "minimumCurrentA": 2,
+      "maximumCurrentA": 12,
+      "points": [
+        {
+          "currentA": 2,
+          "powerW": 0.204
+        },
+        {
+          "currentA": 4,
+          "powerW": 0.408
+        },
+        {
+          "currentA": 6,
+          "powerW": 0.612
+        },
+        {
+          "currentA": 8,
+          "powerW": 0.816
+        },
+        {
+          "currentA": 10,
+          "powerW": 1.02
+        },
+        {
+          "currentA": 12,
+          "powerW": 1.224
+        }
+      ]
+    }
+  },
+  "measurements": {
+    "power": [
+      {
+        "elapsedS": 0,
+        "powerW": 0.86
+      },
+      {
+        "elapsedS": 1,
+        "powerW": 0.8614
+      },
+      {
+        "elapsedS": 2,
+        "powerW": 0.8601
+      },
+      {
+        "elapsedS": 3,
+        "powerW": 0.8594
+      },
+      {
+        "elapsedS": 4,
+        "powerW": 0.8611
+      },
+      {
+        "elapsedS": 5,
+        "powerW": 0.8614
+      },
+      {
+        "elapsedS": 6,
+        "powerW": 0.8594
+      },
+      {
+        "elapsedS": 7,
+        "powerW": 0.8593
+      },
+      {
+        "elapsedS": 8,
+        "powerW": 0.8609
+      },
+      {
+        "elapsedS": 9,
+        "powerW": 0.8601
+      },
+      {
+        "elapsedS": 10,
+        "powerW": 0.8584
+      },
+      {
+        "elapsedS": 11,
+        "powerW": 0.8593
+      },
+      {
+        "elapsedS": 12,
+        "powerW": 0.8607
+      },
+      {
+        "elapsedS": 13,
+        "powerW": 0.8596
+      },
+      {
+        "elapsedS": 14,
+        "powerW": 0.8587
+      },
+      {
+        "elapsedS": 15,
+        "powerW": 0.8605
+      },
+      {
+        "elapsedS": 16,
+        "powerW": 0.8613
+      },
+      {
+        "elapsedS": 17,
+        "powerW": 0.8597
+      },
+      {
+        "elapsedS": 18,
+        "powerW": 0.8596
+      },
+      {
+        "elapsedS": 19,
+        "powerW": 0.8614
+      },
+      {
+        "elapsedS": 20,
+        "powerW": 0.861
+      },
+      {
+        "elapsedS": 21,
+        "powerW": 0.8591
+      },
+      {
+        "elapsedS": 22,
+        "powerW": 0.8596
+      },
+      {
+        "elapsedS": 23,
+        "powerW": 0.861
+      },
+      {
+        "elapsedS": 24,
+        "powerW": 0.8597
+      },
+      {
+        "elapsedS": 25,
+        "powerW": 0.8583
+      },
+      {
+        "elapsedS": 26,
+        "powerW": 0.8598
+      },
+      {
+        "elapsedS": 27,
+        "powerW": 0.8607
+      },
+      {
+        "elapsedS": 28,
+        "powerW": 0.8592
+      },
+      {
+        "elapsedS": 29,
+        "powerW": 0.859
+      },
+      {
+        "elapsedS": 30,
+        "powerW": 0.861
+      },
+      {
+        "elapsedS": 31,
+        "powerW": 0.8611
+      },
+      {
+        "elapsedS": 32,
+        "powerW": 0.8595
+      },
+      {
+        "elapsedS": 33,
+        "powerW": 0.86
+      },
+      {
+        "elapsedS": 34,
+        "powerW": 0.8616
+      },
+      {
+        "elapsedS": 35,
+        "powerW": 0.8605
+      },
+      {
+        "elapsedS": 36,
+        "powerW": 0.8589
+      },
+      {
+        "elapsedS": 37,
+        "powerW": 0.86
+      },
+      {
+        "elapsedS": 38,
+        "powerW": 0.8609
+      },
+      {
+        "elapsedS": 39,
+        "powerW": 0.8592
+      },
+      {
+        "elapsedS": 40,
+        "powerW": 0.8584
+      },
+      {
+        "elapsedS": 41,
+        "powerW": 0.8602
+      },
+      {
+        "elapsedS": 42,
+        "powerW": 0.8606
+      },
+      {
+        "elapsedS": 43,
+        "powerW": 0.8589
+      },
+      {
+        "elapsedS": 44,
+        "powerW": 0.8594
+      },
+      {
+        "elapsedS": 45,
+        "powerW": 0.8613
+      },
+      {
+        "elapsedS": 46,
+        "powerW": 0.8608
+      },
+      {
+        "elapsedS": 47,
+        "powerW": 0.8593
+      },
+      {
+        "elapsedS": 48,
+        "powerW": 0.8604
+      },
+      {
+        "elapsedS": 49,
+        "powerW": 0.8616
+      },
+      {
+        "elapsedS": 50,
+        "powerW": 0.86
+      },
+      {
+        "elapsedS": 51,
+        "powerW": 0.8589
+      },
+      {
+        "elapsedS": 52,
+        "powerW": 0.8603
+      },
+      {
+        "elapsedS": 53,
+        "powerW": 0.8607
+      },
+      {
+        "elapsedS": 54,
+        "powerW": 0.8588
+      },
+      {
+        "elapsedS": 55,
+        "powerW": 0.8587
+      },
+      {
+        "elapsedS": 56,
+        "powerW": 0.8605
+      },
+      {
+        "elapsedS": 57,
+        "powerW": 0.8603
+      },
+      {
+        "elapsedS": 58,
+        "powerW": 0.8588
+      },
+      {
+        "elapsedS": 59,
+        "powerW": 0.8598
+      },
+      {
+        "elapsedS": 60,
+        "powerW": 0.8615
+      }
+    ],
+    "stable": [
+      {
+        "currentA": 2,
+        "powerW": 0.204,
+        "efficiencyPercent": 4.2
+      },
+      {
+        "currentA": 4,
+        "powerW": 0.408,
+        "efficiencyPercent": 7.4
+      },
+      {
+        "currentA": 6,
+        "powerW": 0.612,
+        "efficiencyPercent": 10.2
+      }
+    ],
+    "agingPower": [
+      {
+        "elapsedMinutes": 5,
+        "powerW": 0.86
+      },
+      {
+        "elapsedMinutes": 10,
+        "powerW": 0.8606
+      },
+      {
+        "elapsedMinutes": 15,
+        "powerW": 0.8604
+      },
+      {
+        "elapsedMinutes": 20,
+        "powerW": 0.8591
+      },
+      {
+        "elapsedMinutes": 25,
+        "powerW": 0.8571
+      },
+      {
+        "elapsedMinutes": 30,
+        "powerW": 0.8551
+      },
+      {
+        "elapsedMinutes": 35,
+        "powerW": 0.854
+      },
+      {
+        "elapsedMinutes": 40,
+        "powerW": 0.854
+      },
+      {
+        "elapsedMinutes": 45,
+        "powerW": 0.8546
+      },
+      {
+        "elapsedMinutes": 50,
+        "powerW": 0.8551
+      },
+      {
+        "elapsedMinutes": 55,
+        "powerW": 0.8548
+      },
+      {
+        "elapsedMinutes": 60,
+        "powerW": 0.8534
+      },
+      {
+        "elapsedMinutes": 65,
+        "powerW": 0.8513
+      },
+      {
+        "elapsedMinutes": 70,
+        "powerW": 0.8494
+      },
+      {
+        "elapsedMinutes": 75,
+        "powerW": 0.8484
+      },
+      {
+        "elapsedMinutes": 80,
+        "powerW": 0.8485
+      },
+      {
+        "elapsedMinutes": 85,
+        "powerW": 0.8492
+      },
+      {
+        "elapsedMinutes": 90,
+        "powerW": 0.8496
+      },
+      {
+        "elapsedMinutes": 95,
+        "powerW": 0.8491
+      },
+      {
+        "elapsedMinutes": 100,
+        "powerW": 0.8476
+      },
+      {
+        "elapsedMinutes": 105,
+        "powerW": 0.8455
+      },
+      {
+        "elapsedMinutes": 110,
+        "powerW": 0.8437
+      },
+      {
+        "elapsedMinutes": 115,
+        "powerW": 0.8429
+      },
+      {
+        "elapsedMinutes": 120,
+        "powerW": 0.8431
+      }
+    ],
+    "spectrum": {
+      "wavelengthNm": [
+        972,
+        973,
+        974,
+        975,
+        975.5,
+        975.8,
+        976,
+        976.2,
+        976.4,
+        976.7,
+        977,
+        977.5,
+        978,
+        979,
+        980
+      ],
+      "intensity": [
+        180,
+        900,
+        320,
+        560,
+        1200,
+        4200,
+        9800,
+        12400,
+        10400,
+        5300,
+        1700,
+        650,
+        1000,
+        220,
+        160
+      ]
+    },
+    "spectrumPeaks": [
+      {
+        "label": "P1",
+        "peakWavelengthNm": 976.2,
+        "peakIntensity": 12400
+      },
+      {
+        "label": "P2",
+        "peakWavelengthNm": 978,
+        "peakIntensity": 1000
+      },
+      {
+        "label": "P3",
+        "peakWavelengthNm": 973,
+        "peakIntensity": 900
+      }
+    ]
+  },
+  "safety": {
+    "hardwareAccess": false,
+    "commandMode": "controller_owned",
+    "detail": "示例数据模式",
+    "controlOwner": "automatic",
+    "manualControlsAllowed": false,
+    "shutdown": {
+      "requested": false,
+      "confirmed": false,
+      "measuredCurrentA": null,
+      "outputOffConfirmed": false,
+      "reason": ""
+    }
+  }
+}

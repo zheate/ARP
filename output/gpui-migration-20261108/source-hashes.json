@@ -1,0 +1,16 @@
+{
+  "package.json": "e56fd224f53d6219bf6a3e57e3d95f0aac88db05452a80e1cb197db4e4eb99cd",
+  "gpui-ui/src/controller.rs": "72142fc646cc867e4218be01424d4eeedaa4b6bd76d5e6276e5ed5cb52f29032",
+  "gpui-ui/src/transport.rs": "b2d8de312b904c78caaa2ac43d94ce79712ee2ba604091e5156c3e2c1bb36d34",
+  "gpui-ui/src/lib.rs": "f4f278b5156a4f649e9a0f19b05d53cad3962d6e8e1da61c0f047e2f646dd9fe",
+  "gpui-ui/src/charts.rs": "32232681fa6c6f7cc753154deff80cf69c0c6f19cebb0a84ad6c0d39db23dfff",
+  "gpui-ui/src/fields.rs": "afeb24bb58edd477b572d1775bc4112c855854f1df01bfd6aa3960e4f8129ada",
+  "gpui-ui/src/report.rs": "c249024bc4e57031bfe67b03fe38d8f199b002935cfb631d0097152fdba9a370",
+  "gpui-ui/src/views.rs": "346c4dfa28a636fd655587bf73518ec9decf207b0ef706c130bdc06a9e3e6c04",
+  "gpui-ui/src/main.rs": "6ea189d7d36671fb182df879bc70c7245ec673cfcfe6f5bd44e894ce2bbaaf94",
+  "gpui-ui/src/license.rs": "52015b90dbe802e8d7716b6e99180d7c917c2682d5bc47456b93f120894c9da1",
+  "gpui-ui/src/model.rs": "9e57196fa411312e13b7ddb9b4738b4f82ba54f42c3c03e844faec0f056cfdbe",
+  "gpui-ui/Cargo.toml": "95fe026917c6920d77b866555ee20c82f83d56f215220d22c975f38f1c3df5a6",
+  "gpui-ui/Cargo.lock": "c1319b0e7bac7c81498de46f65817eb465c463f7017ea67fd5b6b63386270bab",
+  "packaging/build_gpui_windows.ps1": "50ff059056766cab80ca7cd81cdc82049cf52f21e726be59544ee563ebd1ca19"
+}

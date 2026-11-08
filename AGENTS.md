@@ -2,7 +2,7 @@
 
 ## Default Implementation Target
 
-- Tauri (`tauri-ui` and its Python sidecar) is the only product surface. Do not add an independent Qt operator application or fallback launcher.
+- GPUI (`gpui-ui`) is the product interface on this branch. Keep the existing headless Python backend and protocol version 2. `tauri-ui` is historical migration reference; do not add a Tauri or Qt fallback launcher.
 
 ## Collaboration and Scope
 
@@ -37,8 +37,8 @@
 
 ### Code Layout
 
-- `tauri-ui` is the operator interface and stable desktop entry point.
-- `tauri_bridge` owns the Tauri-to-Python protocol.
+- `gpui-ui/src/main.rs` owns the native operator entry point. `views.rs` owns the native pages and device dialogs; `charts.rs` owns chart painting.
+- `gpui-ui/src/transport.rs` owns Rust-to-Python process transport; `tauri_bridge` retains the toolkit-independent protocol and existing module name.
 - `tauri_bridge/headless_backend.py` is the only product backend. Do not add a Qt-backed runtime, compatibility window, or backend switch.
 - `combined_test/devices.py` owns hardware loading, device selection helpers, and acquisition threads.
 - `combined_test/device_interfaces.py` defines the stable `PowerSupply`, `PowerMeter`, and `SpectrumMeter` ports plus the legacy/TDK power adapter.
@@ -46,7 +46,7 @@
 - `tauri_bridge/headless_backend.py` coordinates the automatic-test lifecycle and device/store ports without a GUI toolkit.
 - `combined_test/record_store.py` defines the `RecordStore` port and owns session/pending/saved record state.
 - `combined_test/spectrum.py` owns saturation detection and peak annotation analysis.
-- `tauri-ui/src/components/canvas-line-chart.tsx` owns visible realtime chart rendering.
+- `gpui-ui/src/model.rs` owns snapshot merging, grid revisions and binary64 histories. Display pixel coordinates must not replace stored measurement values.
 - `combined_test/persistence.py` owns background Excel and CSV writes.
 - `combined_test/models.py` contains the immutable data passed between those modules.
 - `tools/` contains standalone device diagnostics and the CH341 controller implementation; these are not alternate product UIs.
@@ -59,11 +59,11 @@
 - Keep equivalent controls in equivalent positions across device cards. When a card contains a selector and an action button, use the same order, alignment, and spacing everywhere.
 - Alignment must remain correct when cards resize, when text or status messages change, and at the supported window sizes and display scaling factors. No card may clip, overlap, or create unintended horizontal overflow.
 
-## Tauri Device Settings Dialog Interaction
+## Native Device Settings Dialog Interaction
 
 - The three automatic-test device cards open separate settings dialogs: power supply, power meter, and spectrometer. Keep each dialog tied to the existing shared configuration and Python-owned device commands.
-- Locking page scroll while a dialog is open must not change the surrounding layout. Use a stable scrollbar gutter and preserve/restore the body's original overflow and padding; verify that the card and dialog positions are unchanged before and after opening.
-- Device resource selectors inside these dialogs must be clickable in the Tauri/WebView runtime. Prefer a local in-dialog dropdown layer anchored to the trigger over a portal-based selector that only receives focus without opening in the target runtime. The dropdown must not change the dialog height when it opens.
+- Modal overlays must preserve surrounding layout and use an internal scrolling body with a fixed footer. Verify card and dialog positions before/after opening and while device commands are pending.
+- Device resource selectors inside these dialogs must be clickable in the GPUI runtime. Prefer a local in-dialog dropdown layer anchored to the trigger over a portal-based selector that only receives focus without opening in the target runtime. The dropdown must not change the dialog height when it opens.
 - Escape should close an open dropdown first, then close the dialog. Clicking an option must update the shared configuration and close the dropdown without closing the dialog.
 - Buttons must not visibly jump when clicked. Do not add a generic active-state translate/press offset such as `translate-y-px`; retain color and focus feedback instead. In particular, the `识别`/device-refresh controls must keep a stable position and width while the refresh command is pending.
 - Dialog footer buttons must keep fixed widths and must not reuse the global device-command pending state as a save-progress label or disabled visual state. Only a locally initiated save may change `保存设置` to `保存中…`; clicking `识别` must not change the footer labels, colors, dimensions, or positions. Block concurrent saves in the handler and with accessibility state without visually restyling the footer during an unrelated device command.
