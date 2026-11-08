@@ -30,8 +30,9 @@ function Get-SetupComponents {
 }
 
 function Get-SetupPlan {
-    param([string]$PayloadRoot, [AllowEmptyCollection()][string[]]$Components)
-    $plan = @([pscustomobject]@{ Id = 'webview'; Kind = 'webview'; Path = '09_webview2/MicrosoftEdgeWebView2RuntimeInstallerX64.exe' })
+    param([string]$PayloadRoot, [AllowEmptyCollection()][string[]]$Components, [switch]$NativeUi)
+    $plan = @()
+    if (-not $NativeUi) { $plan += [pscustomobject]@{ Id = 'webview'; Kind = 'webview'; Path = '09_webview2/MicrosoftEdgeWebView2RuntimeInstallerX64.exe' } }
     $drivers = @{
         ch341 = '01_ch341_i2c/driver/CH341WDM.INF'
         ocean = '03_ocean_hr4/driver/OOI_OceanHR4.inf'
@@ -382,7 +383,7 @@ function Assert-SetupApplicationClosed {
     $knownDirectories = @($InstallDirectory)
     $registered = Get-ItemProperty -Path 'HKLM:\Software\ARP\Power Test' -Name InstallDir -ErrorAction SilentlyContinue
     if ($null -ne $registered) { $knownDirectories += [string]$registered.InstallDir }
-    $candidates = @(Get-Process -Name @('tauri-ui', 'Power Test', 'arp-python', 'arp-python-x86_64-pc-windows-msvc') -ErrorAction SilentlyContinue)
+    $candidates = @(Get-Process -Name @('tauri-ui', 'arp-gpui', 'Power Test', 'arp-python', 'arp-python-x86_64-pc-windows-msvc') -ErrorAction SilentlyContinue)
     foreach ($candidate in $candidates) {
         $isPowerTest = $candidate.ProcessName -ne 'tauri-ui'
         if (-not $isPowerTest) {

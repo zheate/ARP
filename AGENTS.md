@@ -2,7 +2,7 @@
 
 ## Default Implementation Target
 
-- GPUI (`gpui-ui`) is the product interface on this branch. Keep the existing headless Python backend and protocol version 2. `tauri-ui` is historical migration reference; do not add a Tauri or Qt fallback launcher.
+- GPUI (`gpui-ui`) is the product interface on this branch. Keep the existing headless Python backend and protocol version 2. `tauri-ui` retains installer metadata/CLI tooling and historical migration reference. The bundler packages the GPUI executable without compiling the Tauri UI. Do not add a Tauri or Qt fallback launcher.
 
 ## Collaboration and Scope
 

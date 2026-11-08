@@ -1,0 +1,6 @@
+
+> build
+> cargo build --manifest-path gpui-ui/Cargo.toml --locked
+
+   Compiling arp-gpui v0.1.2 (/Users/zh/Documents/test/ARP/gpui-ui)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.02s

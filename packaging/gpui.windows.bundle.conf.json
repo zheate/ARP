@@ -1,0 +1,23 @@
+{
+  "build": {
+    "beforeBuildCommand": null,
+    "beforeBundleCommand": null,
+    "beforeDevCommand": null,
+    "devUrl": null,
+    "frontendDist": null
+  },
+  "bundle": {
+    "targets": [
+      "msi",
+      "nsis"
+    ],
+    "externalBin": [
+      "binaries/arp-python"
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "skip"
+      }
+    }
+  }
+}

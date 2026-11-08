@@ -16,9 +16,11 @@
 
 ## 本地验证
 
-- `npm run build`：通过。GPUI Kit 0.9.0、Rust 1.95.0、macOS arm64，开发构建。日志见 build.log。
-- `npm run test:gpui`：14 项通过。包括许可证签名与机器绑定、过期安全入口、关闭的双重确认、旧快照版本隔离、完整光谱网格，以及真实子进程管道中的 8192 点 binary64 往返。日志见 native-core-tests.log。
-- `conda run -n sth_eb314 python -m unittest tests.test_bridge_contract tests.test_tauri_bridge tests.test_power_meter_profiles -v`：49 项通过。日志见 backend-tests.log。
+- `npm run build`：通过。GPUI Kit 0.9.0、Rust 1.95.0、macOS arm64，开发构建。日志见 build.txt。
+- `npm run test:gpui`：14 项通过。包括许可证签名与机器绑定、过期安全入口、关闭的双重确认、旧快照版本隔离、完整光谱网格，以及真实子进程管道中的 8192 点 binary64 往返。日志见 native-core-tests.txt。
+- `conda run -n sth_eb314 python -m unittest tests.test_bridge_contract tests.test_tauri_bridge tests.test_power_meter_profiles -v`：49 项通过。日志见 backend-tests.txt。
+- 安装脚本的 44 项副作用隔离模拟测试通过，包含原生计划不安装 WebView2、UTF-8/中文路径、版本读取、旧 MSI/损坏产物拒绝，以及既有 NI 续装/进程保护。使用官方便携版 PowerShell 7.6.9；下载包 SHA-256 与官方 hashes.sha256 一致。日志见 installer-tests.txt。
+- 8 个 PowerShell 文件的语法检查通过，日志见 installer-syntax.txt。
 - `git diff --check`：通过。
 - macOS 原生首轮演示：主页面显示、脚本选择器打开、Escape 收起和系统设置页面切换有本会话的 CUA 证据。演示使用迁移前夹具，未连接仪器。
 
@@ -26,6 +28,6 @@
 
 Mac 在第二轮原生检查时处于锁定状态，CUA 两次报告无法自动解锁。等待用户手动解锁。最终版本的三个设备选择器、一次识别、关闭/取消、布局稳定性与 1180×760/960×640 适配尚未完成运行验收。
 
-Windows 构建脚本迁移为输出 GPUI 应用目录和 Python sidecar，但未在 Windows 执行。旧完整离线安装器仍针对 Tauri，不能作为 GPUI 安装器发布。Windows/WebView 替换后的部署、VISA/COM、真实设备、完整离线安装和性能收益未验证。本分支仍是开发迁移分支，不能据此宣称生产版本验收完成。
+Windows 构建脚本迁移为输出 GPUI 应用目录和 Python sidecar。完整安装命令复用既有 MSI/NSIS 工具及升级身份，使用预编译 GPUI 主程序；安装计划和发布载荷不包含 WebView2。原生安装器使用独立构建目录、原生版本和产物哈希记录，拒绝混入旧 Tauri MSI。Windows 构建与实际安装仍未执行。Windows/WebView 替换后的部署、VISA/COM、真实设备、完整离线安装和性能收益未验证。本分支仍是开发迁移分支，不能据此宣称生产版本验收完成。
 
 源文件的 SHA-256 见 source-hashes.json。Python 设备、计算与持久化模块没有改动。恢复迁移前入口时，在干净工作区执行 `git switch audit/arp-ui-final-20260914`；原始测试数据保持在原位置。

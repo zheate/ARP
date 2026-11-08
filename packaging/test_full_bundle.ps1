@@ -44,6 +44,44 @@ try {
         Assert-Equal (@(Get-SetupComponents '').Count) 0
         Assert-Throws { Get-SetupComponents 'visa,invalid' } 'Unknown setup component'
     }
+    Test-Case 'GPUI bundler metadata follows the native version and uses BOM-free UTF-8' {
+        . (Join-Path $PSScriptRoot 'gpui_bundle_helpers.ps1')
+        $manifest = Join-Path $testRoot 'native-Cargo.toml'
+        Set-Content -LiteralPath $manifest -Value ('[package]' + [Environment]::NewLine + 'version = "0.2.3"')
+        $config = Join-Path $testRoot 'native-bundle.json'
+        $assets = Join-Path $testRoot ('assets ' + [char]0x6D4B)
+        Write-GpuiBundleConfiguration -ManifestPath $manifest -AssetsDirectory $assets -OutputPath $config
+        $bytes = [IO.File]::ReadAllBytes($config)
+        Assert-True (-not ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF))
+        $value = Get-Content -LiteralPath $config -Raw -Encoding UTF8 | ConvertFrom-Json
+        Assert-Equal $value.version '0.2.3'
+        Assert-Equal $value.bundle.resources.([IO.Path]::GetFullPath($assets)) 'assets/'
+    }
+    Test-Case 'full installer accepts only the stamped GPUI MSI' {
+        . (Join-Path $PSScriptRoot 'gpui_bundle_helpers.ps1')
+        $binary = Join-Path $testRoot 'native-test.exe'
+        $msi = Join-Path $testRoot 'native-test.msi'
+        $stamp = Join-Path $testRoot 'gpui-build.json'
+        Set-Content -LiteralPath $binary -Value 'native binary fixture'
+        Set-Content -LiteralPath $msi -Value 'native MSI fixture'
+        Assert-Throws { Assert-GpuiInstallerBuildStamp $stamp '0.2.3' $msi } 'stamp is missing'
+        Write-GpuiInstallerBuildStamp $stamp '0.2.3' $binary @(Get-Item -LiteralPath $msi)
+        Assert-GpuiInstallerBuildStamp $stamp '0.2.3' $msi
+        $legacy = Get-Content -LiteralPath $stamp -Raw -Encoding UTF8 | ConvertFrom-Json
+        $legacy.Runtime = 'tauri'
+        $legacy | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $stamp -Encoding UTF8
+        Assert-Throws { Assert-GpuiInstallerBuildStamp $stamp '0.2.3' $msi } 'runtime or version'
+        Write-GpuiInstallerBuildStamp $stamp '0.2.3' $binary @(Get-Item -LiteralPath $msi)
+        Assert-Throws { Assert-GpuiInstallerBuildStamp $stamp '0.2.4' $msi } 'runtime or version'
+        Add-Content -LiteralPath $msi -Value 'tampered'
+        Assert-Throws { Assert-GpuiInstallerBuildStamp $stamp '0.2.3' $msi } 'not a verified artifact'
+    }
+    Test-Case 'native GPUI installation has no WebView step' {
+        Assert-Equal (@(Get-SetupPlan -PayloadRoot $testRoot -Components @() -NativeUi).Count) 0
+        $plan = @(Get-SetupPlan -PayloadRoot $testRoot -Components @('ocean', 'visa') -NativeUi)
+        Assert-Equal ($plan.Id -join ',') 'ocean,ni'
+        Assert-True (@($plan | Where-Object Kind -eq 'webview').Count -eq 0)
+    }
     Test-Case 'minimal install still includes WebView2' {
         $plan = @(Get-SetupPlan -PayloadRoot $testRoot -Components @())
         Assert-Equal $plan.Count 1

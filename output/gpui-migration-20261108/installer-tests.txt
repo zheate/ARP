@@ -1,0 +1,62 @@
+PASS full, custom, empty, and invalid component selections
+PASS GPUI bundler metadata follows the native version and uses BOM-free UTF-8
+PASS full installer accepts only the stamped GPUI MSI
+PASS native GPUI installation has no WebView step
+PASS minimal install still includes WebView2
+PASS NI is included once for VISA and DAQ and absent for USB-only
+PASS Windows argument quoting preserves spaces, empty arguments, quotes and trailing slashes
+PASS success, reboot, incomplete, and fatal return codes are distinct
+[Power Test Setup] WebView2 already installed; skipping.
+PASS existing machine-wide WebView2 skips the installer
+PASS new WebView2 must be detected after installer success
+PASS WebView2 is checked again after installation
+PASS all INF files are installed; required reboot propagates
+PASS Ophir waits for MSI and requires the 64-bit COM registration
+PASS Coherent reports required reboots instead of silently returning zero
+PASS NI bootstrap reboot stops before runtime and application installation
+PASS existing NI uses private offline configuration and selected runtime only
+PASS application installs only after every prerequisite succeeds
+PASS prerequisite failure cannot reach application installation
+PASS incomplete prerequisite cannot be reported as a completed application install
+PASS a successful driver reboot requirement survives application success
+PASS corruption, missing files, extra files, duplicates, and traversal are rejected
+PASS missing selected input fails before setup is executed
+PASS automatic resume is restricted to protected cache and bounded retries
+PASS continuation task is removed when found; removal failures are not hidden
+PASS unknown step results cannot be treated as installation success
+[Power Test Setup] exit-zero fixture
+> /private/tmp/arp-powershell-7.6.9/pwsh -NoProfile -Command "exit 0"
+  Process logs: /var/folders/pj/_thskkm14c333y_j9nd_dk8h0000gn/T/arp-setup-tests-0c9c6ac2ab414e6bb89a9d526fabf1a3/63866c54fd3b425f97b14040cd80da23.*.log
+  exit-zero fixture exit code: 0
+[Power Test Setup] exit-seven fixture
+> /private/tmp/arp-powershell-7.6.9/pwsh -NoProfile -Command "exit 7"
+  Process logs: /var/folders/pj/_thskkm14c333y_j9nd_dk8h0000gn/T/arp-setup-tests-0c9c6ac2ab414e6bb89a9d526fabf1a3/7af096257b0c4ec5af1522293b35b5b2.*.log
+  exit-seven fixture exit code: 7
+PASS real process success and failure are read from exit codes
+PASS NI feed must reference present files and both supported runtimes
+PASS serial device components always include their required VISA runtime
+PASS Windows Installer service is started and awaited only when needed
+[Power Test Setup] webview completed before reboot; skipping.
+[Power Test Setup] ophir completed before reboot; skipping.
+PASS resume skips completed vendor installers and checkpoints new successes
+PASS a failed component is never checkpointed as completed
+PASS disconnected or newer INF devices do not abort driver preinstallation
+[Power Test Setup] unknown-exit
+> unused unused
+  Process logs: /var/folders/pj/_thskkm14c333y_j9nd_dk8h0000gn/T/arp-setup-tests-0c9c6ac2ab414e6bb89a9d526fabf1a3/7eb65b2ea25749c1b5c5ac4f6aa6416e.*.log
+PASS an unavailable native process exit code is never converted to success
+PASS corrupt or missing resume state still removes the one-shot task first
+PASS JSON checkpoint replacement preserves complete Unicode data
+PASS older NI Package Manager is upgraded before using offline-only settings
+PASS an NI upgrade requiring reboot cannot run unsupported offline commands
+PASS a timed-out installer blocks retry until that exact process exits
+PASS an exited timed-out installer no longer blocks retry
+PASS installation directory is saved after initial or resumed success
+PASS installation stops while the installed operator app is running
+PASS a running sidecar also blocks installation without killing it
+PASS no operator process allows installation to proceed
+[Power Test Setup] timeout fixture
+> /private/tmp/arp-powershell-7.6.9/pwsh -NoProfile -Command "Start-Sleep -Seconds 3; exit 0"
+  Process logs: /var/folders/pj/_thskkm14c333y_j9nd_dk8h0000gn/T/arp-setup-tests-0c9c6ac2ab414e6bb89a9d526fabf1a3/e47476f659bc4e838ab8ff4a7547e005.*.log
+PASS a real timed-out child keeps its marker until it has exited
+INSTALLER_TESTS_PASS 44

@@ -5,13 +5,13 @@ Power Test_<版本号>_x64-all-drivers-setup.exe
 
 1. 允许 Windows 管理员权限提示。
 2. 保持默认组件可安装全部设备支持；也可取消不使用的设备。
-3. 点击安装，等待 WebView2、所选驱动和 Power Test 安装完成。
+3. 点击安装，等待所选驱动和 Power Test 安装完成。
 4. 按完成页提示处理重启。若提示“安装尚未完成”，请重启后使用本次安装的同一管理员账户登录，安装会继续。
 5. 启动 Power Test，导入对应电脑的许可证，再连接设备并执行识别。
 
 组件如何选择
 
-- Power Test + WebView2：必需。已经检测到的机器级 WebView2 会跳过安装。
+- Power Test：必需。界面直接运行，不安装 WebView2。
 - CH341 I²C：旧式泵驱电源控制器。
 - Ocean Insight / OceanHR4：光谱仪。具体型号须使用与该设备匹配的厂商驱动。
 - LaserPoint / FTDI：LaserPoint 的 USB 转串口驱动；同时保留 NI-VISA。

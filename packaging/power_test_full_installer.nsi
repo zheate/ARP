@@ -47,7 +47,7 @@ VIProductVersion "${APP_VERSION}.0"
 VIAddVersionKey /LANG=2052 "ProductName" "Power Test Full Setup"
 VIAddVersionKey /LANG=2052 "CompanyName" "ARP"
 VIAddVersionKey /LANG=2052 "LegalCopyright" "Copyright (C) ARP"
-VIAddVersionKey /LANG=2052 "FileDescription" "Power Test application, WebView2 and device drivers"
+VIAddVersionKey /LANG=2052 "FileDescription" "Power Test application and device drivers"
 VIAddVersionKey /LANG=2052 "FileVersion" "${APP_VERSION}"
 VIAddVersionKey /LANG=2052 "ProductVersion" "${APP_VERSION}"
 
@@ -94,13 +94,13 @@ Function .onInit
     Abort
   ${EndIf}
   StrCpy $Components ""
-  StrCpy $FinishMessage "Power Test、WebView2 和所选驱动已安装。请启动软件完成激活。"
+  StrCpy $FinishMessage "Power Test 和所选驱动已安装。请启动软件完成激活。"
   SetRegView 64
   SetShellVarContext all
 FunctionEnd
 
 ; All components are selected by default. Deselect devices that are not used.
-Section "Power Test + WebView2（必需）" SEC_APP
+Section "Power Test（必需）" SEC_APP
   SectionIn RO
 SectionEnd
 Section "CH341 I²C 电源控制器" SEC_CH341
@@ -154,17 +154,17 @@ Section -Install
   ${Else}
     StrCpy $Components $Components "" 1
   ${EndIf}
-  DetailPrint "正在安装 Power Test、WebView2 和所选设备驱动。详细进度见下方。"
+  DetailPrint "正在安装 Power Test 和所选设备驱动。详细进度见下方。"
   ; NSIS is 32-bit. Sysnative launches 64-bit PowerShell for 64-bit COM, registry,
   ; NI and driver operations; SetRegView alone does not disable WOW64 redirection.
-  nsExec::ExecToLog '"$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$SetupCache\install_full_bundle.ps1" -PayloadRoot "$SetupCache\drivers" -AppMsiPath "$SetupCache\PowerTest.msi" -AppInstallDir "$INSTDIR" -Components "$Components"'
+  nsExec::ExecToLog '"$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$SetupCache\install_full_bundle.ps1" -PayloadRoot "$SetupCache\drivers" -AppMsiPath "$SetupCache\PowerTest.msi" -AppInstallDir "$INSTDIR" -Components "$Components" -NativeUi'
   Pop $0
   ${If} $0 == "20"
     StrCpy $FinishMessage "安装尚未完成。请重启 Windows，并使用本次安装的同一管理员账户登录，安装程序将自动继续。请勿删除安装缓存。"
     SetRebootFlag true
     SetErrorLevel 20
   ${ElseIf} $0 == "3010"
-    StrCpy $FinishMessage "Power Test、WebView2 和所选驱动已安装。请重启 Windows 后连接设备并启动软件。"
+    StrCpy $FinishMessage "Power Test 和所选驱动已安装。请重启 Windows 后连接设备并启动软件。"
     SetRebootFlag true
     SetErrorLevel 3010
   ${ElseIf} $0 != "0"

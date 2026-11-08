@@ -25,7 +25,7 @@ npm run test:gpui
 
 ## Windows
 
-`npm run build:windows` 构建 GPUI 可执行文件与 Python sidecar，输出到 `release/gpui/Power Test`。原有 Tauri 完整安装器源码保留在 `packaging/` 供迁移核对；本分支不把旧安装器作为 GPUI 安装器发布。Windows 编译、离线安装、VISA/COM、OceanDirect、CH341/TDK/RU 和实际仪器验收仍须在目标系统完成。macOS 演示不支持这些结论。
+`npm run build:windows` 构建 GPUI 可执行文件与 Python sidecar，输出到 `release/gpui/Power Test`。`npm run build:windows:full` 构建包含设备驱动的完整安装器。MSI/NSIS 继续使用既有打包工具和升级身份，但打包的主程序为 GPUI 二进制；不会编译或启动旧 Tauri 界面。安装计划跳过 WebView2，完整载荷也排除 WebView2。构建产物写入独立目录并记录哈希，完整安装器拒绝复用迁移前的 Tauri MSI。安装脚本的 44 项模拟测试和 8 个 PowerShell 文件的语法检查通过。Windows 编译、离线安装、VISA/COM、OceanDirect、CH341/TDK/RU 和实际仪器验收仍须在目标系统完成。macOS 演示不支持这些结论。
 
 GPUI 依赖固定在 `gpui-kit 0.9.0`。`vendor/gpui-pre-macos` 的三处等价兼容改动见 `gpui-ui/vendor/README.md`。
 

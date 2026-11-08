@@ -21,13 +21,12 @@ $ophirInstaller = if ($ophirInstallerItem) {
 }
 $coherentArchive = Join-Path $projectRoot "local_drivers\coherent\coherent-meter-connection-v1.4.2.3-release-setup.zip"
 $tauriRoot = Join-Path $projectRoot "tauri-ui"
-$appPackagePath = Join-Path $tauriRoot "package.json"
-$appPackage = Get-Content -LiteralPath $appPackagePath -Raw | ConvertFrom-Json
-$appVersion = [string]$appPackage.version
+. (Join-Path $PSScriptRoot 'gpui_bundle_helpers.ps1')
+$appVersion = Get-GpuiAppVersion -ManifestPath (Join-Path $projectRoot 'gpui-ui\Cargo.toml')
 if ($appVersion -notmatch '^\d+\.\d+\.\d+$') {
-    throw "Tauri app version must contain three numeric fields: $appVersion"
+    throw "GPUI app version must contain three numeric fields: $appVersion"
 }
-$bundleRoot = Join-Path $tauriRoot "src-tauri\target\release\bundle"
+$bundleRoot = Join-Path $projectRoot "build\gpui-installer-target\release\bundle"
 $buildRoot = Join-Path $projectRoot "build\full-installer"
 $driverPayloadRoot = Join-Path $buildRoot "drivers"
 $outputRoot = Join-Path $projectRoot "release\full"
@@ -117,7 +116,7 @@ if ($LASTEXITCODE -ne 0) {
 
 if (-not $SkipApplicationBuild) {
     & powershell -NoProfile -ExecutionPolicy Bypass `
-        -File (Join-Path $PSScriptRoot "build_tauri_windows.ps1") `
+        -File (Join-Path $PSScriptRoot "build_gpui_windows.ps1") `
         -BundleTargets msi
     if ($LASTEXITCODE -ne 0) {
         throw "Power Test application build failed."
@@ -130,6 +129,8 @@ $appMsi = Get-ChildItem -LiteralPath (Join-Path $bundleRoot "msi") -File -Filter
 if (-not $appMsi) {
     throw "Power Test MSI was not found under $bundleRoot\msi"
 }
+
+Assert-GpuiInstallerBuildStamp -StampPath (Join-Path $bundleRoot 'gpui-build.json') -Version $appVersion -MsiPath $appMsi.FullName
 
 $makensisCandidates = @(
     (Join-Path $env:LOCALAPPDATA "tauri\NSIS\Bin\makensis.exe"),
@@ -162,6 +163,8 @@ if (Test-Path -LiteralPath $driverPayloadRoot) {
 }
 New-Item -ItemType Directory -Force -Path $driverPayloadRoot | Out-Null
 Copy-Item -Path (Join-Path $driverRoot '*') -Destination $driverPayloadRoot -Recurse -Force
+$unusedWebViewPayload = Join-Path $driverPayloadRoot '09_webview2'
+if (Test-Path -LiteralPath $unusedWebViewPayload) { Remove-Item -LiteralPath $unusedWebViewPayload -Recurse -Force }
 Copy-Item -LiteralPath $driverGuide -Destination (Join-Path $driverPayloadRoot "DRIVER-INSTALLATION.txt") -Force
 
 # CH341PAR.EXE is a WinRAR SFX. Extract its signed driver files at build time
@@ -208,7 +211,7 @@ if ($coherentSetups.Count -ne 1) { throw 'Expected exactly one Coherent Release 
 Copy-Item -LiteralPath $coherentSetups[0].FullName -Destination (Join-Path $coherentPayloadRoot 'Setup.exe') -Force
 
 . $helperScript
-$plan = @(Get-SetupPlan -PayloadRoot $driverPayloadRoot -Components @(Get-SetupComponents))
+$plan = @(Get-SetupPlan -PayloadRoot $driverPayloadRoot -Components @(Get-SetupComponents) -NativeUi)
 Assert-SetupPayload -Plan $plan -PayloadRoot $driverPayloadRoot -MsiPath $appMsi.FullName -SkipHashCheck
 Assert-NiFeedFiles -FeedRoot (Join-Path $driverPayloadRoot "06_ni_runtime/feed")
 $stagedManifest = Join-Path $driverPayloadRoot 'payload-sha256.json'

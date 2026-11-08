@@ -1,12 +1,16 @@
 [CmdletBinding()]
 param(
-    [string]$OutputDirectory = ""
+    [string]$OutputDirectory = "",
+    [ValidateSet("all", "msi", "nsis")]
+    [string]$BundleTargets = "all"
 )
 
 $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 if (-not $IsWindows -and $env:OS -ne 'Windows_NT') { throw 'Build on Windows with the configured driver toolchain.' }
+$rustHost = @(& rustc -vV)
+if ($LASTEXITCODE -ne 0 -or 'host: x86_64-pc-windows-msvc' -notin $rustHost) { throw 'Use the x64 Windows MSVC Rust toolchain for the supported device runtime.' }
 $env:MPLBACKEND = 'Agg'
 $gpuiRoot = Join-Path $projectRoot "gpui-ui"
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $projectRoot "release\gpui\Power Test" }
@@ -86,3 +90,37 @@ Copy-Item -Path (Join-Path $assetsRoot '*') -Destination (Join-Path $binaryRoot 
 Copy-Item -LiteralPath $ch341Dll -Destination $binaryRoot -Force
 Write-Host "GPUI application folder: $binaryRoot"
 Write-Host 'Windows installation and real-device acceptance must be completed separately.'
+
+# Reuse the existing MSI/NSIS tooling and upgrade identity. The packaged main
+# executable is the GPUI build; no Tauri runtime or frontend is compiled here.
+$tauriRoot = Join-Path $projectRoot 'tauri-ui'
+$bundleBinRoot = Join-Path $tauriRoot 'src-tauri\binaries'
+$bundleTargetRoot = Join-Path $projectRoot 'build\gpui-installer-target'
+$bundleReleaseRoot = Join-Path $bundleTargetRoot 'release'
+New-Item -ItemType Directory -Force -Path $bundleBinRoot, $bundleReleaseRoot | Out-Null
+Copy-Item -LiteralPath $sidecarPath -Destination (Join-Path $bundleBinRoot 'arp-python-x86_64-pc-windows-msvc.exe') -Force
+Copy-Item -LiteralPath (Join-Path $binaryRoot 'Power Test.exe') -Destination (Join-Path $bundleReleaseRoot 'tauri-ui.exe') -Force
+Copy-Item -LiteralPath (Join-Path $binaryRoot 'Power Test.exe') -Destination (Join-Path $bundleReleaseRoot 'Power Test.exe') -Force
+$npmExe = (Get-Command npm.cmd -CommandType Application).Source
+$previousCargoTargetDir = $env:CARGO_TARGET_DIR
+Push-Location $tauriRoot
+try {
+    $env:CARGO_TARGET_DIR = $bundleTargetRoot
+    & $npmExe ci
+    if ($LASTEXITCODE -ne 0) { throw 'Installer toolchain installation failed.' }
+    . (Join-Path $PSScriptRoot 'gpui_bundle_helpers.ps1')
+    $nativeVersion = Get-GpuiAppVersion -ManifestPath (Join-Path $gpuiRoot 'Cargo.toml')
+    $bundleOverrides = Join-Path $workRoot 'native-bundle.json'
+    Write-GpuiBundleConfiguration -ManifestPath (Join-Path $gpuiRoot 'Cargo.toml') -AssetsDirectory (Join-Path $binaryRoot 'assets') -OutputPath $bundleOverrides
+    $bundleArgs = @('run', 'tauri', '--', 'bundle', '--ci', '--config', (Join-Path $PSScriptRoot 'gpui.windows.bundle.conf.json'), '--config', $bundleOverrides)
+    if ($BundleTargets -ne 'all') { $bundleArgs += @('--bundles', $BundleTargets) }
+    $bundleStartedUtc = [DateTime]::UtcNow
+    & $npmExe @bundleArgs
+    if ($LASTEXITCODE -ne 0) { throw 'GPUI installer bundling failed.' }
+    $bundleRoot = Join-Path $bundleReleaseRoot 'bundle'
+    $artifacts = @(Get-ChildItem -LiteralPath $bundleRoot -Recurse -File | Where-Object { $_.LastWriteTimeUtc -ge $bundleStartedUtc -and $_.Extension -in @('.msi', '.exe') -and $_.Name -like "*$nativeVersion*" })
+    Write-GpuiInstallerBuildStamp -StampPath (Join-Path $bundleRoot 'gpui-build.json') -Version $nativeVersion -BinaryPath (Join-Path $bundleReleaseRoot 'tauri-ui.exe') -Artifacts $artifacts
+} finally {
+    if ($null -eq $previousCargoTargetDir) { Remove-Item Env:CARGO_TARGET_DIR -ErrorAction SilentlyContinue } else { $env:CARGO_TARGET_DIR = $previousCargoTargetDir }
+    Pop-Location
+}

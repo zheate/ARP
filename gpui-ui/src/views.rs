@@ -377,6 +377,41 @@ impl Workbench {
                 text(&a["pauseDeadlineAtUtc"])
             )));
         }
+        status = status.child(div().text_sm().child(format!(
+            "计划电流 {} A · 运行时间 {} s · 当前停留 {}/{} s",
+            text(&a["currentA"]),
+            text(&a["elapsedS"]),
+            text(&a["currentDwellElapsedS"]),
+            text(&a["currentDwellS"])
+        )));
+        if a["stability"].is_object() {
+            let stability = &a["stability"];
+            status = status
+                .child(div().text_sm().child(format!(
+                    "判稳覆盖 {}/{} s · 保持 {}/{} s · 功率稳定：{} · 波长稳定：{}",
+                    text(&stability["elapsedS"]),
+                    text(&stability["requiredS"]),
+                    text(&stability["holdElapsedS"]),
+                    text(&stability["holdRequiredS"]),
+                    if stability["powerStable"] == true {
+                        "是"
+                    } else {
+                        "否"
+                    },
+                    if stability["wavelengthStable"] == true {
+                        "是"
+                    } else {
+                        "否"
+                    }
+                )))
+                .child(div().text_sm().child(format!(
+                    "2σ {}/{} W · 漂移 {}/{} W",
+                    text(&stability["twoSigmaW"]),
+                    text(&stability["effectiveLimitW"]),
+                    text(&stability["driftW"]),
+                    text(&stability["driftLimitW"])
+                )));
+        }
         for blocker in a["readiness"]["blockers"].as_array().into_iter().flatten() {
             status = status.child(
                 div()

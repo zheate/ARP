@@ -1,0 +1,24 @@
+
+> test:gpui
+> cargo test --manifest-path gpui-ui/Cargo.toml --locked --no-default-features --lib
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (gpui-ui/target/debug/deps/arp_gpui-ab22e97e485b6db1)
+
+running 14 tests
+test model::tests::expired_license_keeps_safety_actions ... ok
+test license::tests::exemption_is_limited_to_the_explicit_current_machine_hash ... ok
+test model::tests::close_requires_export_drain_and_safe_shutdown ... ok
+test model::tests::runtime_change_does_not_reuse_a_grid ... ok
+test model::tests::old_command_response_cannot_replace_newer_measurements ... ok
+test report::tests::suggested_format_preserves_operator_precision ... ok
+test model::tests::retains_exact_data_and_merges_grid ... ok
+test transport::native_transport_tests::wrapped_timeout_is_explicitly_uncertain ... ok
+test license::tests::bundled_public_key_accepts_the_offline_javascript_issuer ... ok
+test license::tests::accepts_a_valid_signed_license ... ok
+test license::tests::parses_utf8_bom_and_utf16le_documents ... ok
+test license::tests::rejects_tampering_wrong_machine_and_expiry ... ok
+test transport::native_transport_tests::backend_rejection_is_not_a_transport_failure ... ok
+test transport::native_transport_tests::actual_pipe_preserves_full_native_spectrum_and_binary64 ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s

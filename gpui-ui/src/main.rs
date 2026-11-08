@@ -1437,11 +1437,14 @@ fn main() {
         .with_quit_mode(QuitMode::Explicit);
     let allow = Arc::new(AtomicBool::new(false));
     let (tx, rx) = mpsc::channel();
-    let signal_tx = tx.clone();
-    ctrlc::set_handler(move || {
-        let _ = signal_tx.send(Event::Quit);
-    })
-    .expect("注册安全退出信号失败");
+    #[cfg(unix)]
+    {
+        let signal_tx = tx.clone();
+        ctrlc::set_handler(move || {
+            let _ = signal_tx.send(Event::Quit);
+        })
+        .expect("注册安全退出信号失败");
+    }
     let gate = allow.clone();
     let quit_tx = tx.clone();
     // Intercept Dock/OS quit as well as titlebar close. The OS gets permission

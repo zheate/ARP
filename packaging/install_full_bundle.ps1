@@ -5,6 +5,7 @@ param(
     [string]$AppInstallDir,
     [string]$Components = 'all',
     [switch]$Resume,
+    [switch]$NativeUi,
     [switch]$DryRun
 )
 
@@ -49,11 +50,12 @@ try {
         $Components = [string]$state.Components
         $resumeAttempts = [int]$state.ResumeAttempts + 1
         $completedSteps = @($state.CompletedSteps)
+        if ($state.PSObject.Properties.Name -contains 'NativeUi') { $NativeUi = [bool]$state.NativeUi }
     }
     if ([string]::IsNullOrWhiteSpace($AppInstallDir) -or -not [IO.Path]::IsPathRooted($AppInstallDir)) { throw 'An absolute application installation directory is required.' }
     if (-not $PayloadRoot -or -not $AppMsiPath) { throw 'Driver payload and application MSI paths are required.' }
     $selected = @(Get-SetupComponents -Components $Components)
-    $plan = @(Get-SetupPlan -PayloadRoot $PayloadRoot -Components $selected)
+    $plan = @(Get-SetupPlan -PayloadRoot $PayloadRoot -Components $selected -NativeUi:$NativeUi)
     # Validate every selected payload before the first system change.
     Assert-SetupPayload -Plan $plan -PayloadRoot $PayloadRoot -MsiPath $AppMsiPath
     if (-not $DryRun) { Assert-SetupApplicationClosed -InstallDirectory $AppInstallDir }
@@ -62,6 +64,7 @@ try {
         Remove-SetupContinuationTask
     }
     $script:SetupResumeState = @{
+        NativeUi = [bool]$NativeUi
         InstallDirectory = $AppInstallDir
         Components = ($selected -join ',')
         ResumeAttempts = $resumeAttempts

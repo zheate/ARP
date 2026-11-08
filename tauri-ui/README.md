@@ -1,4 +1,4 @@
-> Historical migration reference on `codex/gpui`. The product entry point is `npm start` at the repository root, which launches `gpui-ui`. The instructions below describe the preserved Tauri baseline and are not the supported launcher on this branch.
+> Historical migration reference on `codex/gpui`. The product entry point is `npm start` at the repository root, which launches `gpui-ui`. Its CLI and installer metadata remain in use to bundle the prebuilt GPUI executable. The instructions below describe the preserved Tauri baseline and are not the supported launcher on this branch.
 
 # Power Test Tauri UI
 
