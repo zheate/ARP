@@ -257,24 +257,6 @@ impl Workbench {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let cfg = self.cache.value["configuration"].clone();
-        let form = div()
-            .flex()
-            .gap_3()
-            .child(self.field("cfg.sn".into(), "SN", cfg["sn"].clone(), window, cx))
-            .child(self.field(
-                "cfg.station".into(),
-                "站别",
-                cfg["station"].clone(),
-                window,
-                cx,
-            ))
-            .child(self.field(
-                "cfg.selectedScriptId".into(),
-                "测试脚本",
-                cfg["selectedScriptId"].clone(),
-                window,
-                cx,
-            ));
         let a = self.cache.value["automaticTest"].clone();
         let mut controls = div()
             .flex()
@@ -432,25 +414,18 @@ impl Workbench {
                     .child("下电未确认，请核对电源物理面板"),
             );
         }
-        let top = self.panel(
-            "测试计划",
-            div()
-                .flex()
-                .flex_col()
-                .gap_3()
-                .child(form)
-                .child(controls)
-                .child(status),
-            cx,
-        );
-        div()
+        let details = div()
             .flex()
             .flex_col()
-            .gap_4()
-            .child(top)
-            .child(self.device_cards(cx))
-            .child(self.realtime(cx))
-            .into_any_element()
+            .gap_3()
+            .child(controls)
+            .child(status)
+            .child(format!(
+                "SMSR {} dB",
+                self.device_metric("spectrometer", "smsrDb", 2)
+            ))
+            .into_any_element();
+        self.automatic_workbench(window, cx, details)
     }
     pub(super) fn manual_page(
         &mut self,
@@ -1334,6 +1309,55 @@ impl Workbench {
                     )
                     .w(px(88.)),
                 );
+            }
+            if kind == "supply" {
+                body = body.child(
+                    div()
+                        .flex()
+                        .gap_2()
+                        .child(self.button(
+                            "dialog-supply-connect",
+                            "连接",
+                            self.manual(),
+                            Action::Save(Some("powerSupply.connect")),
+                            cx,
+                        ))
+                        .child(self.button(
+                            "dialog-supply-disconnect",
+                            "断开",
+                            self.manual(),
+                            Action::Command("powerSupply.disconnect", json!({})),
+                            cx,
+                        )),
+                );
+            } else if matches!(kind, "meter" | "spectrum") {
+                let device = if kind == "meter" {
+                    "powerMeter"
+                } else {
+                    "spectrometer"
+                };
+                let running = self.cache.value["devices"][device]["running"] == true;
+                let method = match (kind, running) {
+                    ("meter", true) => "powerMeter.stop",
+                    ("meter", false) => "powerMeter.start",
+                    (_, true) => "spectrometer.stop",
+                    _ => "spectrometer.start",
+                };
+                body = body.child(self.button(
+                    format!("dialog-{device}-acquire"),
+                    if running {
+                        "停止采集"
+                    } else {
+                        "开始采集"
+                    },
+                    self.manual(),
+                    if running {
+                        Action::Command(method, json!({}))
+                    } else {
+                        Action::Save(Some(method))
+                    },
+                    cx,
+                ));
             }
             if kind == "supply" {
                 let enabled = self.config()["powerSupplyKind"] != "tdk";

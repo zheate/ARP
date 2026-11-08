@@ -1,5 +1,7 @@
 # GPUI 迁移检查记录
 
+此记录保存截至 `12400afa` 的首次迁移检查。后续界面还原样板与独立版本证据见 [GPUI 与 main 界面的还原样板](../playwright/gpui-main-fidelity-20261108/report.md)。本目录的历史构建日志和源文件哈希不代表后续还原版本。
+
 备份分支：`audit/arp-ui-final-20260914`。本地与 GitHub 远端均确认提交为 `9534e1e074c35edafb58a925272364137caf0a45`。当前开发分支：`codex/gpui`。
 
 本轮将默认开发入口切换到 GPUI。保留现有无界面 Python 后端、版本 2 协议、原始 binary64 数据、采集节奏、判稳与下电规则。旧 Tauri 源码作为迁移参照保留。

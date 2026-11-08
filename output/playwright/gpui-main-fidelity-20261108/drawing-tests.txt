@@ -1,0 +1,10 @@
+   Compiling arp-gpui v0.1.2 (/Users/zh/Documents/test/ARP/gpui-ui)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.78s
+     Running unittests src/main.rs (gpui-ui/target/debug/deps/arp_gpui-bb3b88d0abf31049)
+
+running 3 tests
+test charts::drawing_tests::chart_domains_keep_negative_samples_and_ignore_invalid_pairs ... ok
+test charts::drawing_tests::current_plan_hint_cannot_hide_measured_custom_points ... ok
+test charts::drawing_tests::nonuniform_peak_curve_stays_inside_measured_vertical_range ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s

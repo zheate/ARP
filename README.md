@@ -11,6 +11,8 @@ npm run test:gpui
 
 `npm run demo` 使用原 Tauri 演示夹具，不启动 Python 后端，不连接仪器。真实工作模式继续使用 `sth_eb314` 环境，也可以用 `ARP_PYTHON_EXECUTABLE` 指定解释器。OceanDirect 的工作目录仍保持在项目根目录。
 
+界面还原目前覆盖应用外框和自动测试页样板，参考 `main` 的 `43f11660`。其他页面内容布局与显示功能仍有差异，不能将此分支视为完整还原。范围、原生演示结果和未完成项见 `output/playwright/gpui-main-fidelity-20261108/report.md`。
+
 - `gpui-ui/src/main.rs`：窗口、操作状态和系统退出请求。
 - `gpui-ui/src/views.rs`：六个主页面与三类设备设置窗口。
 - `gpui-ui/src/charts.rs`：原生曲线绘制；像素坐标转换不改变原始数据。

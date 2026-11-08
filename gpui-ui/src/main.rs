@@ -3,6 +3,7 @@ extern crate gpui_kit as gpui;
 mod charts;
 mod fields;
 mod views;
+mod workbench;
 use arp_gpui::report;
 use arp_gpui::{
     controller::Controller,
@@ -199,6 +200,8 @@ impl Workbench {
                 .merge(serde_json::from_str(include_str!("../fixtures/demo-idle.json")).unwrap())
                 .unwrap();
         }
+        let page_focus = cx.focus_handle();
+        page_focus.focus(window, cx);
         Self {
             client,
             tx,
@@ -211,7 +214,7 @@ impl Workbench {
             dialog: None,
             presented_dialog: None,
             modal_focus: cx.focus_handle(),
-            page_focus: cx.focus_handle(),
+            page_focus,
             editors: HashMap::new(),
             draft: HashMap::new(),
             subscriptions: vec![],
@@ -1216,47 +1219,6 @@ impl Render for Workbench {
                     cx.notify();
                 }
             }));
-        let header = div()
-            .flex()
-            .h(px(56.))
-            .flex_shrink_0()
-            .items_center()
-            .justify_between()
-            .px_4()
-            .border_b_1()
-            .border_color(cx.theme().border)
-            .child(
-                div()
-                    .flex()
-                    .gap_4()
-                    .child(div().font_weight(FontWeight::MEDIUM).child("Power Test"))
-                    .child(if self.demo {
-                        "演示数据 · 不连接仪器".into()
-                    } else {
-                        self.cache.value["backend"]["mode"]
-                            .as_str()
-                            .unwrap_or("等待后端连接")
-                            .to_string()
-                    }),
-            )
-            .child(
-                div()
-                    .flex()
-                    .gap_2()
-                    .child(self.button("coupling", "功率耦合", self.active(), Action::Coupling, cx))
-                    .child(
-                        self.button(
-                            "global-stop",
-                            "急停",
-                            self.cache.value.is_object(),
-                            Action::Command("app.stopAll", json!({})),
-                            cx,
-                        )
-                        .danger(),
-                    )
-                    .child(self.button("app-close", "关闭", true, Action::Close, cx)),
-            );
-        root = root.child(header);
         let status = if !self.error.is_empty() {
             format!("错误：{}", self.error)
         } else if let Some(method) = self.pending {
@@ -1264,21 +1226,7 @@ impl Render for Workbench {
         } else {
             self.notice.clone()
         };
-        root = root.child(
-            div()
-                .id("status")
-                .h(px(32.))
-                .flex_shrink_0()
-                .px_4()
-                .py_1()
-                .overflow_y_scroll()
-                .text_color(if self.error.is_empty() {
-                    cx.theme().muted_foreground
-                } else {
-                    rgb(0xf87171).into()
-                })
-                .child(status),
-        );
+        root = root.child(self.workbench_header(&status, cx));
         if licensed && self.cache.value.is_null() {
             root = root.child(
                 div()
@@ -1326,28 +1274,8 @@ impl Render for Workbench {
                         .child("许可证无效。新测试和输出修改不可用，安全停止仍然可用。"),
                 );
             }
-            let mut navigation = div()
-                .w(px(176.))
-                .flex_shrink_0()
-                .flex()
-                .flex_col()
-                .gap_2()
-                .p_3()
-                .border_r_1()
-                .border_color(cx.theme().border);
-            for &(id, label) in NAV {
-                let locked = self.cache.value["safety"]["workflowBusy"] == true
-                    && !matches!(id, "automatic" | "manual")
-                    || id == "manual" && self.cache.value["safety"]["controlOwner"] == "automatic";
-                let button = self
-                    .button(format!("nav-{id}"), label, !locked, Action::Page(id), cx)
-                    .w_full();
-                navigation = navigation.child(if self.page == id {
-                    button.primary()
-                } else {
-                    button
-                });
-            }
+            let width = f32::from(window.viewport_size().width);
+            let navigation = self.workbench_navigation((width * 0.12).clamp(160., 188.), cx);
             let body = if self.coupling {
                 div()
                     .flex()
@@ -1378,7 +1306,7 @@ impl Render for Workbench {
                         .flex_1()
                         .min_w_0()
                         .overflow_y_scroll()
-                        .p_4()
+                        .p_3()
                         .child(body),
                 ),
             );
@@ -1388,6 +1316,9 @@ impl Render for Workbench {
             .into_iter()
             .flatten()
         {
+            if self.demo && notice["title"] == "示例数据" {
+                continue;
+            }
             root = root.child(
                 div()
                     .px_4()
@@ -1402,6 +1333,23 @@ impl Render for Workbench {
                         text(&notice["title"]),
                         text(&notice["message"])
                     )),
+            );
+        }
+        if !self.error.is_empty() {
+            root = root.child(
+                div()
+                    .absolute()
+                    .right(px(16.))
+                    .bottom(px(16.))
+                    .w(px(420.))
+                    .max_w(relative(0.8))
+                    .p_3()
+                    .border_1()
+                    .border_color(rgb(0x7f3030))
+                    .rounded_lg()
+                    .bg(workbench::surface(cx))
+                    .text_color(rgb(0xf87171))
+                    .child(self.error.clone()),
             );
         }
         if self.cache.value["devices"]["spectrometer"]["saturated"] == true {
@@ -1458,7 +1406,7 @@ fn main() {
     };
     let platform = gpui::platform::current_platform(false);
     let app = Application::with_platform(platform.clone())
-        .with_assets(gpui::assets::Assets)
+        .with_assets(workbench::WorkbenchAssets)
         .with_quit_mode(QuitMode::Explicit);
     let allow = Arc::new(AtomicBool::new(false));
     let (tx, rx) = mpsc::channel();
@@ -1689,8 +1637,26 @@ impl Workbench {
 }
 fn apply_theme(mode: ThemeMode, window: Option<&mut Window>, cx: &mut App) {
     Theme::change(mode, window, cx);
+    let names = cx.text_system().all_font_names();
+    let interface = ["MiSans", "MiSans VF"]
+        .into_iter()
+        .find(|name| names.iter().any(|n| n == name))
+        .unwrap_or(".SystemUIFont");
+    let numeric = ["DIN", "DIN 2014", "DIN Alternate", "Bahnschrift"]
+        .into_iter()
+        .find(|name| names.iter().any(|n| n == name))
+        .unwrap_or(interface);
     Theme::update(cx, |theme| {
+        theme.font_family = interface.to_string().into();
+        theme.mono_font_family = numeric.to_string().into();
         theme.colors.background = rgb(if mode.is_dark() { 0x0f1112 } else { 0xf4f6f8 }).into();
+        theme.colors.foreground = rgb(if mode.is_dark() { 0xf1f2f3 } else { 0x20242a }).into();
+        theme.colors.muted_foreground =
+            rgb(if mode.is_dark() { 0x94989c } else { 0x737d89 }).into();
+        theme.colors.border = rgb(if mode.is_dark() { 0x292c2e } else { 0xdfe3e8 }).into();
+        theme.colors.input = theme.colors.border;
+        theme.colors.button = rgb(if mode.is_dark() { 0x1d1f20 } else { 0xffffff }).into();
+        theme.colors.button_foreground = theme.colors.foreground;
         theme.colors.primary = rgb(if mode.is_dark() { 0xff7a1a } else { 0xb65310 }).into();
         theme.colors.primary_hover = theme.colors.primary;
         theme.colors.primary_active = theme.colors.primary;

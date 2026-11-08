@@ -1,0 +1,14 @@
+{
+  "baseCommit": "12400afad6137043af248bb917aba90969c54858",
+  "mainReference": "43f116608c8fcfc8540cf91a5a37eb83a75db71f",
+  "runtime": "macOS-27.3-arm64-arm-64bit",
+  "binarySha256": "57f8a264e1c1ab970f2eb2532e27d3f8bbe341fed4557aad4f60f4ba11dd472a",
+  "sourceSha256": {
+    "gpui-ui/src/main.rs": "03465355174cf462883149e2e4ef7720e8c6e84348d0887a127c6a8969b4aaf8",
+    "gpui-ui/src/views.rs": "ab90888a2ff8b836441120d73497aff2ca2a85a8419b863c5443243511465f4e",
+    "gpui-ui/src/workbench.rs": "8cb5e2c4a7f5dbf065063a0eb572462fa956a6560e00ec1a62e1a3fcc45e22c7",
+    "gpui-ui/src/charts.rs": "4f899fee12f7b5a08e5bd97dbb3307bf6d2f00d2d44629986614c9443db69251",
+    "gpui-ui/Cargo.toml": "e8bc7004c52bdc1ee85386f7eed5ee36889f4b27a20affe0c905c9fe535155f3",
+    "gpui-ui/Cargo.lock": "c1319b0e7bac7c81498de46f65817eb465c463f7017ea67fd5b6b63386270bab"
+  }
+}
